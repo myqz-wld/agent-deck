@@ -51,6 +51,7 @@ void adapterIdsMatchOptions;
 /** Provider lifecycle registry with diagnostics supplied by the owning host. */
 export class AdapterRegistryClass {
   private readonly map = new Map<string, AgentAdapter>();
+  private readonly ready = new Set<string>();
 
   constructor(
     private readonly diagnostics: AdapterRegistryDiagnosticPort =
@@ -72,6 +73,10 @@ export class AdapterRegistryClass {
     return [...this.map.values()];
   }
 
+  isReady(id: string): boolean {
+    return this.ready.has(id);
+  }
+
   async initAll(ctx: AdapterContext): Promise<AdapterInitResult[]> {
     const startedAtMs = this.diagnostics.begin();
     const results: AdapterInitResult[] = [];
@@ -79,8 +84,10 @@ export class AdapterRegistryClass {
     for (const adapter of this.map.values()) {
       try {
         await adapter.init(ctx);
+        this.ready.add(adapter.id);
         results.push({ id: adapter.id, ok: true });
       } catch (err) {
+        this.ready.delete(adapter.id);
         failedCount += 1;
         results.push({ id: adapter.id, ok: false, err });
       }
@@ -102,6 +109,7 @@ export class AdapterRegistryClass {
         results.push({ id: adapter.id, ok: false, err });
       }
     }
+    this.ready.clear();
     this.diagnostics.observe('shutdown', results.length, failedCount, startedAtMs);
     return results;
   }

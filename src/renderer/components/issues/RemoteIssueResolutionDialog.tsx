@@ -134,6 +134,14 @@ export function RemoteIssueResolutionDialog({
             value: value as SessionThinkingChoice,
             label: value.toUpperCase(),
           })) ?? [],
+          disabledReasons: {
+            provider: descriptor?.create.options.provider.enabled
+              ? null : descriptor?.create.options.provider.disabledReason,
+            model: descriptor?.create.options.model.enabled
+              ? null : descriptor?.create.options.model.disabledReason,
+            thinking: descriptor?.create.options.thinking.enabled
+              ? null : descriptor?.create.options.thinking.disabledReason,
+          },
           onProviderChange: (value) => remote.setOption('provider', value),
           onModelChange: (value) => remote.setOption('model', value),
           onThinkingChange: (value) => remote.setOption('thinking', value),
@@ -145,6 +153,7 @@ export function RemoteIssueResolutionDialog({
         ) : undefined}
         pickingDirectory={false}
         prompt={prompt}
+        sourceLabel={`Remote · ${source.profile?.label ?? 'Worker'} · Workspace`}
         title="新建处理会话"
         workingDirectory={workingDirectory}
         onAdapterChange={remote.setAdapterId}

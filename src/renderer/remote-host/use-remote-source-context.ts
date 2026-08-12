@@ -1,14 +1,23 @@
 import { useMemo } from 'react';
 
 import { isRecoverableRelayWorkerOffline } from '@shared/remote-host';
-import type { RemoteHostProfileDto, RemoteHostStateDto } from '@shared/remote-host';
-import type { RemoteHostSnapshotState } from './use-remote-host-snapshot';
+import { REMOTE_HOST_RESOURCE_KINDS } from '@shared/remote-host';
+import type {
+  RemoteHostProfileDto,
+  RemoteHostResourceRevisions,
+  RemoteHostStateDto,
+} from '@shared/remote-host';
+import {
+  emptyRemoteHostResourceRevisions,
+  type RemoteHostSnapshotState,
+} from './use-remote-host-snapshot';
 import { remoteSourceIdentity } from './remote-source-utils';
 
 export interface RemoteSourceContext {
   activeProfileId: string | null;
   capabilities: ReadonlySet<string>;
   dataRevision: number;
+  resourceRevisions: RemoteHostResourceRevisions;
   identity: string;
   profile: RemoteHostProfileDto | null;
   recoveringWorker: boolean;
@@ -37,8 +46,19 @@ export function useRemoteSourceContext(hosts: RemoteHostSnapshotState): RemoteSo
         hosts.dataRevisionByProfile.get(activeProfileId) ?? 0,
       )
     : 0;
+  const resourceRevisions = emptyRemoteHostResourceRevisions();
+  if (activeProfileId) {
+    const wildcard = hosts.resourceRevisionsByProfile.get('*');
+    const selected = hosts.resourceRevisionsByProfile.get(activeProfileId);
+    for (const resource of REMOTE_HOST_RESOURCE_KINDS) {
+      resourceRevisions[resource] = Math.max(
+        wildcard?.[resource] ?? 0,
+        selected?.[resource] ?? 0,
+      );
+    }
+  }
   const usable = Boolean(
-    activeProfileId && profile?.scope === 'remote' &&
+    hosts.snapshotError === null && activeProfileId && profile?.scope === 'remote' &&
     state?.status === 'connected',
   );
   const capabilityKey = (state?.capabilities ?? []).join('\u0000');
@@ -52,6 +72,7 @@ export function useRemoteSourceContext(hosts: RemoteHostSnapshotState): RemoteSo
     activeProfileId,
     capabilities,
     dataRevision,
+    resourceRevisions,
     identity,
     profile,
     recoveringWorker,

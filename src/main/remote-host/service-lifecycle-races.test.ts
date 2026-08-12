@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { SshConnectionState } from '@clients/ssh';
 import { AgentDeckCapability, type AgentDeckCapability as Capability } from '@contracts/index';
 import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-capabilities.fixture';
 import { ElectronHostRegistry } from '@hosts/electron';
@@ -41,9 +42,16 @@ function harness(options: {
       capabilities: Object.values(AgentDeckCapability) as Capability[],
     })],
   ]);
+  const transportListeners = new Map<string, (state: SshConnectionState) => void>();
   const registry = new ElectronHostRegistry({
     appVersion: 'desktop-test',
-    createClient: (profile) => ({ client: clients.get(profile.id)! }),
+    createClient: (profile) => ({
+      client: clients.get(profile.id)!,
+      observeTransport: (listener) => {
+        transportListeners.set(profile.id, listener);
+        return { close: () => transportListeners.delete(profile.id) };
+      },
+    }),
   });
   const profiles = options.twoRemotes ? [local, firstProfile, secondProfile] : [local, firstProfile];
   const backend = new MemoryBackend({
@@ -62,7 +70,20 @@ function harness(options: {
     createId,
     desktopBroker: options.desktopBroker,
   });
-  return { backend, clients, firstProfile, local, registry, secondProfile, service };
+  return {
+    backend,
+    clients,
+    firstProfile,
+    local,
+    registry,
+    secondProfile,
+    service,
+    emitTransport(profileId: string, state: SshConnectionState): void {
+      const listener = transportListeners.get(profileId);
+      if (!listener) throw new Error(`Missing transport listener for ${profileId}`);
+      listener(state);
+    },
+  };
 }
 
 describe('RemoteHostService lifecycle admission', () => {
@@ -146,6 +167,10 @@ describe('RemoteHostService lifecycle admission', () => {
         adapterId: 'codex-cli', workingDirectory: null, capabilityRevision: null,
         options: sessionConsoleCreateOptionsFixture(),
       },
+      expectedAuthority: {
+        authoritativeCoreId: `core-${context.firstProfile.id}`,
+        workerGeneration: null,
+      },
       expectedBindingDigest: `sha256:${'a'.repeat(64)}`,
       intentId: 'terminal-intent',
     });
@@ -159,5 +184,45 @@ describe('RemoteHostService lifecycle admission', () => {
 
     await expect(committing).resolves.toMatchObject({ successorSessionId: 'successor-session' });
     expect(context.registry.navigation(context.firstProfile.id).selectedSessionId).toBeNull();
+  });
+
+  it('does not admit new business work from retained capabilities while reconnecting', async () => {
+    const context = harness();
+    await context.service.connect(context.firstProfile.id);
+    const client = context.clients.get(context.firstProfile.id)!;
+    context.emitTransport(context.firstProfile.id, {
+      profileId: context.firstProfile.id,
+      topology: 'server-core',
+      status: 'reconnecting',
+      attempt: 1,
+      hello: client.hello,
+      reason: 'heartbeat timed out',
+      errorCode: 'heartbeat_timeout',
+    });
+
+    await expect(context.service.listSessions({
+      profileId: context.firstProfile.id,
+      limit: 20,
+    })).rejects.toMatchObject({ code: 'not_connected' });
+    await expect(context.service.teams.list({
+      profileId: context.firstProfile.id,
+      includeArchived: false,
+      limit: 20,
+    })).rejects.toMatchObject({ code: 'not_connected' });
+    await expect(context.service.issues.list({
+      profileId: context.firstProfile.id,
+      statuses: [],
+      kinds: [],
+      titleKeyword: null,
+      includeDeleted: false,
+      limit: 20,
+      offset: 0,
+    })).rejects.toMatchObject({ code: 'not_connected' });
+    await expect(context.service.usage.tokens({
+      profileId: context.firstProfile.id,
+      includeDaily: false,
+      dailyLimit: 1,
+    })).rejects.toMatchObject({ code: 'not_connected' });
+    expect(client.request).not.toHaveBeenCalled();
   });
 });

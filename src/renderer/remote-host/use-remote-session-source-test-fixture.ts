@@ -6,6 +6,7 @@ import type {
   RemoteHostStateDto,
 } from '@shared/remote-host';
 import type { RemoteHostSnapshotState } from './use-remote-host-snapshot';
+import { emptyRemoteHostResourceRevisions } from './use-remote-host-snapshot';
 
 const CAPABILITIES = [
   'projects.read',
@@ -14,6 +15,7 @@ const CAPABILITIES = [
   'events.replay',
   'sessions.write',
   'pending.read',
+  'pending.index.read',
   'pending.respond',
   'sessions.runtime.read',
   'sessions.runtime.write',
@@ -35,7 +37,7 @@ export function session(id: string, title: string) {
     id,
     adapterId: 'codex-cli',
     title,
-    status: 'active',
+    status: 'active-idle',
     createdAt: 1,
     updatedAt: 2,
   };
@@ -89,8 +91,14 @@ export function hosts(profileId: string | null, dataRevision: number): RemoteHos
   return {
     snapshot,
     dataRevisionByProfile: new Map(profileId ? [[profileId, dataRevision]] : []),
+    resourceRevisionsByProfile: new Map(profileId
+      ? [[profileId, Object.fromEntries(
+          Object.keys(emptyRemoteHostResourceRevisions()).map((key) => [key, dataRevision]),
+        ) as ReturnType<typeof emptyRemoteHostResourceRevisions>]]
+      : []),
     busy: false,
     error: null,
+    snapshotError: null,
     refresh: vi.fn(),
     addProfile: vi.fn(),
     updateProfile: vi.fn(),

@@ -7,6 +7,7 @@ import {
   type IssueLogsRefDto,
 } from '@contracts/index';
 import type { IssueAppendix, IssueRecord, LogsRef } from '@shared/types';
+import { redactRemoteSensitiveText } from './remote-sensitive-data';
 
 export interface ServerCoreIssueProjectionOptions {
   readonly workspaceRoot: string;
@@ -36,7 +37,8 @@ function state(options: ServerCoreIssueProjectionOptions): ProjectionState {
 function text(value: string, projection: ProjectionState): string {
   let output = value;
   for (const root of projection.privateRoots) output = output.split(root).join('[private]');
-  return output.split(projection.workspaceRoot).join('Workspace');
+  output = output.split(projection.workspaceRoot).join('Workspace');
+  return redactRemoteSensitiveText(output, () => 'Workspace');
 }
 
 function cwd(value: string | null, projection: ProjectionState): string | null {

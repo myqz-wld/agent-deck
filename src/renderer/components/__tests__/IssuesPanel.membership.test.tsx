@@ -58,6 +58,24 @@ afterEach(() => {
 });
 
 describe('IssuesPanel bounded query membership', () => {
+  it('uses the shared narrow-screen detail back action in Local mode', async () => {
+    const row = issue({ title: 'Local responsive issue' });
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        issuesList: vi.fn().mockResolvedValue([row]),
+        issuesGet: vi.fn().mockResolvedValue(row),
+      } as unknown as Window['api'],
+    });
+    render(<IssuesPanel />);
+
+    fireEvent.click(await screen.findByText('Local responsive issue'));
+    fireEvent.click(await screen.findByRole('button', { name: '← 返回问题列表' }));
+
+    expect(useIssuesStore.getState().selectedIssueId).toBeNull();
+    expect(document.querySelector('[data-issue-pane="list"]')?.className).toContain('w-full');
+  });
+
   it('keeps an event update that races a same-millisecond list snapshot', async () => {
     const pending = deferred<IssueRecord[]>();
     const issuesList = vi.fn(() => pending.promise);

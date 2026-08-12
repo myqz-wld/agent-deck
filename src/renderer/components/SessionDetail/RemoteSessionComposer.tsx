@@ -15,6 +15,7 @@ import { HandOffIcon, ImageIcon, SendIcon, StopIcon } from '../icons';
 import { ComposerInput } from './composer-sdk/ComposerInput';
 import { ErrorBanner } from './composer-sdk/ErrorBanner';
 import { RemoteSessionRuntimeControls } from './RemoteSessionRuntimeControls';
+import { RemotePendingOutgoingQueue } from './RemotePendingOutgoingQueue';
 
 export function RemoteSessionComposer({
   source,
@@ -36,6 +37,7 @@ export function RemoteSessionComposer({
   >(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const turnBusy = source.selectedSession?.status.endsWith('-working') === true;
+  const turnWaiting = source.selectedSession?.status.endsWith('-waiting') === true;
   const activeInput = source.inputCapabilities?.adapterId === adapterId
     ? source.inputCapabilities.activeTurn
     : null;
@@ -129,14 +131,21 @@ export function RemoteSessionComposer({
     <div data-remote-session-composer className="shrink-0 border-t border-deck-border px-2.5 py-2">
       <RemoteSessionRuntimeControls
         adapterId={adapterId}
-        busy={source.busy}
+        busy={source.busy || turnBusy || turnWaiting}
         canWrite={canWriteRuntime}
         identity={identity}
         values={source.runtime?.values ?? null}
         onApply={source.updateRuntime}
       />
+      <RemoteReadNotice label="远端运行时状态" message={source.runtimeLoadError} />
+      <RemoteReadNotice label="活动回合输入能力" message={source.inputLoadError} />
       <ErrorBanner message={error} onDismiss={() => setError(null)} />
       <ErrorBanner message={imgs.error} onDismiss={imgs.dismissError} />
+      <RemotePendingOutgoingQueue
+        source={source}
+        adapterId={adapterId}
+        sessionId={sessionId}
+      />
       <ComposerInput
         text={text}
         onTextChange={setText}
@@ -174,7 +183,7 @@ export function RemoteSessionComposer({
           <PendingImageAttachments attachments={imgs.attachments} getPreviewDataUrl={imgs.getPreviewDataUrl} onRemove={imgs.remove} />
         )}
         <div className="flex-1" />
-        <button type="button" onClick={onHandOff} disabled={!source.usable || !source.capabilities.has('sessions.handoff') || source.busy} className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40" title={source.capabilities.has('sessions.handoff') ? '在当前 Remote Worker 上创建原子续接会话' : '此 Remote Core 未提供接力能力'}>
+        <button type="button" onClick={onHandOff} disabled={!source.usable || !source.capabilities.has('sessions.handoff') || source.busy || turnBusy || turnWaiting} className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40" title={!source.capabilities.has('sessions.handoff') ? '此 Remote Core 未提供接力能力' : turnBusy || turnWaiting ? '当前任务完成或中断后可接力' : '在当前 Remote Worker 上创建原子续接会话'}>
           <HandOffIcon className="mr-1 inline h-3 w-3" />接力
         </button>
         <button type="button" onClick={() => void interrupt()} disabled={!canWrite || !turnBusy || interrupting} className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40" title={!turnBusy ? '当前没有运行中的 Remote 任务' : '中断当前 Remote 任务'}>
@@ -191,4 +200,19 @@ export function RemoteSessionComposer({
 function runtimeString(values: Record<string, unknown> | null, key: string): string {
   const value = values?.[key];
   return typeof value === 'string' ? value : '';
+}
+
+function RemoteReadNotice({
+  label,
+  message,
+}: {
+  label: string;
+  message: string | null | undefined;
+}): JSX.Element | null {
+  if (!message) return null;
+  return (
+    <div role="status" className="mb-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
+      ⚠️ {label}：{message}
+    </div>
+  );
 }

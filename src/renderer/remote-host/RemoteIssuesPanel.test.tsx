@@ -3,7 +3,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
-import type { RemoteHostIssueDto, RemoteHostProfileDto } from '@shared/remote-host';
+import type {
+  RemoteHostIssueDto,
+  RemoteHostProfileDto,
+  RemoteHostResourceRevisions,
+} from '@shared/remote-host';
 import { RemoteIssuesPanel } from '@renderer/components/issues/RemoteIssuesPanel';
 import { RemoteUserIntentLedger } from './remote-intent-ledger';
 import type { RemoteSessionSourceView } from './source-types';
@@ -52,6 +56,19 @@ function profile(id: string): RemoteHostProfileDto {
   };
 }
 
+function resourceRevisions(issues: number): RemoteHostResourceRevisions {
+  return {
+    'session-list': 0,
+    'session-detail': 0,
+    pending: 0,
+    teams: 0,
+    issues,
+    usage: 0,
+    'node-configuration': 0,
+    'node-assets': 0,
+  };
+}
+
 function source(
   id = 'remote-a',
   capabilities = new Set(['issues']),
@@ -63,15 +80,24 @@ function source(
     busy: false,
     capabilities,
     dataRevision,
+    resourceRevisions: resourceRevisions(dataRevision),
     error: null,
     eventLoadError: null,
     events: null,
+    historyQuery: '',
     historySessions: [],
     hasMoreHistorySessions: false,
     hasMoreSessions: false,
     identity: `${id}:core-a:1`,
     loading: false,
+    pendingBuckets: [],
     pendingBySession: new Map(),
+    pendingLoading: false,
+    pendingLoadError: null,
+    pendingTotal: 0,
+    pendingScanTruncated: false,
+    hasMorePending: false,
+    presentationCounts: null,
     profile: profile(id),
     recoveringWorker: false,
     runtime: null,
@@ -97,10 +123,16 @@ function source(
     previewHandOff: vi.fn(),
     commitHandOff: vi.fn(),
     loadMoreHistorySessions: vi.fn(),
+    listOutgoing: vi.fn(async () => ({
+      sessionId: 'session-a', adapterId: 'claude-code', messages: [], revision: 1,
+    })),
+    loadMorePending: vi.fn(),
     loadMoreSessions: vi.fn(),
     refresh: vi.fn(),
     respondPending: vi.fn(),
+    removeOutgoing: vi.fn(async () => true),
     selectSession: vi.fn(),
+    setHistoryQuery: vi.fn(),
     send: vi.fn(),
     steer: vi.fn(),
     updateRuntime: vi.fn(),
@@ -125,6 +157,30 @@ describe('RemoteIssuesPanel', () => {
     view.rerender(<RemoteIssuesPanel source={{ ...current }} />);
     await act(async () => { await Promise.resolve(); });
     expect(listRemoteHostIssues).toHaveBeenCalledOnce();
+  });
+
+  it('ignores unrelated global revisions and refreshes only for the Issues lane', async () => {
+    vi.useFakeTimers();
+    const listRemoteHostIssues = vi.fn(async () => ({
+      issues: [], revision: 1, truncated: false,
+    }));
+    window.api = { listRemoteHostIssues } as unknown as typeof window.api;
+    const current = source('remote-a', new Set(['issues']), 1);
+    const view = render(<RemoteIssuesPanel source={current} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(listRemoteHostIssues).toHaveBeenCalledOnce();
+
+    view.rerender(<RemoteIssuesPanel source={{ ...current, dataRevision: 99 }} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(listRemoteHostIssues).toHaveBeenCalledOnce();
+
+    view.rerender(<RemoteIssuesPanel source={{
+      ...current,
+      dataRevision: 100,
+      resourceRevisions: resourceRevisions(2),
+    }} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(750); });
+    expect(listRemoteHostIssues).toHaveBeenCalledTimes(2);
   });
 
   it('reuses the Local board/detail while routing a stable retry intent only to Remote', async () => {
@@ -155,7 +211,7 @@ describe('RemoteIssuesPanel', () => {
     const title = await screen.findByDisplayValue('Remote issue');
     fireEvent.change(title, { target: { value: 'Updated issue' } });
     fireEvent.click(screen.getByRole('button', { name: /保存/u }));
-    expect((await screen.findByText('deadline exceeded')).textContent).toContain('deadline');
+    expect(await screen.findByText('问题更新失败，请稍后重试。')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /保存/u }));
 
     await waitFor(() => expect(api.updateRemoteHostIssue).toHaveBeenCalledTimes(2));
@@ -168,6 +224,23 @@ describe('RemoteIssuesPanel', () => {
     expect(api.issuesGet).not.toHaveBeenCalled();
     expect(api.issuesUpdate).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByDisplayValue('Updated issue')).toBeTruthy());
+  });
+
+  it('uses the shared narrow-screen detail back action in Remote mode', async () => {
+    const initial = issue('issue-responsive', 'Remote responsive issue');
+    window.api = {
+      listRemoteHostIssues: vi.fn(async () => ({
+        issues: [initial], revision: 7, truncated: false,
+      })),
+      getRemoteHostIssue: vi.fn(async () => ({ issue: initial, revision: 7 })),
+    } as unknown as typeof window.api;
+    render(<RemoteIssuesPanel source={source()} />);
+
+    fireEvent.click(await screen.findByText('Remote responsive issue'));
+    fireEvent.click(await screen.findByRole('button', { name: '← 返回问题列表' }));
+
+    expect(document.querySelector('[data-issue-pane="list"]')?.className).toContain('w-full');
+    expect(document.querySelector('[data-issue-pane="detail"]')?.className).toContain('hidden');
   });
 
   it('retires Issue intents only when the authoritative source snapshot removes an identity', async () => {
@@ -280,6 +353,24 @@ describe('RemoteIssuesPanel', () => {
     const current = { ...source(), usable: false } as RemoteSessionSourceView;
     render(<RemoteIssuesPanel source={current} />);
     expect(listRemoteHostIssues).not.toHaveBeenCalled();
+  });
+
+  it('loads later Issue pages without replacing the first page', async () => {
+    const first = Array.from({ length: 100 }, (_, index) =>
+      issue(`issue-${index}`, `Issue row ${index}`));
+    const listRemoteHostIssues = vi.fn(async (request: { offset: number }) => request.offset === 0
+      ? { issues: first, revision: 7, truncated: true }
+      : { issues: [issue('issue-100', 'Issue row 100')], revision: 7, truncated: false });
+    window.api = { listRemoteHostIssues } as unknown as typeof window.api;
+    render(<RemoteIssuesPanel source={source()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '加载更多问题' }));
+    expect(await screen.findByText('Issue row 100')).toBeTruthy();
+    expect(screen.getByText('Issue row 0')).toBeTruthy();
+    expect(listRemoteHostIssues).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      limit: 100,
+      offset: 100,
+    }));
   });
 
   it('uses the shared Remote new-session form and one Core-owned create-and-link request', async () => {

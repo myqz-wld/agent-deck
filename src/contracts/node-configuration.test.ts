@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   parseNodeConfigurationGetResult,
   parseNodeHookParams,
-  parseNodeHookStatusResult,
+  parseNodeHookProjectionResult,
+  parseNodeHookStatus,
 } from './node-configuration';
 
 describe('node configuration contract', () => {
@@ -27,31 +28,71 @@ describe('node configuration contract', () => {
     })).toThrow('Invalid node configuration contract');
   });
 
-  it('accepts only known adapters and an exact hook status shape', () => {
+  it('accepts only known adapters and exact adapter-owned hook output', () => {
     expect(parseNodeHookParams({ adapterId: 'claude-code' })).toEqual({
       adapterId: 'claude-code',
     });
-    expect(parseNodeHookStatusResult({
+    expect(parseNodeHookStatus({
+      installed: true,
+      installedHooks: ['SessionStart'],
+      scope: 'user',
+      settingsPath: '/provider-home/.codex/hooks.json',
+    })).toMatchObject({ installed: true, scope: 'user' });
+    expect(() => parseNodeHookParams({ adapterId: 'unknown' })).toThrow();
+    expect(() => parseNodeHookStatus({
+      installed: true,
+      installedHooks: [],
+      scope: 'user',
+      settingsPath: '/tmp/hooks.json',
+      extra: true,
+    })).toThrow();
+  });
+
+  it('parses only the path-free Remote Hook projection', () => {
+    expect(parseNodeHookProjectionResult({
       adapterId: 'codex-cli',
-      revision: 9,
+      revision: 10,
       status: {
-        installed: true,
-        installedHooks: ['SessionStart'],
+        supported: true,
+        state: 'installed',
         scope: 'user',
+        writeAllowed: true,
+        disabledReason: null,
+      },
+    })).toMatchObject({ adapterId: 'codex-cli', revision: 10 });
+    expect(parseNodeHookProjectionResult({
+      adapterId: 'claude-code',
+      revision: 10,
+      status: {
+        supported: true,
+        state: 'unavailable',
+        scope: 'user',
+        writeAllowed: true,
+        disabledReason: null,
+      },
+    })).toMatchObject({ status: { state: 'unavailable', writeAllowed: true } });
+    expect(() => parseNodeHookProjectionResult({
+      adapterId: 'codex-cli',
+      revision: 10,
+      status: {
+        supported: true,
+        state: 'installed',
+        scope: 'user',
+        writeAllowed: true,
+        disabledReason: null,
         settingsPath: '/provider-home/.codex/hooks.json',
       },
-    })).toMatchObject({ adapterId: 'codex-cli', revision: 9 });
-    expect(() => parseNodeHookParams({ adapterId: 'unknown' })).toThrow();
-    expect(() => parseNodeHookStatusResult({
+    })).toThrow('Invalid node configuration contract');
+    expect(() => parseNodeHookProjectionResult({
       adapterId: 'codex-cli',
-      revision: 9,
+      revision: 10,
       status: {
-        installed: true,
-        installedHooks: [],
-        scope: 'user',
-        settingsPath: '/tmp/hooks.json',
-        extra: true,
+        supported: false,
+        state: 'installed',
+        scope: null,
+        writeAllowed: false,
+        disabledReason: 'status-unavailable',
       },
-    })).toThrow();
+    })).toThrow('Invalid node configuration contract');
   });
 });

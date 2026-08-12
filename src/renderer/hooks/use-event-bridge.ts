@@ -8,16 +8,9 @@ const logger = log.scope('renderer-event-bridge');
 /**
  * 桥接主进程事件 → Zustand store。整个应用只挂载一次。
  */
-export function useEventBridge(): void {
-  const upsert = useSessionStore((s) => s.upsertSession);
-  const remove = useSessionStore((s) => s.removeSession);
-  const pushEvent = useSessionStore((s) => s.pushEvent);
-  const pushSummary = useSessionStore((s) => s.pushSummary);
-  const setSessions = useSessionStore((s) => s.setSessions);
-  const setLatestSummaries = useSessionStore((s) => s.setLatestSummaries);
-  const renameSession = useSessionStore((s) => s.renameSession);
-
+export function useEventBridge(enabled = true): void {
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     // 启动顺序：先挂订阅再拉快照。
     // 快照请求期间的任何增删改都会推进 sessionRevision；晚到响应会被丢弃并重拉，
@@ -29,20 +22,22 @@ export function useEventBridge(): void {
       // 高频会话场景下每次 upsert 都拉一次属于纯 IPC 浪费。新 summary 通过 onSummaryAdded
       // 事件直接推进 latestSummaryBySession，不依赖这条 fetch。
       const isNew = !useSessionStore.getState().sessions.has(s.id);
-      upsert(s);
+      useSessionStore.getState().upsertSession(s);
       if (isNew) {
         void window.api
           .latestSummaries([s.id])
-          .then(setLatestSummaries)
+          .then((summaries) => useSessionStore.getState().setLatestSummaries(summaries))
           .catch((err: unknown) => {
             logger.warn('[event-bridge] latest summary read failed', { sessionId: s.id }, err);
           });
       }
     });
-    const offRm = window.api.onSessionRemoved((id) => remove(id));
-    const offRen = window.api.onSessionRenamed(({ from, to }) => renameSession(from, to));
-    const offEv = window.api.onAgentEvent((e) => pushEvent(e));
-    const offSum = window.api.onSummaryAdded((s) => pushSummary(s));
+    const offRm = window.api.onSessionRemoved((id) => useSessionStore.getState().removeSession(id));
+    const offRen = window.api.onSessionRenamed(({ from, to }) => {
+      useSessionStore.getState().renameSession(from, to);
+    });
+    const offEv = window.api.onAgentEvent((e) => useSessionStore.getState().pushEvent(e));
+    const offSum = window.api.onSummaryAdded((s) => useSessionStore.getState().pushSummary(s));
 
     // 初始快照稳定后再全量替换，清掉 HMR 留下的孤儿缓存；随后补最新摘要。
     void (async () => {
@@ -51,7 +46,7 @@ export function useEventBridge(): void {
         readVersion: () => useSessionStore.getState().sessionRevision,
         load: () => window.api.listSessions(),
         apply: (list) => {
-          setSessions(list);
+          useSessionStore.getState().setSessions(list);
           ids = list.map((s) => s.id);
         },
         isCancelled: () => cancelled,
@@ -63,7 +58,7 @@ export function useEventBridge(): void {
       if (result !== 'applied' || cancelled) return;
       if (ids.length > 0) {
         const map = await window.api.latestSummaries(ids);
-        if (!cancelled) setLatestSummaries(map);
+        if (!cancelled) useSessionStore.getState().setLatestSummaries(map);
       }
     })().catch((err: unknown) => {
       if (!cancelled) logger.warn('[event-bridge] initial session snapshot failed', err);
@@ -77,5 +72,5 @@ export function useEventBridge(): void {
       offEv();
       offSum();
     };
-  }, [upsert, remove, pushEvent, pushSummary, setSessions, setLatestSummaries, renameSession]);
+  }, [enabled]);
 }

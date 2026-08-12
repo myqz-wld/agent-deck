@@ -15,9 +15,7 @@ import { AskRow, DiffReviewRow, ExitPlanRow, PermissionRow } from './pending-row
 import { CheckIcon, ChevronRightIcon, CloseIcon, CrownIcon, ShieldIcon, UsersIcon } from './icons';
 import log from '@renderer/utils/logger';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
-import { RemotePendingRequests } from './pending-rows/RemotePendingRequests';
-import { remoteSessionStatus } from '@renderer/remote-host/session-summary-presentation';
-import { agentIdLabel } from './TeamDetail/helpers';
+import { RemotePendingBucketSection } from './RemotePendingBucketSection';
 
 /**
  * Central pending surface. It reuses the same request rows as the activity
@@ -89,12 +87,37 @@ function RemotePendingTab({
   source: RemoteSessionSourceView;
   onOpenSession: (sid: string) => void;
 }): JSX.Element {
-  const buckets = source.sessions.flatMap((session) => {
-    const pending = source.pendingBySession.get(session.id);
-    return pending && pending.requests.length > 0 ? [{ session, pending }] : [];
-  });
-  if (!source.capabilities.has('pending.read')) {
-    return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">此远程 Core 未提供待处理读取能力。</div>;
+  const buckets = source.pendingBuckets;
+  if (!source.capabilities.has('pending.index.read')) {
+    return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">此 Remote Core 版本不支持完整待处理索引，请升级远端部署。</div>;
+  }
+  if (source.pendingLoading && buckets.length === 0) {
+    return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">正在读取远程待处理事项…</div>;
+  }
+  if (source.pendingLoadError && buckets.length === 0) {
+    return (
+      <div role="alert" className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[11px] text-status-waiting">
+        <span>{source.pendingLoadError}</span>
+        <button type="button" onClick={source.refresh} className="rounded border border-white/10 px-2 py-1 text-[10px] hover:bg-white/[0.05]">重试</button>
+      </div>
+    );
+  }
+  if (source.pendingTotal === null && buckets.length === 0) {
+    return (
+      <div
+        role="status"
+        className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[11px] text-deck-muted"
+      >
+        <span>远程待处理总数尚未确认。</span>
+        <button
+          type="button"
+          onClick={source.refresh}
+          className="rounded border border-white/10 px-2 py-1 text-[10px] hover:bg-white/[0.05]"
+        >
+          重新读取
+        </button>
+      </div>
+    );
   }
   if (buckets.length === 0) {
     return (
@@ -108,45 +131,37 @@ function RemotePendingTab({
   }
   return (
     <div className="h-full overflow-y-auto scrollbar-deck px-3 py-2">
+      <div className="mb-2 flex items-center justify-between text-[10px] text-deck-muted/75">
+        <span>
+          {source.pendingTotal === null
+            ? `总数待确认 · 已载入 ${buckets.reduce((sum, bucket) => sum + bucket.pending.requests.length, 0)} 项`
+            : `待处理 ${source.pendingTotal} 项`}
+        </span>
+        {source.pendingScanTruncated && <span className="text-amber-300/80">结果已按安全上限截断</span>}
+      </div>
       <ol className="flex flex-col gap-3">
-        {buckets.map(({ session, pending }) => {
-          const status = remoteSessionStatus(session.status);
-          return (
-            <li key={`${source.identity}:${session.id}`} className="rounded-md border border-deck-border bg-white/[0.02]">
-              <button
-                type="button"
-                onClick={() => onOpenSession(session.id)}
-                className="flex w-full items-center justify-between border-b border-deck-border/50 px-3 py-2 text-left hover:bg-white/[0.04]"
-              >
-                <span className="shrink-0">
-                  <StatusBadge
-                    activity={status.activity}
-                    lifecycle={status.lifecycle}
-                    archived={false}
-                  />
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[12px] font-medium">
-                  {session.title ?? '未命名会话'}
-                </span>
-                <span className="text-[9px] text-deck-muted/60">
-                  {agentIdLabel(session.adapterId)}
-                </span>
-                <span className="rounded bg-status-waiting/25 px-1.5 py-0.5 text-[10px] text-status-waiting">{pending.requests.length}</span>
-              </button>
-              <div className="p-2">
-                <RemotePendingRequests
-                  pending={pending}
-                  sourceIdentity={source.identity}
-                  agentId={session.adapterId}
-                  busy={source.busy}
-                  onRespond={source.respondPending}
-                  planReviewTransport={source.planReviewTransport}
-                />
-              </div>
-            </li>
-          );
-        })}
+        {buckets.map((bucket) => (
+          <RemotePendingBucketSection
+            key={`${source.identity}:${bucket.session.id}`}
+            bucket={bucket}
+            source={source}
+            onOpenSession={onOpenSession}
+          />
+        ))}
       </ol>
+      {source.hasMorePending && (
+        <button
+          type="button"
+          disabled={source.pendingPaginationBusy ?? source.busy}
+          onClick={() => void source.loadMorePending()}
+          className="mt-3 w-full rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
+        >
+          加载更多待处理会话
+        </button>
+      )}
+      {source.pendingLoadError && (
+        <div role="alert" className="mt-2 rounded bg-red-500/10 px-2 py-1 text-[10px] text-red-200">{source.pendingLoadError}</div>
+      )}
     </div>
   );
 }

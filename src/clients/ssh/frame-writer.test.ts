@@ -3,7 +3,8 @@ import type { Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { encodeJsonFrame } from '@protocol/frame';
+import { encodeJsonFrame, LengthPrefixedJsonDecoder } from '@protocol/frame';
+import { controlFrameByteReserve } from '@protocol/control-frame-budget';
 
 import { BoundedFrameWriter } from './frame-writer';
 
@@ -34,7 +35,7 @@ function writer(
 ): BoundedFrameWriter {
   return new BoundedFrameWriter(
     writable as unknown as Writable,
-    { maxFrameBytes: 1024, ...limits },
+    { maxFrameBytes: 1024, writeProgressTimeoutMs: 10_000, ...limits },
     onError,
   );
 }
@@ -42,7 +43,7 @@ function writer(
 describe('BoundedFrameWriter exact outstanding bounds', () => {
   it('counts a write(true) frame until its callback completes', () => {
     const writable = new ControlledWritable();
-    const subject = writer(writable, { maxQueuedBytes: 1024, maxQueuedFrames: 1 });
+    const subject = writer(writable, { maxQueuedBytes: 4096, maxQueuedFrames: 1 });
     subject.enqueue({ sequence: 1 });
     expect(() => subject.enqueue({ sequence: 2 })).toThrowError('write queue limit');
     writable.completeNext();
@@ -54,7 +55,7 @@ describe('BoundedFrameWriter exact outstanding bounds', () => {
   it('keeps write(false) accounting independent of callback/drain order', () => {
     const writable = new ControlledWritable();
     writable.accepted = false;
-    const subject = writer(writable, { maxQueuedBytes: 1024, maxQueuedFrames: 1 });
+    const subject = writer(writable, { maxQueuedBytes: 4096, maxQueuedFrames: 1 });
     subject.enqueue({ sequence: 1 });
     writable.drain();
     expect(() => subject.enqueue({ sequence: 2 })).toThrowError('write queue limit');
@@ -71,7 +72,7 @@ describe('BoundedFrameWriter exact outstanding bounds', () => {
   it('can release accounting before drain without writing the queued successor', () => {
     const writable = new ControlledWritable();
     writable.accepted = false;
-    const subject = writer(writable, { maxQueuedBytes: 1024, maxQueuedFrames: 1 });
+    const subject = writer(writable, { maxQueuedBytes: 4096, maxQueuedFrames: 1 });
     subject.enqueue({ sequence: 1 });
     writable.completeNext();
     subject.enqueue({ sequence: 2 });
@@ -87,7 +88,7 @@ describe('BoundedFrameWriter exact outstanding bounds', () => {
     const first = encodeJsonFrame({ payload: 'first' });
     const second = encodeJsonFrame({ payload: 'second' });
     const subject = writer(writable, {
-      maxQueuedBytes: first.byteLength + second.byteLength - 1,
+      maxQueuedBytes: controlFrameByteReserve(1024) + first.byteLength + second.byteLength - 1,
       maxQueuedFrames: 8,
     });
     subject.enqueue({ payload: 'first' });
@@ -100,7 +101,7 @@ describe('BoundedFrameWriter exact outstanding bounds', () => {
   it('settles callbacks once across error, close, and late completion', () => {
     const writable = new ControlledWritable();
     const onError = vi.fn();
-    const subject = writer(writable, { maxQueuedBytes: 1024, maxQueuedFrames: 2 }, onError);
+    const subject = writer(writable, { maxQueuedBytes: 4096, maxQueuedFrames: 2 }, onError);
     subject.enqueue({ sequence: 1 });
     writable.completeNext(new Error('write failed'));
     writable.on('error', () => undefined);
@@ -114,7 +115,7 @@ describe('BoundedFrameWriter exact outstanding bounds', () => {
     const healthyError = vi.fn();
     const healthy = writer(
       healthyWritable,
-      { maxQueuedBytes: 1024, maxQueuedFrames: 1 },
+      { maxQueuedBytes: 4096, maxQueuedFrames: 1 },
       healthyError,
     );
     healthy.enqueue({ sequence: 1 });
@@ -130,7 +131,7 @@ describe('BoundedFrameWriter exact outstanding bounds', () => {
     const onError = vi.fn();
     const subject = writer(
       writable,
-      { maxQueuedBytes: 1024, maxQueuedFrames: 2 },
+      { maxQueuedBytes: 4096, maxQueuedFrames: 4 },
       onError,
     );
     subject.enqueue({ sequence: 1 });
@@ -143,5 +144,86 @@ describe('BoundedFrameWriter exact outstanding bounds', () => {
     expect(onError).toHaveBeenCalledOnce();
     expect(writable.writes).toHaveLength(1);
     expect(() => subject.enqueue({ sequence: 3 })).toThrowError('closed');
+  });
+
+  it('writes a queued pong before unsent business requests after drain', () => {
+    const writable = new ControlledWritable();
+    writable.accepted = false;
+    const subject = writer(writable, { maxQueuedBytes: 4096, maxQueuedFrames: 8 });
+    subject.enqueue({ type: 'request', requestId: 'r1' });
+    subject.enqueue({ type: 'request', requestId: 'r2' });
+    subject.enqueue({ type: 'pong', nonce: 'host-heartbeat' });
+    expect(writable.writes).toHaveLength(1);
+
+    writable.accepted = true;
+    writable.drain();
+    const decoder = new LengthPrefixedJsonDecoder();
+    const messages = writable.writes.flatMap((frame) => decoder.push(frame));
+    expect(messages.map((message) =>
+      'requestId' in (message as Record<string, unknown>)
+        ? (message as { requestId: string }).requestId
+        : (message as { type: string }).type,
+    )).toEqual(['r1', 'pong', 'r2']);
+    subject.close();
+  });
+
+  it('reserves byte capacity for two bounded control frames', () => {
+    const writable = new ControlledWritable();
+    writable.accepted = false;
+    const onError = vi.fn();
+    const subject = new BoundedFrameWriter(
+      writable as unknown as Writable,
+      {
+        maxFrameBytes: 4096,
+        maxQueuedBytes: 4096,
+        maxQueuedFrames: 10,
+        writeProgressTimeoutMs: 10_000,
+      },
+      onError,
+    );
+    const normal = { type: 'request', requestId: 'normal', payload: 'x'.repeat(1_800) };
+    const nonce = '\\'.repeat(256);
+
+    subject.enqueue(normal);
+    expect(() => subject.enqueue({ type: 'ping', nonce })).not.toThrow();
+    expect(() => subject.enqueue({ type: 'pong', nonce })).not.toThrow();
+    expect(() => subject.enqueue({
+      type: 'request', requestId: 'normal-overflow', payload: 'x'.repeat(200),
+    })).toThrowError('write queue limit');
+    expect(onError).not.toHaveBeenCalled();
+
+    writable.accepted = true;
+    writable.drain();
+    const messages = writable.writes.flatMap((frame) =>
+      new LengthPrefixedJsonDecoder().push(frame));
+    expect(messages.map((message) => (message as { type?: string }).type))
+      .toEqual(['request', 'ping', 'pong']);
+    subject.close();
+  });
+
+  it('fails when an accepted write makes no callback or drain progress', async () => {
+    vi.useFakeTimers();
+    try {
+      const writable = new ControlledWritable();
+      const onError = vi.fn();
+      const subject = new BoundedFrameWriter(
+        writable as unknown as Writable,
+        {
+          maxFrameBytes: 1024,
+          maxQueuedBytes: 4096,
+          maxQueuedFrames: 4,
+          writeProgressTimeoutMs: 25,
+        },
+        onError,
+      );
+      subject.enqueue({ type: 'request', requestId: 'stalled' });
+      await vi.advanceTimersByTimeAsync(25);
+      expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+        code: 'write_progress_timeout',
+      }));
+      expect(() => subject.enqueue({ type: 'ping', nonce: 'late' })).toThrowError('closed');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

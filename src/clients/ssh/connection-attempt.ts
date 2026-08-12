@@ -5,7 +5,7 @@ import { buildOpenSshArgv } from './argv';
 import type { ResolvedSshTransportOptions } from './config';
 import { SshChildRetirement } from './child-lifecycle';
 import type { ConnectionContext } from './connection-context';
-import { SshTransportError } from './errors';
+import { classifySshExitFailure, SshTransportError } from './errors';
 import { BoundedFrameWriter } from './frame-writer';
 import type { SpawnSshProcess, SshHostProfile } from './types';
 
@@ -45,6 +45,7 @@ export function startConnectionAttempt(input: ConnectionAttemptInput): Connectio
         maxFrameBytes: input.resolved.bounds.maxFrameBytes,
         maxQueuedBytes: input.resolved.bounds.maxQueuedWriteBytes,
         maxQueuedFrames: input.resolved.bounds.maxQueuedWriteFrames,
+        writeProgressTimeoutMs: input.resolved.timing.writeProgressTimeoutMs,
       },
       (error) => input.hooks.onFailure(context, error),
     );
@@ -72,11 +73,7 @@ export function startConnectionAttempt(input: ConnectionAttemptInput): Connectio
       if (context.terminated) return;
       input.hooks.onFailure(
         context,
-        new SshTransportError(
-          'connection_failed',
-          `SSH bridge exited (code=${code ?? 'null'}, signal=${signal ?? 'none'})`,
-          true,
-        ),
+        classifySshExitFailure(context.stderr, code, signal),
       );
     };
     context.detachListeners = () => {

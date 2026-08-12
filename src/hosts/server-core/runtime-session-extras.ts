@@ -6,6 +6,13 @@ import {
   SESSION_CONSOLE_REMOTE_ATTACHMENT_MIME_TYPES,
   parseSessionHandOffCommitParams,
   parseSessionHandOffPreviewParams,
+  parseSessionOutgoingListParams,
+  parseSessionOutgoingListResult,
+  parseSessionOutgoingRemoveParams,
+  parseSessionOutgoingRemoveResult,
+  SESSION_OUTGOING_MAX_ATTACHMENTS,
+  SESSION_OUTGOING_MAX_ITEMS,
+  SESSION_OUTGOING_MAX_TEXT_BYTES,
   type JsonObject,
   type SessionHandOffPreviewResult,
 } from '@contracts/index';
@@ -23,6 +30,16 @@ import {
 } from './runtime-handoff';
 import { canAcceptServerCoreSessionAttachments } from './session-attachment-capability';
 import { parseSessionTargetParams } from './runtime-validation';
+import { redactRemoteSensitiveText } from './remote-sensitive-data';
+
+function truncateUtf8(value: string, maximum: number): string {
+  const encoded = Buffer.from(value, 'utf8');
+  if (encoded.byteLength <= maximum) return value;
+  const marker = '…';
+  let cut = Math.max(0, maximum - Buffer.byteLength(marker));
+  while (cut > 0 && (encoded[cut] & 0xc0) === 0x80) cut -= 1;
+  return `${encoded.subarray(0, cut).toString('utf8')}${marker}`;
+}
 
 export type ServerCoreSessionExtraMutation = (
   input: DaemonRequestInput,
@@ -42,6 +59,8 @@ export class ServerCoreSessionExtras {
     switch (input.method) {
       case 'session.context.get': return Promise.resolve(this.contextUsage(input));
       case 'session.input.capabilities': return Promise.resolve(this.inputCapabilities(input));
+      case 'session.outgoing.list': return Promise.resolve(this.outgoing(input));
+      case 'session.outgoing.remove': return this.removeOutgoing(input);
       case 'session.handoff.preview': return this.handOffPreview(input);
       case 'session.handoff.commit': return this.handOffCommit(input);
       default: return null;
@@ -93,6 +112,52 @@ export class ServerCoreSessionExtras {
       },
       revision,
     };
+  }
+
+  private outgoing(input: DaemonRequestInput): DaemonRequestResult {
+    const { sessionId } = parseSessionOutgoingListParams(input.params);
+    const { adapter, record } = this.requireProviderSession(sessionId);
+    if (!adapter.listPendingOutgoingMessages) this.unavailable();
+    const messages = adapter.listPendingOutgoingMessages(sessionId)
+      .slice(0, SESSION_OUTGOING_MAX_ITEMS)
+      .map((message) => ({
+        id: message.id,
+        text: truncateUtf8(
+          redactRemoteSensitiveText(message.text, () => 'Workspace'),
+          SESSION_OUTGOING_MAX_TEXT_BYTES,
+        ),
+        attachments: (message.attachments ?? [])
+          .slice(0, SESSION_OUTGOING_MAX_ATTACHMENTS)
+          .map((attachment, index) => ({
+            id: `${message.id}:${index}`,
+            mime: attachment.mime,
+            bytes: attachment.bytes,
+          })),
+      }));
+    const revision = this.options.metadata.currentRevision();
+    const result = parseSessionOutgoingListResult({
+      sessionId,
+      adapterId: record.agentId,
+      messages,
+      revision,
+    });
+    return { result: result as unknown as JsonObject, revision };
+  }
+
+  private removeOutgoing(input: DaemonRequestInput): Promise<DaemonRequestResult> {
+    const params = parseSessionOutgoingRemoveParams(input.params);
+    const { adapter } = this.requireProviderSession(params.sessionId);
+    if (!adapter.removePendingOutgoingMessage) this.unavailable();
+    return this.mutate(input, 'session.outgoing.removed', params.sessionId, async () => {
+      const removed = await adapter.removePendingOutgoingMessage!(
+        params.sessionId,
+        params.messageId,
+      );
+      return (revision) => parseSessionOutgoingRemoveResult({
+        removed: removed !== null,
+        revision,
+      }) as unknown as JsonObject;
+    });
   }
 
   private async handOffPreview(input: DaemonRequestInput): Promise<DaemonRequestResult> {

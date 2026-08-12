@@ -102,7 +102,7 @@ describe('ResolveInNewSessionDialog model options', () => {
     });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
-    const approvalPicker = screen.getByLabelText('审批策略（沿用上次选择）');
+    const approvalPicker = screen.getByLabelText('审批策略');
     await waitFor(() => {
       expect(approvalPicker.textContent).toContain('非可信命令前询问');
     });

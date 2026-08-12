@@ -426,7 +426,7 @@ describe('NewSessionDialog unified authoring and create lifecycle', () => {
     pending.resolve('session-new');
   });
 
-  it('ignores a create completion after close and preserves the reopened draft', async () => {
+  it('disables user close while creating and fences completion after an external close', async () => {
     const pending = deferred<string>();
     createAdapterSession.mockReturnValueOnce(pending.promise);
     const onClose = vi.fn();
@@ -439,8 +439,10 @@ describe('NewSessionDialog unified authoring and create lifecycle', () => {
       target: { value: '旧草稿' },
     });
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
-    fireEvent.click(screen.getByRole('button', { name: '关闭新建会话' }));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    const close = screen.getByRole('button', { name: '关闭新建会话' }) as HTMLButtonElement;
+    expect(close.disabled).toBe(true);
+    fireEvent.click(close);
+    expect(onClose).not.toHaveBeenCalled();
 
     view.rerender(<NewSessionDialog open={false} onClose={onClose} onCreated={onCreated} />);
     view.rerender(<NewSessionDialog open onClose={onClose} onCreated={onCreated} />);
@@ -452,7 +454,7 @@ describe('NewSessionDialog unified authoring and create lifecycle', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(onCreated).not.toHaveBeenCalled();
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
     expect((screen.getByLabelText('第一条消息') as HTMLTextAreaElement).value)
       .toBe('重新打开后的草稿');
   });

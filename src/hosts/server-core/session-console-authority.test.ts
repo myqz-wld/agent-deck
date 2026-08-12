@@ -15,6 +15,7 @@ import type { SessionRecord } from '@shared/types';
 import type { ServerCoreProject } from './project-catalog';
 import { resolveServerCoreProviderSettings } from './provider-settings';
 import { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
+import { resolveServerCoreSessionCreateCatalog } from './session-create-catalog';
 import {
   ServerCoreSessionConsoleAuthority,
   type ServerCoreSessionConsoleMetadataPort,
@@ -117,12 +118,13 @@ function harness() {
     workspacePath: paths.path,
   };
   const registry = { get: (id: string) => id === 'claude-code' ? adapter : undefined };
+  const settings = resolveServerCoreProviderSettings({});
   const createCapabilities = new ServerCoreSessionCreateCapabilities({
     metadata,
     projects: [project],
-    providerHomeRoot: join(paths.root, '..', 'provider-home'),
+    catalog: resolveServerCoreSessionCreateCatalog({}, settings),
     registry,
-    settings: resolveServerCoreProviderSettings({}),
+    settings,
     workspaceRoot: paths.root,
   });
   const attachmentRef = {

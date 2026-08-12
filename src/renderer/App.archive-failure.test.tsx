@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { CallerArchiveFailedEvent } from '@shared/types';
+import type { RemoteHostDataChangedDto, RemoteHostSnapshotDto } from '@shared/remote-host';
 
 const mocks = vi.hoisted(() => {
   const state = {
@@ -18,14 +19,18 @@ const mocks = vi.hoisted(() => {
   return {
     state,
     archiveListener: null as ((payload: CallerArchiveFailedEvent) => void) | null,
+    remoteChangedListener: null as ((payload: RemoteHostDataChangedDto) => void) | null,
     archiveSession: vi.fn(),
+    getRemoteHostSnapshot: vi.fn(),
+    onSessionFocusRequest: vi.fn(),
+    takePendingSessionFocus: vi.fn(),
   };
 });
 
 vi.mock('./stores/session-store', () => ({
   useSessionStore: Object.assign(
     (selector: (state: typeof mocks.state) => unknown) => selector(mocks.state),
-    { getState: () => mocks.state },
+    { getState: () => mocks.state, subscribe: vi.fn(() => vi.fn()) },
   ),
 }));
 vi.mock('./hooks/use-event-bridge', () => ({ useEventBridge: vi.fn() }));
@@ -71,31 +76,39 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 beforeEach(() => {
   mocks.archiveListener = null;
+  mocks.remoteChangedListener = null;
   mocks.archiveSession.mockReset().mockResolvedValue(undefined);
+  mocks.state.selectSession.mockReset();
+  mocks.getRemoteHostSnapshot.mockReset().mockResolvedValue({
+    revision: 1,
+    sourceMode: 'local',
+    selectedRemoteProfileId: null,
+    profiles: [],
+    states: [],
+  });
+  mocks.takePendingSessionFocus.mockReset().mockResolvedValue(null);
   const off = vi.fn();
+  mocks.onSessionFocusRequest.mockReset().mockImplementation(() => off);
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
       getSettings: vi.fn(async () => ({ alwaysOnTop: true, windowTransparent: true })),
       setAlwaysOnTop: vi.fn(async () => undefined),
-      takePendingSessionFocus: vi.fn(async () => null),
+      takePendingSessionFocus: mocks.takePendingSessionFocus,
       onPinToggled: vi.fn(() => off),
       onTransparentToggled: vi.fn(() => off),
       onCompactToggled: vi.fn(() => off),
-      onSessionFocusRequest: vi.fn(() => off),
+      onSessionFocusRequest: mocks.onSessionFocusRequest,
       onSessionRenamed: vi.fn(() => off),
       onCallerArchiveFailed: vi.fn((listener: (payload: CallerArchiveFailedEvent) => void) => {
         mocks.archiveListener = listener;
         return off;
       }),
-      getRemoteHostSnapshot: vi.fn(async () => ({
-        revision: 1,
-        sourceMode: 'local',
-        selectedRemoteProfileId: null,
-        profiles: [],
-        states: [],
-      })),
-      onRemoteHostChanged: vi.fn(() => off),
+      getRemoteHostSnapshot: mocks.getRemoteHostSnapshot,
+      onRemoteHostChanged: vi.fn((listener: (event: RemoteHostDataChangedDto) => void) => {
+        mocks.remoteChangedListener = listener;
+        return off;
+      }),
       archiveSession: mocks.archiveSession,
     } as unknown as Window['api'],
   });
@@ -107,8 +120,9 @@ afterEach(() => {
 });
 
 describe('App caller archive failure banner', () => {
-  it('shows a bounded detailed row-missing reason without a retry action and can dismiss it', () => {
+  it('shows a bounded detailed row-missing reason without a retry action and can dismiss it', async () => {
     render(<App />);
+    await waitFor(() => expect(mocks.archiveListener).not.toBeNull());
     emitArchiveFailure({
       sessionId: 'missing-source',
       toolName: 'SessionHandOffCommit',
@@ -131,6 +145,7 @@ describe('App caller archive failure banner', () => {
     async (reasonKind) => {
       mocks.archiveSession.mockRejectedValueOnce(new Error('database still locked'));
       render(<App />);
+      await waitFor(() => expect(mocks.archiveListener).not.toBeNull());
       emitArchiveFailure({
         sessionId: 'retry-source',
         toolName: 'hand_off_session',
@@ -150,6 +165,7 @@ describe('App caller archive failure banner', () => {
     const oldRetry = deferred();
     mocks.archiveSession.mockReturnValueOnce(oldRetry.promise);
     render(<App />);
+    await waitFor(() => expect(mocks.archiveListener).not.toBeNull());
     emitArchiveFailure({
       sessionId: 'old-source',
       toolName: 'hand_off_session',
@@ -168,5 +184,66 @@ describe('App caller archive failure banner', () => {
 
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('new failure'));
     expect(screen.queryByText(/重试归档失败/)).toBeNull();
+  });
+});
+
+describe('App source authority', () => {
+  const remoteSnapshot: RemoteHostSnapshotDto = {
+    revision: 1,
+    sourceMode: 'remote',
+    selectedRemoteProfileId: 'remote-a',
+    profiles: [{
+      id: 'remote-a', label: 'Remote A', scope: 'remote', endpoint: null,
+      credentials: { connectionCredentialConfigured: true },
+    }],
+    states: [{
+      profileId: 'remote-a', status: 'connected', recovery: null,
+      authoritativeCoreId: 'core-a', workerGeneration: 1,
+      capabilities: [], eventRevision: 0, error: null,
+    }],
+  };
+
+  it('makes no Local focus call or store write while authority is unknown', async () => {
+    mocks.getRemoteHostSnapshot.mockReset().mockReturnValue(new Promise(() => undefined));
+    render(<App />);
+    await act(async () => { await Promise.resolve(); });
+
+    expect(mocks.takePendingSessionFocus).not.toHaveBeenCalled();
+    expect(mocks.onSessionFocusRequest).not.toHaveBeenCalled();
+    expect(mocks.state.selectSession).not.toHaveBeenCalled();
+    expect(screen.getByText('正在确认数据源')).toBeTruthy();
+  });
+
+  it('does not consume a retained Local focus request while Remote is authoritative', async () => {
+    mocks.getRemoteHostSnapshot.mockReset().mockResolvedValue(remoteSnapshot);
+    mocks.takePendingSessionFocus.mockResolvedValue('retained-local-session');
+    render(<App />);
+    await waitFor(() => expect(mocks.getRemoteHostSnapshot).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+
+    expect(mocks.takePendingSessionFocus).not.toHaveBeenCalled();
+    expect(mocks.onSessionFocusRequest).not.toHaveBeenCalled();
+    expect(mocks.state.selectSession).not.toHaveBeenCalled();
+  });
+
+  it('consumes the retained focus request only after Local becomes authoritative', async () => {
+    const localSnapshot: RemoteHostSnapshotDto = {
+      ...remoteSnapshot, revision: 2, sourceMode: 'local',
+    };
+    mocks.getRemoteHostSnapshot.mockReset()
+      .mockResolvedValueOnce(remoteSnapshot)
+      .mockResolvedValue(localSnapshot);
+    mocks.takePendingSessionFocus.mockResolvedValue('retained-local-session');
+    render(<App />);
+    await waitFor(() => expect(mocks.remoteChangedListener).not.toBeNull());
+    expect(mocks.takePendingSessionFocus).not.toHaveBeenCalled();
+
+    act(() => mocks.remoteChangedListener?.({
+      revision: 2, profileId: 'remote-a', reason: 'selection', resources: [],
+    }));
+    await waitFor(() => expect(mocks.takePendingSessionFocus).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.state.selectSession)
+      .toHaveBeenCalledWith('retained-local-session'));
+    expect(mocks.onSessionFocusRequest).toHaveBeenCalledOnce();
   });
 });

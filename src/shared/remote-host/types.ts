@@ -26,20 +26,24 @@ import type {
   WorkspaceDirectoryListResult,
   NodeConfigurationGetResult,
   NodeConfigurationAdapterId,
-  NodeHookStatusResult,
+  NodeHookProjectionResult,
   NodeAssetAdapterId,
   NodeAssetContentResult,
   NodeAssetConventionResult,
   NodeAssetKind,
   NodeAssetListResult,
   NodeAssetSource,
-  SessionContextGetResult,
-  SessionInputCapabilitiesResult,
-  SessionHandOffCommitResult,
-  SessionHandOffPreviewResult,
-  SessionHandOffTargetInputDto,
+  SessionPresentationListResult,
+  SessionPresentationKind,
+  SessionPresentationSummaryDto,
 } from '@contracts/index';
 import type { LoadImageBlobResult } from '@shared/types';
+import type {
+  RemoteHostMutationIntentDto,
+  RemoteHostSessionTargetDto,
+} from './session-request-types';
+
+export * from './session-request-types';
 
 export type RemoteHostTopology = 'standalone' | 'server-core' | 'relay';
 export type RemoteHostRemoteTopology = Exclude<RemoteHostTopology, 'standalone'>;
@@ -150,6 +154,37 @@ export interface RemoteHostSessionPageDto {
   revision: number;
 }
 
+export interface RemoteHostSessionPresentationRequestDto {
+  profileId: string;
+  kind: SessionPresentationKind;
+  cursor?: string;
+  limit: number;
+  query?: string;
+}
+
+export type RemoteHostSessionPresentationDto = SessionPresentationSummaryDto;
+export type RemoteHostSessionPresentationPageDto = SessionPresentationListResult;
+
+export interface RemoteHostPendingIndexRequestDto {
+  profileId: string;
+  cursor?: string;
+  limit: number;
+}
+
+export interface RemoteHostPendingIndexBucketDto {
+  session: RemoteHostSessionPresentationDto;
+  pending: RemoteHostPendingListDto;
+}
+
+export interface RemoteHostPendingIndexDto {
+  buckets: RemoteHostPendingIndexBucketDto[];
+  nextCursor: string | null;
+  totalBuckets: number;
+  totalRequests: number;
+  scanTruncated: boolean;
+  revision: number;
+}
+
 export interface RemoteHostProjectDto {
   projectId: string;
   projectRef: string;
@@ -162,10 +197,6 @@ export interface RemoteHostProjectPageDto {
   nextCursor: string | null;
   total: number | null;
   revision: number;
-}
-
-export interface RemoteHostMutationIntentDto {
-  intentId: string;
 }
 
 export interface RemoteHostSessionCapabilitiesRequestDto {
@@ -192,42 +223,6 @@ export interface RemoteHostCreateSessionDto extends RemoteHostMutationIntentDto 
   initialMessage: string;
   workingDirectory: string;
   options: SessionConsoleCreateOptions;
-}
-
-export interface RemoteHostSessionTargetDto {
-  profileId: string;
-  sessionId: string;
-}
-
-export type RemoteHostSessionContextDto = SessionContextGetResult;
-export type RemoteHostSessionInputCapabilitiesDto = SessionInputCapabilitiesResult;
-
-export interface RemoteHostHandOffPreviewRequestDto extends RemoteHostSessionTargetDto {
-  continuationInstruction: string;
-  target: SessionHandOffTargetInputDto;
-}
-
-export interface RemoteHostHandOffCommitRequestDto
-  extends RemoteHostHandOffPreviewRequestDto, RemoteHostMutationIntentDto {
-  expectedBindingDigest: string;
-}
-
-export type RemoteHostHandOffPreviewDto = SessionHandOffPreviewResult;
-export type RemoteHostHandOffCommitDto = SessionHandOffCommitResult;
-
-export interface RemoteHostMutationTargetDto
-  extends RemoteHostSessionTargetDto, RemoteHostMutationIntentDto {}
-
-export interface RemoteHostSendDto
-  extends RemoteHostSessionTargetDto, RemoteHostMutationIntentDto {
-  text: string;
-  attachments?: SessionConsoleAttachmentInput[];
-}
-
-export interface RemoteHostSendResultDto {
-  messageId: string;
-  sequence: number;
-  revision: number;
 }
 
 export interface RemoteHostHistoryRequestDto {
@@ -323,7 +318,7 @@ export interface RemoteHostNodeHookMutationDto
   extends RemoteHostNodeHookRequestDto, RemoteHostMutationIntentDto {}
 
 export type RemoteHostNodeConfigurationDto = NodeConfigurationGetResult;
-export type RemoteHostNodeHookStatusDto = NodeHookStatusResult;
+export type RemoteHostNodeHookStatusDto = NodeHookProjectionResult;
 
 export interface RemoteHostIssueListRequestDto {
   profileId: string;
@@ -451,8 +446,24 @@ export interface RemoteHostAcceptedResultDto {
   revision: number;
 }
 
+export const REMOTE_HOST_RESOURCE_KINDS = [
+  'session-list',
+  'session-detail',
+  'pending',
+  'teams',
+  'issues',
+  'usage',
+  'node-configuration',
+  'node-assets',
+] as const;
+
+export type RemoteHostResourceKind = (typeof REMOTE_HOST_RESOURCE_KINDS)[number];
+
+export type RemoteHostResourceRevisions = Record<RemoteHostResourceKind, number>;
+
 export interface RemoteHostDataChangedDto {
   revision: number;
   profileId: string | null;
   reason: 'data' | 'profiles' | 'selection' | 'state';
+  resources: RemoteHostResourceKind[];
 }

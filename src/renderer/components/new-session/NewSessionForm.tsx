@@ -1,4 +1,4 @@
-import type { JSX, ReactNode } from 'react';
+import { useRef, type JSX, type ReactNode } from 'react';
 
 import type { DeckSelectOption } from '@renderer/components/DeckSelect';
 import { DeckSelect } from '@renderer/components/DeckSelect';
@@ -8,6 +8,7 @@ import type { UseImageAttachmentsResult } from '@renderer/hooks/useImageAttachme
 import { CloseIcon, FolderOpenIcon, SendIcon } from '../icons';
 import { GrokSandboxPicker } from '../GrokSandboxPicker';
 import { FirstMessageAuthoring } from './FirstMessageAuthoring';
+import { useModalFocus } from '../use-modal-focus';
 
 export interface NewSessionSelectControl {
   label: string;
@@ -15,6 +16,7 @@ export interface NewSessionSelectControl {
   value: string;
   onChange(value: string): void;
   customGrok?: boolean;
+  disabledReason?: string | null;
 }
 
 export interface NewSessionModelControl {
@@ -25,6 +27,11 @@ export interface NewSessionModelControl {
   providerOptions?: readonly { id: string; name?: string }[];
   thinking: SessionThinkingChoice;
   thinkingOptions?: readonly DeckSelectOption<SessionThinkingChoice>[];
+  disabledReasons?: {
+    provider?: string | null;
+    model?: string | null;
+    thinking?: string | null;
+  };
   onModelChange(value: string): void;
   onProviderChange(value: string): void;
   onThinkingChange(value: SessionThinkingChoice): void;
@@ -45,6 +52,7 @@ interface Props {
   images: UseImageAttachmentsResult;
   loading: boolean;
   notice?: ReactNode;
+  sourceLabel?: string;
   title?: string;
   createLabel?: string;
   creatingLabel?: string;
@@ -65,16 +73,27 @@ const SELECT_CLASS =
 
 export function NewSessionForm(props: Props): JSX.Element {
   const disabled = props.busy || props.loading;
+  const titleId = `${props.authoringId.replace(/[^A-Za-z0-9_-]/g, '-')}-title`;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus({ blocked: props.busy, dialogRef, onClose: props.onClose });
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="no-drag max-h-[85%] w-[340px] overflow-y-auto scrollbar-deck rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="no-drag max-h-[85%] w-[min(28rem,92vw)] overflow-y-auto scrollbar-deck rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+      >
         <header className="mb-3 flex items-center justify-between">
-          <h2 className="text-[13px] font-medium">{props.title ?? '新建会话'}</h2>
+          <h2 id={titleId} className="text-[13px] font-medium">{props.title ?? '新建会话'}</h2>
           <button
             type="button"
             onClick={props.onClose}
+            disabled={props.busy}
             aria-label="关闭新建会话"
-            className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10"
+            className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <CloseIcon className="h-3.5 w-3.5" />
           </button>
@@ -86,6 +105,11 @@ export function NewSessionForm(props: Props): JSX.Element {
           </div>
         ) : (
           <div className="flex flex-col gap-3">
+            {props.sourceLabel && (
+              <div className="rounded border border-status-working/25 bg-status-working/10 px-2.5 py-2 text-[10px] text-status-working">
+                创建目标：{props.sourceLabel}
+              </div>
+            )}
             {props.notice}
             <Field label="运行时">
               <DeckSelect
@@ -106,6 +130,7 @@ export function NewSessionForm(props: Props): JSX.Element {
               providerOptions={props.model.providerOptions}
               providerClosed={props.model.providerClosed}
               thinkingOptions={props.model.thinkingOptions}
+              disabledReasons={props.model.disabledReasons}
               onProviderChange={props.model.onProviderChange}
               onModelChange={props.model.onModelChange}
               onThinkingChange={props.model.onThinkingChange}
@@ -155,7 +180,14 @@ export function NewSessionForm(props: Props): JSX.Element {
 
             {props.controls.map((control) => (
               <Field key={control.label} label={control.label}>
-                {control.customGrok ? (
+                {control.disabledReason ? (
+                  <div
+                    role="note"
+                    className="break-words rounded border border-white/[0.07] bg-white/[0.03] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted [overflow-wrap:anywhere]"
+                  >
+                    不可用：{control.disabledReason}
+                  </div>
+                ) : control.customGrok ? (
                   <GrokSandboxPicker
                     value={control.value}
                     onChange={control.onChange}
@@ -190,7 +222,8 @@ export function NewSessionForm(props: Props): JSX.Element {
               <button
                 type="button"
                 onClick={props.onClose}
-                className="rounded px-3 py-1 text-[11px] text-deck-muted hover:bg-white/5"
+                disabled={props.busy}
+                className="rounded px-3 py-1 text-[11px] text-deck-muted hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 取消
               </button>

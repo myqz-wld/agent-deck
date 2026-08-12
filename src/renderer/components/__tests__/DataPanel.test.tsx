@@ -110,6 +110,8 @@ describe('DataPanel quota usage', () => {
       identity: 'remote-a:core-a:1',
       rates: [{ bucketKey: 'gpt-5.6-sol', outputTokens: 60 }],
       topToday: [{ bucketKey: 'gpt-5.6-sol', outputTokens: 600 }],
+      ratesLoading: false,
+      ratesError: null,
       today: tokenDailyRow().day,
       daily: [tokenDailyRow({ bucketKey: 'gpt-5.6-sol' })],
       dailyLoading: false,
@@ -141,7 +143,8 @@ describe('DataPanel quota usage', () => {
     const remoteUsage = {
       enabled: false,
       identity: 'remote-a:core-a:1',
-      rates: [], topToday: [], today: null, daily: [], dailyLoading: false,
+      rates: [], topToday: [], ratesLoading: false, ratesError: null,
+      today: null, daily: [], dailyLoading: false,
       dailyError: null, dailyTruncated: false, providerSnapshots: [],
       providerFetchedAt: null, providerLoading: false, providerError: null,
       loadDaily, loadProviders,
@@ -162,7 +165,8 @@ describe('DataPanel quota usage', () => {
     const remoteUsage = {
       enabled: true,
       identity: 'remote-a:core-a:1',
-      rates: [], topToday: [], today: null, daily: [], dailyLoading: false,
+      rates: [], topToday: [], ratesLoading: false, ratesError: null,
+      today: null, daily: [], dailyLoading: false,
       dailyError: null, dailyTruncated: false, providerSnapshots: [],
       providerFetchedAt: null, providerLoading: false, providerError: null,
       loadDaily, loadProviders,

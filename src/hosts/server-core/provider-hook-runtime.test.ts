@@ -29,7 +29,7 @@ function fixture(): { home: string; relay: string } {
 describe('installServerCoreProviderHooks', () => {
   it('installs only initialized adapters into their managed user scope', async () => {
     const install = vi.fn(async () => ({ installed: true }));
-    await installServerCoreProviderHooks([
+    const installed = await installServerCoreProviderHooks([
       { id: 'codex-cli', ok: true },
       { id: 'grok-build', ok: false, err: new Error('not initialized') },
     ], {
@@ -39,6 +39,7 @@ describe('installServerCoreProviderHooks', () => {
     });
     expect(install).toHaveBeenCalledOnce();
     expect(install).toHaveBeenCalledWith({ scope: 'user' });
+    expect(installed).toEqual(['codex-cli']);
   });
 
   it('fails closed when any initialized adapter cannot confirm hook ownership', async () => {

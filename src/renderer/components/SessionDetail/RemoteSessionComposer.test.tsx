@@ -237,6 +237,90 @@ describe('RemoteSessionComposer parity and authority', () => {
     await waitFor(() => expect(remote.steer).toHaveBeenCalledWith('text only', []));
   });
 
+  it('disables handoff and runtime mutation while the provider turn is working', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { confirmDialog: vi.fn() },
+    });
+    const remote = source({
+      capabilities: new Set([
+        'sessions.write', 'sessions.runtime.write', 'sessions.handoff', 'session-console.read',
+      ]),
+      selectedSession: {
+        id: 'session-a', adapterId: 'codex-cli', title: 'Remote Codex',
+        status: 'active-working', createdAt: 1, updatedAt: 2,
+      },
+      runtime: {
+        adapterId: 'codex-cli',
+        values: {
+          model: 'gpt-5.6-sol', approvalPolicy: 'on-request',
+          codexSandbox: 'workspace-write',
+        },
+        revision: 5,
+      },
+    });
+    render(<RemoteSessionComposer source={remote} adapterId="codex-cli" sessionId="session-a" />);
+
+    expect((screen.getByRole('button', { name: '接力' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByLabelText('审批') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByLabelText('沙盒') as HTMLButtonElement).disabled).toBe(true);
+    expect(remote.updateRuntime).not.toHaveBeenCalled();
+  });
+
+  it('shows provider-default runtime values instead of inventing concrete policies', () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { confirmDialog: vi.fn() },
+    });
+    const remote = source({
+      selectedSession: {
+        id: 'session-a', adapterId: 'codex-cli', title: 'Remote Codex',
+        status: 'active-idle', createdAt: 1, updatedAt: 2,
+      },
+      runtime: {
+        adapterId: 'codex-cli',
+        values: { model: 'gpt-5.6-sol', approvalPolicy: null, codexSandbox: null },
+        revision: 5,
+      },
+    });
+    render(<RemoteSessionComposer source={remote} adapterId="codex-cli" sessionId="session-a" />);
+
+    expect(screen.getAllByText('由提供方默认值决定（未记录权威值）')).toHaveLength(2);
+    expect(screen.queryByText('NEVER')).toBeNull();
+    expect(screen.queryByText('工作区可写')).toBeNull();
+  });
+
+  it('renders and removes the Remote provider waiting queue without exposing attachment paths', async () => {
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { confirmDialog: vi.fn() },
+    });
+    const listOutgoing = vi.fn().mockResolvedValue({
+      sessionId: 'session-a', adapterId: 'claude-code', revision: 7,
+      messages: [{
+        id: 'queued-1', text: '等待下一轮处理',
+        attachments: [{ id: 'queued-1:0', mime: 'image/png', bytes: 12 }],
+      }],
+    });
+    const removeOutgoing = vi.fn().mockResolvedValue(true);
+    const remote = source({
+      capabilities: new Set([
+        'sessions.write', 'sessions.runtime.write', 'session-console.read',
+        'sessions.outgoing.read', 'sessions.outgoing.write',
+      ]),
+      listOutgoing,
+      removeOutgoing,
+    });
+    render(<RemoteSessionComposer source={remote} adapterId="claude-code" sessionId="session-a" />);
+
+    await screen.findByText(/等待下一轮处理/);
+    expect(screen.getByText(/1 个附件/)).toBeTruthy();
+    expect(document.body.textContent).not.toContain('/private/');
+    fireEvent.click(screen.getByRole('button', { name: '删除等待消息' }));
+    await waitFor(() => expect(removeOutgoing).toHaveBeenCalledWith('queued-1'));
+    expect(listOutgoing).toHaveBeenCalled();
+  });
+
   it('filters the file picker with the Worker-negotiated attachment MIME policy', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,

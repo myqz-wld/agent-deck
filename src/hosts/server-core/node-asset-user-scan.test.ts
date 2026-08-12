@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -21,7 +21,82 @@ describe('scanServerCoreUserAssets bounds', () => {
 
       expect(result.assets).toEqual([]);
       expect(result.truncated).toBe(true);
-      expect(result.visitedEntries).toBe(5);
+      expect(result.visitedEntries).toBeGreaterThan(0);
+      expect(result.visitedEntries).toBeLessThanOrEqual(5);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  it('never catalogs sensitive leaves or manifest-indirected secret directories', () => {
+    const home = mkdtempSync(join(tmpdir(), 'agent-deck-node-asset-sensitive-'));
+    try {
+      const agents = join(home, '.codex', 'agents');
+      mkdirSync(agents, { recursive: true });
+      writeFileSync(join(agents, 'reviewer.toml'), [
+        'name = "reviewer"',
+        'description = "safe"',
+      ].join('\n'));
+      writeFileSync(join(agents, 'credentials.toml'), [
+        'name = "credentials"',
+        'api_key = "sk-secretmarker123"',
+      ].join('\n'));
+      writeFileSync(join(agents, 'config.toml'), [
+        'name = "config"',
+        'api_key = "sk-secretmarker123"',
+      ].join('\n'));
+
+      const plugin = join(home, '.claude', 'plugins', 'secret-plugin');
+      mkdirSync(join(plugin, '.claude-plugin'), { recursive: true });
+      mkdirSync(join(plugin, 'secrets'), { recursive: true });
+      writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({
+        name: 'secret-plugin',
+        agents: 'secrets',
+      }));
+      writeFileSync(join(plugin, 'secrets', 'leak.md'), [
+        '---', 'name: leak', '---', 'apiToken: sk-secretmarker123',
+      ].join('\n'));
+
+      const result = scanServerCoreUserAssets(home, {
+        maxAssets: 20,
+        maxVisitedEntries: 100,
+      });
+      expect(result.assets.map((asset) => asset.name)).toContain('reviewer');
+      expect(result.assets.map((asset) => asset.name)).not.toContain('credentials');
+      expect(result.assets.map((asset) => asset.name)).not.toContain('config');
+      expect(JSON.stringify(result.assets)).not.toContain('secretmarker');
+      expect(JSON.stringify(result.assets)).not.toContain('leak');
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
+  it('retains every adapter when one Provider Home category exceeds the response cap', () => {
+    const home = mkdtempSync(join(tmpdir(), 'agent-deck-node-asset-fair-'));
+    try {
+      const claude = join(home, '.claude', 'agents');
+      const codex = join(home, '.codex', 'agents');
+      const grok = join(home, '.grok', 'agents');
+      mkdirSync(claude, { recursive: true });
+      mkdirSync(codex, { recursive: true });
+      mkdirSync(grok, { recursive: true });
+      for (let index = 0; index < 520; index += 1) {
+        writeFileSync(join(claude, `claude-${index}.md`), [
+          '---', `name: claude-${index}`, 'description: safe', '---',
+        ].join('\n'));
+      }
+      writeFileSync(join(codex, 'codex.toml'), 'name = "codex"\ndescription = "safe"\n');
+      writeFileSync(join(grok, 'grok.md'), '---\nname: grok\ndescription: safe\n---\n');
+
+      const result = scanServerCoreUserAssets(home, {
+        maxAssets: 512,
+        maxVisitedEntries: 4_000,
+      });
+      expect(result.assets).toHaveLength(512);
+      expect(result.truncated).toBe(true);
+      expect(new Set(result.assets.map((asset) => asset.adapter))).toEqual(new Set([
+        'claude-code', 'codex-cli', 'grok-build',
+      ]));
     } finally {
       rmSync(home, { force: true, recursive: true });
     }

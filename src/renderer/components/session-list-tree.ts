@@ -10,7 +10,14 @@
  * fallback + Phase 3 roots = 未被任何方式收编)。
  */
 
-import type { SessionRecord } from '@shared/types';
+export interface SessionTreeNode {
+  id: string;
+  spawnedBy?: string | null;
+  teams?: readonly {
+    teamId: string;
+    role: 'lead' | 'teammate';
+  }[] | null;
+}
 
 /**
  * 判断 session 是否处在「纯 spawn 链」上下文 (plan §D6 HIGH-2):
@@ -24,10 +31,10 @@ import type { SessionRecord } from '@shared/types';
  * Note: 「跨 section owner 不在 allSessions」时直接 return true (silent 防御行为, 跨 lifecycle
  * group 不关联是 SessionList 设计预期, 详 plan §已知踩坑)。
  */
-export function isPureSpawnChain(
-  self: SessionRecord,
-  children: SessionRecord[],
-  allSessions: SessionRecord[],
+export function isPureSpawnChain<T extends SessionTreeNode>(
+  self: T,
+  children: T[],
+  allSessions: T[],
 ): boolean {
   if ((self.teams?.length ?? 0) > 0) return false;
   for (const c of children) {
@@ -80,14 +87,14 @@ export function isPureSpawnChain(
  * 不冲突, 如数据不一致 (理论 corner — swap 中间态 / DB race) 走 selectLiveSessions 顺序的第一
  * 个, 这是防御性行为不是 guarantee。
  */
-export function computeChildrenByOwner(sessions: SessionRecord[]): {
-  childrenByOwner: Map<string, SessionRecord[]>;
+export function computeChildrenByOwner<T extends SessionTreeNode>(sessions: T[]): {
+  childrenByOwner: Map<string, T[]>;
   claimedBySpawn: Set<string>;
   claimedByTeam: Set<string>;
-  roots: SessionRecord[];
+  roots: T[];
 } {
   const visibleIds = new Set(sessions.map((s) => s.id));
-  const childrenByOwner = new Map<string, SessionRecord[]>();
+  const childrenByOwner = new Map<string, T[]>();
   const claimedBySpawn = new Set<string>();
 
   // Phase 1: spawn-link primary (有条件收编)
@@ -121,7 +128,7 @@ export function computeChildrenByOwner(sessions: SessionRecord[]): {
   }
 
   // Phase 2: universal team 收编 fallback
-  const visibleLeadByTeamId = new Map<string, SessionRecord>();
+  const visibleLeadByTeamId = new Map<string, T>();
   for (const s of sessions) {
     for (const t of s.teams ?? []) {
       if (t.role === 'lead' && !visibleLeadByTeamId.has(t.teamId)) {
@@ -145,7 +152,7 @@ export function computeChildrenByOwner(sessions: SessionRecord[]): {
   }
 
   // Phase 3: roots
-  const roots: SessionRecord[] = sessions.filter(
+  const roots: T[] = sessions.filter(
     (s) => !claimedBySpawn.has(s.id) && !claimedByTeam.has(s.id),
   );
 

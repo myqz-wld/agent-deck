@@ -49,7 +49,7 @@ export class SshConnectionStatePublisher {
     reason: string | null,
     errorCode: string | null,
   ): void {
-    this.stateValue = freezeSshConnectionState({
+    const next = freezeSshConnectionState({
       profileId: this.profile.id,
       topology: this.profile.topology,
       status,
@@ -58,10 +58,24 @@ export class SshConnectionStatePublisher {
       reason,
       errorCode,
     });
+    if (sameState(this.stateValue, next)) return;
+    this.stateValue = next;
     for (const listener of this.listeners) {
       try {
         listener(this.snapshot());
       } catch {}
     }
   }
+}
+
+function sameState(left: SshConnectionState, right: SshConnectionState): boolean {
+  return (
+    left.profileId === right.profileId &&
+    left.topology === right.topology &&
+    left.status === right.status &&
+    left.attempt === right.attempt &&
+    left.reason === right.reason &&
+    left.errorCode === right.errorCode &&
+    JSON.stringify(left.hello) === JSON.stringify(right.hello)
+  );
 }

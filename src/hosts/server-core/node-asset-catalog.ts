@@ -11,6 +11,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, relative, sep } from 'node:path';
 
 import {
@@ -37,18 +38,14 @@ import type { AssetMeta } from '@shared/types';
 
 import { scanServerCoreUserAssets } from './node-asset-user-scan';
 import type { ServerCoreProviderSettings } from './provider-settings';
+import { isRemoteSensitiveAssetPath } from './remote-sensitive-data';
+import { readRemoteSafeFile } from './remote-safe-file-read';
 
 const READ_ONLY_REASON =
   'Remote 资产来自 Worker 的封装资源与隔离 Provider Home；当前协议只读，注入开关由 Worker 启动配置决定。';
 const ASSET_SCAN_CACHE_TTL_MS = 5_000;
 const ASSET_SCAN_MAX_VISITED_ENTRIES = (NODE_ASSET_MAX_ITEMS + 1) * 32;
 
-const filesystem: BundledAssetStoreFilesystem = {
-  existsSync,
-  readFileSync,
-  readdirSync,
-  statSync,
-};
 const mirrorFilesystem = {
   cpSync,
   existsSync,
@@ -61,7 +58,37 @@ const mirrorFilesystem = {
   writeFileSync,
 };
 
+function bundledFilesystem(root: string): BundledAssetStoreFilesystem {
+  const deny = (path: Parameters<typeof readFileSync>[0]): void => {
+    if (isRemoteSensitiveAssetPath(String(path))) throw new Error('Sensitive asset excluded');
+  };
+  return {
+    existsSync: ((path: Parameters<typeof existsSync>[0]) => {
+      try { deny(path); return existsSync(path); } catch { return false; }
+    }) as typeof existsSync,
+    readFileSync: ((path: Parameters<typeof readFileSync>[0]) => {
+      deny(path);
+      const read = readRemoteSafeFile(String(path), {
+        maximumBytes: NODE_ASSET_MAX_CONTENT_BYTES,
+        root,
+        sensitive: isRemoteSensitiveAssetPath,
+      });
+      if (!read) throw new Error('Worker asset is unavailable');
+      return read.content;
+    }) as typeof readFileSync,
+    readdirSync: ((path: Parameters<typeof readdirSync>[0], ...args: unknown[]) => {
+      deny(path);
+      return (readdirSync as (...values: unknown[]) => unknown)(path, ...args);
+    }) as typeof readdirSync,
+    statSync: ((path: Parameters<typeof statSync>[0], ...args: unknown[]) => {
+      deny(path);
+      return (statSync as (...values: unknown[]) => unknown)(path, ...args);
+    }) as typeof statSync,
+  };
+}
+
 interface InternalNodeAsset {
+  contentDigest: string;
   dto: NodeAssetDto;
   path: string;
   root: string;
@@ -69,6 +96,8 @@ interface InternalNodeAsset {
 
 interface InternalNodeAssetSnapshot {
   assets: InternalNodeAsset[];
+  conventionDigests: Readonly<Record<NodeAssetAdapterId, string>>;
+  revision: number;
   truncated: boolean;
 }
 
@@ -147,19 +176,45 @@ function dto(asset: AssetMeta, location: string): NodeAssetDto {
   };
 }
 
-function readableFile(path: string, root: string): boolean {
-  try {
-    const canonical = realpathSync(path);
-    const stat = statSync(canonical);
-    return inside(root, canonical) && stat.isFile() && stat.size <= NODE_ASSET_MAX_CONTENT_BYTES;
-  } catch {
-    return false;
-  }
+function readBounded(path: string, root: string): { path: string; content: string } {
+  const read = readRemoteSafeFile(path, {
+    maximumBytes: NODE_ASSET_MAX_CONTENT_BYTES,
+    root,
+    sensitive: isRemoteSensitiveAssetPath,
+  });
+  if (!read) throw new Error('Worker asset is unavailable or exceeds its bound');
+  return { path: read.canonicalPath, content: read.content };
 }
 
-function readBounded(path: string, root: string): string {
-  if (!readableFile(path, root)) throw new Error('Worker asset is unavailable or exceeds its bound');
-  return readFileSync(path, 'utf8');
+function digest(value: string): string {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
+function compareAsset(left: InternalNodeAsset, right: InternalNodeAsset): number {
+  return left.dto.adapterId.localeCompare(right.dto.adapterId) ||
+    left.dto.source.localeCompare(right.dto.source) ||
+    left.dto.kind.localeCompare(right.dto.kind) || left.dto.name.localeCompare(right.dto.name);
+}
+
+function fairAssets(values: readonly InternalNodeAsset[]): InternalNodeAsset[] {
+  const groups = new Map<string, InternalNodeAsset[]>();
+  for (const value of [...values].sort(compareAsset)) {
+    const key = `${value.dto.adapterId}\u0000${value.dto.source}`;
+    const group = groups.get(key) ?? [];
+    group.push(value);
+    groups.set(key, group);
+  }
+  const result: InternalNodeAsset[] = [];
+  const queues = [...groups.values()];
+  for (let index = 0; result.length < NODE_ASSET_MAX_ITEMS + 1 && queues.length > 0;) {
+    const queue = queues[index]!;
+    const next = queue.shift();
+    if (next) result.push(next);
+    if (queue.length === 0) queues.splice(index, 1);
+    else index += 1;
+    if (index >= queues.length) index = 0;
+  }
+  return result;
 }
 
 /** Worker-owned read model plus the exact bundled resource injection paths used by new sessions. */
@@ -169,6 +224,9 @@ export class ServerCoreNodeAssetCatalog {
   private readonly codexSkillsMirror;
   private readonly grokResources;
   private readonly packagedAssets: readonly InternalNodeAsset[];
+  private readonly packagedTruncated: boolean;
+  private catalogRevision = 0;
+  private catalogFingerprint: string | null = null;
   private scanCache: { snapshot: InternalNodeAssetSnapshot; expiresAt: number } | null = null;
 
   private constructor(private readonly options: ServerCoreNodeAssetCatalogOptions, root: string) {
@@ -186,7 +244,9 @@ export class ServerCoreNodeAssetCatalog {
       configRoot: join(root, 'grok-config'),
       userDataPath: stateRoot,
     });
-    this.packagedAssets = this.scanPackagedAssets();
+    const packaged = this.scanPackagedAssets();
+    this.packagedAssets = packaged.assets;
+    this.packagedTruncated = packaged.truncated;
   }
 
   static create(options: ServerCoreNodeAssetCatalogOptions): ServerCoreNodeAssetCatalog | null {
@@ -194,7 +254,7 @@ export class ServerCoreNodeAssetCatalog {
     return root ? new ServerCoreNodeAssetCatalog(options, root) : null;
   }
 
-  list(revision: number) {
+  list(_metadataRevision: number) {
     const snapshot = this.assets();
     const allAssets = snapshot.assets;
     const assets = allAssets.slice(0, NODE_ASSET_MAX_ITEMS).map((item) => item.dto);
@@ -203,34 +263,48 @@ export class ServerCoreNodeAssetCatalog {
       assetsTruncated: snapshot.truncated || allAssets.length > NODE_ASSET_MAX_ITEMS,
       injection: this.injection(),
       readOnlyReason: READ_ONLY_REASON,
-      revision,
+      revision: snapshot.revision,
     });
   }
 
-  content(params: NodeAssetContentParams, revision: number) {
-    const match = this.assets().assets.find((item) =>
+  content(params: NodeAssetContentParams, _metadataRevision: number) {
+    const snapshot = this.assets();
+    const match = snapshot.assets.find((item) =>
       item.dto.adapterId === params.adapterId && item.dto.kind === params.kind &&
       item.dto.source === params.source && item.dto.name === params.name &&
       item.dto.qualifiedName === params.qualifiedName && item.dto.location === params.location);
     if (!match) return null;
-    const raw = readBounded(match.path, match.root);
+    const raw = readBounded(match.path, match.root).content;
+    if (digest(raw) !== match.contentDigest) {
+      this.scanCache = null;
+      throw new Error('Worker asset changed after the catalog snapshot');
+    }
     return parseNodeAssetContentResult({
-      content: substituteResourcesPlaceholderWithRoot(raw, this.resourcesRoot),
-      revision,
+      content: substituteResourcesPlaceholderWithRoot(raw, 'Worker packaged resources'),
+      revision: snapshot.revision,
     });
   }
 
-  convention(adapterId: NodeAssetAdapterId, revision: number) {
+  convention(adapterId: NodeAssetAdapterId, _metadataRevision: number) {
+    const snapshot = this.assets();
+    const raw = readBounded(
+      conventionPath(this.resourcesRoot, adapterId),
+      this.resourcesRoot,
+    ).content;
+    if (digest(raw) !== snapshot.conventionDigests[adapterId]) {
+      this.scanCache = null;
+      throw new Error('Worker convention changed after the catalog snapshot');
+    }
     return parseNodeAssetConventionResult({
       adapterId,
-      content: this.readConvention(adapterId),
+      content: substituteResourcesPlaceholderWithRoot(raw, 'Worker packaged resources'),
       isCustom: false,
-      revision,
+      revision: snapshot.revision,
     });
   }
 
   applicationInstructions(adapterId: NodeAssetAdapterId): string {
-    const content = this.readConvention(adapterId).trim();
+    const content = this.readConvention(adapterId, this.resourcesRoot).trim();
     if (!content) return '';
     if (adapterId === 'claude-code') return formatClaudeSystemPromptAppend(content);
     if (adapterId === 'codex-cli') {
@@ -270,10 +344,13 @@ export class ServerCoreNodeAssetCatalog {
     return this.grokResources.preparePluginProfile(options);
   }
 
-  private readConvention(adapterId: NodeAssetAdapterId): string {
+  private readConvention(adapterId: NodeAssetAdapterId, replacementRoot: string): string {
     return substituteResourcesPlaceholderWithRoot(
-      readBounded(conventionPath(this.resourcesRoot, adapterId), this.resourcesRoot),
-      this.resourcesRoot,
+      readBounded(
+        conventionPath(this.resourcesRoot, adapterId),
+        this.resourcesRoot,
+      ).content,
+      replacementRoot,
     );
   }
 
@@ -296,26 +373,51 @@ export class ServerCoreNodeAssetCatalog {
     const now = this.options.now?.() ?? Date.now();
     if (this.scanCache && this.scanCache.expiresAt > now) return this.scanCache.snapshot;
     const providerHomeRoot = canonicalDirectory(this.options.providerHomeRoot);
-    const userLimit = Math.max(0, NODE_ASSET_MAX_ITEMS + 1 - this.packagedAssets.length);
-    const userScan = providerHomeRoot && userLimit > 0
+    const userScan = providerHomeRoot
       ? scanServerCoreUserAssets(providerHomeRoot, {
-          maxAssets: userLimit,
+          maxAssets: NODE_ASSET_MAX_ITEMS + 1,
           maxVisitedEntries: ASSET_SCAN_MAX_VISITED_ENTRIES,
         })
       : { assets: [], truncated: false };
     const user = providerHomeRoot
-      ? userScan.assets.map((asset) => ({
-          dto: dto(asset, `Worker Provider Home/${relative(providerHomeRoot, asset.absPath)}`),
-          path: asset.absPath,
-          root: providerHomeRoot,
-        }))
+      ? userScan.assets.flatMap((asset) => {
+          const internal = this.internal(
+            asset,
+            `Worker Provider Home/${relative(providerHomeRoot, asset.absPath)}`,
+            providerHomeRoot,
+          );
+          return internal ? [internal] : [];
+        })
       : [];
-    const assets = [...this.packagedAssets, ...user].sort((left, right) =>
-      left.dto.adapterId.localeCompare(right.dto.adapterId) ||
-      left.dto.kind.localeCompare(right.dto.kind) ||
-      left.dto.source.localeCompare(right.dto.source) ||
-      left.dto.name.localeCompare(right.dto.name));
-    const snapshot = { assets, truncated: userScan.truncated };
+    const candidates = [...this.packagedAssets, ...user];
+    const assets = fairAssets(candidates);
+    const conventionDigests = Object.fromEntries(
+      (['claude-code', 'codex-cli', 'grok-build'] as const).map((adapterId) => [
+        adapterId,
+        digest(readBounded(
+          conventionPath(this.resourcesRoot, adapterId),
+          this.resourcesRoot,
+        ).content),
+      ]),
+    ) as Record<NodeAssetAdapterId, string>;
+    const fingerprint = digest(JSON.stringify({
+      assets: assets.map((asset) => [asset.dto, asset.contentDigest]),
+      conventionDigests,
+      injection: this.injection(),
+      truncated: this.packagedTruncated || userScan.truncated ||
+        candidates.length > NODE_ASSET_MAX_ITEMS + 1,
+    }));
+    if (fingerprint !== this.catalogFingerprint) {
+      this.catalogFingerprint = fingerprint;
+      this.catalogRevision += 1;
+    }
+    const snapshot = {
+      assets,
+      conventionDigests,
+      revision: this.catalogRevision,
+      truncated: this.packagedTruncated || userScan.truncated ||
+        candidates.length > NODE_ASSET_MAX_ITEMS + 1,
+    };
     this.scanCache = {
       snapshot,
       expiresAt: now + Math.max(0, this.options.scanCacheTtlMs ?? ASSET_SCAN_CACHE_TTL_MS),
@@ -323,22 +425,41 @@ export class ServerCoreNodeAssetCatalog {
     return snapshot;
   }
 
-  private scanPackagedAssets(): InternalNodeAsset[] {
+  private internal(asset: AssetMeta, location: string, root: string): InternalNodeAsset | null {
+    try {
+      const read = readBounded(asset.absPath, root);
+      return {
+        contentDigest: digest(read.content),
+        dto: dto(asset, location),
+        path: read.path,
+        root,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private scanPackagedAssets(): { assets: InternalNodeAsset[]; truncated: boolean } {
     try {
       const bundled = scanBundledAssets([
         { adapter: 'claude-code', root: bundledRoot(this.resourcesRoot, 'claude-code') },
         { adapter: 'codex-cli', root: bundledRoot(this.resourcesRoot, 'codex-cli') },
         { adapter: 'grok-build', root: bundledRoot(this.resourcesRoot, 'grok-build') },
-      ], filesystem);
-      return [...bundled.agents, ...bundled.skills]
-        .slice(0, NODE_ASSET_MAX_ITEMS + 1)
-        .map((asset) => ({
-          dto: dto(asset, `Worker packaged resources/${relative(this.resourcesRoot, asset.absPath)}`),
-          path: asset.absPath,
-          root: this.resourcesRoot,
-        }));
+      ], bundledFilesystem(this.resourcesRoot));
+      const candidates = [...bundled.agents, ...bundled.skills].flatMap((asset) => {
+        const internal = this.internal(
+          asset,
+          `Worker packaged resources/${relative(this.resourcesRoot, asset.absPath)}`,
+          this.resourcesRoot,
+        );
+        return internal ? [internal] : [];
+      });
+      return {
+        assets: fairAssets(candidates),
+        truncated: candidates.length > NODE_ASSET_MAX_ITEMS + 1,
+      };
     } catch {
-      return [];
+      return { assets: [], truncated: false };
     }
   }
 }

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { parseEntrypointArgs, SERVER_ACTIONS } from './common.mjs';
 import { loadServerConfig, loadWorkerConfig } from './config.mjs';
+import { runWorkerDeployment, workerConfigureArgs } from './worker.mjs';
 import { buildAcceptanceEvidence, renderManagedUnit, sha256 } from './evidence.mjs';
 import { buildEvidenceArchive, buildFullSecretsArchive } from './artifacts.mjs';
 import {
@@ -14,7 +15,6 @@ import {
   managerFailureCode,
   relayCutoverRecovery,
 } from './server.mjs';
-import { runWorkerDeployment } from './worker.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const temporaryRoots = [];
@@ -300,6 +300,7 @@ describe('deployment automation contracts', () => {
     );
     const supervisorConfigFile = join(root, 'provider-supervisor.json');
     const grokCredentialFile = join(root, 'grok-auth.json');
+    const sessionCatalogFile = join(root, 'remote-session-catalog.json');
     const configFile = join(root, 'worker.json');
     const workerConfigId = `worker-${'a'.repeat(24)}`;
     await Promise.all([
@@ -311,6 +312,10 @@ describe('deployment automation contracts', () => {
     await writeFile(command, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
     await writeFile(templateFile, '<plist>@@INSTANCE_ID@@</plist>\n', { mode: 0o644 });
     await writeFile(grokCredentialFile, '{"fixture":true}\n', { mode: 0o600 });
+    await writeFile(sessionCatalogFile, JSON.stringify({
+      schemaVersion: 1,
+      adapters: [],
+    }), { mode: 0o600 });
     await writeFile(supervisorConfigFile, JSON.stringify({
       schemaVersion: 1,
       instanceId: 'aws-relay-on-mac',
@@ -327,6 +332,7 @@ describe('deployment automation contracts', () => {
       wrapper,
       credentialFile: null,
       workspace,
+      sessionCatalogFile,
       providerSupervisor: {
         command,
         configFile: supervisorConfigFile,
@@ -337,6 +343,7 @@ describe('deployment automation contracts', () => {
 
     const loaded = await loadWorkerConfig(configFile, repoRoot);
     expect(loaded).toMatchObject({
+      sessionCatalogFile,
       providerSupervisor: {
         command,
         configFile: supervisorConfigFile,
@@ -352,6 +359,13 @@ describe('deployment automation contracts', () => {
     await expect(runWorkerDeployment(loaded, 'dry-run')).resolves.toMatchObject({
       mutatesLocalState: false,
       providerSupervisor: 'managed-through-launchd',
+      plannedSteps: expect.arrayContaining([
+        '导入仅含 provider/model 标识的 Remote 新会话安全目录',
+      ]),
     });
+    expect(workerConfigureArgs({ ...loaded, credentialFile: '/private/worker.credential' })).toEqual([
+      'configure', '--credential', '/private/worker.credential', '--workspace', workspace,
+      '--session-catalog', sessionCatalogFile,
+    ]);
   });
 });

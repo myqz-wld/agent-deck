@@ -61,8 +61,10 @@ function hosts(
       states,
     },
     dataRevisionByProfile: new Map(),
+    resourceRevisionsByProfile: new Map(),
     busy: false,
     error: null,
+    snapshotError: null,
     refresh: vi.fn(async () => undefined),
     addProfile: vi.fn(async () => undefined),
     updateProfile: vi.fn(async () => undefined),
@@ -188,5 +190,42 @@ describe('RemoteHostManagerDialog', () => {
     for (const name of ['添加', '连接', '编辑', '删除配置']) {
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
     }
+  });
+
+  it('discards an edit overlay when the dialog closes or its profile disappears', () => {
+    const profile = remoteProfile(1);
+    const current = hosts([profile], [remoteState(profile.id)]);
+    const rendered = render(
+      <RemoteHostManagerDialog open hosts={current} onClose={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+    expect(screen.getByText('编辑远程连接')).toBeTruthy();
+
+    rendered.rerender(
+      <RemoteHostManagerDialog open={false} hosts={current} onClose={vi.fn()} />,
+    );
+    rendered.rerender(
+      <RemoteHostManagerDialog open hosts={hosts([], [])} onClose={vi.fn()} />,
+    );
+    expect(screen.queryByText('编辑远程连接')).toBeNull();
+    expect(screen.getByText('还没有远程连接')).toBeTruthy();
+  });
+
+  it('traps keyboard focus and restores the opening control after close', () => {
+    const trigger = document.createElement('button');
+    document.body.append(trigger);
+    trigger.focus();
+    const current = hosts([remoteProfile(1)], [remoteState('remote-1')]);
+    const view = render(
+      <RemoteHostManagerDialog open hosts={current} onClose={vi.fn()} />,
+    );
+    const dialog = screen.getByRole('dialog', { name: '远程数据源' });
+    expect(document.activeElement).toBe(dialog);
+
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    view.rerender(<RemoteHostManagerDialog open={false} hosts={current} onClose={vi.fn()} />);
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
   });
 });

@@ -17,15 +17,18 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
   let listener: ((event: RemoteHostDataChangedDto) => void) | null;
   const getSnapshot = vi.fn();
   const connectRemoteHost = vi.fn();
+  const disconnectRemoteHost = vi.fn();
 
   beforeEach(() => {
     vi.useFakeTimers();
     listener = null;
     getSnapshot.mockReset().mockResolvedValue(snapshot);
     connectRemoteHost.mockReset();
+    disconnectRemoteHost.mockReset();
     window.api = {
       getRemoteHostSnapshot: getSnapshot,
       connectRemoteHost,
+      disconnectRemoteHost,
       onRemoteHostChanged: (next: (event: RemoteHostDataChangedDto) => void) => {
         listener = next;
         return () => { listener = null; };
@@ -44,7 +47,12 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
 
     act(() => {
       for (let revision = 2; revision <= 12; revision += 1) {
-        listener?.({ revision, profileId: 'remote-a', reason: 'data' });
+        listener?.({
+          revision,
+          profileId: 'remote-a',
+          reason: 'data',
+          resources: ['session-list'],
+        });
       }
     });
     expect(hook.result.current.dataRevisionByProfile.size).toBe(0);
@@ -53,8 +61,25 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
 
     expect(hook.result.current.dataRevisionByProfile.get('remote-a')).toBe(12);
+    expect(hook.result.current.resourceRevisionsByProfile.get('remote-a')?.['session-list'])
+      .toBe(12);
+    expect(hook.result.current.resourceRevisionsByProfile.get('remote-a')?.usage).toBe(0);
     expect(hook.result.current.dataRevisionByProfile.has('remote-b')).toBe(false);
     expect(getSnapshot).toHaveBeenCalledTimes(3);
+  });
+
+  it('clears a refresh-owned snapshot error after the next accepted refresh', async () => {
+    getSnapshot.mockRejectedValueOnce(new Error('snapshot unavailable'));
+    const hook = renderHook(() => useRemoteHostSnapshot());
+    await act(async () => { await Promise.resolve(); });
+    expect(hook.result.current.error).toBe('snapshot unavailable');
+    expect(hook.result.current.snapshotError).toBe('snapshot unavailable');
+
+    getSnapshot.mockResolvedValueOnce(snapshot);
+    await act(async () => { await hook.result.current.refresh(); });
+    expect(hook.result.current.error).toBeNull();
+    expect(hook.result.current.snapshotError).toBeNull();
+    expect(hook.result.current.snapshot).toEqual(snapshot);
   });
 
   it('refreshes on the leading edge and at the max-wait boundary under continuous events', async () => {
@@ -62,19 +87,19 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
     await act(async () => { await Promise.resolve(); });
     expect(getSnapshot).toHaveBeenCalledTimes(1);
 
-    act(() => listener?.({ revision: 2, profileId: 'remote-a', reason: 'state' }));
+    act(() => listener?.({ revision: 2, profileId: 'remote-a', reason: 'state', resources: [] }));
     expect(getSnapshot).toHaveBeenCalledTimes(2);
     for (let revision = 3; revision <= 6; revision += 1) {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(40);
-        listener?.({ revision, profileId: 'remote-a', reason: 'state' });
+        listener?.({ revision, profileId: 'remote-a', reason: 'state', resources: [] });
       });
     }
 
     expect(getSnapshot).toHaveBeenCalledTimes(2);
     await act(async () => { await vi.advanceTimersByTimeAsync(40); });
     expect(getSnapshot).toHaveBeenCalledTimes(3);
-    act(() => listener?.({ revision: 7, profileId: 'remote-a', reason: 'state' }));
+    act(() => listener?.({ revision: 7, profileId: 'remote-a', reason: 'state', resources: [] }));
     expect(getSnapshot).toHaveBeenCalledTimes(4);
   });
 
@@ -120,7 +145,7 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
     expect(connectRemoteHost).toHaveBeenCalledWith('remote-a');
     expect(hook.result.current.snapshot).toEqual(connected);
 
-    act(() => listener?.({ revision: 5, profileId: 'remote-a', reason: 'state' }));
+    act(() => listener?.({ revision: 5, profileId: 'remote-a', reason: 'state', resources: [] }));
     await act(async () => { await Promise.resolve(); });
     expect(connectRemoteHost).toHaveBeenCalledTimes(1);
   });
@@ -155,7 +180,7 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
 
     renderHook(() => useRemoteHostSnapshot());
     await act(async () => { await Promise.resolve(); });
-    act(() => listener?.({ revision: 4, profileId: 'remote-a', reason: 'state' }));
+    act(() => listener?.({ revision: 4, profileId: 'remote-a', reason: 'state', resources: [] }));
     await act(async () => { await Promise.resolve(); });
 
     expect(connectRemoteHost).not.toHaveBeenCalled();
@@ -231,7 +256,7 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
 
     const hook = renderHook(() => useRemoteHostSnapshot());
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    act(() => listener?.({ revision: 4, profileId: 'remote-a', reason: 'state' }));
+    act(() => listener?.({ revision: 4, profileId: 'remote-a', reason: 'state', resources: [] }));
     await act(async () => { await Promise.resolve(); });
 
     expect(connectRemoteHost).toHaveBeenCalledTimes(1);
@@ -272,5 +297,41 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
     });
 
     expect(hook.result.current.error).toBeNull();
+  });
+
+  it('serializes rapid connection mutations and stays busy through the queued operation', async () => {
+    let resolveConnect!: (value: RemoteHostSnapshotDto) => void;
+    let resolveDisconnect!: (value: RemoteHostSnapshotDto) => void;
+    connectRemoteHost.mockReturnValue(new Promise((resolve) => {
+      resolveConnect = resolve;
+    }));
+    disconnectRemoteHost.mockReturnValue(new Promise((resolve) => {
+      resolveDisconnect = resolve;
+    }));
+    const hook = renderHook(() => useRemoteHostSnapshot());
+    await act(async () => { await Promise.resolve(); });
+
+    let connecting!: Promise<void>;
+    let disconnecting!: Promise<void>;
+    act(() => {
+      connecting = hook.result.current.connect('remote-a');
+      disconnecting = hook.result.current.disconnect('remote-a');
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(connectRemoteHost).toHaveBeenCalledOnce();
+    expect(disconnectRemoteHost).not.toHaveBeenCalled();
+    expect(hook.result.current.busy).toBe(true);
+
+    await act(async () => {
+      resolveConnect({ ...snapshot, revision: 2 });
+      await connecting;
+    });
+    expect(disconnectRemoteHost).toHaveBeenCalledOnce();
+    expect(hook.result.current.busy).toBe(true);
+    await act(async () => {
+      resolveDisconnect({ ...snapshot, revision: 3 });
+      await disconnecting;
+    });
+    expect(hook.result.current.busy).toBe(false);
   });
 });

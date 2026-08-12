@@ -20,6 +20,7 @@ import {
   parseRemoteHostMutationTarget,
   parseRemoteHostPageRequest,
   parseRemoteHostPendingResponse,
+  parseRemoteHostPendingIndexRequest,
   parseRemoteHostPlanReviewAsk,
   parseRemoteHostPlanReviewTarget,
   parseRemoteHostProfileDraft,
@@ -43,6 +44,11 @@ import {
   parseRemoteHostSend,
   parseRemoteHostSessionCapabilitiesRequest,
   parseRemoteHostSessionPageRequest,
+  parseRemoteHostSessionPresentationRequest,
+  parseRemoteHostSessionPermissionsRequest,
+  parseRemoteHostSessionMessagesRequest,
+  parseRemoteHostSessionOutgoingRequest,
+  parseRemoteHostSessionOutgoingRemoveRequest,
   parseRemoteHostSessionTarget,
   parseRemoteHostHandOffPreview,
   parseRemoteHostHandOffCommit,
@@ -114,6 +120,10 @@ export function registerRemoteHostIpc(): void {
 
   on(RemoteHostIpcInvoke.SessionsList, (_event, request) => safely(() =>
     getRemoteHostService().listSessions(parseRemoteHostSessionPageRequest(request))));
+  on(RemoteHostIpcInvoke.SessionPresentationsList, (_event, request) => safely(() =>
+    getRemoteHostService().listSessionPresentations(
+      parseRemoteHostSessionPresentationRequest(request),
+    )));
   on(RemoteHostIpcInvoke.SessionGet, (_event, request) => safely(() =>
     getRemoteHostService().getSession(parseRemoteHostSessionTarget(request))));
   on(RemoteHostIpcInvoke.SessionCapabilities, (_event, request) => safely(() =>
@@ -208,12 +218,30 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().getSessionInputCapabilities(
       parseRemoteHostSessionTarget(request),
     )));
+  on(RemoteHostIpcInvoke.SessionPermissionsGet, (_event, request) => safely(() =>
+    getRemoteHostService().getSessionPermissions(
+      parseRemoteHostSessionPermissionsRequest(request),
+    )));
+  on(RemoteHostIpcInvoke.SessionMessagesList, (_event, request) => safely(() =>
+    getRemoteHostService().listSessionMessages(
+      parseRemoteHostSessionMessagesRequest(request),
+    )));
+  on(RemoteHostIpcInvoke.SessionOutgoingList, (_event, request) => safely(() =>
+    getRemoteHostService().listSessionOutgoing(
+      parseRemoteHostSessionOutgoingRequest(request),
+    )));
+  on(RemoteHostIpcInvoke.SessionOutgoingRemove, (_event, request) => safely(() =>
+    getRemoteHostService().removeSessionOutgoing(
+      parseRemoteHostSessionOutgoingRemoveRequest(request),
+    )));
   on(RemoteHostIpcInvoke.SessionHandOffPreview, (_event, request) => safely(() =>
     getRemoteHostService().handoff.preview(parseRemoteHostHandOffPreview(request))));
   on(RemoteHostIpcInvoke.SessionHandOffCommit, (_event, request) => safely(() =>
     getRemoteHostService().handoff.commit(parseRemoteHostHandOffCommit(request))));
   on(RemoteHostIpcInvoke.PendingList, (_event, request) => safely(() =>
     getRemoteHostService().listPending(parseRemoteHostSessionTarget(request))));
+  on(RemoteHostIpcInvoke.PendingIndexList, (_event, request) => safely(() =>
+    getRemoteHostService().listPendingIndex(parseRemoteHostPendingIndexRequest(request))));
   on(RemoteHostIpcInvoke.PendingRespond, (_event, request) => safely(() =>
     getRemoteHostService().respondPending(parseRemoteHostPendingResponse(request))));
   on(RemoteHostIpcInvoke.PlanReviewStart, (_event, request) => safely(() =>

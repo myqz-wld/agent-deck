@@ -6,6 +6,7 @@ import type {
 } from '@shared/remote-host';
 
 import {
+  parseRemoteHostMutationAuthority,
   parseRemoteHostProfileId,
   RemoteHostInputError,
 } from './input-validation';
@@ -61,9 +62,12 @@ export function parseRemoteHostNodeHookMutation(
   value: unknown,
 ): RemoteHostNodeHookMutationDto {
   const raw = object(value, 'nodeHookMutation');
-  exact(raw, ['adapterId', 'intentId', 'profileId'], 'nodeHookMutation');
+  exact(raw, [
+    'adapterId', 'expectedAuthority', 'intentId', 'profileId',
+  ], 'nodeHookMutation');
   return {
     ...parseRemoteHostNodeHook({ adapterId: raw.adapterId, profileId: raw.profileId }),
+    expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
     intentId: intent(raw.intentId),
   };
 }

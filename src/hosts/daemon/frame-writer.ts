@@ -2,12 +2,21 @@ import type { Duplex } from 'node:stream';
 
 import type { JsonValue } from '@contracts/index';
 import { encodeJsonFrame, type HostProtocolMessage } from '@protocol/index';
+import {
+  normalByteLimit,
+  normalFrameLimit,
+} from '@protocol/control-frame-budget';
 
 import type { DaemonConnectionLimits } from './types';
 
 interface OutboundFrame {
   readonly bytes: Uint8Array;
+  readonly control: boolean;
   readonly event: boolean;
+}
+
+function isControlFrame(message: HostProtocolMessage): boolean {
+  return message.type === 'ping' || message.type === 'pong';
 }
 
 export interface BoundedFrameWriterCallbacks {
@@ -17,12 +26,14 @@ export interface BoundedFrameWriterCallbacks {
 /** Keeps host-side buffering bounded independently for every connected stream. */
 export class BoundedFrameWriter {
   private readonly frames: OutboundFrame[] = [];
+  private readonly controlFrames: OutboundFrame[] = [];
   private queuedEvents = 0;
   private outstandingFrames = 0;
   private outstandingEvents = 0;
   private queuedBytesValue = 0;
   private waitingForDrain = false;
   private disposed = false;
+  private progressTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly stream: Duplex,
@@ -31,7 +42,7 @@ export class BoundedFrameWriter {
   ) {}
 
   get queuedFrameCount(): number {
-    return this.frames.length + this.outstandingFrames;
+    return this.controlFrames.length + this.frames.length + this.outstandingFrames;
   }
 
   get queuedByteCount(): number {
@@ -40,8 +51,15 @@ export class BoundedFrameWriter {
 
   send(message: HostProtocolMessage, event = false): void {
     if (this.disposed) return;
+    const control = isControlFrame(message);
+    const frameLimit = control
+      ? this.limits.maxQueuedFrames
+      : normalFrameLimit(this.limits.maxQueuedFrames);
+    const byteLimit = control
+      ? this.limits.maxQueuedBytes
+      : normalByteLimit(this.limits.maxQueuedBytes, this.limits.maxFrameBytes);
     if (
-      this.queuedFrameCount >= this.limits.maxQueuedFrames ||
+      this.queuedFrameCount >= frameLimit ||
       (event && this.queuedEvents + this.outstandingEvents >= this.limits.maxQueuedEvents)
     ) {
       this.callbacks.onFailure('outbound-queue-overflow');
@@ -54,14 +72,17 @@ export class BoundedFrameWriter {
       this.callbacks.onFailure('outbound-frame-invalid');
       return;
     }
-    if (bytes.byteLength > this.limits.maxQueuedBytes - this.queuedBytesValue) {
+    if (bytes.byteLength > byteLimit - this.queuedBytesValue) {
       this.callbacks.onFailure('outbound-byte-queue-overflow');
       return;
     }
-    this.frames.push({ bytes, event });
+    const frame = { bytes, control, event };
+    if (control) this.controlFrames.push(frame);
+    else this.frames.push(frame);
     this.queuedBytesValue += bytes.byteLength;
     if (event) this.queuedEvents += 1;
     this.pump();
+    this.ensureProgressTimer();
   }
 
   /** Resolves once this writer's own queue is empty; it does not claim remote acknowledgement. */
@@ -75,19 +96,21 @@ export class BoundedFrameWriter {
     if (this.disposed) return;
     this.disposed = true;
     this.stream.off('drain', this.onDrain);
+    this.controlFrames.splice(0);
     this.frames.splice(0);
     this.queuedEvents = 0;
     this.outstandingFrames = 0;
     this.outstandingEvents = 0;
     this.queuedBytesValue = 0;
     this.waitingForDrain = false;
+    this.clearProgressTimer();
   }
 
   private pump(): void {
     if (this.disposed || this.waitingForDrain) return;
     try {
-      while (this.frames.length > 0) {
-        const frame = this.frames.shift();
+      while (this.controlFrames.length > 0 || this.frames.length > 0) {
+        const frame = this.controlFrames.shift() ?? this.frames.shift();
         if (!frame) break;
         if (frame.event) this.queuedEvents -= 1;
         this.outstandingFrames += 1;
@@ -101,7 +124,10 @@ export class BoundedFrameWriter {
           if (frame.event) this.outstandingEvents -= 1;
           this.queuedBytesValue -= frame.bytes.byteLength;
           if (error) this.callbacks.onFailure('transport-write-failed');
-          else if (!this.waitingForDrain) this.pump();
+          else {
+            this.recordProgress();
+            if (!this.waitingForDrain) this.pump();
+          }
         };
         if (!this.stream.write(frame.bytes, complete)) {
           this.waitingForDrain = true;
@@ -116,6 +142,28 @@ export class BoundedFrameWriter {
 
   private readonly onDrain = (): void => {
     this.waitingForDrain = false;
+    this.recordProgress();
     this.pump();
   };
+
+  private ensureProgressTimer(): void {
+    if (this.disposed || this.queuedBytesValue === 0 || this.progressTimer) return;
+    this.progressTimer = setTimeout(() => {
+      this.progressTimer = null;
+      if (!this.disposed && this.queuedBytesValue > 0) {
+        this.callbacks.onFailure('outbound-write-stalled');
+      }
+    }, this.limits.writeProgressTimeoutMs);
+    this.progressTimer.unref?.();
+  }
+
+  private recordProgress(): void {
+    this.clearProgressTimer();
+    this.ensureProgressTimer();
+  }
+
+  private clearProgressTimer(): void {
+    if (this.progressTimer) clearTimeout(this.progressTimer);
+    this.progressTimer = null;
+  }
 }

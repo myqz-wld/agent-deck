@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RemoteHostScopedClient } from './service-scope';
 import { RemoteHostTeamController, RemoteHostUsageController } from './service-teams-usage';
 
+const EXPECTED_AUTHORITY = {
+  authoritativeCoreId: 'core-a',
+  workerGeneration: 3,
+};
+
 function scoped(clientRequest: ReturnType<typeof vi.fn>) {
   const admitted = vi.fn(async (
     _profileId: string,
@@ -32,10 +37,11 @@ describe('Remote team and usage service controllers', () => {
     );
 
     await expect(controller.archive({
-      profileId: 'remote-a', teamId: 'team-a', expectedRevision: 4, intentId: 'intent-a',
+      profileId: 'remote-a', teamId: 'team-a', expectedAuthority: EXPECTED_AUTHORITY,
+      expectedRevision: 4, intentId: 'intent-a',
     })).resolves.toEqual({ team: summary, revision: 5 });
     expect(scope.admitted).toHaveBeenCalledWith(
-      'remote-a', 'teams.archive', expect.any(Function),
+      'remote-a', 'teams.archive', expect.any(Function), [], EXPECTED_AUTHORITY,
     );
     expect(clientRequest).toHaveBeenCalledWith(
       'teams.archive',
@@ -76,7 +82,8 @@ describe('Remote team and usage service controllers', () => {
     const controller = new RemoteHostTeamController(scope.request, vi.fn(() => 'mutation-a'));
 
     await expect(controller.archive({
-      profileId: 'remote-a', teamId: 'team-a', expectedRevision: 4, intentId: 'intent-a',
+      profileId: 'remote-a', teamId: 'team-a', expectedAuthority: EXPECTED_AUTHORITY,
+      expectedRevision: 4, intentId: 'intent-a',
     })).rejects.toThrow();
   });
 

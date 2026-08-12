@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type JSX } from 'react';
 import type { IssueRecord } from '@shared/types';
 import type {
   RemoteSessionCreateInput,
@@ -49,8 +49,11 @@ export interface IssueDetailDataSource {
 
 export function IssueDetail({ issueId, onClose, onOpenSession, source }: Props): JSX.Element {
   // The store remains authoritative while this component keeps a per-issue edit buffer.
-  const localIssueFromStore = useIssuesStore((s) => s.issues.get(issueId));
-  const upsertIssue = useIssuesStore((s) => s.upsertIssue);
+  const localIssueFromStore = useSyncExternalStore(
+    source ? noSubscribe : useIssuesStore.subscribe,
+    source ? noIssue : () => useIssuesStore.getState().issues.get(issueId),
+    noIssue,
+  );
   const issueFromStore = source ? source.observedIssue ?? undefined : localIssueFromStore;
   const [issue, setIssue] = useState<IssueRecord | null>(issueFromStore ?? null);
   const [editing, setEditing] = useState<EditingState | null>(
@@ -82,7 +85,7 @@ export function IssueDetail({ issueId, onClose, onOpenSession, source }: Props):
     source ? source.load(issueId) : window.api.issuesGet(issueId);
   const applyIssue = (next: IssueRecord): void => {
     if (source) source.onUpdated(next);
-    else upsertIssue(next);
+    else useIssuesStore.getState().upsertIssue(next);
   };
 
   const updateField = <K extends FieldKey>(key: K, value: EditingState[K]): void => {
@@ -293,50 +296,30 @@ export function IssueDetail({ issueId, onClose, onOpenSession, source }: Props):
           </Field>
         </div>
         <Field label="Issue 描述">
-          {source ? (
-            <IssueTextArea
-              value={editing.description}
-              onChange={(value) => updateField('description', value)}
-              disabled={isDeleted || saving}
-              maxLength={2000}
-              rows={4}
-            />
-          ) : (
-            <ExpandableIssueTextField
-              issueId={issue.id}
-              sessionId={expansionSessionId}
-              field="description"
-              label="Issue 描述"
-              value={editing.description}
-              onChange={(value) => updateField('description', value)}
-              disabled={isDeleted || saving}
-              maxLength={2000}
-              rows={4}
-            />
-          )}
+          <ExpandableIssueTextField
+            issueId={issue.id}
+            sessionId={expansionSessionId}
+            field="description"
+            label="Issue 描述"
+            value={editing.description}
+            onChange={(value) => updateField('description', value)}
+            disabled={isDeleted || saving}
+            maxLength={2000}
+            rows={4}
+          />
         </Field>
         <Field label="重现步骤（可选）">
-          {source ? (
-            <IssueTextArea
-              value={editing.repro}
-              onChange={(value) => updateField('repro', value)}
-              disabled={isDeleted || saving}
-              maxLength={2000}
-              rows={3}
-            />
-          ) : (
-            <ExpandableIssueTextField
-              issueId={issue.id}
-              sessionId={expansionSessionId}
-              field="repro"
-              label="重现步骤"
-              value={editing.repro}
-              onChange={(value) => updateField('repro', value)}
-              disabled={isDeleted || saving}
-              maxLength={2000}
-              rows={3}
-            />
-          )}
+          <ExpandableIssueTextField
+            issueId={issue.id}
+            sessionId={expansionSessionId}
+            field="repro"
+            label="重现步骤"
+            value={editing.repro}
+            onChange={(value) => updateField('repro', value)}
+            disabled={isDeleted || saving}
+            maxLength={2000}
+            rows={3}
+          />
         </Field>
         <Field label="标签（逗号分隔）">
           <input
@@ -442,27 +425,5 @@ export function IssueDetail({ issueId, onClose, onOpenSession, source }: Props):
   );
 }
 
-function IssueTextArea({
-  value,
-  onChange,
-  disabled,
-  maxLength,
-  rows,
-}: {
-  value: string;
-  onChange(value: string): void;
-  disabled: boolean;
-  maxLength: number;
-  rows: number;
-}): JSX.Element {
-  return (
-    <textarea
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      disabled={disabled}
-      maxLength={maxLength}
-      rows={rows}
-      className="w-full resize-y rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-xs leading-relaxed text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
-    />
-  );
-}
+const noSubscribe = (): (() => void) => () => undefined;
+const noIssue = (): undefined => undefined;

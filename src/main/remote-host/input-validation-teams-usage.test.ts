@@ -8,17 +8,23 @@ import {
   parseRemoteHostUsageToken,
 } from './input-validation-teams-usage';
 
+const EXPECTED_AUTHORITY = {
+  authoritativeCoreId: 'core-a',
+  workerGeneration: 3,
+};
+
 describe('Remote team and usage IPC input validation', () => {
   it('accepts exact bounded team reads and revision-bound mutations', () => {
     expect(parseRemoteHostTeamList({
       profileId: 'remote-a', includeArchived: false, limit: 200,
     })).toEqual({ profileId: 'remote-a', includeArchived: false, limit: 200 });
     expect(parseRemoteHostTeamMutationTarget({
-      profileId: 'remote-a', teamId: 'team-a', expectedRevision: 4, intentId: 'intent-a',
+      profileId: 'remote-a', teamId: 'team-a', expectedAuthority: EXPECTED_AUTHORITY,
+      expectedRevision: 4, intentId: 'intent-a',
     })).toMatchObject({ teamId: 'team-a', expectedRevision: 4, intentId: 'intent-a' });
     expect(parseRemoteHostTeamAddMember({
       profileId: 'remote-a', teamId: 'team-a', sessionId: 'session-b', role: 'teammate',
-      expectedRevision: 4, intentId: 'intent-b',
+      expectedAuthority: EXPECTED_AUTHORITY, expectedRevision: 4, intentId: 'intent-b',
     })).toMatchObject({ sessionId: 'session-b', role: 'teammate' });
   });
 
@@ -31,7 +37,7 @@ describe('Remote team and usage IPC input validation', () => {
     })).toThrow('unexpected fields');
     expect(() => parseRemoteHostTeamAddMember({
       profileId: 'remote-a', teamId: 'team-a', sessionId: 'session-b', role: 'owner',
-      expectedRevision: 4, intentId: 'intent-b',
+      expectedAuthority: EXPECTED_AUTHORITY, expectedRevision: 4, intentId: 'intent-b',
     })).toThrow('invalid team member request');
   });
 

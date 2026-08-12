@@ -10,22 +10,24 @@ import {
   PushpinIcon,
   SettingsIcon,
 } from './icons';
-import type { RemoteHostProfileDto, RemoteHostSourceMode } from '@shared/remote-host';
+import type { RemoteHostProfileDto } from '@shared/remote-host';
 import { appViewLabel, availableAppViews } from '../app-view-catalog';
 import type { RemoteUsageSourceView } from '../remote-host/use-remote-usage-source';
+import type { AppSourceAuthority } from '../source-authority';
 
 export type AppView = 'live' | 'history' | 'pending' | 'teams' | 'issues' | 'data';
 
 interface AppHeaderProps {
   view: AppView;
   stats: { total: number | null; waiting: number; working: number };
-  pending: number;
+  pending: number | null;
   pinned: boolean;
   compact: boolean;
-  sourceMode: RemoteHostSourceMode;
+  authority: AppSourceAuthority;
   selectedRemoteProfileId: string | null;
   remoteProfiles: readonly RemoteHostProfileDto[];
   remoteCapabilities: ReadonlySet<string>;
+  remoteUsable: boolean;
   remoteUsage: RemoteUsageSourceView | null;
   onViewChange: (view: AppView) => void;
   onSourceChange: (value: string) => void;
@@ -44,10 +46,11 @@ export function AppHeader({
   pending,
   pinned,
   compact,
-  sourceMode,
+  authority,
   selectedRemoteProfileId,
   remoteProfiles,
   remoteCapabilities,
+  remoteUsable,
   remoteUsage,
   onViewChange,
   onSourceChange,
@@ -59,10 +62,14 @@ export function AppHeader({
   onOpenLibrary,
   onOpenSettings,
 }: AppHeaderProps): JSX.Element {
-  const sourceValue = sourceMode === 'remote' && selectedRemoteProfileId
-    ? `remote:${selectedRemoteProfileId}`
-    : 'local';
-  const sourceOptions = [
+  const sourceValue = authority === 'unknown'
+    ? 'unknown'
+    : authority === 'remote' && selectedRemoteProfileId
+      ? `remote:${selectedRemoteProfileId}`
+      : 'local';
+  const sourceOptions = authority === 'unknown' ? [
+    { value: 'unknown', label: '正在确认数据源', disabled: true },
+  ] : [
     { value: 'local', label: 'Local · 本机' },
     ...remoteProfiles
       .filter((profile) => profile.scope === 'remote')
@@ -71,13 +78,17 @@ export function AppHeader({
         label: `Remote · ${profile.label}`,
       })),
   ];
-  const remote = sourceMode === 'remote';
-  const viewEntries = availableAppViews(remote, remoteCapabilities);
+  const remote = authority === 'remote';
+  const authorityReady = authority !== 'unknown';
+  const businessReady = authorityReady && (!remote || remoteUsable);
+  const viewEntries = authorityReady ? availableAppViews(remote, remoteCapabilities) : [];
   const viewOptions = viewEntries.map((entry) => ({
     value: entry.view,
-    label: entry.view === 'pending' && pending > 0
-      ? `待处理 · ${pending}`
-      : appViewLabel(entry),
+    label: entry.view === 'pending' && pending === null
+      ? '待处理 · 数量未提供'
+      : entry.view === 'pending' && pending !== null && pending > 0
+        ? `待处理 · ${pending}`
+        : appViewLabel(entry),
   }));
 
   return (
@@ -92,8 +103,11 @@ export function AppHeader({
           {stats.working > 0 && (
             <span className="ml-1.5 text-status-working">· {stats.working} 进行中</span>
           )}
+          {remote && pending === null && (
+            <span className="ml-1.5">· 待处理数量未提供</span>
+          )}
         </span>
-        {pending > 0 && (
+        {pending !== null && pending > 0 && (
           <button
             type="button"
             onClick={onOpenPending}
@@ -107,7 +121,7 @@ export function AppHeader({
       </div>
       <HeaderTokenRates remoteUsage={remoteUsage} />
       <div className="flex shrink-0 items-center gap-0.5 no-drag">
-        <HeaderIconButton title="新建会话" onClick={onNewSession}>
+        <HeaderIconButton title="新建会话" onClick={onNewSession} disabled={!businessReady}>
           <PlusIcon className="h-3.5 w-3.5" />
         </HeaderIconButton>
         <Divider />
@@ -116,8 +130,9 @@ export function AppHeader({
             <TabButton
               key={entry.view}
               active={view === entry.view}
+              disabled={!businessReady}
               onClick={() => onViewChange(entry.view)}
-              badge={entry.view === 'pending' && pending > 0 ? pending : undefined}
+              badge={entry.view === 'pending' && pending !== null && pending > 0 ? pending : undefined}
             >
               {appViewLabel(entry)}
             </TabButton>
@@ -132,6 +147,7 @@ export function AppHeader({
           className="w-20 min-[900px]:hidden"
           buttonClassName="flex h-5 w-full items-center rounded px-2 text-left text-[10px] text-deck-muted outline-none transition hover:bg-white/8 hover:text-deck-text focus:bg-white/10 focus:text-deck-text"
           menuMinWidth={120}
+          disabled={!businessReady}
         />
         <Divider />
         <DeckSelect
@@ -143,12 +159,14 @@ export function AppHeader({
           className="w-28"
           buttonClassName="flex h-5 w-full items-center rounded px-2 text-left text-[10px] text-deck-muted outline-none transition hover:bg-white/8 hover:text-deck-text focus:bg-white/10 focus:text-deck-text"
           menuMinWidth={180}
+          disabled={!authorityReady}
         />
         <button
           type="button"
+          disabled={!authorityReady}
           onClick={onOpenRemoteProfiles}
           title="远程数据源设置"
-          className="inline-flex h-5 items-center rounded px-1.5 text-[10px] text-deck-muted transition hover:bg-white/8 hover:text-deck-text"
+          className="inline-flex h-5 items-center rounded px-1.5 text-[10px] text-deck-muted transition hover:bg-white/8 hover:text-deck-text disabled:cursor-not-allowed disabled:opacity-40"
         >
           源
         </button>
@@ -166,10 +184,10 @@ export function AppHeader({
             ? <ExpandIcon className="h-3.5 w-3.5" />
             : <CollapseIcon className="h-3.5 w-3.5" />}
         </HeaderIconButton>
-        <HeaderIconButton title="资产库" onClick={onOpenLibrary}>
+        <HeaderIconButton title="资产库" onClick={onOpenLibrary} disabled={!authorityReady}>
           <LibraryIcon className="h-3.5 w-3.5" />
         </HeaderIconButton>
-        <HeaderIconButton title="设置" onClick={onOpenSettings}>
+        <HeaderIconButton title="设置" onClick={onOpenSettings} disabled={!authorityReady}>
           <SettingsIcon className="h-3.5 w-3.5" />
         </HeaderIconButton>
       </div>
@@ -179,11 +197,13 @@ export function AppHeader({
 
 function TabButton({
   active,
+  disabled,
   onClick,
   children,
   badge,
 }: {
   active: boolean;
+  disabled?: boolean;
   onClick: () => void;
   children: ReactNode;
   badge?: number;
@@ -191,8 +211,9 @@ function TabButton({
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
-      className={`inline-flex h-5 items-center rounded px-2 text-[10px] transition ${
+      className={`inline-flex h-5 items-center rounded px-2 text-[10px] transition disabled:cursor-not-allowed disabled:opacity-40 ${
         active ? 'bg-white/15 text-deck-text' : 'text-deck-muted hover:bg-white/8'
       }`}
     >
@@ -210,22 +231,25 @@ function HeaderIconButton({
   title,
   onClick,
   active,
+  disabled,
   activeClassName = 'bg-white/12 text-deck-text',
   children,
 }: {
   title: string;
   onClick: () => void;
   active?: boolean;
+  disabled?: boolean;
   activeClassName?: string;
   children: ReactNode;
 }): JSX.Element {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
       title={title}
       aria-label={title}
-      className={`flex h-5 w-5 items-center justify-center rounded transition ${
+      className={`flex h-5 w-5 items-center justify-center rounded transition disabled:cursor-not-allowed disabled:opacity-40 ${
         active
           ? activeClassName
           : 'text-deck-muted hover:bg-white/8 hover:text-deck-text'

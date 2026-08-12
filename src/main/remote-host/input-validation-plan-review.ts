@@ -3,7 +3,10 @@ import type {
   RemoteHostPlanReviewTargetDto,
 } from '@shared/remote-host';
 
-import { RemoteHostInputError } from './input-validation';
+import {
+  parseRemoteHostMutationAuthority,
+  RemoteHostInputError,
+} from './input-validation';
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
 const CONTROL = /[\u0000\u007f-\u009f\u2028\u2029]/u;
@@ -43,6 +46,7 @@ function target(raw: Record<string, unknown>): RemoteHostPlanReviewTargetDto {
     profileId: token(raw.profileId, 'profileId', 128),
     sessionId: token(raw.sessionId, 'sessionId'),
     requestId: token(raw.requestId, 'requestId'),
+    expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
     intentId: token(raw.intentId, 'intentId', 128),
     expectedRevision: revision(raw.expectedRevision),
   };
@@ -52,14 +56,17 @@ export function parseRemoteHostPlanReviewTarget(
   value: unknown,
 ): RemoteHostPlanReviewTargetDto {
   const raw = object(value);
-  exact(raw, ['expectedRevision', 'intentId', 'profileId', 'requestId', 'sessionId']);
+  exact(raw, [
+    'expectedAuthority', 'expectedRevision', 'intentId', 'profileId', 'requestId', 'sessionId',
+  ]);
   return target(raw);
 }
 
 export function parseRemoteHostPlanReviewAsk(value: unknown): RemoteHostPlanReviewAskDto {
   const raw = object(value);
   exact(raw, [
-    'expectedRevision', 'intentId', 'profileId', 'question', 'requestId', 'sessionId',
+    'expectedAuthority', 'expectedRevision', 'intentId', 'profileId', 'question', 'requestId',
+    'sessionId',
   ]);
   if (
     typeof raw.question !== 'string' || raw.question.trim().length === 0 ||

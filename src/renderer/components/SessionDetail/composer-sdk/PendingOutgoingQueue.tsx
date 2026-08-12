@@ -152,6 +152,27 @@ export function PendingOutgoingQueue({
     }
   };
 
+  return <PendingOutgoingQueueView
+    messages={messages}
+    error={error}
+    deleting={deleting}
+    onRemove={(messageId) => void remove(messageId)}
+  />;
+}
+
+export function PendingOutgoingQueueView({
+  messages,
+  error,
+  deleting,
+  onRemove,
+  removeDisabled = false,
+}: {
+  messages: readonly PendingOutgoingMessage[];
+  error: string | null;
+  deleting: ReadonlySet<string>;
+  onRemove: (messageId: string) => void;
+  removeDisabled?: boolean;
+}): JSX.Element | null {
   if (messages.length === 0 && !error) return null;
   return (
     <section className="mb-1.5 rounded border border-status-waiting/25 bg-status-waiting/[0.06] p-1.5">
@@ -172,11 +193,11 @@ export function PendingOutgoingQueue({
             </span>
             <button
               type="button"
-              disabled={deleting.has(message.id)}
-              onClick={() => void remove(message.id)}
+              disabled={removeDisabled || deleting.has(message.id)}
+              onClick={() => onRemove(message.id)}
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-status-error disabled:opacity-40"
               aria-label="删除等待消息"
-              title="从等待队列删除"
+              title={removeDisabled ? '此 Remote Core 未提供等待队列删除能力' : '从等待队列删除'}
             >
               <CloseIcon className="h-3 w-3" />
             </button>

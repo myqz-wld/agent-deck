@@ -1,4 +1,5 @@
 import { SshTransportError } from './errors';
+import { controlQueueCapacityError } from '@protocol/control-frame-budget';
 import { assertSafeTimerHorizon } from './timers';
 import type {
   SshReconnectPolicy,
@@ -26,6 +27,7 @@ export const DEFAULT_SSH_TRANSPORT_BOUNDS: SshTransportBounds = Object.freeze({
 
 export const DEFAULT_SSH_TRANSPORT_TIMING: SshTransportTiming = Object.freeze({
   handshakeTimeoutMs: 15_000,
+  writeProgressTimeoutMs: 10_000,
   pingIntervalMs: 30_000,
   pongTimeoutMs: 10_000,
   childExitGraceMs: 1_000,
@@ -74,7 +76,16 @@ export function resolveSshTransportOptions(
     );
   }
   for (const [field, value] of Object.entries(bounds)) requirePositive(value, `bounds.${field}`);
+  const queueCapacityError = controlQueueCapacityError({
+    maxFrameBytes: bounds.maxFrameBytes,
+    maxQueuedBytes: bounds.maxQueuedWriteBytes,
+    maxQueuedFrames: bounds.maxQueuedWriteFrames,
+  });
+  if (queueCapacityError) {
+    throw new SshTransportError('invalid_profile', queueCapacityError);
+  }
   requireTimer(timing.handshakeTimeoutMs, 'timing.handshakeTimeoutMs');
+  requireTimer(timing.writeProgressTimeoutMs, 'timing.writeProgressTimeoutMs');
   requireTimer(timing.pingIntervalMs, 'timing.pingIntervalMs', true);
   requireTimer(timing.pongTimeoutMs, 'timing.pongTimeoutMs', true);
   requireTimer(timing.childExitGraceMs, 'timing.childExitGraceMs');

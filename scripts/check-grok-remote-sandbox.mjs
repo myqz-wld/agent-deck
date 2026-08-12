@@ -2,10 +2,22 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const ROOT = resolve(import.meta.dirname, '..');
-const GROK = resolve(ROOT, 'node_modules/@xai-official/grok/bin/grok');
+
+function resolvePackageNodeModules() {
+  let current = ROOT;
+  while (true) {
+    const candidate = resolve(current, 'node_modules');
+    if (existsSync(resolve(candidate, '@xai-official/grok/bin/grok'))) return candidate;
+    const parent = dirname(current);
+    if (parent === current) return resolve(ROOT, 'node_modules');
+    current = parent;
+  }
+}
+
+const GROK = resolve(resolvePackageNodeModules(), '@xai-official/grok/bin/grok');
 const CANARY = 'AGENT_DECK_PRIVATE_GROK_AUTH_CANARY';
 const TIMEOUT_MS = 20_000;
 

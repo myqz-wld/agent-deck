@@ -1,4 +1,5 @@
 import type { AgentDeckClient, CoreMethod, CoreMethodMap } from '@contracts/index';
+import type { RemoteHostMutationAuthorityDto } from '@shared/remote-host';
 
 export interface RemoteHostScopedClient {
   client: AgentDeckClient<CoreMethodMap>;
@@ -12,6 +13,7 @@ export type RemoteHostScopedRequest = <T>(
   method: CoreMethod,
   run: (scope: RemoteHostScopedClient) => Promise<T>,
   additionalMethods?: readonly CoreMethod[],
+  expectedAuthority?: RemoteHostMutationAuthorityDto,
 ) => Promise<T>;
 
 export interface RemoteHostTerminalScopedResult<T> {
@@ -26,6 +28,7 @@ export type RemoteHostTerminalScopedRequest = <T>(
   run: (scope: RemoteHostScopedClient) => Promise<T>,
   onCurrent?: (result: T) => void,
   additionalMethods?: readonly CoreMethod[],
+  expectedAuthority?: RemoteHostMutationAuthorityDto,
 ) => Promise<RemoteHostTerminalScopedResult<T>>;
 
 export class RemoteHostScopeEpochs {

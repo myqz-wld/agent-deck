@@ -8,7 +8,7 @@ describe('source navigation detail ownership', () => {
     (view) => {
       const clearLocal = vi.fn();
       const clearRemote = vi.fn();
-      clearDetailForSourceView(true, view, clearLocal, clearRemote);
+      clearDetailForSourceView(true, 'live', view, clearLocal, clearRemote);
       expect(clearRemote).toHaveBeenCalledOnce();
       expect(clearLocal).not.toHaveBeenCalled();
     },
@@ -16,7 +16,7 @@ describe('source navigation detail ownership', () => {
 
   it('does not clear Remote detail for the live workspace', () => {
     const clearRemote = vi.fn();
-    clearDetailForSourceView(true, 'live', vi.fn(), clearRemote);
+    clearDetailForSourceView(true, 'live', 'live', vi.fn(), clearRemote);
     expect(clearRemote).not.toHaveBeenCalled();
   });
 
@@ -24,8 +24,14 @@ describe('source navigation detail ownership', () => {
     'preserves the Local detail-priority rule for %s',
     (view) => {
       const clearLocal = vi.fn();
-      clearDetailForSourceView(false, view, clearLocal, vi.fn());
+      clearDetailForSourceView(false, 'live', view, clearLocal, vi.fn());
       expect(clearLocal).toHaveBeenCalledOnce();
     },
   );
+
+  it('clears a Remote History detail before returning to Live', () => {
+    const clearRemote = vi.fn();
+    clearDetailForSourceView(true, 'history', 'live', vi.fn(), clearRemote);
+    expect(clearRemote).toHaveBeenCalledOnce();
+  });
 });

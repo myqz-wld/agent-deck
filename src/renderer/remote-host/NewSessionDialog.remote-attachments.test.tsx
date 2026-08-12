@@ -56,16 +56,34 @@ function source(
     busy: false,
     capabilities: new Set(['session-console.create', 'session-console.read']),
     dataRevision: 0,
+    resourceRevisions: {
+      'session-list': 0, 'session-detail': 0, pending: 0, teams: 0,
+      issues: 0, usage: 0, 'node-configuration': 0, 'node-assets': 0,
+    },
     error: null,
     eventLoadError: null,
     events: null,
+    historyQuery: '',
     historySessions: [],
     hasMoreHistorySessions: false,
     hasMoreSessions: false,
     identity: 'remote-a:core-a:1',
     loading: false,
+    pendingBuckets: [],
     pendingBySession: new Map(),
-    profile: null,
+    pendingLoading: false,
+    pendingLoadError: null,
+    pendingTotal: 0,
+    pendingScanTruncated: false,
+    hasMorePending: false,
+    presentationCounts: null,
+    profile: {
+      id: 'remote-a',
+      label: 'Primary Worker',
+      scope: 'remote',
+      endpoint: null,
+      credentials: { connectionCredentialConfigured: true },
+    },
     recoveringWorker: false,
     runtime: null,
     summaries: null,
@@ -103,10 +121,16 @@ function source(
     previewHandOff: vi.fn(),
     commitHandOff: vi.fn(),
     loadMoreHistorySessions: vi.fn(),
+    listOutgoing: vi.fn(async () => ({
+      sessionId: 'session-a', adapterId: 'claude-code', messages: [], revision: 1,
+    })),
+    loadMorePending: vi.fn(),
     loadMoreSessions: vi.fn(),
     refresh: vi.fn(),
     respondPending: vi.fn(),
+    removeOutgoing: vi.fn(async () => true),
     selectSession: vi.fn(),
+    setHistoryQuery: vi.fn(),
     send: vi.fn(),
     steer: vi.fn(),
     updateRuntime: vi.fn(),
@@ -130,6 +154,7 @@ describe('Remote New Session attachments', () => {
       (screen.getByRole('button', { name: '创建' }) as HTMLButtonElement).disabled,
     ).toBe(false));
     expect(screen.getByRole('img', { name: 'evidence.png' })).toBeTruthy();
+    expect(screen.getByText('创建目标：Remote · Primary Worker · Workspace')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
     await waitFor(
@@ -172,6 +197,39 @@ describe('Remote New Session attachments', () => {
       expect.objectContaining({ label: '工作目录可写', disabled: true, title: reason }),
       expect.objectContaining({ label: '⚠️ Workspace 内完全开放', disabled: true, title: reason }),
     ]);
+  });
+
+  it('renders every adapter-native disabled option with the Core-provided reason', async () => {
+    const current = source();
+    const descriptor = sessionConsoleCapabilitiesFixture('codex-cli', '.');
+    const disabledReason = '当前 Worker 策略不允许修改此选项。';
+    vi.mocked(current.getSessionCapabilities).mockResolvedValue({
+      ...descriptor,
+      create: {
+        ...descriptor.create,
+        options: {
+          ...descriptor.create.options,
+          approvalPolicy: {
+            allowedValues: [], allowCustom: false, allowEmpty: false,
+            defaultValue: null, disabledReason, enabled: false,
+          },
+          provider: {
+            allowedValues: [], allowCustom: false, allowEmpty: false,
+            defaultValue: null, disabledReason, enabled: false,
+          },
+          model: {
+            allowedValues: [], allowCustom: false, allowEmpty: false,
+            defaultValue: null, disabledReason, enabled: false,
+          },
+        },
+      },
+    });
+    window.api = {} as typeof window.api;
+    render(<NewSessionDialog open remoteSource={current} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    expect((await screen.findAllByText(`不可用：${disabledReason}`)).length)
+      .toBeGreaterThanOrEqual(3);
+    expect(screen.getByText('审批策略')).toBeTruthy();
   });
 
   it('does not restore stale create capabilities after a same-identity disconnect', async () => {

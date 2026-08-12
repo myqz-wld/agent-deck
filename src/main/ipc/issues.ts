@@ -2,21 +2,8 @@
 
 import { homedir } from 'node:os';
 import { IpcInvoke } from '@shared/ipc-channels';
-import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import { z } from 'zod';
 import { adapterRegistry } from '@main/adapters/registry';
-import {
-  buildCreateSessionOptions,
-  type AgentId,
-} from '@main/adapters/options-builder';
-import {
-  firstUnsupportedTargetRuntimeField,
-  unsupportedTargetRuntimeFieldMessage,
-} from '@main/adapters/runtime-control-contracts';
-import {
-  resolveCreateSessionModelOptions,
-  SessionModelOptionsError,
-} from '@main/adapters/session-model-options';
 import { sessionManager } from '@main/session/manager';
 import { issueRepo } from '@main/store/issue-repo';
 import { sessionRepo } from '@main/store/session-repo';
@@ -34,6 +21,9 @@ import {
   parseGrokSandboxProfile,
 } from './_helpers';
 import type { IssueRecord } from '@shared/types';
+import { createIssueResolutionSession } from './issue-resolution-session';
+
+export { createIssueResolutionSession } from './issue-resolution-session';
 
 const logger = log.scope('ipc-issues');
 
@@ -133,6 +123,7 @@ export const RESOLVE_IN_NEW_SESSION_SCHEMA = z.object({
   adapter: z.string().min(1).max(64),
   cwd: z.string().max(4096).optional(), // optional: fallback issue.cwd > homedir
   prompt: z.string().min(1).max(102400),
+  attachments: z.array(z.unknown()).max(20).optional(),
   permissionMode: z.string().optional(), // parsePermissionMode 内部白名单
   sessionMode: z.string().optional(),
   approvalPolicy: z.string().optional(),
@@ -143,128 +134,6 @@ export const RESOLVE_IN_NEW_SESSION_SCHEMA = z.object({
   model: z.string().max(256).optional(),
   thinking: z.string().optional(), // resolveCreateSessionModelOptions 内按 adapter 白名单校验
 }).strict();
-
-// Resolution-session creation mirrors AdapterCreateSession boundary checks.
-
-interface CreateIssueResolutionSessionInput {
-  adapter: string;
-  cwd: string; // 已 fallback + 长度校验完
-  prompt: string;
-  permissionMode: ReturnType<typeof parsePermissionMode>;
-  sessionMode?: ReturnType<typeof parseAdapterSessionMode>;
-  approvalPolicy?: ReturnType<typeof parseCodexApprovalPolicy>;
-  codexSandbox: ReturnType<typeof parseCodexSandboxMode>;
-  claudeCodeSandbox: ReturnType<typeof parseSandboxMode>;
-  grokSandbox?: ReturnType<typeof parseGrokSandboxProfile>;
-  provider?: unknown;
-  model?: unknown;
-  thinking?: unknown;
-}
-
-export async function createIssueResolutionSession(input: CreateIssueResolutionSessionInput): Promise<string> {
-  // §1+§2 adapter id 校验 + 反查（不可 `?.createSession` optional chain 吞错 — 与 §D14 一致）
-  const validAdapterId = parseStringId('adapter', input.adapter, 64);
-  const a = adapterRegistry.get(validAdapterId);
-  if (!a) {
-    throw new IpcInputError('adapter', `adapter "${validAdapterId}" not found in registry`);
-  }
-  if (!a.createSession) {
-    throw new IpcInputError('adapter', `adapter "${validAdapterId}" does not implement createSession`);
-  }
-  // §3 canCreateSession capability 校验
-  if (a.capabilities.canCreateSession !== true) {
-    throw new IpcInputError('adapter', `adapter "${validAdapterId}" capabilities.canCreateSession=false`);
-  }
-  const approvalPolicy = input.approvalPolicy ?? null;
-  if (approvalPolicy !== null && validAdapterId !== 'codex-cli') {
-    throw new IpcInputError(
-      'approvalPolicy',
-      `owned by codex-cli and incompatible with target adapter "${validAdapterId}"`,
-    );
-  }
-  const unsupportedRuntimeField = firstUnsupportedTargetRuntimeField(
-    validAdapterId as AgentId,
-    {
-      ...(input.permissionMode !== null
-        ? { permissionMode: input.permissionMode }
-        : {}),
-      ...(input.sessionMode != null ? { sessionMode: input.sessionMode } : {}),
-      ...(input.codexSandbox !== null
-        ? { codexSandbox: input.codexSandbox }
-        : {}),
-      ...(input.claudeCodeSandbox !== null
-        ? { claudeCodeSandbox: input.claudeCodeSandbox }
-        : {}),
-      ...(input.grokSandbox != null
-        ? { grokSandbox: input.grokSandbox }
-        : {}),
-    },
-  );
-  if (unsupportedRuntimeField !== null) {
-    throw new IpcInputError(
-      unsupportedRuntimeField,
-      unsupportedTargetRuntimeFieldMessage(
-        validAdapterId as AgentId,
-        unsupportedRuntimeField,
-      ),
-    );
-  }
-  if (input.sessionMode != null) {
-    if (!a.capabilities.canSetSessionMode) {
-      throw new IpcInputError(
-        'sessionMode',
-        `adapter "${validAdapterId}" does not support session mode "${input.sessionMode}"`,
-      );
-    }
-  }
-  // §6 prompt 长度（zod 已 max 102400 守门）
-  if (input.prompt.length > MAX_USER_MESSAGE_LENGTH) {
-    throw new IpcInputError('prompt', `> 102400 chars (got ${input.prompt.length.toLocaleString()} chars)`);
-  }
-  // §5 cwd 长度（fallback 由调用方做完,这里只兜底 ≤4096）
-  if (input.cwd.length > 4096) {
-    throw new IpcInputError('cwd', `length > 4096 (got ${input.cwd.length})`);
-  }
-  let sessionModelOptions;
-  try {
-    sessionModelOptions = resolveCreateSessionModelOptions(validAdapterId as AgentId, {
-      provider: input.provider,
-      model: input.model,
-      thinking: input.thinking,
-    });
-  } catch (error) {
-    if (error instanceof SessionModelOptionsError) {
-      throw new IpcInputError(error.field, error.message);
-    }
-    throw error;
-  }
-  // Attachments are intentionally unavailable on this path.
-  const createOptions = buildCreateSessionOptions(validAdapterId, {
-    cwd: input.cwd,
-    prompt: input.prompt,
-    ...(input.permissionMode !== null ? { permissionMode: input.permissionMode } : {}),
-    ...(input.sessionMode != null ? { sessionMode: input.sessionMode } : {}),
-    ...(input.codexSandbox !== null ? { codexSandbox: input.codexSandbox } : {}),
-    ...(input.claudeCodeSandbox !== null ? { claudeCodeSandbox: input.claudeCodeSandbox } : {}),
-    ...(input.grokSandbox != null ? { grokSandbox: input.grokSandbox } : {}),
-    ...sessionModelOptions,
-  });
-  if (createOptions.agentId === 'codex-cli' && approvalPolicy !== null) {
-    createOptions.approvalPolicy = approvalPolicy;
-  }
-  const sid = await a.createSession(createOptions);
-  if (input.permissionMode !== null && a.capabilities.canSetPermissionMode) {
-    try {
-      sessionManager.recordCreatedPermissionMode(sid, input.permissionMode);
-    } catch (error) {
-      logger.warn(
-        `[IssuesResolveInNewSession] recordCreatedPermissionMode(${sid}) failed`,
-        error,
-      );
-    }
-  }
-  return sid;
-}
 
 // Concurrent clicks for one issue share the same in-flight creation.
 const inFlightResolve = new Map<string, Promise<{ sessionId: string; issue: IssueRecord }>>();
@@ -415,6 +284,7 @@ export async function issuesResolveInNewSessionHandler(
       adapter: args.adapter,
       cwd,
       prompt: args.prompt,
+      attachments: args.attachments,
       permissionMode,
       sessionMode,
       approvalPolicy,

@@ -3,7 +3,10 @@ import type {
   MutableRefObject,
   SetStateAction,
 } from 'react';
-import type { RemoteHostRuntimeControlsDto } from '@shared/remote-host';
+import type {
+  RemoteHostMutationAuthorityDto,
+  RemoteHostRuntimeControlsDto,
+} from '@shared/remote-host';
 
 import type { RemoteSessionSourceView } from './source-types';
 import {
@@ -19,14 +22,17 @@ type SessionActions = Pick<RemoteSessionSourceView,
   | 'getSessionCapabilities'
   | 'interrupt'
   | 'listWorkspaceDirectories'
+  | 'listOutgoing'
   | 'previewHandOff'
   | 'respondPending'
+  | 'removeOutgoing'
   | 'send'
   | 'steer'
   | 'updateRuntime'>;
 
 interface RemoteSessionActionOptions {
   activeProfileId: string | null;
+  expectedAuthority: RemoteHostMutationAuthorityDto;
   identityRef: MutableRefObject<string>;
   intents: RemoteUserIntentLedger;
   requireCapability(capability: string): void;
@@ -35,6 +41,7 @@ interface RemoteSessionActionOptions {
   runtimeRef: MutableRefObject<RemoteHostRuntimeControlsDto | null>;
   selectSession(sessionId: string | null): void;
   setRuntime: Dispatch<SetStateAction<RemoteHostRuntimeControlsDto | null>>;
+  sourceIdentity: string;
   target(): { profileId: string; sessionId: string };
 }
 
@@ -44,6 +51,7 @@ export function createRemoteSessionActions(
 ): SessionActions {
   const {
     activeProfileId,
+    expectedAuthority,
     identityRef,
     intents,
     requireCapability,
@@ -52,6 +60,7 @@ export function createRemoteSessionActions(
     runtimeRef,
     selectSession,
     setRuntime,
+    sourceIdentity,
     target,
   } = options;
   const requireProfile = (): string => {
@@ -64,6 +73,12 @@ export function createRemoteSessionActions(
   ): void => {
     if (identityRef.current !== expectedIdentity) throw new Error(message);
   };
+  const mutationRequest = <T extends object>(request: T): T & {
+    expectedAuthority: RemoteHostMutationAuthorityDto;
+  } => {
+    assertIdentity(sourceIdentity);
+    return { ...request, expectedAuthority };
+  };
 
   return {
     createSession: async (input) => {
@@ -71,8 +86,11 @@ export function createRemoteSessionActions(
         requireCapability('session-console.create');
         const profileId = requireProfile();
         const intentPayload = await remoteSessionCreateIntentPayload(input);
-        return intents.run(identityRef.current, 'create', intentPayload, (intentId) =>
-          window.api.createRemoteHostSession({ profileId, ...input, intentId }));
+        assertIdentity(sourceIdentity);
+        return intents.run(sourceIdentity, 'create', intentPayload, (intentId) =>
+          window.api.createRemoteHostSession(mutationRequest({
+            profileId, ...input, intentId,
+          })));
       });
       selectSession(created.sessionId);
       return created.sessionId;
@@ -93,6 +111,16 @@ export function createRemoteSessionActions(
       assertIdentity(expectedIdentity);
       return result;
     },
+    listOutgoing: async (adapterId) => {
+      requireCapability('sessions.outgoing.read');
+      const expectedIdentity = identityRef.current;
+      const result = await window.api.listRemoteHostSessionOutgoing({
+        ...target(),
+        adapterId,
+      });
+      assertIdentity(expectedIdentity);
+      return result;
+    },
     previewHandOff: (input) => runBusiness(async () => {
       requireCapability('sessions.handoff');
       const expectedIdentity = identityRef.current;
@@ -102,14 +130,14 @@ export function createRemoteSessionActions(
     }),
     commitHandOff: (input) => runTerminalBusiness(async () => {
       requireCapability('sessions.handoff');
-      const request = { ...target(), ...input };
-      return intents.run(identityRef.current, 'handoff', request, (intentId) =>
+      const request = mutationRequest({ ...target(), ...input });
+      return intents.run(sourceIdentity, 'handoff', request, (intentId) =>
         window.api.commitRemoteHostSessionHandOff({ ...request, intentId }));
     }),
     interrupt: () => runBusiness(async () => {
       requireCapability('sessions.write');
-      const request = target();
-      await intents.run(identityRef.current, 'interrupt', request, (intentId) =>
+      const request = mutationRequest(target());
+      await intents.run(sourceIdentity, 'interrupt', request, (intentId) =>
         window.api.interruptRemoteHostSession({ ...request, intentId }));
     }),
     respondPending: (presentation, action, value) => runBusiness(async () => {
@@ -118,6 +146,7 @@ export function createRemoteSessionActions(
         throw new Error('待处理展示已切换，请刷新后重试。');
       }
       const request = presentation.request;
+      const originIdentity = sourceIdentity;
       const payload = {
         profileId: activeProfileId,
         sessionId: request.sessionId,
@@ -127,30 +156,49 @@ export function createRemoteSessionActions(
         expectedRevision: presentation.revision,
         expectedPresentationDigest: await pendingPresentationBindingDigest(request),
       };
-      await intents.run(identityRef.current, 'pending', payload, (intentId) =>
-        window.api.respondRemoteHostPending({ ...payload, intentId }));
+      assertIdentity(originIdentity, '待处理展示已切换，请刷新后重试。');
+      const boundPayload = mutationRequest(payload);
+      await intents.run(originIdentity, 'pending', boundPayload, (intentId) =>
+        window.api.respondRemoteHostPending({ ...boundPayload, intentId }));
+    }),
+    removeOutgoing: (messageId) => runBusiness(async () => {
+      requireCapability('sessions.outgoing.write');
+      const request = mutationRequest({ ...target(), messageId });
+      const result = await intents.run(
+        sourceIdentity,
+        'outgoing-remove',
+        request,
+        (intentId) => window.api.removeRemoteHostSessionOutgoing({ ...request, intentId }),
+      );
+      return result.removed;
     }),
     send: (text, attachments = []) => runBusiness(async () => {
       requireCapability('sessions.write');
-      const request = { ...target(), text, ...(attachments.length ? { attachments } : {}) };
+      const targetRequest = target();
+      const request = { ...targetRequest, text, ...(attachments.length ? { attachments } : {}) };
       const message = await remoteAttachmentIntentPayload(text, attachments);
-      await intents.run(identityRef.current, 'send', { target: target(), message }, (intentId) =>
-        window.api.sendRemoteHostMessage({ ...request, intentId }));
+      assertIdentity(sourceIdentity);
+      const boundRequest = mutationRequest(request);
+      await intents.run(sourceIdentity, 'send', { target: targetRequest, message }, (intentId) =>
+        window.api.sendRemoteHostMessage({ ...boundRequest, intentId }));
     }),
     steer: (text, attachments = []) => runBusiness(async () => {
       requireCapability('sessions.write');
-      const request = { ...target(), text, ...(attachments.length ? { attachments } : {}) };
+      const targetRequest = target();
+      const request = { ...targetRequest, text, ...(attachments.length ? { attachments } : {}) };
       const message = await remoteAttachmentIntentPayload(text, attachments);
-      await intents.run(identityRef.current, 'steer', { target: target(), message }, (intentId) =>
-        window.api.steerRemoteHostSession({ ...request, intentId }));
+      assertIdentity(sourceIdentity);
+      const boundRequest = mutationRequest(request);
+      await intents.run(sourceIdentity, 'steer', { target: targetRequest, message }, (intentId) =>
+        window.api.steerRemoteHostSession({ ...boundRequest, intentId }));
     }),
     updateRuntime: async (patch) => {
       const result = await runBusiness(async () => {
         requireCapability('sessions.runtime.write');
         const controls = runtimeRef.current;
         if (!controls) throw new Error('运行时控制已变化，请刷新后重试。');
-        const request = { ...target(), patch, expectedRevision: controls.revision };
-        return intents.run(identityRef.current, 'runtime', request, (intentId) =>
+        const request = mutationRequest({ ...target(), patch, expectedRevision: controls.revision });
+        return intents.run(sourceIdentity, 'runtime', request, (intentId) =>
           window.api.updateRemoteHostRuntime({ ...request, intentId }));
       });
       if (result.replacementSessionId) selectSession(result.replacementSessionId);

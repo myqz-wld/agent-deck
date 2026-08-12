@@ -8,7 +8,34 @@
       "schemaVersion": 1
     },
     "providerSettings": {},
-    "projects": []
+    "projects": [],
+    "sessionCreationCatalog": {
+      "schemaVersion": 1,
+      "adapters": [
+        {
+          "adapterId": "claude-code",
+          "providers": ["company-gateway"],
+          "provider": "company-gateway",
+          "model": "",
+          "thinking": "high",
+          "permissionMode": "bypassPermissions"
+        },
+        {
+          "adapterId": "codex-cli",
+          "providers": ["company-provider"],
+          "provider": "company-provider",
+          "model": "",
+          "thinking": "high",
+          "approvalPolicy": "never"
+        },
+        {
+          "adapterId": "grok-build",
+          "model": "grok-4.5",
+          "thinking": "high",
+          "sessionMode": "default"
+        }
+      ]
+    }
   },
   "socketPath": "/run/agent-deck/instance-a/agent-deckd.sock"
 }

@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   SESSION_CONSOLE_CREATE_OPTION_KEYS,
   parseSessionConsoleCapabilitiesResult,
+  type JsonObject,
   type SessionConsoleCapabilitiesResult,
   type SessionConsoleCreateOptions,
 } from '@contracts/index';
@@ -21,6 +22,7 @@ import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import type { SessionAdapterId } from '@shared/types';
 import { resolveServerCoreProviderSettings } from './provider-settings';
 import { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
+import { resolveServerCoreSessionCreateCatalog } from './session-create-catalog';
 
 const roots: string[] = [];
 
@@ -43,7 +45,8 @@ function adapter(adapterId: SessionAdapterId): AgentAdapter {
 
 function harness(enabled: readonly SessionAdapterId[] = [
   'claude-code', 'codex-cli', 'grok-build',
-], grokAvailable = false, grokSandbox?: string): CapabilityHarness {
+], grokAvailable = false, grokSandbox?: string, codexModel = 'gpt-remote',
+ready: readonly SessionAdapterId[] = enabled): CapabilityHarness {
   const root = realpathSync(mkdtempSync(join(
     realpathSync(tmpdir()),
     'agent-deck-create-capabilities-',
@@ -71,17 +74,49 @@ function harness(enabled: readonly SessionAdapterId[] = [
   writeFileSync(join(providerHome, '.grok', 'config.toml'), 'model = "grok-remote"\n');
   const adapters = new Map(enabled.map((id) => [id, adapter(id)]));
   let revision = 7;
+  const runtimeOptions: JsonObject = {
+    ...(grokSandbox === undefined ? {} : { providerSettings: { grokSandbox } }),
+    sessionCreationCatalog: {
+      schemaVersion: 1,
+      adapters: [
+        {
+          adapterId: 'claude-code',
+          providers: ['deepseek'],
+          provider: 'deepseek',
+          model: 'gateway-sonnet',
+          thinking: 'high',
+          permissionMode: 'bypassPermissions',
+        },
+        {
+          adapterId: 'codex-cli',
+          providers: ['team', 'openai'],
+          provider: 'team',
+          model: codexModel,
+          thinking: 'xhigh',
+          approvalPolicy: 'never',
+        },
+        {
+          adapterId: 'grok-build',
+          model: 'grok-remote',
+          thinking: 'high',
+          sessionMode: 'default',
+        },
+      ],
+    },
+  };
+  const settings = resolveServerCoreProviderSettings(runtimeOptions);
   const subject = new ServerCoreSessionCreateCapabilities({
     ...(grokAvailable ? {
       grokContainer: { readiness: async () => ({ available: true }) },
     } : {}),
     metadata: { currentRevision: () => revision },
     projects: [],
-    providerHomeRoot: providerHome,
-    registry: { get: (id) => adapters.get(id as SessionAdapterId) },
-    settings: resolveServerCoreProviderSettings(grokSandbox === undefined ? {} : {
-      providerSettings: { grokSandbox },
-    }),
+    catalog: resolveServerCoreSessionCreateCatalog(runtimeOptions, settings),
+    registry: {
+      get: (id) => adapters.get(id as SessionAdapterId),
+      isReady: (id) => ready.includes(id as SessionAdapterId),
+    },
+    settings,
     workspaceRoot: realpathSync(workspaceRoot),
   });
   return {
@@ -104,8 +139,55 @@ afterEach(() => {
 });
 
 describe('ServerCoreSessionCreateCapabilities', () => {
+  it('does not advertise a registered adapter whose initialization failed', async () => {
+    const { subject } = harness(['claude-code'], false, undefined, 'gpt-remote', []);
+    const descriptor = await subject.describe({
+      adapterId: 'claude-code',
+      provider: '',
+      workingDirectory: '.',
+    });
+    expect(descriptor.create).toMatchObject({
+      enabled: false,
+      disabledReason: '此 Remote Core 当前无法启动该 adapter。',
+    });
+    await expect(subject.validateCreate(
+      'claude-code',
+      descriptor.capabilityRevision,
+      '.',
+      defaults(descriptor),
+    )).rejects.toMatchObject({ code: 'capability_unavailable' });
+  });
+
+  it('truthfully disables an unconfigured provider selector without reading provider files', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-create-empty-catalog-')));
+    roots.push(root);
+    const workspaceRoot = join(root, 'workspace');
+    mkdirSync(workspaceRoot, { recursive: true });
+    const settings = resolveServerCoreProviderSettings({});
+    const subject = new ServerCoreSessionCreateCapabilities({
+      metadata: { currentRevision: () => 1 },
+      projects: [],
+      catalog: resolveServerCoreSessionCreateCatalog({}, settings),
+      registry: { get: (id) => id === 'codex-cli' ? adapter('codex-cli') : undefined },
+      settings,
+      workspaceRoot: realpathSync(workspaceRoot),
+    });
+    const descriptor = await subject.describe({
+      adapterId: 'codex-cli', provider: '', workingDirectory: '.',
+    });
+    expect(descriptor.create.options.provider).toEqual({
+      allowedValues: [],
+      allowCustom: false,
+      allowEmpty: false,
+      defaultValue: null,
+      disabledReason: 'Worker 未配置可选 Provider；当前会话将跟随提供方默认值。',
+      enabled: false,
+    });
+  });
+
   it('publishes exact adapter-owned defaults without private path or credential disclosure', async () => {
     const { providerHome, subject, workspaceRoot } = harness();
+    rmSync(providerHome, { recursive: true, force: true });
     const requests = [
       { adapterId: 'claude-code', provider: 'deepseek', workingDirectory: 'repo' },
       { adapterId: 'codex-cli', provider: '', workingDirectory: 'repo' },
@@ -238,7 +320,11 @@ describe('ServerCoreSessionCreateCapabilities', () => {
       'name = "Team"',
     ].join('\n'));
     const changed = await state.subject.describe(request);
-    expect(changed.capabilityRevision).not.toBe(first.capabilityRevision);
+    expect(changed.capabilityRevision).toBe(first.capabilityRevision);
+
+    const safeCatalogChanged = harness(undefined, false, undefined, 'gpt-changed');
+    const explicitlyChanged = await safeCatalogChanged.subject.describe(request);
+    expect(explicitlyChanged.capabilityRevision).not.toBe(first.capabilityRevision);
   });
 
   it('rejects stale revisions, cross-adapter options, unavailable adapters and providers', async () => {

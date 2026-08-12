@@ -4,8 +4,22 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { useSessionStore } from '@renderer/stores/session-store';
+import type { RemoteHostResourceRevisions } from '@shared/remote-host';
 import type { SessionRecord } from '@shared/types';
 import { useTeamDataSource } from './team-data-source';
+
+function resourceRevisions(teams: number): RemoteHostResourceRevisions {
+  return {
+    'session-list': 0,
+    'session-detail': 0,
+    pending: 0,
+    teams,
+    issues: 0,
+    usage: 0,
+    'node-configuration': 0,
+    'node-assets': 0,
+  };
+}
 
 function session(id: string): SessionRecord {
   return {
@@ -27,6 +41,7 @@ afterEach(() => {
   cleanup();
   act(() => useSessionStore.getState().setSessions([]));
   Reflect.deleteProperty(window, 'api');
+  vi.restoreAllMocks();
 });
 
 describe('Team data-source isolation', () => {
@@ -34,6 +49,7 @@ describe('Team data-source isolation', () => {
     const remote = {
       identity: 'remote-a:core-a:1',
       dataRevision: 4,
+      resourceRevisions: resourceRevisions(4),
       profile: { id: 'remote-a' },
     } as unknown as RemoteSessionSourceView;
     const hook = renderHook(() => useTeamDataSource(remote));
@@ -45,10 +61,22 @@ describe('Team data-source isolation', () => {
     expect(hook.result.current.identity).toBe('remote-a:core-a:1');
   });
 
-  it('rebuilds the Remote adapter only for an authoritative Remote revision', () => {
-    const makeRemote = (dataRevision: number) => ({
+  it('does not subscribe to the Local session store for a Remote team source', () => {
+    const subscribe = vi.spyOn(useSessionStore, 'subscribe');
+    const remote = {
+      identity: 'remote-a:core-a:1', dataRevision: 4,
+      resourceRevisions: resourceRevisions(4),
+      profile: { id: 'remote-a' }, usable: true,
+    } as unknown as RemoteSessionSourceView;
+    renderHook(() => useTeamDataSource(remote));
+    expect(subscribe).not.toHaveBeenCalled();
+  });
+
+  it('keeps one Remote adapter while exposing the current authoritative revision', () => {
+    const makeRemote = (teamsRevision: number) => ({
       identity: 'remote-a:core-a:1',
-      dataRevision,
+      dataRevision: 99,
+      resourceRevisions: resourceRevisions(teamsRevision),
       profile: { id: 'remote-a' },
       capabilities: new Set(['teams']),
       selectSession: vi.fn(),
@@ -59,7 +87,7 @@ describe('Team data-source isolation', () => {
     );
     const first = hook.result.current;
     hook.rerender({ source: makeRemote(5) });
-    expect(hook.result.current).not.toBe(first);
+    expect(hook.result.current).toBe(first);
     expect(hook.result.current.revision).toBe(5);
   });
 
@@ -69,6 +97,7 @@ describe('Team data-source isolation', () => {
     const remote = {
       identity: 'remote-a:core-a:1',
       dataRevision: 4,
+      resourceRevisions: resourceRevisions(4),
       profile: { id: 'remote-a' },
       usable: false,
     } as unknown as RemoteSessionSourceView;
@@ -92,6 +121,7 @@ describe('Team data-source isolation', () => {
     const remote = {
       identity: 'remote-a:core-a:1',
       dataRevision: 4,
+      resourceRevisions: resourceRevisions(4),
       profile: { id: 'remote-a' },
       usable: true,
     } as unknown as RemoteSessionSourceView;

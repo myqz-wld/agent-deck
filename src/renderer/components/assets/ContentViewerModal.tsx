@@ -1,6 +1,8 @@
-import { type JSX } from 'react';
+import { useId, useRef, type JSX } from 'react';
 import type { AssetMeta } from '@shared/types';
 import { CloseIcon, FolderOpenIcon } from '../icons';
+import { BoundedTextPreview } from './BoundedTextPreview';
+import { useModalFocus } from '../use-modal-focus';
 
 /**
  * 资产 / CLAUDE.md 内容只读 viewer modal（CHANGELOG_57 / CHANGELOG_69 抽出；
@@ -27,13 +29,23 @@ export function ContentViewerModal({
   onClose: () => void;
 }): JSX.Element {
   const { asset } = state;
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus({ dialogRef, onClose });
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="no-drag flex h-[80%] w-[420px] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="no-drag flex h-[80%] w-[min(28rem,92vw)] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+      >
         <header className="mb-2 flex items-start justify-between gap-2">
           <div className="flex flex-col gap-0.5 min-w-0">
-            <code className="text-[11px] font-medium text-deck-text truncate">{asset.qualifiedName}</code>
+            <code id={titleId} className="text-[11px] font-medium text-deck-text truncate">{asset.qualifiedName}</code>
             <code className="text-[9px] text-deck-muted/60 truncate" title={asset.absPath}>
               {asset.absPath}
             </code>
@@ -71,12 +83,7 @@ export function ContentViewerModal({
         ) : state.content === null ? (
           <div className="text-[11px] text-deck-muted">读取中…</div>
         ) : (
-          <pre
-            className="flex-1 overflow-y-auto scrollbar-deck whitespace-pre-wrap rounded border border-deck-border bg-white/[0.04] p-2 font-mono text-[10px] leading-relaxed text-deck-text"
-            style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
-          >
-            {state.content}
-          </pre>
+          <BoundedTextPreview content={state.content} ariaLabel={`${asset.qualifiedName} 内容`} />
         )}
       </div>
     </div>

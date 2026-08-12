@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { AssetMeta } from '@shared/types';
 import { AssetsTab } from './AssetsTab';
 
@@ -53,5 +53,21 @@ describe('AssetsTab', () => {
     );
 
     expect(screen.getByText('未发现资产。请通过 Codex CLI 原生配置管理。')).toBeTruthy();
+  });
+
+  it('initially bounds a large catalog and reveals it in fixed pages', () => {
+    const user = Array.from({ length: 120 }, (_, index) => ({
+      ...userAgent(),
+      name: `agent-${index}`,
+      qualifiedName: `agent-${index}`,
+      absPath: `/safe/agent-${index}.md`,
+    }));
+    render(<AssetsTab kind="agent" adapter="claude-code" bundled={[]} user={user} onView={vi.fn()} />);
+
+    expect(screen.getAllByRole('button', { name: '查看' })).toHaveLength(50);
+    fireEvent.click(screen.getByRole('button', { name: '再显示 50 项' }));
+    expect(screen.getAllByRole('button', { name: '查看' })).toHaveLength(100);
+    fireEvent.click(screen.getByRole('button', { name: '再显示 20 项' }));
+    expect(screen.getAllByRole('button', { name: '查看' })).toHaveLength(120);
   });
 });

@@ -41,6 +41,7 @@ import { ServerCoreDaemonRuntime } from './runtime-core';
 import { ServerCoreRuntimeMetadataStore } from './runtime-metadata-store';
 import { ServerCoreSessionConsoleAuthority } from './session-console-authority';
 import { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
+import { resolveServerCoreSessionCreateCatalog } from './session-create-catalog';
 import { ServerCoreSessionAttachmentStore } from './session-attachment-store';
 import { ServerCoreSessionDetailRuntime } from './session-detail-runtime';
 import { ServerCoreIssueRuntime } from './issue-runtime';
@@ -57,13 +58,18 @@ import {
   appendServerCoreChangeSafely,
   createServerCoreSessionManagerObserver,
 } from './session-manager-observer';
-import { mapServerCoreConcurrent } from './runtime-concurrency';
 import { ServerCorePlanReviewRuntime } from './plan-review-runtime';
 import { ServerCoreTeamRuntime } from './team-runtime';
 import { ServerCoreUsageRuntime } from './usage-runtime';
 import { ServerCoreNodeConfigurationRuntime } from './node-configuration-runtime';
+import { ServerCoreNodeHookProjectionState } from './node-hook-projection-state';
 import { ServerCoreNodeAssetRuntime } from './node-asset-runtime';
 import { ServerCoreNodeAssetCatalog } from './node-asset-catalog';
+import { ServerCoreSessionLifecycle } from './session-lifecycle';
+import { ServerCoreSessionPresentationRuntime } from './session-presentation-runtime';
+import { ServerCoreSessionMetadataRuntime } from './session-metadata-runtime';
+import { resolveServerCoreSessionLifecycleSettings } from './session-lifecycle-options';
+import { createServerCoreProviderRetirement } from './runtime-provider-retirement';
 import {
   resolveServerCoreProviderGrokContainer,
   resolveServerCoreProviderContainerRuntimePaths,
@@ -74,9 +80,10 @@ import {
 
 export const SERVER_CORE_CREDENTIAL_FILE = '/run/secrets/agent-deck/credentials.json';
 export const SERVER_CORE_PROVIDER_AUTH_SOURCE = '/run/secrets/agent-deck/provider-home';
-const MAX_PROVIDER_RETIREMENTS = 4_096;
-const PROVIDER_RETIREMENT_CONCURRENCY = 8;
-const RUNTIME_OPTION_KEYS = new Set(['projects', 'providerContainer', 'providerSettings']);
+const RUNTIME_OPTION_KEYS = new Set([
+  'projects', 'providerContainer', 'providerSettings', 'sessionCreationCatalog',
+  'sessionLifecycle',
+]);
 
 export interface ServerCoreRuntimeCompositionOverrides {
   readonly processId?: string;
@@ -97,6 +104,7 @@ function validateRuntimeOptions(runtimeOptions: JsonObject): void {
     }
   }
   validateServerCoreProviderContainerOption(runtimeOptions);
+  resolveServerCoreSessionLifecycleSettings(runtimeOptions);
 }
 
 function diagnostics(): ServerCoreRuntimeDiagnostics {
@@ -152,17 +160,19 @@ export function createServerCoreRuntimeWithOverrides(
     `${input.instanceId}:${process.pid}:${randomUUID()}`;
   const metadata = new ServerCoreRuntimeMetadataStore(input.paths);
   const reviewEvents = new ServerCoreProviderEventBus();
+  const hookStates = new ServerCoreNodeHookProjectionState();
   const renames = createServerCoreProviderRenameBus();
+  const sessionObserver = createServerCoreSessionManagerObserver({
+    diagnostics: runtimeDiagnostics,
+    metadata,
+    reviewEvents,
+    tokenUsage: tokenUsageRepo,
+  });
   const repositories = new ServerCoreRepositoryHost({
     paths: input.paths,
     diagnostics: runtimeDiagnostics,
     handOffLifecycle: handOffCutoverCoordinator,
-    observer: createServerCoreSessionManagerObserver({
-      diagnostics: runtimeDiagnostics,
-      metadata,
-      reviewEvents,
-      tokenUsage: tokenUsageRepo,
-    }),
+    observer: sessionObserver,
   });
   const privateRoots = Object.freeze([
     input.paths.stateDirectory,
@@ -185,6 +195,10 @@ export function createServerCoreRuntimeWithOverrides(
     },
   });
   const providerSettings = resolveServerCoreProviderSettings(input.runtimeOptions);
+  const sessionCreateCatalog = resolveServerCoreSessionCreateCatalog(
+    input.runtimeOptions,
+    providerSettings,
+  );
   const nodeAssets = ServerCoreNodeAssetCatalog.create({
     providerHomeRoot: workspaceBoundary.providerHomeRoot,
     runtimeReadRoots: workspaceBoundary.runtimeReadRoots,
@@ -199,7 +213,7 @@ export function createServerCoreRuntimeWithOverrides(
     grokContainer: grokContainer ?? undefined,
     metadata,
     projects,
-    providerHomeRoot: workspaceBoundary.providerHomeRoot,
+    catalog: sessionCreateCatalog,
     registry,
     settings: providerSettings,
     workspaceRoot,
@@ -356,37 +370,11 @@ export function createServerCoreRuntimeWithOverrides(
     renames,
     diagnostics: runtimeDiagnostics,
   });
-  const retireProviders = async (): Promise<void> => {
-    const records = repositories.sessions.listActiveAndDormant(
-      MAX_PROVIDER_RETIREMENTS + 1,
-      0,
-    );
-    if (records.length > MAX_PROVIDER_RETIREMENTS) {
-      throw new Error('Provider retirement exceeds its bounded session ceiling');
-    }
-    await mapServerCoreConcurrent(
-      records.filter((record) => record.lifecycle === 'active'),
-      PROVIDER_RETIREMENT_CONCURRENCY,
-      async (record) => {
-        const adapter = registry.get(record.agentId);
-        await adapter?.closeSession?.(record.id);
-      },
-    );
-  };
-  const shutdownProviders = async (): Promise<void> => {
-    const failures: unknown[] = (await registry.shutdownAll())
-      .filter((result) => !result.ok)
-      .map((result) => result.err);
-    if (grokContainer) {
-      try { await grokContainer.close(); } catch (error) { failures.push(error); }
-    }
-    if (failures.length > 0) {
-      throw new AggregateError(
-        failures,
-        'Provider adapter shutdown failed',
-      );
-    }
-  };
+  const { retireProviders, shutdownProviders } = createServerCoreProviderRetirement({
+    repositories,
+    registry,
+    grokContainer,
+  });
   const lifecycle = new ServerCoreProviderRuntimeLifecycle({
     repository: repositories,
     metadata,
@@ -400,7 +388,7 @@ export function createServerCoreRuntimeWithOverrides(
         providerHost,
         createHeadlessAdapterContext(providerInput),
       );
-      await installServerCoreProviderHooks(results, registry);
+      hookStates.recordInstalled(await installServerCoreProviderHooks(results, registry));
     },
     retireProviders,
     shutdownProviders,
@@ -417,7 +405,20 @@ export function createServerCoreRuntimeWithOverrides(
     handoff,
     attachmentStore,
   });
-  const detailRuntime = new ServerCoreSessionDetailRuntime(baseRuntime, {
+  const presentationRuntime = new ServerCoreSessionPresentationRuntime(baseRuntime, {
+    repository: repositories.sessionPresentationRepository,
+    registry,
+    presentations,
+    projects,
+    workspaceRoot,
+    currentRevision: () => metadata.currentRevision(),
+  });
+  const metadataRuntime = new ServerCoreSessionMetadataRuntime(presentationRuntime, {
+    sessions: repositories.sessions,
+    messages: repositories.messages,
+    currentRevision: () => metadata.currentRevision(),
+  });
+  const detailRuntime = new ServerCoreSessionDetailRuntime(metadataRuntime, {
     workspaceRoot,
     sessions: repositories.sessions,
     events: repositories.events,
@@ -454,9 +455,7 @@ export function createServerCoreRuntimeWithOverrides(
     currentRevision: () => metadata.currentRevision(),
   });
   const configurationRuntime = new ServerCoreNodeConfigurationRuntime(usageRuntime, {
-    settings: providerSettings,
-    registry,
-    metadata,
+    settings: providerSettings, registry, metadata, hookStates,
   });
   const nodeAssetRuntime = nodeAssets
     ? new ServerCoreNodeAssetRuntime(
@@ -477,12 +476,19 @@ export function createServerCoreRuntimeWithOverrides(
     path: overrides.credentialFilePath ?? SERVER_CORE_CREDENTIAL_FILE,
     diagnostics: runtimeDiagnostics,
   });
+  const sessionLifecycle = new ServerCoreSessionLifecycle({
+    ...resolveServerCoreSessionLifecycleSettings(input.runtimeOptions),
+    sessions: repositories.sessions,
+    manager: repositories.sessionManager,
+    observer: sessionObserver,
+    diagnostics: runtimeDiagnostics,
+  });
   return Object.freeze({
     processId,
     runtime,
     sessionConsoleAuthority,
     credentialLifecycle,
-    components: Object.freeze([]),
+    components: Object.freeze([sessionLifecycle]),
   });
 }
 

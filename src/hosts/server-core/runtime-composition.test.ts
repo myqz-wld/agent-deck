@@ -126,16 +126,18 @@ describe('concrete Server Core runtime composition', () => {
     });
 
     expect(bootstrap.processId).toBe(PROCESS_ID);
-    expect(bootstrap.components).toEqual([]);
+    expect((bootstrap.components ?? []).map((component) => component.name)).toContain(
+      'server-core-session-lifecycle',
+    );
     expect(bootstrap.runtime.supportedMethods).toEqual(expect.arrayContaining([
       'teams.list',
       'teams.get',
       'usage.tokens.get',
       'usage.providers.get',
       'node.configuration.get',
-      'node.hook.status',
-      'node.hook.install',
-      'node.hook.uninstall',
+      'node.hook.projection.get',
+      'node.hook.projection.install',
+      'node.hook.projection.uninstall',
     ]));
     await bootstrap.runtime.start();
     expect(await bootstrap.runtime.currentRevision(access)).toBe(0);

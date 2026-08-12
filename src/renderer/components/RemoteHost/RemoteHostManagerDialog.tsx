@@ -1,10 +1,11 @@
-import { useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 
 import type { RemoteHostProfileDto } from '@shared/remote-host';
 import type { RemoteHostSnapshotState } from '@renderer/remote-host/use-remote-host-snapshot';
 import { CloseIcon } from '../icons';
 import { RemoteConnectionCards } from './RemoteConnectionCards';
 import { RemoteProfileForm } from './RemoteProfileForm';
+import { useModalFocus } from '../use-modal-focus';
 
 export function RemoteHostManagerDialog({
   open,
@@ -16,8 +17,19 @@ export function RemoteHostManagerDialog({
   onClose: () => void;
 }): JSX.Element | null {
   const [editing, setEditing] = useState<RemoteHostProfileDto | null | undefined>();
-  if (!open) return null;
+  const dialogRef = useRef<HTMLElement>(null);
   const snapshot = hosts.snapshot;
+  useEffect(() => {
+    if (!open) {
+      if (editing !== undefined) setEditing(undefined);
+      return;
+    }
+    if (editing && !snapshot?.profiles.some((profile) => profile.id === editing.id)) {
+      setEditing(undefined);
+    }
+  }, [editing, open, snapshot?.profiles]);
+  useModalFocus({ blocked: hosts.busy, dialogRef, onClose, open });
+  if (!open) return null;
 
   const removeProfile = async (profileId: string): Promise<void> => {
     const confirmed = await window.api.confirmDialog({
@@ -36,6 +48,8 @@ export function RemoteHostManagerDialog({
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="remote-host-manager-title"
@@ -52,7 +66,8 @@ export function RemoteHostManagerDialog({
             <button
               type="button"
               onClick={onClose}
-              className="flex h-5 w-5 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
+              disabled={hosts.busy}
+              className="flex h-5 w-5 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text disabled:cursor-not-allowed disabled:opacity-40"
               aria-label="关闭远程数据源设置"
             >
               <CloseIcon className="h-3.5 w-3.5" />

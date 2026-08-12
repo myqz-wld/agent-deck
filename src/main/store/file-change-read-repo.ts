@@ -10,6 +10,12 @@ import {
 import { getDb } from './db';
 import { FileSnapshotReader } from './file-snapshot-reader';
 import { reportFileChangeReadWarning } from './file-change-read-diagnostics-core';
+import { storedFileChangePathAuthority } from '@shared/file-change-path-authority';
+import {
+  PATH_AUTHORITY_PROJECTION,
+  pathAuthorityPredicate,
+  pathRowsMatchAuthority,
+} from './file-change-read-authority';
 
 const MIN_RAW_PAGE_SCAN = 40;
 const MAX_RAW_PAGE_SCAN = 400;
@@ -32,6 +38,7 @@ interface BaseRow {
   has_before_snapshot?: number;
   has_after_snapshot?: number;
   is_visible?: number;
+  path_authority?: unknown;
   ts: number;
 }
 
@@ -116,6 +123,7 @@ function ensureVisibilityFunction(db: ReturnType<typeof getDb>): void {
 }
 
 function toSummary(row: BaseRow): FileChangeSummary {
+  const pathAuthority = storedFileChangePathAuthority(row.path_authority);
   return {
     id: row.id,
     sessionId: row.session_id,
@@ -126,6 +134,7 @@ function toSummary(row: BaseRow): FileChangeSummary {
     hasAfterBlob: Boolean(row.has_after_blob),
     hasBeforeSnapshot: Boolean(row.has_before_snapshot),
     hasAfterSnapshot: Boolean(row.has_after_snapshot),
+    ...(pathAuthority === undefined ? {} : { pathAuthority }),
     ts: row.ts,
   };
 }
@@ -211,15 +220,17 @@ function findBoundary(
   sessionId: string,
   candidates: string[],
   direction: 'ASC' | 'DESC',
+  authority?: string,
 ): BoundaryRow | null {
   const paths = pathPredicate(candidates);
+  const authorityFilter = pathAuthorityPredicate(authority);
   let cursor: Cursor | null = null;
   for (;;) {
     const comparison = direction === 'ASC' ? '>' : '<';
     const cursorSql = cursor
       ? `AND (fc.ts ${comparison} ? OR (fc.ts = ? AND fc.id ${comparison} ?))`
       : '';
-    const args: unknown[] = [sessionId, ...paths.args];
+    const args: unknown[] = [sessionId, ...paths.args, ...authorityFilter.args];
     if (cursor) args.push(cursor.ts, cursor.ts, cursor.id);
     args.push(PATH_SCAN_BATCH);
     const rows = getDb()
@@ -227,6 +238,7 @@ function findBoundary(
         `SELECT fc.id, fc.kind, fc.metadata_json, fc.ts
            FROM file_changes AS fc
           WHERE fc.session_id = ? AND ${paths.sql}
+                ${authorityFilter.sql}
                 ${cursorSql}
        ORDER BY fc.ts ${direction}, fc.id ${direction}
           LIMIT ?`,
@@ -244,7 +256,9 @@ function getBoundaryPayload(
   sessionId: string,
   id: number,
   side: 'before' | 'after',
+  authority?: string,
 ): FileChangePayload | null {
+  const authorityFilter = pathAuthorityPredicate(authority);
   const row = getDb()
     .prepare(
       `SELECT fc.id, fc.session_id, fc.file_path, fc.kind,
@@ -259,9 +273,10 @@ function getBoundaryPayload(
     LEFT JOIN file_snapshot_blobs AS blob
            ON blob.digest = fc.${side}_snapshot_hash
         WHERE fc.session_id = ? AND fc.id = ?
+              ${authorityFilter.sql}
         LIMIT 1`,
     )
-    .get(sessionId, id) as PayloadRow | undefined;
+    .get(sessionId, id, ...authorityFilter.args) as PayloadRow | undefined;
   return row ? toPayload(row, new Set([side])) : null;
 }
 
@@ -290,6 +305,7 @@ export const fileChangeReadRepo = {
                 fc.after_blob IS NOT NULL AS has_after_blob,
                 fc.before_snapshot_hash IS NOT NULL AS has_before_snapshot,
                 fc.after_snapshot_hash IS NOT NULL AS has_after_snapshot,
+                ${PATH_AUTHORITY_PROJECTION},
                 agent_deck_file_change_visible(fc.kind, fc.metadata_json) AS is_visible,
                 fc.ts
            FROM file_changes AS fc
@@ -310,6 +326,44 @@ export const fileChangeReadRepo = {
     const lastScanned = scanned > 0 ? rows[scanned - 1] : null;
     const hasMore = Boolean(lastScanned && (scanned < rows.length || rows.length > scanLimit));
     return { items, nextCursor: hasMore && lastScanned ? encodeCursor(lastScanned) : null };
+  },
+
+  getDescriptor(sessionId: string, id: number): FileChangeSummary | null {
+    const row = getDb()
+      .prepare(
+        `SELECT fc.id, fc.session_id, fc.file_path, fc.kind, fc.tool_call_id,
+                fc.before_blob IS NOT NULL AS has_before_blob,
+                fc.after_blob IS NOT NULL AS has_after_blob,
+                fc.before_snapshot_hash IS NOT NULL AS has_before_snapshot,
+                fc.after_snapshot_hash IS NOT NULL AS has_after_snapshot,
+                ${PATH_AUTHORITY_PROJECTION},
+                fc.ts
+           FROM file_changes AS fc
+          WHERE fc.session_id = ? AND fc.id = ?
+          LIMIT 1`,
+      )
+      .get(sessionId, id) as BaseRow | undefined;
+    return row ? toSummary(row) : null;
+  },
+
+  getPathDescriptor(sessionId: string, candidates: string[]): FileChangeSummary | null {
+    const paths = pathPredicate(candidates);
+    const row = getDb()
+      .prepare(
+        `SELECT fc.id, fc.session_id, fc.file_path, fc.kind, fc.tool_call_id,
+                fc.before_blob IS NOT NULL AS has_before_blob,
+                fc.after_blob IS NOT NULL AS has_after_blob,
+                fc.before_snapshot_hash IS NOT NULL AS has_before_snapshot,
+                fc.after_snapshot_hash IS NOT NULL AS has_after_snapshot,
+                ${PATH_AUTHORITY_PROJECTION},
+                fc.ts
+           FROM file_changes AS fc
+          WHERE fc.session_id = ? AND ${paths.sql}
+       ORDER BY fc.ts DESC, fc.id DESC
+          LIMIT 1`,
+      )
+      .get(sessionId, ...paths.args) as BaseRow | undefined;
+    return row ? toSummary(row) : null;
   },
 
   getPayload(sessionId: string, id: number): FileChangePayload | null {
@@ -339,12 +393,15 @@ export const fileChangeReadRepo = {
   readPathBoundaries(
     sessionId: string,
     candidates: string[],
+    authority?: string,
   ): { first: FileChangePayload; last: FileChangePayload } | null {
-    const firstRow = findBoundary(sessionId, candidates, 'ASC');
-    const lastRow = findBoundary(sessionId, candidates, 'DESC');
+    const paths = pathPredicate(candidates);
+    if (!pathRowsMatchAuthority(sessionId, paths, authority)) return null;
+    const firstRow = findBoundary(sessionId, candidates, 'ASC', authority);
+    const lastRow = findBoundary(sessionId, candidates, 'DESC', authority);
     if (!firstRow || !lastRow) return null;
-    const first = getBoundaryPayload(sessionId, firstRow.id, 'before');
-    const last = getBoundaryPayload(sessionId, lastRow.id, 'after');
+    const first = getBoundaryPayload(sessionId, firstRow.id, 'before', authority);
+    const last = getBoundaryPayload(sessionId, lastRow.id, 'after', authority);
     return first && last ? { first, last } : null;
   },
 
@@ -352,13 +409,18 @@ export const fileChangeReadRepo = {
     sessionId: string,
     candidates: string[],
     cursorValue?: string | null,
+    authority?: string,
   ): FileChangePatchPage {
     const paths = pathPredicate(candidates);
+    if (!pathRowsMatchAuthority(sessionId, paths, authority)) {
+      return { items: [], nextCursor: null };
+    }
+    const authorityFilter = pathAuthorityPredicate(authority);
     const cursor = decodeCursor(cursorValue);
     const cursorSql = cursor
       ? 'AND (fc.ts < ? OR (fc.ts = ? AND fc.id < ?))'
       : '';
-    const args: unknown[] = [sessionId, ...paths.args];
+    const args: unknown[] = [sessionId, ...paths.args, ...authorityFilter.args];
     if (cursor) args.push(cursor.ts, cursor.ts, cursor.id);
     args.push(PATH_SCAN_BATCH + 1);
     const rows = getDb()
@@ -366,7 +428,8 @@ export const fileChangeReadRepo = {
         `SELECT fc.id, fc.session_id, fc.file_path, fc.kind, fc.metadata_json,
                 fc.tool_call_id, fc.ts
            FROM file_changes AS fc
-          WHERE fc.session_id = ? AND ${paths.sql} ${cursorSql}
+          WHERE fc.session_id = ? AND ${paths.sql}
+                ${authorityFilter.sql} ${cursorSql}
        ORDER BY fc.ts DESC, fc.id DESC
           LIMIT ?`,
       )

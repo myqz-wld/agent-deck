@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useEffect, useId, useRef, useState, type JSX } from 'react';
 import type {
   AdapterSessionMode,
   SessionAdapterId,
@@ -24,6 +24,7 @@ import {
   TargetRuntimeFields,
   type HandOffAdapterOption,
 } from './hand-off/TargetRuntimeFields';
+import { useModalFocus } from './use-modal-focus';
 
 interface Props {
   open: boolean;
@@ -68,6 +69,8 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
   const preparationId = useRef<string | null>(null);
   const prepareInFlight = useRef(false);
   const commitInFlight = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   const cancelPreparation = (): void => {
     requestSequence.current += 1;
@@ -139,6 +142,22 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       cancelled = true;
     };
   }, [open]);
+
+  const close = (): void => {
+    if (commitInFlight.current) return;
+    cancelPreparation();
+    prepareInFlight.current = false;
+    commitInFlight.current = false;
+    setPreparing(false);
+    setCommitting(false);
+    onClose();
+  };
+  useModalFocus({
+    blocked: committing,
+    dialogRef,
+    onClose: close,
+    open,
+  });
 
   if (!open) return null;
 
@@ -257,21 +276,18 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
     const label = warningLabel(warning.code);
     return label ? [{ key: `${warning.code}:${warning.message}`, label }] : [];
   }) ?? [];
-  const close = (): void => {
-    if (commitInFlight.current) return;
-    cancelPreparation();
-    prepareInFlight.current = false;
-    commitInFlight.current = false;
-    setPreparing(false);
-    setCommitting(false);
-    onClose();
-  };
-
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="no-drag flex max-h-[92%] w-[620px] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="no-drag flex max-h-[92%] w-[620px] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl"
+      >
         <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-4 py-3">
-          <h2 className="flex items-center gap-1.5 text-[13px] font-medium">
+          <h2 id={titleId} className="flex items-center gap-1.5 text-[13px] font-medium">
             <HandOffIcon className="h-4 w-4 text-status-working" />
             <span>接力到新会话{preparing ? '（正在整理会话上下文…）' : committing ? '（正在创建…）' : ''}</span>
           </h2>

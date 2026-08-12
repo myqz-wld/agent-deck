@@ -6,11 +6,14 @@ import {
   isJsonValue,
   parseNodeConfigurationGetResult,
   parseNodeHookParams,
+  parseNodeHookProjectionResult,
+  parseNodeHookProjectionStatus,
   parseNodeHookStatus,
-  parseNodeHookStatusResult,
   type CoreMethod,
   type JsonValue,
   type NodeConfigurationAdapterId,
+  type NodeHookProjectionState,
+  type NodeHookProjectionStatusDto,
 } from '@contracts/index';
 import {
   DaemonRequestError,
@@ -30,16 +33,23 @@ import { canonicalJson } from './runtime-validation';
 
 export const SERVER_CORE_NODE_CONFIGURATION_METHODS = Object.freeze([
   'node.configuration.get',
-  'node.hook.status',
-  'node.hook.install',
-  'node.hook.uninstall',
+  'node.hook.projection.get',
+  'node.hook.projection.install',
+  'node.hook.projection.uninstall',
 ] as const satisfies readonly CoreMethod[]);
 
 type NodeConfigurationMethod = (typeof SERVER_CORE_NODE_CONFIGURATION_METHODS)[number];
 
 export interface ServerCoreNodeConfigurationRuntimeOptions {
   readonly settings: ServerCoreProviderSettings;
-  readonly registry: { get(id: string): AgentAdapter | undefined };
+  readonly registry: {
+    get(id: string): AgentAdapter | undefined;
+    isReady(id: string): boolean;
+  };
+  readonly hookStates: {
+    get(adapterId: NodeConfigurationAdapterId): NodeHookProjectionState | null;
+    set(adapterId: NodeConfigurationAdapterId, state: NodeHookProjectionState): void;
+  };
   readonly metadata: {
     currentRevision(): number;
     appendChange(kind: string, entityId: string | null, payload: JsonValue): number;
@@ -90,8 +100,11 @@ export class ServerCoreNodeConfigurationRuntime implements DaemonCoreRuntime {
       throw new DaemonRequestError(AgentDeckClientErrorCode.Cancelled, 'Request was cancelled');
     }
     if (input.method === 'node.configuration.get') return this.configuration(input);
-    if (input.method === 'node.hook.status') return this.status(input);
-    return this.mutateHook(input, input.method === 'node.hook.install' ? 'install' : 'uninstall');
+    if (input.method === 'node.hook.projection.get') return this.status(input);
+    return this.mutateHook(
+      input,
+      input.method === 'node.hook.projection.install' ? 'install' : 'uninstall',
+    );
   }
 
   private configuration(input: DaemonRequestInput): DaemonRequestResult {
@@ -115,8 +128,8 @@ export class ServerCoreNodeConfigurationRuntime implements DaemonCoreRuntime {
   private async status(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     const { adapterId } = this.params(input);
     const revision = this.options.metadata.currentRevision();
-    const status = await this.readHook(adapterId, 'status');
-    return this.result(parseNodeHookStatusResult({ adapterId, status, revision }), revision);
+    const status = this.hookStatus(adapterId);
+    return this.result(parseNodeHookProjectionResult({ adapterId, status, revision }), revision);
   }
 
   private async mutateHook(
@@ -136,9 +149,9 @@ export class ServerCoreNodeConfigurationRuntime implements DaemonCoreRuntime {
         'Hook operation outcome is uncertain',
       );
     }
-    let status: ReturnType<typeof parseNodeHookStatus>;
+    let status: NodeHookProjectionStatusDto;
     try {
-      status = await this.readHook(adapterId, operation);
+      status = await this.mutateHookProvider(adapterId, operation);
     } catch (cause) {
       try { this.options.metadata.releaseMutationClaim(identity); }
       catch (releaseError) {
@@ -148,9 +161,9 @@ export class ServerCoreNodeConfigurationRuntime implements DaemonCoreRuntime {
     }
     const revision = this.options.metadata.appendChange('node.hook.updated', adapterId, {
       adapterId,
-      installed: status.installed,
+      state: status.state,
     });
-    const result = parseNodeHookStatusResult({ adapterId, status, revision });
+    const result = parseNodeHookProjectionResult({ adapterId, status, revision });
     const wire = this.result(result, revision);
     this.options.metadata.completeMutation(identity, wire.result, revision);
     return wire;
@@ -161,24 +174,66 @@ export class ServerCoreNodeConfigurationRuntime implements DaemonCoreRuntime {
     catch { return this.invalid(); }
   }
 
-  private async readHook(
-    adapterId: NodeConfigurationAdapterId,
-    operation: 'install' | 'status' | 'uninstall',
-  ): Promise<ReturnType<typeof parseNodeHookStatus>> {
+  private hookStatus(adapterId: NodeConfigurationAdapterId): NodeHookProjectionStatusDto {
     const adapter = this.options.registry.get(adapterId);
+    const ready = this.options.registry.isReady(adapterId);
+    const writeAllowed = adapter?.capabilities.canInstallHooks === true &&
+      ready &&
+      typeof adapter.installIntegration === 'function' &&
+      typeof adapter.uninstallIntegration === 'function';
+    if (!adapter || !ready) {
+      return parseNodeHookProjectionStatus({
+        supported: false,
+        state: 'unavailable',
+        scope: null,
+        writeAllowed: false,
+        disabledReason: 'adapter-unavailable',
+      });
+    }
+    const state = this.options.hookStates.get(adapterId) ?? 'unavailable';
+    return parseNodeHookProjectionStatus({
+      supported: true,
+      state,
+      scope: 'user',
+      writeAllowed,
+      disabledReason: writeAllowed ? null : 'mutation-unavailable',
+    });
+  }
+
+  private async mutateHookProvider(
+    adapterId: NodeConfigurationAdapterId,
+    operation: 'install' | 'uninstall',
+  ): Promise<NodeHookProjectionStatusDto> {
+    const adapter = this.options.registry.get(adapterId);
+    const ready = this.options.registry.isReady(adapterId);
+    const writeAllowed = adapter?.capabilities.canInstallHooks === true &&
+      ready &&
+      typeof adapter.installIntegration === 'function' &&
+      typeof adapter.uninstallIntegration === 'function';
     const method = operation === 'install'
       ? adapter?.installIntegration
-      : operation === 'uninstall'
-        ? adapter?.uninstallIntegration
-        : adapter?.integrationStatus;
-    if (!adapter?.capabilities.canInstallHooks || !method) {
+      : adapter?.uninstallIntegration;
+    if (!writeAllowed || typeof method !== 'function') {
       throw new DaemonRequestError(
         AgentDeckClientErrorCode.CapabilityUnavailable,
         'Provider Hook integration is unavailable',
       );
     }
     const value = await method.call(adapter, { scope: 'user' });
-    try { return parseNodeHookStatus(value); }
+    try {
+      const raw = parseNodeHookStatus(value);
+      const state: NodeHookProjectionState = raw.installed
+        ? 'installed'
+        : raw.installedHooks.length > 0 ? 'partial' : 'not-installed';
+      this.options.hookStates.set(adapterId, state);
+      return parseNodeHookProjectionStatus({
+        supported: true,
+        state,
+        scope: 'user',
+        writeAllowed,
+        disabledReason: writeAllowed ? null : 'mutation-unavailable',
+      });
+    }
     catch {
       throw new DaemonRequestError(
         AgentDeckClientErrorCode.InternalError,

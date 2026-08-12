@@ -21,24 +21,23 @@ export const PROVIDER_USAGE_RENDERER_STALE_MS = PROVIDER_USAGE_CACHE_TTL_MS;
  * Keep provider usage refreshed here, not in DataPanel, so quota data stays
  * current even while the user is on other tabs.
  */
-export function useStartupDataPreload(): void {
-  const beginProviderUsageRequest = useTokenUsageStore((s) => s.beginProviderUsageRequest);
-  const setProviderUsageSuccess = useTokenUsageStore((s) => s.setProviderUsageSuccess);
-  const finishProviderUsageRequest = useTokenUsageStore((s) => s.finishProviderUsageRequest);
-
+export function useStartupDataPreload(enabled = true): void {
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     const stopTokenDailyRefresh = startTokenDailyRefresh();
 
     const refreshProviderUsage = (): void => {
-      const requestId = beginProviderUsageRequest(false);
+      const requestId = useTokenUsageStore.getState().beginProviderUsageRequest(false);
       void window.api
         .providerUsageSnapshot()
         .then((result) => {
-          if (!cancelled) setProviderUsageSuccess(requestId, result.snapshots);
+          if (!cancelled) {
+            useTokenUsageStore.getState().setProviderUsageSuccess(requestId, result.snapshots);
+          }
         })
         .catch((err) => {
-          if (!cancelled) finishProviderUsageRequest(requestId);
+          if (!cancelled) useTokenUsageStore.getState().finishProviderUsageRequest(requestId);
           logger.warn('[app] providerUsageSnapshot background refresh failed', err);
         });
     };
@@ -51,5 +50,5 @@ export function useStartupDataPreload(): void {
       stopTokenDailyRefresh();
       clearInterval(providerUsageTimer);
     };
-  }, [beginProviderUsageRequest, finishProviderUsageRequest, setProviderUsageSuccess]);
+  }, [enabled]);
 }

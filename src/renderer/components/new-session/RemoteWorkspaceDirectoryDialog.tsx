@@ -1,9 +1,10 @@
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useId, useRef, useState, type JSX } from 'react';
 
 import type { WorkspaceDirectoryListResult } from '@contracts/index';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 
 import { ArrowLeftIcon, CloseIcon, FolderOpenIcon } from '../icons';
+import { useModalFocus } from '../use-modal-focus';
 
 interface Props {
   initialDirectory: string;
@@ -29,11 +30,14 @@ export function RemoteWorkspaceDirectoryDialog({
   onClose,
   onSelect,
 }: Props): JSX.Element {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [directory, setDirectory] = useState(initialDirectory.trim() || '.');
   const [page, setPage] = useState<WorkspaceDirectoryListResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const canRead = source.usable && source.capabilities.has('session-console.read');
+  useModalFocus({ dialogRef, onClose });
 
   useEffect(() => {
     let stale = false;
@@ -62,10 +66,17 @@ export function RemoteWorkspaceDirectoryDialog({
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm">
-      <div className="no-drag flex max-h-[72%] w-[360px] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="no-drag flex max-h-[72%] w-[min(24rem,92vw)] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl"
+      >
         <header className="flex items-center justify-between border-b border-deck-border px-4 py-3">
           <div>
-            <h3 className="text-[13px] font-medium">选择 Workspace 目录</h3>
+            <h3 id={titleId} className="text-[13px] font-medium">选择 Workspace 目录</h3>
             <p className="mt-0.5 text-[10px] text-deck-muted">只显示 Remote Workspace 内的目录</p>
           </div>
           <button

@@ -58,7 +58,7 @@ prepare_sandboxed_node_environment() {
 }
 
 prepare_configure_args() {
-  local credential='' workspace=''
+  local credential='' workspace='' session_catalog=''
   shift
   while (( $# > 0 )); do
     case "$1" in
@@ -72,18 +72,27 @@ prepare_configure_args() {
         workspace=$2
         shift 2
         ;;
+      --session-catalog)
+        (( $# >= 2 )) || fail
+        session_catalog=$2
+        shift 2
+        ;;
       *)
-        echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录>' >&2
+        echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录> [--session-catalog <安全目录文件>]' >&2
         exit 2
         ;;
     esac
   done
   [[ -n "$credential" && -n "$workspace" ]] || {
-    echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录>' >&2
+    echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录> [--session-catalog <安全目录文件>]' >&2
     exit 2
   }
   CONFIGURE_CREDENTIAL="$(canonical_file "$credential")"
   CONFIGURE_WORKSPACE="$(canonical_directory "$workspace")"
+  CONFIGURE_SESSION_CATALOG=''
+  if [[ -n "$session_catalog" ]]; then
+    CONFIGURE_SESSION_CATALOG="$(canonical_file "$session_catalog")"
+  fi
 }
 
 prepare_lifecycle_args() {
@@ -273,6 +282,9 @@ case "${1:-}" in
       --workspace "$CONFIGURE_WORKSPACE" \
       --wrapper "$wrapper" \
       "${DARWIN_CONFIGURE_ARGS[@]}"
+    if [[ -n "$CONFIGURE_SESSION_CATALOG" ]]; then
+      set -- "$@" --session-catalog "$CONFIGURE_SESSION_CATALOG"
+    fi
     ;;
   start|status|stop|remove)
     lifecycle_command=$1
@@ -308,7 +320,7 @@ case "${1:-}" in
   serve|check-config|check-runtime|check-abi|prepare-provider-runtime)
     ;;
   *)
-    echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录>' >&2
+    echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录> [--session-catalog <安全目录文件>]' >&2
     echo '      agent-deck-worker {start|status|stop|remove} [--worker <配置标识>]' >&2
     echo '      agent-deck-worker install-provider-credential --credential <Grok凭证> [--worker <配置标识>]' >&2
     exit 2

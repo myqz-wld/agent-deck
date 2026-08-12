@@ -9,6 +9,7 @@ import * as contextUsage from './context-usage';
 import { setPinned, SessionPinStateError } from './pinning';
 import { rename } from './rename';
 import * as spawnChain from './spawn-chain';
+import * as presentation from './presentation';
 
 // Keep the implementation's internal name out of the public facade.
 const { _delete, ...coreRest } = coreCrud;
@@ -24,6 +25,7 @@ export const sessionRepo = {
   ...contextUsage,
   rename,
   ...spawnChain,
+  ...presentation,
 };
 
 export { SessionRowMissingError, SessionPinStateError };

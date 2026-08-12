@@ -25,6 +25,10 @@ const ISSUE = {
   appendices: [],
   appendicesTruncated: false,
 };
+const EXPECTED_AUTHORITY = {
+  authoritativeCoreId: 'core-a',
+  workerGeneration: 3,
+};
 
 function harness(result: unknown) {
   const clientRequest = vi.fn(async () => result);
@@ -78,6 +82,7 @@ describe('RemoteHostIssueController', () => {
       profileId: 'remote-a',
       issueId: 'issue-a',
       patch: { title: 'Updated' },
+      expectedAuthority: EXPECTED_AUTHORITY,
       expectedRevision: 7,
       intentId: 'intent-a',
     })).resolves.toMatchObject({ revision: 8, issue: { title: 'Updated' } });
@@ -109,7 +114,7 @@ describe('RemoteHostIssueController', () => {
     const update = harness({ issue: { ...ISSUE, id: 'issue-b' }, revision: 8 });
     await expect(update.controller.update({
       profileId: 'remote-a', issueId: 'issue-a', patch: { title: 'Updated' },
-      expectedRevision: 7, intentId: 'intent-a',
+      expectedAuthority: EXPECTED_AUTHORITY, expectedRevision: 7, intentId: 'intent-a',
     })).rejects.toThrow();
 
     const resolution = harness({
@@ -120,7 +125,8 @@ describe('RemoteHostIssueController', () => {
     const options = sessionConsoleCreateOptionsFixture();
     await expect(resolution.controller.resolveInNewSession({
       profileId: 'remote-a', issueId: 'issue-a', issueUpdatedAt: 2,
-      expectedRevision: 7, intentId: 'intent-resolve-a', adapterId: 'codex-cli',
+      expectedAuthority: EXPECTED_AUTHORITY, expectedRevision: 7,
+      intentId: 'intent-resolve-a', adapterId: 'codex-cli',
       attachments: [], capabilityRevision: `sha256:${'a'.repeat(64)}`,
       initialMessage: 'Resolve', options, workingDirectory: 'repo',
     })).rejects.toThrow();
@@ -137,6 +143,7 @@ describe('RemoteHostIssueController', () => {
       profileId: 'remote-a',
       issueId: 'issue-a',
       issueUpdatedAt: 2,
+      expectedAuthority: EXPECTED_AUTHORITY,
       expectedRevision: 7,
       intentId: 'intent-resolve-a',
       adapterId: 'codex-cli',
@@ -151,6 +158,7 @@ describe('RemoteHostIssueController', () => {
       'issues.resolve-in-new-session',
       expect.any(Function),
       ['session.console.create', 'session.console.capabilities'],
+      EXPECTED_AUTHORITY,
     );
     expect(context.clientRequest).toHaveBeenCalledWith(
       'issues.resolve-in-new-session',

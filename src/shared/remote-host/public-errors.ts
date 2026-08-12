@@ -22,9 +22,14 @@ export const REMOTE_HOST_PUBLIC_MESSAGES: Readonly<Record<string, string>> = Obj
   replay_gap: '远程事件流无法连续恢复，请重新连接。',
   revoked: '远程访问权限已撤销。',
   service_stopped: '远程主机服务已停止。',
+  ssh_authentication_failed: 'SSH 认证被服务器拒绝，请重新获取或核对连接凭证。',
+  ssh_endpoint_unreachable: '无法访问 SSH 服务器，请检查地址、端口和网络。',
+  ssh_remote_command_failed: 'SSH 已连接，但远程 Agent Deck 通道未能启动。',
+  ssh_transport_closed: 'SSH 通道被远程服务器关闭。',
   stale_scope: '当前主机或会话已切换，请重试。',
   'transport-close-failed': '本机 SSH 退出状态不确定；为避免启动第二个传输，只能重启 Agent Deck 后恢复。',
   worker_offline: '远程执行节点当前离线。',
+  write_progress_timeout: 'SSH 通道长时间没有写入进展，正在重新连接。',
   write_queue_limit: 'SSH 写入队列已满，请稍后重试。',
 });
 

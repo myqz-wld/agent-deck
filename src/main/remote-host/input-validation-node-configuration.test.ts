@@ -6,6 +6,11 @@ import {
   parseRemoteHostNodeHookMutation,
 } from './input-validation-node-configuration';
 
+const EXPECTED_AUTHORITY = {
+  authoritativeCoreId: 'core-a',
+  workerGeneration: 3,
+};
+
 describe('remote node configuration input validation', () => {
   it('parses exact profile, adapter, and mutation inputs', () => {
     expect(parseRemoteHostNodeConfiguration({ profileId: 'remote-a' }))
@@ -13,7 +18,8 @@ describe('remote node configuration input validation', () => {
     expect(parseRemoteHostNodeHook({ profileId: 'remote-a', adapterId: 'codex-cli' }))
       .toEqual({ profileId: 'remote-a', adapterId: 'codex-cli' });
     expect(parseRemoteHostNodeHookMutation({
-      profileId: 'remote-a', adapterId: 'grok-build', intentId: 'hook-intent-a',
+      profileId: 'remote-a', adapterId: 'grok-build', expectedAuthority: EXPECTED_AUTHORITY,
+      intentId: 'hook-intent-a',
     })).toMatchObject({ intentId: 'hook-intent-a' });
   });
 

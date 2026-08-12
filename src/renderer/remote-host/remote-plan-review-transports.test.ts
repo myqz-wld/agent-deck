@@ -27,6 +27,7 @@ function context(identity = presentation.sourceIdentity) {
       activeProfileId: 'profile-a',
       capabilities: new Set(['plan-review', 'pending.read', 'events.replay']),
       dataRevision: 2,
+      expectedAuthority: { authoritativeCoreId: 'core-a', workerGeneration: 1 },
       identity,
       usable: true,
       currentIdentity: () => current,

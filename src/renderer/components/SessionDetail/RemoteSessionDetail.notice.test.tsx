@@ -36,7 +36,7 @@ function source({
 }): RemoteSessionSourceView {
   const session = loadedSessionId ? {
     id: loadedSessionId, adapterId: 'codex-cli', title: loadedSessionId,
-    status: 'active', createdAt: 1, updatedAt: 2,
+    status: 'active-idle', createdAt: 1, updatedAt: 2,
   } : null;
   return {
     busy: false, capabilities: new Set(['sessions.handoff']), context: null,

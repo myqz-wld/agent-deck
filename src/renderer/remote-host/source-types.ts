@@ -6,16 +6,20 @@ import type {
   RemoteHostJsonObject,
   RemoteHostJsonValue,
   RemoteHostPendingAction,
+  RemoteHostPendingIndexBucketDto,
   RemoteHostPendingListDto,
   RemoteHostPendingRequestDto,
   RemoteHostProfileDto,
   RemoteHostRuntimeControlsDto,
+  RemoteHostResourceRevisions,
+  RemoteHostSessionPresentationDto,
   RemoteHostSessionSummaryDto,
   RemoteHostStateDto,
   RemoteHostSummaryListDto,
   RemoteHostSessionContextDto,
   RemoteHostSessionInputCapabilitiesDto,
   RemoteHostTaskListDto,
+  RemoteHostSessionOutgoingDto,
 } from '@shared/remote-host';
 import type {
   SessionConsoleAttachmentInput,
@@ -25,6 +29,7 @@ import type {
   SessionHandOffCommitResult,
   SessionHandOffPreviewParams,
   SessionHandOffPreviewResult,
+  SessionPresentationCountsDto,
   WorkspaceDirectoryListResult,
 } from '@contracts/index';
 import type { ImageSource, LoadImageBlobResult } from '@shared/types';
@@ -51,22 +56,37 @@ export interface RemoteSessionSourceView {
   busy: boolean;
   capabilities: ReadonlySet<string>;
   dataRevision: number;
+  resourceRevisions: RemoteHostResourceRevisions;
   error: string | null;
   eventLoadError: string | null;
   events: RemoteHostEventListDto | null;
   historyLoadError?: string | null;
   historyLoading?: boolean;
-  historySessions: readonly RemoteHostSessionSummaryDto[];
+  historyPaginationBusy?: boolean;
+  historyQuery: string;
+  historySessions: readonly RemoteHostSessionPresentationDto[];
   hasMoreHistorySessions: boolean;
   hasMoreSessions: boolean;
   identity: string;
   loading: boolean;
+  livePaginationBusy?: boolean;
+  pendingBuckets: readonly RemoteHostPendingIndexBucketDto[];
   pendingBySession: ReadonlyMap<string, RemoteHostPendingListDto>;
+  pendingLoading: boolean;
+  pendingPaginationBusy?: boolean;
+  pendingLoadError: string | null;
+  pendingTotal: number | null;
+  pendingScanTruncated: boolean;
+  hasMorePending: boolean;
+  presentationCounts: SessionPresentationCountsDto | null;
   profile: RemoteHostProfileDto | null;
   recoveringWorker: boolean;
   runtime: RemoteHostRuntimeControlsDto | null;
+  runtimeLoadError?: string | null;
   context?: RemoteHostSessionContextDto | null;
+  contextLoadError?: string | null;
   inputCapabilities?: RemoteHostSessionInputCapabilitiesDto | null;
+  inputLoadError?: string | null;
   summaryLoadError?: string | null;
   summaries: RemoteHostSummaryListDto | null;
   taskLoadError: string | null;
@@ -75,7 +95,7 @@ export interface RemoteSessionSourceView {
   selectedPending: RemoteHostPendingListDto | null;
   selectedSession: RemoteHostSessionSummaryDto | null;
   selectedSessionId: string | null;
-  sessions: readonly RemoteHostSessionSummaryDto[];
+  sessions: readonly RemoteHostSessionPresentationDto[];
   state: RemoteHostStateDto | null;
   usable: boolean;
   clearError(): void;
@@ -102,6 +122,10 @@ export interface RemoteSessionSourceView {
     },
   ): Promise<SessionHandOffCommitResult>;
   loadMoreHistorySessions(): Promise<void>;
+  listOutgoing(
+    adapterId: 'claude-code' | 'codex-cli' | 'grok-build',
+  ): Promise<RemoteHostSessionOutgoingDto>;
+  loadMorePending(): Promise<void>;
   loadMoreSessions(): Promise<void>;
   refresh(): void;
   respondPending(
@@ -109,7 +133,9 @@ export interface RemoteSessionSourceView {
     action: RemoteHostPendingAction,
     value?: RemoteHostJsonValue,
   ): Promise<void>;
+  removeOutgoing(messageId: string): Promise<boolean>;
   selectSession(sessionId: string | null): void;
+  setHistoryQuery(query: string): void;
   send(text: string, attachments?: SessionConsoleAttachmentInput[]): Promise<void>;
   steer(text: string, attachments?: SessionConsoleAttachmentInput[]): Promise<void>;
   updateRuntime(patch: RemoteHostJsonObject): Promise<void>;

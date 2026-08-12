@@ -80,7 +80,7 @@ export class RemoteHostPlanReviewController {
       const revision = await this.authoritativeRevision(scope, request);
       this.assertScope(scope);
       return invoke(scope, revision);
-    }, ['pending.list']);
+    }, ['pending.list'], request.expectedAuthority);
   }
 
   private async authoritativeRevision(

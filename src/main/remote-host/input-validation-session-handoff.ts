@@ -8,7 +8,11 @@ import type {
   RemoteHostHandOffPreviewRequestDto,
 } from '@shared/remote-host';
 
-import { parseRemoteHostProfileId, RemoteHostInputError } from './input-validation';
+import {
+  parseRemoteHostMutationAuthority,
+  parseRemoteHostProfileId,
+  RemoteHostInputError,
+} from './input-validation';
 
 const INTENT_ID = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
 
@@ -61,7 +65,7 @@ export function parseRemoteHostHandOffCommit(
   value: unknown,
 ): RemoteHostHandOffCommitRequestDto {
   const raw = exactObject(value, [
-    'continuationInstruction', 'expectedBindingDigest', 'intentId',
+    'continuationInstruction', 'expectedAuthority', 'expectedBindingDigest', 'intentId',
     'profileId', 'sessionId', 'target',
   ], 'handoffCommit');
   try {
@@ -73,6 +77,7 @@ export function parseRemoteHostHandOffCommit(
         sessionId: raw.sessionId,
         target: raw.target,
       }),
+      expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
       intentId: intentId(raw.intentId),
     };
   } catch (error) {

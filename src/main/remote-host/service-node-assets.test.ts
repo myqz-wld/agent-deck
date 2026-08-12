@@ -5,7 +5,7 @@ import { RemoteHostNodeAssetController } from './service-node-assets';
 describe('RemoteHostNodeAssetController', () => {
   it('routes every asset read only through the selected Remote Core', async () => {
     const client = { request: vi.fn(async (method: string) => {
-      if (method === 'node.assets.list') return {
+      if (method === 'node.assets.catalog.list') return {
         assets: [],
         assetsTruncated: false,
         injection: {
@@ -31,7 +31,7 @@ describe('RemoteHostNodeAssetController', () => {
     });
     await controller.convention({ profileId: 'remote-a', adapterId: 'codex-cli' });
     expect(client.request.mock.calls.map((call) => call[0])).toEqual([
-      'node.assets.list', 'node.assets.content', 'node.assets.convention',
+      'node.assets.catalog.list', 'node.assets.content', 'node.assets.convention',
     ]);
     expect(client.request).toHaveBeenNthCalledWith(2, 'node.assets.content', {
       adapterId: 'codex-cli',

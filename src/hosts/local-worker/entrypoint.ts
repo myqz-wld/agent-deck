@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { isJsonObject, type JsonObject } from '@contracts/index';
 import { readPrivateJsonFile } from '@hosts/linux-runtime/config-file';
 import {
   requireModuleFactory,
@@ -28,6 +29,15 @@ function runtimeReadRoots(value: string): string[] {
     throw new Error('runtime-read-roots must be a non-empty bounded JSON array');
   }
   return parsed.map((path, index) => requireAbsolutePath(path, `runtime-read-roots[${index}]`));
+}
+
+async function sessionCreationCatalog(path: string): Promise<JsonObject> {
+  const value = await readPrivateJsonFile(
+    requireAbsolutePath(path, 'session-catalog'),
+    { maxBytes: 64 * 1024 },
+  );
+  if (!isJsonObject(value)) throw new Error('session-catalog must be a JSON object');
+  return value;
 }
 
 function workerPlatform(): 'darwin' | 'linux' {
@@ -103,9 +113,11 @@ export async function runLocalWorkerEntrypoint(argv: readonly string[]): Promise
   }
   if (command === 'configure') {
     const platform = workerPlatform();
+    const hasSessionCatalog = argv.includes('--session-catalog');
     const flags = parseExactFlags(argv.slice(1), [
       '--app-version', '--credential', '--runtime-module', '--runtime-read-roots',
       '--service-root', '--ssh-binary', '--state-root', '--workspace', '--wrapper',
+      ...(hasSessionCatalog ? ['--session-catalog'] : []),
       ...(process.platform === 'darwin' ? [
         '--bookmark-broker',
         '--claude-executable',
@@ -122,6 +134,9 @@ export async function runLocalWorkerEntrypoint(argv: readonly string[]): Promise
       providerSourceHome: requireAbsolutePath(process.env.HOME, 'provider-source-home'),
       runtimeOptions: {
         providerContainer: { schemaVersion: 1 },
+        ...(hasSessionCatalog ? {
+          sessionCreationCatalog: await sessionCreationCatalog(flags['--session-catalog']),
+        } : {}),
         ...(process.platform === 'darwin' ? {
           providerSettings: {
             claudeCliPath: requireAbsolutePath(

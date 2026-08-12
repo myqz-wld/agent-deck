@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { AuthenticatedClientAccessContext, CoreMethod, JsonValue } from '@contracts/index';
+import type {
+  AuthenticatedClientAccessContext,
+  CoreMethod,
+  JsonValue,
+  NodeConfigurationAdapterId,
+  NodeHookProjectionState,
+} from '@contracts/index';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import type { AgentAdapter } from '@main/adapters/types';
 import { DEFAULT_SETTINGS } from '@shared/types';
@@ -47,6 +53,19 @@ function request(
   };
 }
 
+function hookStates(initial: Partial<Record<NodeConfigurationAdapterId, NodeHookProjectionState>> = {}) {
+  const states = new Map(Object.entries(initial) as Array<[
+    NodeConfigurationAdapterId,
+    NodeHookProjectionState,
+  ]>);
+  return {
+    get: (adapterId: NodeConfigurationAdapterId) => states.get(adapterId) ?? null,
+    set: (adapterId: NodeConfigurationAdapterId, state: NodeHookProjectionState) => {
+      states.set(adapterId, state);
+    },
+  };
+}
+
 describe('ServerCoreNodeConfigurationRuntime', () => {
   it('returns the immutable provider settings owned by the Worker Core', async () => {
     const runtime = new ServerCoreNodeConfigurationRuntime(base(), {
@@ -56,7 +75,8 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
         enableAgentDeckMcp: false,
         grokSandbox: 'off',
       } }),
-      registry: { get: () => undefined },
+      hookStates: hookStates(),
+      registry: { get: () => undefined, isReady: () => false },
       metadata: {
         currentRevision: () => 12,
         appendChange: vi.fn(),
@@ -90,11 +110,24 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
     const adapter = {
       capabilities: { canInstallHooks: true },
       installIntegration: install,
+      uninstallIntegration: vi.fn(async () => ({
+        installed: false,
+        installedHooks: [],
+        scope: 'user' as const,
+        settingsPath: '/provider-home/.claude/settings.json',
+      })),
+      integrationStatus: vi.fn(async () => ({
+        installed: false,
+        installedHooks: [],
+        scope: 'user' as const,
+        settingsPath: '/provider-home/.claude/settings.json',
+      })),
     } as unknown as AgentAdapter;
     let completed: { identity: ServerCoreMutationIdentity; result: JsonValue; revision: number } | null = null;
     const runtime = new ServerCoreNodeConfigurationRuntime(base(), {
       settings: resolveServerCoreProviderSettings({}),
-      registry: { get: () => adapter },
+      hookStates: hookStates(),
+      registry: { get: () => adapter, isReady: () => true },
       metadata: {
         currentRevision: () => 1,
         appendChange: () => 2,
@@ -106,14 +139,121 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
       },
     });
     const input = request(
-      'node.hook.install',
+      'node.hook.projection.install',
       { adapterId: 'claude-code' },
       'stable-hook-intent',
     );
     const first = await runtime.execute(input);
     const replay = await runtime.execute(input);
     expect(first).toEqual(replay);
-    expect(first).toMatchObject({ result: { status: { installed: true } }, revision: 2 });
+    expect(first).toMatchObject({
+      result: {
+        status: {
+          state: 'installed',
+          supported: true,
+          writeAllowed: true,
+        },
+      },
+      revision: 2,
+    });
+    expect(JSON.stringify(first)).not.toContain('/provider-home');
+    expect(JSON.stringify(first)).not.toContain('SessionStart');
     expect(install).toHaveBeenCalledOnce();
+  });
+
+  it('reads only the Worker-owned safe Hook snapshot', async () => {
+    const integrationStatus = vi.fn(async () => ({
+      installed: true,
+      installedHooks: ['must-not-be-read'],
+      scope: 'user' as const,
+      settingsPath: '/provider-home/.claude/settings.json',
+    }));
+    const adapter = {
+      capabilities: { canInstallHooks: true },
+      installIntegration: vi.fn(),
+      uninstallIntegration: vi.fn(),
+      integrationStatus,
+    } as unknown as AgentAdapter;
+    const runtime = new ServerCoreNodeConfigurationRuntime(base(), {
+      settings: resolveServerCoreProviderSettings({}),
+      hookStates: hookStates({ 'claude-code': 'installed' }),
+      registry: { get: () => adapter, isReady: () => true },
+      metadata: {
+        currentRevision: () => 5,
+        appendChange: vi.fn(),
+        claimMutation: vi.fn(),
+        completeMutation: vi.fn(),
+        releaseMutationClaim: vi.fn(),
+      },
+    });
+    await expect(runtime.execute(request(
+      'node.hook.projection.get',
+      { adapterId: 'claude-code' },
+    ))).resolves.toMatchObject({ result: { status: { state: 'installed' } } });
+    expect(integrationStatus).not.toHaveBeenCalled();
+  });
+
+  it('returns an explicit path-free unavailable status for an unsupported adapter', async () => {
+    const runtime = new ServerCoreNodeConfigurationRuntime(base(), {
+      settings: resolveServerCoreProviderSettings({}),
+      hookStates: hookStates(),
+      registry: { get: () => undefined, isReady: () => false },
+      metadata: {
+        currentRevision: () => 4,
+        appendChange: vi.fn(),
+        claimMutation: vi.fn(),
+        completeMutation: vi.fn(),
+        releaseMutationClaim: vi.fn(),
+      },
+    });
+    await expect(runtime.execute(request(
+      'node.hook.projection.get',
+      { adapterId: 'grok-build' },
+    ))).resolves.toMatchObject({
+      result: {
+        adapterId: 'grok-build',
+        status: {
+          supported: false,
+          state: 'unavailable',
+          scope: null,
+          writeAllowed: false,
+          disabledReason: 'adapter-unavailable',
+        },
+      },
+    });
+  });
+
+  it('keeps a registered adapter unavailable until initialization succeeds', async () => {
+    const installIntegration = vi.fn();
+    const adapter = {
+      capabilities: { canInstallHooks: true },
+      installIntegration,
+      uninstallIntegration: vi.fn(),
+    } as unknown as AgentAdapter;
+    const runtime = new ServerCoreNodeConfigurationRuntime(base(), {
+      settings: resolveServerCoreProviderSettings({}),
+      hookStates: hookStates({ 'claude-code': 'installed' }),
+      registry: { get: () => adapter, isReady: () => false },
+      metadata: {
+        currentRevision: () => 4,
+        appendChange: vi.fn(),
+        claimMutation: vi.fn(() => ({ state: 'claimed' as const })),
+        completeMutation: vi.fn(),
+        releaseMutationClaim: vi.fn(),
+      },
+    });
+
+    await expect(runtime.execute(request(
+      'node.hook.projection.get',
+      { adapterId: 'claude-code' },
+    ))).resolves.toMatchObject({
+      result: { status: { supported: false, state: 'unavailable', writeAllowed: false } },
+    });
+    await expect(runtime.execute(request(
+      'node.hook.projection.install',
+      { adapterId: 'claude-code' },
+      'failed-adapter-hook-intent',
+    ))).rejects.toMatchObject({ code: 'capability_unavailable' });
+    expect(installIntegration).not.toHaveBeenCalled();
   });
 });

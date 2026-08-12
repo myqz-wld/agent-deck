@@ -29,6 +29,10 @@ import { remoteHostPendingPresentationDigest } from './pending-response-policy';
 import { RemoteHostService } from './service';
 
 type PendingListResult = CoreMethodMap['pending.list']['result'];
+const EXPECTED_AUTHORITY = {
+  authoritativeCoreId: 'core-remote-pending',
+  workerGeneration: null,
+};
 
 class MemoryBackend implements RemoteHostProfileBackend {
   constructor(private value: RemoteHostProfileDocument) {}
@@ -125,6 +129,7 @@ function response(
     expectedPresentationDigest,
     intentId: 'intent-pending-1',
     ...options,
+    expectedAuthority: options.expectedAuthority ?? EXPECTED_AUTHORITY,
   };
 }
 

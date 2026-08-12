@@ -18,6 +18,10 @@ function page(profileId: string, archived: boolean): RemoteHostSessionPageDto {
 beforeEach(() => {
   window.api = {
     listRemoteHostSessions: vi.fn(async (request) => page(request.profileId, Boolean(request.includeArchived))),
+    listRemoteHostPendingIndex: vi.fn(async () => ({
+      buckets: [], nextCursor: null, totalBuckets: 0, totalRequests: 0,
+      scanTruncated: false, revision: 1,
+    })),
     listRemoteHostPending: vi.fn(async () => ({ requests: [], revision: 1 })),
     getRemoteHostSession: vi.fn(async (request) =>
       session(request.sessionId, `${request.profileId} detail`)),

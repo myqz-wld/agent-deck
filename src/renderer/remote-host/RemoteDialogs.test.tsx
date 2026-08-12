@@ -7,8 +7,10 @@ import { NewSessionDialog } from '@renderer/components/NewSessionDialog';
 import { RemoteHostManagerDialog } from '@renderer/components/RemoteHost/RemoteHostManagerDialog';
 import { HistoryPanel } from '@renderer/components/HistoryPanel';
 import { SessionList } from '@renderer/components/SessionList';
+import { PendingTab } from '@renderer/components/PendingTab';
 import type { RemoteHostProfileDto } from '@shared/remote-host';
 import type { RemoteSessionSourceView } from './source-types';
+import { legacyRemoteSessionPresentation } from './session-summary-presentation';
 import type { RemoteHostSnapshotState } from './use-remote-host-snapshot';
 
 afterEach(() => {
@@ -36,15 +38,27 @@ function source(): RemoteSessionSourceView {
     busy: false,
     capabilities: new Set(['session-console.create', 'session-console.read']),
     dataRevision: 0,
+    resourceRevisions: {
+      'session-list': 0, 'session-detail': 0, pending: 0, teams: 0,
+      issues: 0, usage: 0, 'node-configuration': 0, 'node-assets': 0,
+    },
     error: null,
     eventLoadError: null,
     events: null,
+    historyQuery: '',
     historySessions: [],
     hasMoreHistorySessions: false,
     hasMoreSessions: false,
     identity: 'remote-a:core-a:1',
     loading: false,
+    pendingBuckets: [],
     pendingBySession: new Map(),
+    pendingLoading: false,
+    pendingLoadError: null,
+    pendingTotal: 0,
+    pendingScanTruncated: false,
+    hasMorePending: false,
+    presentationCounts: null,
     profile: REMOTE_PROFILE,
     recoveringWorker: false,
     runtime: null,
@@ -78,10 +92,16 @@ function source(): RemoteSessionSourceView {
     previewHandOff: vi.fn(),
     commitHandOff: vi.fn(),
     loadMoreHistorySessions: vi.fn(),
+    listOutgoing: vi.fn(async () => ({
+      sessionId: 'session-a', adapterId: 'claude-code', messages: [], revision: 1,
+    })),
+    loadMorePending: vi.fn(),
     loadMoreSessions: vi.fn(),
     refresh: vi.fn(),
     respondPending: vi.fn(),
+    removeOutgoing: vi.fn(async () => true),
     selectSession: vi.fn(),
+    setHistoryQuery: vi.fn(),
     send: vi.fn(),
     steer: vi.fn(),
     updateRuntime: vi.fn(),
@@ -122,8 +142,10 @@ function hosts(
       }],
     },
     dataRevisionByProfile: new Map(),
+    resourceRevisionsByProfile: new Map(),
     busy: false,
     error: null,
+    snapshotError: null,
     refresh: vi.fn(),
     addProfile: vi.fn(),
     updateProfile: vi.fn(),
@@ -291,35 +313,163 @@ describe('remote source surfaces', () => {
     expect(screen.getByText(/重启 Agent Deck 后恢复/)).toBeTruthy();
   });
 
-  it('presents includeArchived results as bounded summaries, not authoritative history', () => {
+  it('presents Core-owned history projections without Local fallback', () => {
     const row = {
-      id: 'session-a', adapterId: 'codex-cli', title: 'Summary row', status: 'closed',
+      id: 'session-a', adapterId: 'codex-cli', title: 'Summary row', status: 'closed-finished',
       createdAt: 1, updatedAt: 2,
     };
     render(<HistoryPanel
-      remoteSource={{ ...source(), historySessions: [row] }}
+      remoteSource={{ ...source(), historySessions: [legacyRemoteSessionPresentation(row)] }}
       onSelect={vi.fn()}
     />);
-    expect(screen.getByPlaceholderText('搜索已载入的标题、运行时或状态…')).toBeTruthy();
-    expect(screen.getByText(/搜索当前已载入的有界摘要/)).toBeTruthy();
+    expect(screen.getByPlaceholderText('搜索标题、工作区、事件或总结…')).toBeTruthy();
+    expect(screen.getByText(/Remote Core 在完整历史索引中查询/)).toBeTruthy();
     expect(screen.getByText('Summary row')).toBeTruthy();
   });
 
   it('shows a partial Remote error without a source-specific load-count banner', () => {
     const row = {
-      id: 'session-a', adapterId: 'codex-cli', title: 'Live row', status: 'active',
+      id: 'session-a', adapterId: 'codex-cli', title: 'Live row', status: 'active-idle',
       createdAt: 1, updatedAt: 2,
     };
     const view = render(<SessionList
-      remoteSource={{ ...source(), error: '远程 session 不存在或已删除。', sessions: [row], sessionTotal: null }}
+      remoteSource={{ ...source(), error: '远程 session 不存在或已删除。', sessions: [legacyRemoteSessionPresentation(row)], sessionTotal: null }}
     />);
     expect(screen.getByText('Live row')).toBeTruthy();
     expect(screen.queryByText(/已载入/)).toBeNull();
     expect(screen.getByRole('alert').textContent).toContain('不存在或已删除');
     view.rerender(<SessionList
-      remoteSource={{ ...source(), sessions: [row], sessionTotal: 9 }}
+      remoteSource={{ ...source(), sessions: [legacyRemoteSessionPresentation(row)], sessionTotal: 9 }}
     />);
     expect(screen.queryByText(/1\/9/)).toBeNull();
+  });
+
+  it('does not show a false empty Pending state while the Core aggregate is loading or failed', () => {
+    const pendingSource = source();
+    pendingSource.capabilities = new Set(['pending.index.read', 'pending.respond']);
+    const view = render(<PendingTab
+      remoteSource={{ ...pendingSource, pendingLoading: true }}
+      onOpenSession={vi.fn()}
+    />);
+    expect(screen.getByText('正在读取远程待处理事项…')).toBeTruthy();
+    expect(screen.queryByText('没有待处理事项')).toBeNull();
+    view.rerender(<PendingTab
+      remoteSource={{
+        ...pendingSource,
+        pendingLoadError: '待处理索引读取失败。',
+      }}
+      onOpenSession={vi.fn()}
+    />);
+    expect(screen.getByRole('alert').textContent).toContain('待处理索引读取失败');
+    expect(screen.queryByText('没有待处理事项')).toBeNull();
+  });
+
+  it('keeps an unknown Remote pending total distinct from an authoritative empty result', () => {
+    const pendingSource = source();
+    pendingSource.capabilities = new Set(['pending.index.read', 'pending.respond']);
+    pendingSource.pendingTotal = null;
+    render(<PendingTab remoteSource={pendingSource} onOpenSession={vi.fn()} />);
+
+    expect(screen.getByText('远程待处理总数尚未确认。')).toBeTruthy();
+    expect(screen.queryByText('没有待处理事项')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '重新读取' }));
+    expect(pendingSource.refresh).toHaveBeenCalledOnce();
+  });
+
+  it('labels loaded Pending rows as partial while the authoritative total is unknown', () => {
+    const projected = legacyRemoteSessionPresentation({
+      id: 'partial-pending', adapterId: 'codex-cli', title: 'Partial pending',
+      status: 'active-waiting', createdAt: 1, updatedAt: 2,
+    });
+    render(<PendingTab
+      remoteSource={{
+        ...source(),
+        capabilities: new Set(['pending.index.read', 'pending.respond']),
+        pendingBuckets: [{
+          session: projected,
+          pending: {
+            requests: [{
+              id: 'request-a', sessionId: projected.id, kind: 'permission', status: 'pending',
+              createdAt: 2, expiresAt: null, display: {},
+            }],
+            revision: 4,
+          },
+        }],
+        pendingTotal: null,
+      }}
+      onOpenSession={vi.fn()}
+    />);
+
+    expect(screen.getByText('总数待确认 · 已载入 1 项')).toBeTruthy();
+    expect(screen.queryByText('待处理 0 项')).toBeNull();
+  });
+
+  it('renders aggregate Pending buckets independently of the loaded Live page', () => {
+    const projected = legacyRemoteSessionPresentation({
+      id: 'pending-after-page', adapterId: 'codex-cli', title: 'Pending after page',
+      status: 'active-waiting', createdAt: 1, updatedAt: 2,
+    });
+    const loadMorePending = vi.fn();
+    const onOpenSession = vi.fn();
+    render(<PendingTab
+      remoteSource={{
+        ...source(),
+        capabilities: new Set(['pending.index.read', 'pending.respond']),
+        sessions: [],
+        pendingBuckets: [{
+          session: projected,
+          pending: {
+            requests: [{
+              id: 'request-a', sessionId: projected.id, kind: 'permission', status: 'pending',
+              createdAt: 2, expiresAt: null, display: {},
+            }],
+            revision: 4,
+          },
+        }],
+        pendingTotal: 1,
+        hasMorePending: true,
+        loadMorePending,
+      }}
+      onOpenSession={onOpenSession}
+    />);
+    expect(screen.getByText('Pending after page')).toBeTruthy();
+    fireEvent.click(screen.getByText('Pending after page'));
+    expect(onOpenSession).toHaveBeenCalledWith(projected.id);
+    fireEvent.click(screen.getByRole('button', { name: '加载更多待处理会话' }));
+    expect(loadMorePending).toHaveBeenCalledOnce();
+  });
+
+  it('runs Remote permission batch actions serially through presentation-bound responses', async () => {
+    const projected = legacyRemoteSessionPresentation({
+      id: 'batch-session', adapterId: 'codex-cli', title: 'Batch session',
+      status: 'active-waiting', createdAt: 1, updatedAt: 2,
+    });
+    const respondPending = vi.fn(async (
+      ..._args: Parameters<RemoteSessionSourceView['respondPending']>
+    ) => undefined);
+    render(<PendingTab
+      remoteSource={{
+        ...source(),
+        capabilities: new Set(['pending.index.read', 'pending.respond']),
+        pendingBuckets: [{
+          session: projected,
+          pending: {
+            requests: ['one', 'two'].map((id) => ({
+              id, sessionId: projected.id, kind: 'permission' as const,
+              status: 'pending' as const, createdAt: 2, expiresAt: null, display: {},
+            })),
+            revision: 4,
+          },
+        }],
+        pendingTotal: 2,
+        respondPending,
+      }}
+      onOpenSession={vi.fn()}
+    />);
+    fireEvent.click(screen.getByRole('button', { name: /全部拒绝/ }));
+    await waitFor(() => expect(respondPending).toHaveBeenCalledTimes(2));
+    expect(respondPending.mock.calls.map((call) => [call[0].request.id, call[1]]))
+      .toEqual([['one', 'deny'], ['two', 'deny']]);
   });
 
   it('shows an initial Live read failure instead of an authoritative empty state', () => {

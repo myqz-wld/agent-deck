@@ -55,6 +55,7 @@ export interface SshTransportBounds {
 
 export interface SshTransportTiming {
   handshakeTimeoutMs: number;
+  writeProgressTimeoutMs: number;
   pingIntervalMs: number;
   pongTimeoutMs: number;
   childExitGraceMs: number;

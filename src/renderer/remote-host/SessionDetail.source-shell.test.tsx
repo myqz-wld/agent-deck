@@ -1,20 +1,27 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { SessionDetail } from '@renderer/components/SessionDetail';
 import { registerBuiltinDiffRenderers } from '@renderer/components/diff/install';
+import { legacyRemoteSessionPresentation } from './session-summary-presentation';
 import type { RemoteSessionSourceView } from './source-types';
 
 afterEach(cleanup);
 beforeAll(registerBuiltinDiffRenderers);
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 function remoteSource(): RemoteSessionSourceView {
   const session = {
     id: 'same-session',
     adapterId: 'codex-cli',
     title: 'Remote session',
-    status: 'active',
+    status: 'active-idle',
     createdAt: 1,
     updatedAt: 2,
   };
@@ -30,6 +37,10 @@ function remoteSource(): RemoteSessionSourceView {
       'sessions.context.read',
     ]),
     dataRevision: 0,
+    resourceRevisions: {
+      'session-list': 0, 'session-detail': 0, pending: 0, teams: 0,
+      issues: 0, usage: 0, 'node-configuration': 0, 'node-assets': 0,
+    },
     error: null,
     eventLoadError: null,
     events: {
@@ -44,12 +55,20 @@ function remoteSource(): RemoteSessionSourceView {
       revision: 2,
       truncated: false,
     },
+    historyQuery: '',
     historySessions: [],
     hasMoreHistorySessions: false,
     hasMoreSessions: false,
     identity: 'remote-a:core-a:1',
     loading: false,
+    pendingBuckets: [],
     pendingBySession: new Map(),
+    pendingLoading: false,
+    pendingLoadError: null,
+    pendingTotal: 0,
+    pendingScanTruncated: false,
+    hasMorePending: false,
+    presentationCounts: null,
     profile: {
       id: 'remote-a',
       label: 'Production Core',
@@ -87,7 +106,7 @@ function remoteSource(): RemoteSessionSourceView {
     selectedPending: { requests: [], revision: 4 },
     selectedSession: session,
     selectedSessionId: session.id,
-    sessions: [session],
+    sessions: [legacyRemoteSessionPresentation(session)],
     state: {
       profileId: 'remote-a',
       status: 'connected',
@@ -111,10 +130,16 @@ function remoteSource(): RemoteSessionSourceView {
     previewHandOff: vi.fn(),
     commitHandOff: vi.fn(),
     loadMoreHistorySessions: vi.fn(),
+    listOutgoing: vi.fn(async () => ({
+      sessionId: 'remote-session', adapterId: 'codex-cli', messages: [], revision: 1,
+    })),
+    loadMorePending: vi.fn(),
     loadMoreSessions: vi.fn(),
     refresh: vi.fn(),
     respondPending: vi.fn(),
+    removeOutgoing: vi.fn(async () => true),
     selectSession: vi.fn(),
+    setHistoryQuery: vi.fn(),
     send: vi.fn(),
     steer: vi.fn(),
     updateRuntime: vi.fn(),
@@ -148,7 +173,7 @@ describe('SessionDetail source shell', () => {
       onClose={vi.fn()}
     />);
 
-    expect(screen.getAllByText('正在读取远程 session…')).toHaveLength(2);
+    expect(screen.getByText('正在读取远程 session…')).toBeTruthy();
     expect(screen.queryByText('Remote session')).toBeNull();
     expect(screen.queryByText('remote-only activity')).toBeNull();
     expect(screen.queryByText(/remote-model/)).toBeNull();
@@ -281,5 +306,163 @@ describe('SessionDetail source shell', () => {
     fireEvent.click(screen.getByRole('button', { name: '任务' }));
     expect(screen.getByText('远程任务只读投影')).toBeTruthy();
     expect(screen.getByText('正在验证远程任务')).toBeTruthy();
+  });
+
+  it('loads only the path-free Remote Permissions projection when its tab is opened', async () => {
+    const getRemotePermissions = vi.fn().mockResolvedValue({
+      sessionId: 'same-session',
+      adapterId: 'codex-cli',
+      effective: {
+        adapterId: 'codex-cli',
+        approvalPolicy: 'on-request',
+        approvalPolicySource: 'session',
+        sandbox: 'workspace-write',
+        sandboxSource: 'session',
+      },
+      workspace: { read: 'allowed', write: 'allowed', network: 'provider-default' },
+      rules: { state: 'unavailable', items: [], omittedCount: 0, truncated: false },
+      revision: 12,
+    });
+    const scanLocalPermissions = vi.fn();
+    window.api = {
+      getRemoteHostSessionPermissions: getRemotePermissions,
+      scanPermissions: scanLocalPermissions,
+      scanCodexPermissions: scanLocalPermissions,
+    } as unknown as typeof window.api;
+    const source = remoteSource();
+    source.capabilities = new Set([...source.capabilities, 'sessions.permissions.read']);
+    render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
+
+    expect(getRemotePermissions).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '权限' }));
+    await waitFor(() => expect(getRemotePermissions).toHaveBeenCalledWith({
+      profileId: 'remote-a',
+      sessionId: 'same-session',
+      adapterId: 'codex-cli',
+    }));
+    expect(screen.getByText('Codex CLI 当前生效权限')).toBeTruthy();
+    expect(screen.getByText('工作区可写')).toBeTruthy();
+    expect(screen.getByText('由提供方默认值决定')).toBeTruthy();
+    expect(scanLocalPermissions).not.toHaveBeenCalled();
+    expect(document.body.textContent).not.toContain('auth.json');
+    expect(document.body.textContent).not.toContain('/Users/');
+  });
+
+  it('loads bounded Remote cross-session messages lazily through the shared presentation', async () => {
+    const listRemoteMessages = vi.fn().mockResolvedValue({
+      sessionId: 'same-session',
+      messages: [{
+        id: 'message-1', teamId: null,
+        fromSessionId: 'peer-session', fromTitle: '远程协作者',
+        toSessionId: 'same-session', toTitle: 'Remote session',
+        body: '远程投影消息', status: 'delivered', statusReason: null,
+        sentAt: 10, deliveredAt: 11, replyToMessageId: null,
+      }],
+      truncated: false,
+      revision: 12,
+    });
+    const listLocalMessages = vi.fn();
+    window.api = {
+      listRemoteHostSessionMessages: listRemoteMessages,
+      listAgentDeckMessagesBySession: listLocalMessages,
+    } as unknown as typeof window.api;
+    const source = remoteSource();
+    source.capabilities = new Set([...source.capabilities, 'sessions.messages.read']);
+    render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
+
+    expect(listRemoteMessages).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '跨会话' }));
+    await screen.findByText('远程投影消息');
+    expect(listRemoteMessages).toHaveBeenCalledWith({
+      profileId: 'remote-a', sessionId: 'same-session', limit: 100,
+    });
+    expect(screen.getByText('远程协作者')).toBeTruthy();
+    expect(listLocalMessages).not.toHaveBeenCalled();
+  });
+
+  it('keeps old-Core metadata tabs explicit and makes no Remote or Local fallback request', () => {
+    const getRemotePermissions = vi.fn();
+    const listRemoteMessages = vi.fn();
+    const localFallback = vi.fn();
+    window.api = {
+      getRemoteHostSessionPermissions: getRemotePermissions,
+      listRemoteHostSessionMessages: listRemoteMessages,
+      scanPermissions: localFallback,
+      listAgentDeckMessagesBySession: localFallback,
+    } as unknown as typeof window.api;
+    render(<SessionDetail remoteSource={remoteSource()} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '权限' }));
+    expect(screen.getByText(/未提供无路径、无配置原文的生效权限投影/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '跨会话' }));
+    expect(screen.getByText(/不会回退读取本地消息数据库/)).toBeTruthy();
+    expect(getRemotePermissions).not.toHaveBeenCalled();
+    expect(listRemoteMessages).not.toHaveBeenCalled();
+    expect(localFallback).not.toHaveBeenCalled();
+  });
+
+  it('drops a late Permissions projection after the Remote identity changes', async () => {
+    const oldResult = deferred<Awaited<ReturnType<
+      typeof window.api.getRemoteHostSessionPermissions
+    >>>();
+    const result = (profileId: string, sandbox: 'read-only' | 'workspace-write') => ({
+      sessionId: 'same-session',
+      adapterId: 'codex-cli' as const,
+      effective: {
+        adapterId: 'codex-cli' as const,
+        approvalPolicy: 'on-request' as const,
+        approvalPolicySource: 'session' as const,
+        sandbox,
+        sandboxSource: 'session' as const,
+      },
+      workspace: { read: 'allowed' as const, write: 'allowed' as const, network: 'denied' as const },
+      rules: { state: 'unavailable' as const, items: [], omittedCount: 0, truncated: false },
+      revision: profileId === 'remote-a' ? 1 : 2,
+    });
+    const getPermissions = vi.fn((request: { profileId: string }) =>
+      request.profileId === 'remote-a'
+        ? oldResult.promise
+        : Promise.resolve(result('remote-b', 'workspace-write')));
+    window.api = {
+      getRemoteHostSessionPermissions: getPermissions,
+    } as unknown as typeof window.api;
+    const sourceA = remoteSource();
+    sourceA.capabilities = new Set([...sourceA.capabilities, 'sessions.permissions.read']);
+    const rendered = render(<SessionDetail remoteSource={sourceA} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '权限' }));
+    await waitFor(() => expect(getPermissions).toHaveBeenCalledTimes(1));
+
+    const sourceB = remoteSource();
+    sourceB.identity = 'remote-b:core-b:2';
+    sourceB.profile = { ...sourceB.profile!, id: 'remote-b', label: 'Backup Core' };
+    sourceB.state = {
+      ...sourceB.state!, profileId: 'remote-b', authoritativeCoreId: 'authoritative-b',
+    };
+    sourceB.selectedSession = { ...sourceB.selectedSession!, title: 'Remote B session' };
+    sourceB.capabilities = new Set([...sourceB.capabilities, 'sessions.permissions.read']);
+    rendered.rerender(<SessionDetail remoteSource={sourceB} onClose={vi.fn()} />);
+    await screen.findByText('Remote B session');
+    fireEvent.click(screen.getByRole('button', { name: '权限' }));
+    await screen.findByText('工作区可写');
+
+    await act(async () => {
+      oldResult.resolve(result('remote-a', 'read-only'));
+      await oldResult.promise;
+    });
+    expect(screen.getByText('工作区可写')).toBeTruthy();
+    expect(screen.queryByText('只读')).toBeNull();
+  });
+
+  it('renders a precise reconnecting detail shell with all session actions absent', () => {
+    const source = remoteSource();
+    source.usable = false;
+    source.selectedSession = null;
+    source.state = { ...source.state!, status: 'reconnecting' };
+    render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
+
+    expect(screen.getByText('Remote SSH 正在重连')).toBeTruthy();
+    expect(screen.getByText(/重新确认 Core 身份后才能读取此会话/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '发送' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '接力' })).toBeNull();
   });
 });

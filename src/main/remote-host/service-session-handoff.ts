@@ -51,6 +51,8 @@ export class RemoteHostSessionHandOffController {
         },
       )),
       (result) => this.selectSuccessor(request.profileId, result.successorSessionId),
+      [],
+      request.expectedAuthority,
     ).then(({ result }) => result);
   }
 

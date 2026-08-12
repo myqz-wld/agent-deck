@@ -14,8 +14,9 @@ function installed(value: unknown): boolean {
 export async function installServerCoreProviderHooks(
   results: readonly AdapterInitResult[],
   registry: ServerCoreHookAdapterRegistry,
-): Promise<void> {
+): Promise<readonly string[]> {
   const failures: unknown[] = [];
+  const installedAdapters: string[] = [];
   for (const result of results) {
     if (!result.ok) continue;
     const adapter = registry.get(result.id);
@@ -26,6 +27,7 @@ export async function installServerCoreProviderHooks(
     try {
       const status = await adapter.installIntegration({ scope: 'user' });
       if (!installed(status)) throw new Error('Managed hook installation was not confirmed');
+      installedAdapters.push(result.id);
     } catch (error) {
       failures.push(error);
     }
@@ -33,4 +35,5 @@ export async function installServerCoreProviderHooks(
   if (failures.length > 0) {
     throw new AggregateError(failures, 'Server Core managed hook installation failed');
   }
+  return Object.freeze(installedAdapters);
 }

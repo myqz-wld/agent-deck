@@ -1,4 +1,5 @@
 import { useEffect, useState, type JSX } from 'react';
+import type { SessionMessageDto } from '@contracts/index';
 import type { AgentDeckMessage } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { MarkdownText } from '@renderer/components/MarkdownText';
@@ -84,6 +85,41 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
     };
   }, [sessionId]);
 
+  const presentation: SessionMessageDto[] = messages.map((message) => ({
+    id: message.id,
+    teamId: message.teamId,
+    fromSessionId: message.fromSessionId,
+    fromTitle: sessions.get(message.fromSessionId)?.title ?? '另一会话',
+    toSessionId: message.toSessionId,
+    toTitle: sessions.get(message.toSessionId)?.title ?? '另一会话',
+    body: message.body,
+    status: message.status,
+    statusReason: message.statusReason,
+    sentAt: message.sentAt,
+    deliveredAt: message.deliveredAt,
+    replyToMessageId: message.replyToMessageId,
+  }));
+  return <SessionMessagesView
+    sessionId={sessionId}
+    messages={presentation}
+    loaded={loaded}
+    error={error}
+  />;
+}
+
+export function SessionMessagesView({
+  sessionId,
+  messages,
+  loaded,
+  error,
+  truncated = false,
+}: {
+  sessionId: string;
+  messages: readonly SessionMessageDto[];
+  loaded: boolean;
+  error: string | null;
+  truncated?: boolean;
+}): JSX.Element {
   if (!loaded && messages.length === 0) {
     return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
   }
@@ -110,9 +146,7 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
       <ol className="flex flex-col gap-1.5">
       {messages.map((msg) => {
         const isSender = msg.fromSessionId === sessionId;
-        const otherId = isSender ? msg.toSessionId : msg.fromSessionId;
-        const otherSess = sessions.get(otherId);
-        const otherTitle = otherSess?.title ?? '另一会话';
+        const otherTitle = isSender ? msg.toTitle : msg.fromTitle;
         const arrowColor = isSender ? 'text-cyan-300/80' : 'text-blue-300/80';
         return (
           <li
@@ -152,6 +186,11 @@ export function MessagesPanel({ sessionId }: Props): JSX.Element {
         );
       })}
       </ol>
+      {truncated && (
+        <div className="text-center text-[10px] text-deck-muted">
+          仅显示最近 100 条跨会话消息。
+        </div>
+      )}
     </div>
   );
 }

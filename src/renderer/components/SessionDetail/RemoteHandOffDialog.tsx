@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type JSX } from 'react';
 
 import type {
   SessionHandOffCommitResult,
@@ -10,6 +10,7 @@ import { SessionModelDisclosure } from '@renderer/components/SessionModelDisclos
 import type { SessionThinkingChoice } from '@renderer/components/SessionModelFields';
 import { useRemoteSessionCreation } from '@renderer/components/new-session/useRemoteSessionCreation';
 import { remoteControls } from '@renderer/components/NewSessionDialog';
+import { useModalFocus } from '@renderer/components/use-modal-focus';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { CloseIcon, HandOffIcon, RefreshIcon } from '../icons';
 import {
@@ -45,6 +46,8 @@ export function RemoteHandOffDialog({
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestSequence = useRef(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   const identity = `${source.identity}:${sessionId}`;
 
   useEffect(() => {
@@ -124,6 +127,11 @@ export function RemoteHandOffDialog({
     onClose();
   };
   const busy = preparing || committing || remote.loading || source.busy;
+  useModalFocus({
+    blocked: committing,
+    dialogRef,
+    onClose: close,
+  });
   const warnings = prepared?.result.warnings.flatMap((warning) => {
     const label = warningLabel(warning.code);
     return label ? [{ key: `${warning.code}:${warning.message}`, label }] : [];
@@ -131,9 +139,16 @@ export function RemoteHandOffDialog({
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="no-drag flex max-h-[92%] w-[620px] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="no-drag flex max-h-[92%] w-[620px] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl"
+      >
         <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-4 py-3">
-          <h2 className="flex items-center gap-1.5 text-[13px] font-medium">
+          <h2 id={titleId} className="flex items-center gap-1.5 text-[13px] font-medium">
             <HandOffIcon className="h-4 w-4 text-status-working" />
             <span>接力到新会话{preparing ? '（正在整理上下文…）' : committing ? '（正在提交…）' : ''}</span>
           </h2>
@@ -177,6 +192,14 @@ export function RemoteHandOffDialog({
                 thinkingOptions={remote.descriptor.create.options.thinking.allowedValues?.map(
                   (value) => ({ value: value as SessionThinkingChoice, label: value.toUpperCase() }),
                 ) ?? []}
+                disabledReasons={{
+                  provider: remote.descriptor.create.options.provider.enabled
+                    ? null : remote.descriptor.create.options.provider.disabledReason,
+                  model: remote.descriptor.create.options.model.enabled
+                    ? null : remote.descriptor.create.options.model.disabledReason,
+                  thinking: remote.descriptor.create.options.thinking.enabled
+                    ? null : remote.descriptor.create.options.thinking.disabledReason,
+                }}
                 onProviderChange={(value) => invalidate(() => remote.setOption('provider', value))}
                 onModelChange={(value) => invalidate(() => remote.setOption('model', value))}
                 onThinkingChange={(value) => invalidate(() => remote.setOption('thinking', value))}
@@ -184,13 +207,19 @@ export function RemoteHandOffDialog({
               {controls.map((control) => (
                 <label key={control.label} className="flex flex-col gap-1">
                   <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">{control.label}</span>
-                  <DeckSelect
-                    value={control.value}
-                    options={control.options}
-                    onChange={(value) => invalidate(() => control.onChange(value))}
-                    disabled={busy}
-                    buttonClassName={SELECT_CLASS}
-                  />
+                  {control.disabledReason ? (
+                    <div className="break-words rounded border border-white/[0.07] bg-white/[0.03] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted [overflow-wrap:anywhere]">
+                      不可用：{control.disabledReason}
+                    </div>
+                  ) : (
+                    <DeckSelect
+                      value={control.value}
+                      options={control.options}
+                      onChange={(value) => invalidate(() => control.onChange(value))}
+                      disabled={busy}
+                      buttonClassName={SELECT_CLASS}
+                    />
+                  )}
                 </label>
               ))}
             </>

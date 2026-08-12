@@ -1,9 +1,12 @@
 import { useMemo, type JSX } from 'react';
-import type { SessionRecord } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { selectLiveSessions } from '@renderer/lib/session-selectors';
 import { deriveTeamRole } from '@renderer/lib/derive-team-role';
-import { computeChildrenByOwner, isPureSpawnChain } from './session-list-tree';
+import {
+  computeChildrenByOwner,
+  isPureSpawnChain,
+  type SessionTreeNode,
+} from './session-list-tree';
 import { SessionCard } from './SessionCard';
 import { useSessionGitBranches } from '@renderer/hooks/use-session-git-branches';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
@@ -22,16 +25,14 @@ import { SessionListSection, SessionListState } from './SessionListPrimitives';
  */
 const MAX_VISUAL_DEPTH = 2; // L1=0, L2=1, L3=2 → 视觉 3 层缩进上限
 
-function renderTreeGroup(
-  sessions: SessionRecord[],
-  selectedId: string | null,
-  onSelect: (sid: string) => void,
-  branchesBySession: ReadonlyMap<string, string | null>,
+function renderTreeGroup<T extends SessionTreeNode>(
+  sessions: T[],
+  renderCard: (session: T, teamRole: 'lead' | 'teammate' | undefined) => JSX.Element,
 ): JSX.Element[] {
   const { childrenByOwner, roots } = computeChildrenByOwner(sessions);
 
   function renderNode(
-    session: SessionRecord,
+    session: T,
     visualDepth: number,
     hasOwner: boolean,
   ): JSX.Element[] {
@@ -39,14 +40,7 @@ function renderTreeGroup(
     const pureSpawnChain = isPureSpawnChain(session, children, sessions);
     const teamRole = deriveTeamRole(session, hasOwner, children.length, pureSpawnChain);
     const out: JSX.Element[] = [
-      <SessionCard
-        key={session.id}
-        session={session}
-        selected={selectedId === session.id}
-        onSelect={() => onSelect(session.id)}
-        branch={branchesBySession.get(session.id)}
-        teamRole={teamRole}
-      />,
+      renderCard(session, teamRole),
     ];
     if (children.length > 0) {
       const nextVisualDepth = Math.min(visualDepth + 1, MAX_VISUAL_DEPTH);
@@ -118,12 +112,30 @@ function LocalSessionList(): JSX.Element {
     <div className="flex flex-col gap-3">
       {grouped.active.length > 0 && (
         <SessionListSection kind="active" label="活跃" count={grouped.active.length}>
-          {renderTreeGroup(grouped.active, selected, select, branchesBySession)}
+          {renderTreeGroup(grouped.active, (session, teamRole) => (
+            <SessionCard
+              key={session.id}
+              session={session}
+              selected={selected === session.id}
+              onSelect={() => select(session.id)}
+              branch={branchesBySession.get(session.id)}
+              teamRole={teamRole}
+            />
+          ))}
         </SessionListSection>
       )}
       {grouped.dormant.length > 0 && (
         <SessionListSection kind="dormant" label="休眠" count={grouped.dormant.length}>
-          {renderTreeGroup(grouped.dormant, selected, select, branchesBySession)}
+          {renderTreeGroup(grouped.dormant, (session, teamRole) => (
+            <SessionCard
+              key={session.id}
+              session={session}
+              selected={selected === session.id}
+              onSelect={() => select(session.id)}
+              branch={branchesBySession.get(session.id)}
+              teamRole={teamRole}
+            />
+          ))}
         </SessionListSection>
       )}
     </div>
@@ -145,13 +157,16 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
   }
   const grouped = groupRemoteSessionSummaries(source.sessions);
   const visibleSessionCount = grouped.active.length + grouped.dormant.length;
+  const authoritativeVisibleCount = source.presentationCounts
+    ? source.presentationCounts.active + source.presentationCounts.dormant
+    : visibleSessionCount;
   if (source.loading && visibleSessionCount === 0) {
     return <SessionListState kind="loading" title="加载远程会话…" />;
   }
   if (source.error && visibleSessionCount === 0) {
     return <SessionListState kind="error" title={source.error} />;
   }
-  if (visibleSessionCount === 0) {
+  if (authoritativeVisibleCount === 0) {
     return (
       <SessionListState
         kind="empty"
@@ -161,24 +176,35 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
     );
   }
   const sections = [
-    { key: 'active', label: '活跃', rows: grouped.active },
-    { key: 'dormant', label: '休眠', rows: grouped.dormant },
+    {
+      key: 'active', label: '活跃', rows: grouped.active,
+      count: source.presentationCounts?.active ?? grouped.active.length,
+    },
+    {
+      key: 'dormant', label: '休眠', rows: grouped.dormant,
+      count: source.presentationCounts?.dormant ?? grouped.dormant.length,
+    },
   ] as const;
   return (
     <div className="flex flex-col gap-3">
-      {sections.map((section) => section.rows.length > 0 && (
+      {sections.map((section) => section.count > 0 && (
         <SessionListSection
           key={section.key}
           kind={section.key}
           label={section.label}
-          count={section.rows.length}
+          count={section.count}
         >
-          {section.rows.map((session) => (
+          {section.rows.length === 0 ? (
+            <div className="rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted/70">
+              此分区还有 {section.count} 个会话；继续加载即可查看。
+            </div>
+          ) : renderTreeGroup([...section.rows], (session, teamRole) => (
             <RemoteSessionSummaryCard
               key={`${source.identity}:${session.id}`}
               session={session}
               selected={source.selectedSessionId === session.id}
               onSelect={() => source.selectSession(session.id)}
+              teamRole={teamRole}
             />
           ))}
         </SessionListSection>
@@ -186,7 +212,7 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
       {source.hasMoreSessions && (
         <button
           type="button"
-          disabled={source.busy}
+          disabled={source.livePaginationBusy ?? source.busy}
           onClick={() => void source.loadMoreSessions()}
           className="rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
         >

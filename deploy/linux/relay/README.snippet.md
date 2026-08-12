@@ -100,13 +100,22 @@ to the `bridge --surface desktop-full` forced command:
 ```bash
 agent-deck-worker configure \
   --credential /secure-transfer/production-relay-worker.agentdeck-connection \
-  --workspace /srv/workspaces/production
+  --workspace /srv/workspaces/production \
+  --session-catalog /secure-transfer/remote-session-catalog.json
 ```
 
 `configure` copies the Worker identity into its own mode-0700 private directory, installs one
 systemd-user service on Linux or one LaunchAgent on macOS, and starts it. It does not add anything
 to the Agent Deck page. Later lifecycle operations remain terminal-only and do not change the
 desktop Local/Remote selection:
+
+The optional session catalog is the only source for Remote Gateway/Provider choices. Start from
+`deploy/examples/remote-session-catalog.example.json` and replace its placeholder identifiers.
+It may contain only allowlisted provider/model identifiers and defaults—never endpoints,
+environment values, tokens, auth material, private keys, or provider configuration. The Worker
+validates this bounded projection and never opens Claude, Codex, or Grok configuration to discover
+the choices. Omit `--session-catalog` to follow each provider's default without advertising a
+Gateway/Provider override.
 
 ```bash
 agent-deck-worker status
@@ -126,8 +135,11 @@ and packaged supervisor; the underlying explicit diagnostic is
 `agent-deck-provider-supervisor runtime-paths`. `--deploy` or `--upgrade` atomically projects the credential into the
 Worker-private root, installs the shipped LaunchAgent, waits for readiness, and restarts that exact
 Worker through `agent-deck-worker install-provider-credential` and
-`agent-deck-provider-supervisor prepare-runtime`; `--verify` checks both services with
-`agent-deck-provider-supervisor health-config`. Startup idempotently recreates the exact mode-0700
+`agent-deck-provider-supervisor prepare-runtime`; `--verify` reports Worker service health and the
+optional Provider supervisor configuration, credential and service as separate components through
+`agent-deck-provider-supervisor health-config`. An expired optional Grok credential degrades only
+the Provider component; it is not reported as a generic Worker transport failure. Startup
+idempotently recreates the exact mode-0700
 runtime hierarchy after macOS temporary-directory cleanup. For Colima, render the canonical
 non-symlink result of `realpath "$(command -v docker)"`; Homebrew's bin symlink is rejected. The
 supervisor and Worker share only that private runtime root and the selected Workspace. Worker/Core

@@ -2,9 +2,10 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { RemoteHostSessionSummaryDto } from '@shared/remote-host';
+import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
 import type { SessionRecord } from '@shared/types';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
+import { legacyRemoteSessionPresentation } from '@renderer/remote-host/session-summary-presentation';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { AppHeader } from '../AppHeader';
 import { SessionList } from '../SessionList';
@@ -32,19 +33,19 @@ function localSession(
 function remoteSession(
   id: string,
   status: string,
-): RemoteHostSessionSummaryDto {
-  return {
+): RemoteHostSessionPresentationDto {
+  return legacyRemoteSessionPresentation({
     id,
     adapterId: 'codex-cli',
     title: `${id} Remote`,
     status,
     createdAt: 1,
     updatedAt: 2,
-  };
+  });
 }
 
 function remoteSource(
-  sessions: readonly RemoteHostSessionSummaryDto[],
+  sessions: readonly RemoteHostSessionPresentationDto[],
   overrides: Partial<RemoteSessionSourceView> = {},
 ): RemoteSessionSourceView {
   return {
@@ -188,6 +189,40 @@ describe('Local and Remote session-list parity', () => {
       .toBe(true);
   });
 
+  it('uses the shared spawn/team tree and authoritative lifecycle section counts', () => {
+    const lead = {
+      ...remoteSession('Lead', 'active-idle'),
+      teams: [{ teamId: 'team-a', teamName: 'Parity Team', role: 'lead' as const, joinedAt: 1 }],
+    };
+    const child = {
+      ...remoteSession('Child', 'active-waiting'),
+      spawnedBy: lead.id,
+      spawnDepth: 1,
+      teams: [{ teamId: 'team-a', teamName: 'Parity Team', role: 'teammate' as const, joinedAt: 1 }],
+    };
+    render(<SessionList remoteSource={remoteSource([lead, child], {
+      presentationCounts: {
+        total: 5, active: 2, dormant: 3, closed: 0, working: 0, waiting: 1,
+      },
+      hasMoreSessions: true,
+    })} />);
+    const active = document.querySelector('[data-session-section="active"]')!;
+    expect(active.querySelector('.ml-3 [data-session-id="Child"]')).toBeTruthy();
+    expect(screen.getByText('负责人')).toBeTruthy();
+    expect(screen.getByText('协作者')).toBeTruthy();
+    expect(screen.getByText('活跃 · 2')).toBeTruthy();
+    expect(screen.getByText('休眠 · 3')).toBeTruthy();
+    expect(screen.getByText(/此分区还有 3 个会话/)).toBeTruthy();
+  });
+
+  it('shows an accessible read-only indicator for an authoritative Remote pin', () => {
+    const pinned = { ...remoteSession('Pinned', 'active-idle'), pinned: true };
+    render(<SessionList remoteSource={remoteSource([pinned])} />);
+
+    expect(screen.getByRole('img', { name: '已置顶会话（Remote 只读）' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /置顶会话/ })).toBeNull();
+  });
+
   it('uses one shared layout grammar for empty, loading, and failed states', () => {
     const localView = render(<SessionList />);
     const localEmpty = document.querySelector('[data-session-list-state="empty"]')!;
@@ -217,15 +252,18 @@ describe('Local and Remote session-list parity', () => {
       pending={0}
       pinned={false}
       compact={false}
-      sourceMode="remote"
+      authority="remote"
       selectedRemoteProfileId="remote-a"
       remoteProfiles={[]}
       remoteCapabilities={new Set(['session-console.read'])}
+      remoteUsable
       remoteUsage={{
         enabled: true,
         identity: 'remote-a:core-a:1',
         rates: [],
         topToday: [],
+        ratesLoading: false,
+        ratesError: null,
         today: null,
         daily: [],
         dailyLoading: false,

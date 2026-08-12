@@ -103,7 +103,7 @@ describe('ServerCoreNodeAssetRuntime', () => {
     };
     const runtime = new ServerCoreNodeAssetRuntime(base, catalog!, () => 7);
     const listed = await runtime.execute(input('node.assets.list', {}));
-    expect(listed.result).toMatchObject({ revision: 7 });
+    expect(listed.result).toMatchObject({ revision: 1 });
     const assets = (listed.result as { assets: Array<{
       adapterId: string;
       kind: string;
@@ -158,7 +158,7 @@ describe('ServerCoreNodeAssetRuntime', () => {
       now: () => now,
     });
     expect(catalog).not.toBeNull();
-    catalog!.list(1);
+    expect(catalog!.list(1).revision).toBe(1);
 
     const agents = join(paths.home, '.claude', 'agents');
     mkdirSync(agents, { recursive: true });
@@ -177,8 +177,17 @@ describe('ServerCoreNodeAssetRuntime', () => {
 
     expect(catalog!.content(params, 2)).toBeNull();
     now += 101;
-    expect(catalog!.content(params, 2)?.content).toContain('late body');
-    expect(catalog!.list(2).assets.some((asset) => asset.name === 'late')).toBe(true);
+    const late = catalog!.content(params, 2);
+    expect(late?.content).toContain('late body');
+    expect(late?.revision).toBe(2);
+    expect(catalog!.list(2)).toMatchObject({ revision: 2 });
+
+    writeFileSync(
+      join(agents, 'late.md'),
+      '---\nname: late\ndescription: changed agent\n---\nchanged body\n',
+    );
+    expect(() => catalog!.content(params, 3)).toThrow(/changed after the catalog snapshot/u);
+    expect(catalog!.list(3)).toMatchObject({ revision: 3 });
   });
 
   it('caps a large Provider Home inventory before caching or returning it', () => {

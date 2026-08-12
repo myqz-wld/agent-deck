@@ -7,6 +7,7 @@ import type { RemoteSessionSourceView } from './source-types';
 import {
   RemotePageUnavailable,
   remotePageAvailability,
+  unknownSourceAvailability,
 } from './RemotePageAvailability';
 
 function source(
@@ -70,7 +71,7 @@ describe('Remote page availability', () => {
   it.each([
     ['live', ['session-console.read']],
     ['history', ['session-console.read', 'sessions.history']],
-    ['pending', ['session-console.read', 'pending.read']],
+    ['pending', ['pending.index.read']],
     ['teams', ['teams']],
     ['issues', ['issues']],
     ['data', ['usage']],
@@ -79,5 +80,11 @@ describe('Remote page availability', () => {
       .toBe('available');
     expect(remotePageAvailability(source('connected', true, capabilities.slice(1)), surface).kind)
       .toBe('unsupported');
+  });
+
+  it('renders a fail-closed state while source authority is unknown', () => {
+    render(<RemotePageUnavailable availability={unknownSourceAvailability(null)} />);
+    expect(screen.getByText('正在确认数据源')).toBeTruthy();
+    expect(screen.getByText(/不会读取 Local 或 Remote 业务数据/u)).toBeTruthy();
   });
 });

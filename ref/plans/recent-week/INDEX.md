@@ -15,4 +15,5 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-08-08 | `PLAN_31_handoff-lifecycle-context-v2.md` | completed with documented residuals | Harden handoff context, lifecycle, and rollback boundaries | CHANGELOG_436 / REVIEW_216 |
 | 2026-08-06 | `PLAN_31_linux-remote-core-foundation.md` | completed with follow-up | Deliver Remote Core, Relay/Worker, Feishu, and Workspace foundations | CHANGELOG_565 / PLAN_32 |

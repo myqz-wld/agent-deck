@@ -33,7 +33,7 @@ export class RemoteHostSessionMutationController {
         sessionId: request.sessionId,
         text: request.text,
         ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
-      }, this.options('send', request))));
+      }, this.options('send', request))), [], request.expectedAuthority);
   }
 
   interrupt(request: RemoteHostMutationTargetDto): Promise<RemoteHostAcceptedResultDto> {
@@ -42,7 +42,7 @@ export class RemoteHostSessionMutationController {
         'session.interrupt',
         { sessionId: request.sessionId },
         this.options('interrupt', request),
-      )));
+      )), [], request.expectedAuthority);
   }
 
   steer(request: RemoteHostSendDto): Promise<RemoteHostAcceptedResultDto> {
@@ -55,7 +55,7 @@ export class RemoteHostSessionMutationController {
           ...(request.attachments === undefined ? {} : { attachments: request.attachments }),
         },
         this.options('steer', request),
-      )));
+      )), [], request.expectedAuthority);
   }
 
   runtime(request: RemoteHostSessionTargetDto): Promise<RemoteHostRuntimeControlsDto> {
@@ -74,7 +74,7 @@ export class RemoteHostSessionMutationController {
           ...this.options('runtime', request),
           expectedRevision: request.expectedRevision,
         },
-      )));
+      )), [], request.expectedAuthority);
   }
 
   private options(

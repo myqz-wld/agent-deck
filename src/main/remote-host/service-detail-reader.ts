@@ -8,6 +8,7 @@ import type {
   RemoteHostFileFinalDiffRequestDto,
   RemoteHostImageAssetRequestDto,
   RemoteHostImageAssetResultDto,
+  RemoteHostMutationAuthorityDto,
   RemoteHostEventListDto,
   RemoteHostEventListRequestDto,
   RemoteHostSummaryListDto,
@@ -31,6 +32,7 @@ export type RemoteHostScopedRequest = <T>(
   method: CoreMethod,
   run: (scope: RemoteHostScopedClient) => Promise<T>,
   additionalMethods?: readonly CoreMethod[],
+  expectedAuthority?: RemoteHostMutationAuthorityDto,
 ) => Promise<T>;
 
 /** Read-only SessionDetail surfaces sharing the service's capability and epoch fences. */

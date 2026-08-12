@@ -342,6 +342,37 @@ describe('fileChangeRepo', () => {
     );
   });
 
+  it('loads a session-bound descriptor without blobs, snapshots, or metadata', () => {
+    dbMock.state.rows = [row({
+      id: 7,
+      before_blob: 'secret-before',
+      after_blob: 'secret-after',
+      before_snapshot_hash: Buffer.alloc(32, 1),
+      after_snapshot_hash: Buffer.alloc(32, 2),
+      metadata_json: JSON.stringify({ apiToken: 'must-not-load' }),
+    })];
+
+    expect(fileChangeReadRepo.getDescriptor('s1', 7)).toMatchObject({
+      id: 7,
+      sessionId: 's1',
+      filePath: '/repo/a.ts',
+      hasBeforeBlob: true,
+      hasAfterBlob: true,
+      hasBeforeSnapshot: true,
+      hasAfterSnapshot: true,
+    });
+    expect(fileChangeReadRepo.getDescriptor('other', 7)).toBeNull();
+
+    const sql = dbMock.db.prepare.mock.calls.at(-2)?.[0] as string;
+    const projection = sql.slice(0, sql.indexOf('FROM'));
+    expect(sql).not.toContain('file_snapshot_blobs');
+    expect(projection).not.toContain('fc.*');
+    expect(projection).toContain('AS path_authority');
+    expect(projection).not.toMatch(/fc\.metadata_json\s+(?:AS|,)/u);
+    expect(projection).not.toMatch(/fc\.before_blob\s+AS before_blob/u);
+    expect(projection).not.toMatch(/fc\.after_blob\s+AS after_blob/u);
+  });
+
   it('discovers boundaries without blobs and loads only the requested snapshot side', () => {
     const before = encodeFileSnapshot('old snapshot')!;
     const after = encodeFileSnapshot('new snapshot')!;

@@ -63,16 +63,28 @@ async function assertRuntimePaths(config) {
   }
 }
 
-export async function checkWorkerProviderSupervisor(config) {
-  if (config === null) return { managed: false };
+function assertSupportedPlatform() {
   if (process.platform !== 'darwin' || typeof process.getuid !== 'function') {
     throw new Error('Relay Worker Provider supervisor 官方部署当前仅支持 macOS LaunchAgent。');
   }
+}
+
+async function checkSupervisorConfiguration(config) {
+  assertSupportedPlatform();
   await command(config.command, ['check-config', '--config', config.configFile]);
+  await assertRuntimePaths(config);
+}
+
+async function checkSupervisorCredential(config) {
   await command(config.workerWrapper, [
     'check-provider-credential', '--credential', config.grokCredentialFile,
   ]);
-  await assertRuntimePaths(config);
+}
+
+export async function checkWorkerProviderSupervisor(config) {
+  if (config === null) return { managed: false };
+  await checkSupervisorConfiguration(config);
+  await checkSupervisorCredential(config);
   return { managed: true, instanceId: config.hostConfig.instanceId };
 }
 
@@ -170,9 +182,28 @@ async function verifyLaunchAgent(config) {
 
 export async function verifyWorkerProviderSupervisor(config) {
   if (config === null) return { managed: false };
-  await checkWorkerProviderSupervisor(config);
-  await verifyLaunchAgent(config);
-  return { managed: true, instanceId: config.hostConfig.instanceId, status: 'running' };
+  const inspect = async (operation) => {
+    try {
+      await operation();
+      return 'ok';
+    } catch {
+      return 'invalid';
+    }
+  };
+  const configuration = await inspect(() => checkSupervisorConfiguration(config));
+  const credential = await inspect(() => checkSupervisorCredential(config));
+  const service = await inspect(() => verifyLaunchAgent(config));
+  const healthy = configuration === 'ok' && credential === 'ok' && service === 'ok';
+  return {
+    managed: true,
+    instanceId: config.hostConfig.instanceId,
+    status: healthy ? 'running' : 'degraded',
+    components: {
+      configuration,
+      credential,
+      service: service === 'ok' ? 'running' : 'unavailable',
+    },
+  };
 }
 
 export async function deployWorkerProviderSupervisor(config) {

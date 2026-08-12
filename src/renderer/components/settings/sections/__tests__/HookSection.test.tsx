@@ -11,10 +11,10 @@ describe('HookSection', () => {
         storageKey="test-hook-section"
         installLabel="安装 Hook"
         hookStatus={{
-          installed: false,
-          scope: 'user',
-          settingsPath: '/tmp/hooks.json',
-          installedHooks: ['SessionStart'],
+          state: 'partial',
+          locationLabel: '/tmp/hooks.json',
+          writeAllowed: true,
+          disabledReason: null,
         }}
         busy={false}
         installHook={vi.fn()}

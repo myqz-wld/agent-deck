@@ -11,6 +11,7 @@ import {
 } from '@shared/session-metadata';
 import { DeckSelect } from '../DeckSelect';
 import { CloseIcon, RefreshIcon, SaveIcon } from '../icons';
+import { useModalFocus } from '../use-modal-focus';
 import { ProviderCombobox } from './ProviderCombobox';
 
 interface Props {
@@ -38,6 +39,7 @@ export function BundledAgentRuntimeEditor({
   const [providers, setProviders] = useState<Array<{ id: string; name?: string }>>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -168,19 +170,33 @@ export function BundledAgentRuntimeEditor({
     if (discard) onClose();
   };
 
+  useModalFocus({
+    blocked: busy,
+    dialogRef,
+    onClose: () => void handleClose(),
+  });
+
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="no-drag flex w-[400px] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bundled-agent-runtime-editor-title"
+        tabIndex={-1}
+        className="no-drag flex w-[min(400px,92vw)] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+      >
         <header className="mb-3 flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="truncate text-[13px] font-medium">编辑内建 Agent</h3>
+            <h3 id="bundled-agent-runtime-editor-title" className="truncate text-[13px] font-medium">编辑内建 Agent</h3>
             <code className="text-[9px] text-deck-muted/60">{asset.qualifiedName}</code>
           </div>
           <button
             type="button"
             onClick={() => void handleClose()}
+            disabled={busy}
             aria-label="关闭编辑"
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10"
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 disabled:opacity-40"
           >
             <CloseIcon className="h-3.5 w-3.5" />
           </button>

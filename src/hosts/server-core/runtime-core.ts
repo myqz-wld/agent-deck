@@ -35,6 +35,7 @@ import type { ServerCoreMcpHandOffPort } from './mcp-handoff-port';
 import { serverCoreHistoryEntry } from './runtime-history';
 import { ServerCoreSessionExtras } from './runtime-session-extras';
 import { serverCoreMutationReplay } from './runtime-mutation';
+import { SERVER_CORE_BASE_METHODS } from './runtime-base-methods';
 import { canAcceptServerCoreSessionAttachments } from './session-attachment-capability';
 import {
   canonicalJson,
@@ -48,22 +49,7 @@ import {
   parseSteerParams,
   parseSubscriptionParams,
 } from './runtime-validation';
-export const SERVER_CORE_BASE_METHODS = Object.freeze([
-  'pending.list',
-  'pending.respond',
-  'session.history',
-  'session.interrupt',
-  'session.runtime.get',
-  'session.runtime.update',
-  'session.context.get',
-  'session.input.capabilities',
-  'session.handoff.preview',
-  'session.handoff.commit',
-  'session.send',
-  'session.steer',
-  'subscription.set',
-  'system.health',
-] as const satisfies readonly CoreMethod[]);
+export { SERVER_CORE_BASE_METHODS } from './runtime-base-methods';
 export interface ServerCoreRuntimeRepositoryPort {
   get(sessionId: string): SessionRecord | null;
 }
