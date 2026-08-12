@@ -9,7 +9,7 @@ import type {
 import { CloseIcon } from '../icons';
 import { useModalFocus } from '../use-modal-focus';
 
-const INPUT_CLASS = 'w-full rounded-md border border-white/[0.08] bg-black/[0.12] px-2.5 py-2 text-[11px] outline-none transition placeholder:text-deck-muted/40 hover:border-white/[0.12] focus:border-blue-300/30 focus:bg-blue-400/[0.035]';
+const INPUT_CLASS = 'w-full rounded-md border border-white/[0.08] bg-black/[0.12] px-2.5 py-2 text-[11px] outline-none transition placeholder:text-deck-muted/40 hover:border-white/[0.12] focus:border-white/[0.18] focus:bg-black/[0.08]';
 
 interface RemoteProfileFormProps {
   profile: RemoteHostProfileDto | null;
@@ -127,7 +127,7 @@ export function RemoteProfileForm({
           type="button"
           disabled={effectiveBusy}
           onClick={() => void chooseConnection()}
-          className="mt-3 w-full rounded-lg border border-blue-300/10 bg-gradient-to-r from-blue-500/[0.08] via-blue-500/[0.025] to-transparent p-3 text-left transition hover:border-blue-300/20 hover:from-blue-500/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-3 w-full rounded-lg border border-white/[0.08] bg-black/[0.10] p-3 text-left transition hover:border-white/[0.14] hover:bg-black/[0.05] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -139,7 +139,7 @@ export function RemoteProfileForm({
             <span className={`shrink-0 rounded px-2 py-1 text-[10px] ${
               connectionChosen
                 ? 'border border-emerald-300/15 bg-emerald-400/[0.08] text-emerald-200'
-                : 'border border-blue-300/10 bg-blue-400/[0.07] text-blue-100/80'
+                : 'border border-white/[0.08] bg-white/[0.04] text-deck-muted/90'
             }`}>
               {connectionChosen ? (selection ? '已导入' : '已配置') : '选择文件…'}
             </span>
@@ -158,7 +158,7 @@ export function RemoteProfileForm({
         )}
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" onClick={onClose} disabled={effectiveBusy} className="rounded px-3 py-1.5 text-[11px] text-deck-muted hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40">取消</button>
-          <button type="submit" disabled={effectiveBusy} className="rounded-md border border-blue-300/15 bg-blue-400/10 px-3 py-1.5 text-[11px] text-blue-100 transition hover:border-blue-300/25 hover:bg-blue-400/15 disabled:opacity-50">
+          <button type="submit" disabled={effectiveBusy} className="rounded-md border border-white/[0.10] bg-white/[0.06] px-3 py-1.5 text-[11px] text-deck-text transition hover:border-white/[0.16] hover:bg-white/[0.09] disabled:opacity-50">
             {effectiveBusy ? '保存中…' : '保存'}
           </button>
         </div>

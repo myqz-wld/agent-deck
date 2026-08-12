@@ -60,7 +60,7 @@ export function RemoteHostManagerDialog({
         data-layout="single-column"
         className="no-drag relative flex max-h-[85%] w-[min(34rem,92%)] flex-col overflow-hidden rounded-xl border border-white/[0.09] bg-deck-bg-strong shadow-2xl"
       >
-        <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] bg-gradient-to-r from-blue-500/[0.09] via-blue-500/[0.025] to-transparent px-4 py-3.5">
+        <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] bg-black/[0.05] px-4 py-3.5">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 id="remote-host-manager-title" className="text-[13px] font-medium">远程数据源</h2>
@@ -77,7 +77,7 @@ export function RemoteHostManagerDialog({
               type="button"
               onClick={() => setEditing(null)}
               disabled={hosts.busy}
-              className="inline-flex h-6 items-center gap-1 rounded-md border border-blue-300/15 bg-blue-400/10 px-2.5 text-[10px] text-blue-100 transition hover:border-blue-300/25 hover:bg-blue-400/15 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-6 items-center gap-1 rounded-md border border-white/[0.10] bg-white/[0.045] px-2.5 text-[10px] text-deck-text transition hover:border-white/[0.16] hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <PlusIcon className="h-3 w-3" />添加
             </button>

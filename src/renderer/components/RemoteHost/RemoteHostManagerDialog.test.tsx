@@ -102,7 +102,7 @@ describe('RemoteHostManagerDialog', () => {
     expect(within(card).getByRole('button', { name: '删除配置' })).toBeTruthy();
   });
 
-  it('uses Remote accent and status colors instead of opaque gray connection fills', () => {
+  it('uses restrained flat surfaces with distinct semantic status colors', () => {
     const profiles = [remoteProfile(1), remoteProfile(2)];
     render(<RemoteHostManagerDialog
       open
@@ -114,9 +114,14 @@ describe('RemoteHostManagerDialog', () => {
     />);
 
     expect(screen.getByText('1/2 已连接')).toBeTruthy();
+    const dialog = screen.getByRole('dialog', { name: '远程数据源' });
     const [selected, unselected] = screen.getAllByTestId('remote-connection-card');
-    expect(selected!.className).toContain('from-blue-500/[0.12]');
-    expect(selected!.className).not.toContain('bg-white/[0.08]');
+    expect(selected!.className).toContain('border-white/[0.14]');
+    expect(selected!.className).toContain('bg-white/[0.035]');
+    expect(selected!.className).not.toContain('gradient');
+    expect(selected!.className).not.toContain('shadow-[');
+    expect(dialog.querySelector('[class*="bg-gradient"]')).toBeNull();
+    expect(dialog.innerHTML).not.toContain('shadow-[0_0');
     expect(within(selected!).getByText('默认连接')).toBeTruthy();
     expect(within(selected!).getByText('已连接').className)
       .toContain('bg-emerald-400/[0.07]');
@@ -127,7 +132,9 @@ describe('RemoteHostManagerDialog', () => {
   it('renders a compact empty state without reserving a detail pane', () => {
     render(<RemoteHostManagerDialog open hosts={hosts([], [])} onClose={vi.fn()} />);
 
-    expect(screen.getByText('还没有远程连接')).toBeTruthy();
+    const emptyState = screen.getByText('还没有远程连接').parentElement;
+    expect(emptyState).toBeTruthy();
+    expect(emptyState!.className).not.toContain('gradient');
     expect(screen.getByText(/点击右上角“添加”/)).toBeTruthy();
     expect(screen.queryByTestId('remote-connection-list')).toBeNull();
     expect(screen.getByRole('dialog').querySelector('aside')).toBeNull();
@@ -194,6 +201,8 @@ describe('RemoteHostManagerDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '编辑' }));
     expect(screen.getByText('编辑远程连接')).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: '编辑远程连接' })
+      .querySelector('[class*="bg-gradient"]')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '关闭远程连接表单' }));
 
     fireEvent.click(screen.getByRole('button', { name: '删除配置' }));
