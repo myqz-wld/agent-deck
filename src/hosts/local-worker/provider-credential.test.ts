@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   installLocalWorkerGrokCredential,
+  projectLocalWorkerGrokCredential,
   readLocalWorkerGrokCredential,
 } from './provider-credential';
 
@@ -70,5 +71,47 @@ describe('Local Worker Grok Provider credential projection', () => {
     }), { mode: 0o600 });
     await expect(installLocalWorkerGrokCredential(privateRoot, credentialFile))
       .rejects.toThrow(/invalid or expired/);
+  });
+
+  it('projects the current Grok OIDC login without copying refresh or profile metadata', () => {
+    const native = {
+      'https://auth.x.ai::account-a': {
+        auth_mode: 'oidc',
+        key: 'current-access-token',
+        expires_at: '2999-01-01T00:00:00.000Z',
+        refresh_token: 'must-not-leave-the-login-file',
+        email: 'operator@example.test',
+        profile: { name: 'Operator' },
+      },
+    };
+
+    const projected = projectLocalWorkerGrokCredential(native, 1);
+    expect(projected).toEqual({
+      'xai::cached': {
+        auth_mode: 'oauth',
+        key: 'current-access-token',
+        expires_at: '2999-01-01T00:00:00.000Z',
+      },
+    });
+    expect(JSON.stringify(projected)).not.toContain('refresh_token');
+    expect(JSON.stringify(projected)).not.toContain('operator@example.test');
+  });
+
+  it('fails closed for ambiguous or expired native Grok logins', () => {
+    const entry = {
+      auth_mode: 'oidc',
+      key: 'current-access-token',
+      expires_at: '2999-01-01T00:00:00.000Z',
+    };
+    expect(projectLocalWorkerGrokCredential({
+      'https://auth.x.ai::account-a': entry,
+      'https://auth.x.ai::account-b': entry,
+    }, 1)).toBeNull();
+    expect(projectLocalWorkerGrokCredential({
+      'https://auth.x.ai::account-a': {
+        ...entry,
+        expires_at: '2000-01-01T00:00:00.000Z',
+      },
+    }, Date.now())).toBeNull();
   });
 });

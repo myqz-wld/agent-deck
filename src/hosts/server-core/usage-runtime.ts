@@ -36,7 +36,9 @@ export const SERVER_CORE_USAGE_METHODS = Object.freeze([
 
 type UsageMethod = (typeof SERVER_CORE_USAGE_METHODS)[number];
 const PROVIDER_ORDER = ['claude-code', 'codex-cli', 'grok-build'] as const;
-const PROVIDER_READ_TIMEOUT_MS = 5_000;
+// Provider-owned background probes allow up to 15 seconds. Keep the Core fence longer so it
+// bounds a wedged adapter without pre-empting a healthy cold Codex/Claude process startup.
+const PROVIDER_READ_TIMEOUT_MS = 20_000;
 
 export interface ServerCoreUsageRuntimeOptions {
   readonly tokenUsage: {

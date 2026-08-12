@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
-import { StatusBadge } from './StatusBadge';
-import { lifecycleLabel, agentIdLabel } from './TeamDetail/helpers';
-import { ArchiveIcon, RefreshIcon, TrashIcon } from './icons';
+import { ArchiveIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
+import { LocalHistorySummaryCard } from './LocalHistorySummaryCard';
 import { RemoteSessionSummaryCard } from './RemoteSessionSummaryCard';
 
 interface Filters {
@@ -158,11 +157,11 @@ function LocalHistoryPanel({ onSelect }: Pick<Props, 'onSelect'>): JSX.Element {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex shrink-0 flex-col gap-2 border-b border-deck-border px-3 py-2">
+      <div className="flex shrink-0 flex-col gap-1 border-b border-deck-border px-3 py-2">
         <div className="flex gap-1.5">
           <input
             type="text"
-            placeholder="搜索目录、标题、事件或总结…"
+            placeholder="搜索标题、工作区、事件或总结…"
             title="长工具输出仅搜索开头和结尾各 2,048 个字符"
             className="no-drag flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
             value={keywordInput}
@@ -182,7 +181,7 @@ function LocalHistoryPanel({ onSelect }: Pick<Props, 'onSelect'>): JSX.Element {
             <ArchiveIcon className="mr-1 inline h-3 w-3" />仅归档
           </button>
         </div>
-        <p className="text-[9px] text-deck-muted/60">
+        <p className="mt-0.5 text-[9px] text-deck-muted/70">
           长工具输出仅搜索开头和结尾各 2,048 个字符。
         </p>
         {error && (
@@ -199,83 +198,14 @@ function LocalHistoryPanel({ onSelect }: Pick<Props, 'onSelect'>): JSX.Element {
         ) : (
           <ol className="flex flex-col gap-1.5">
             {rows.map((s) => (
-              <li
-                key={s.id}
-                onClick={() => onSelect(s.id)}
-                className="cursor-pointer rounded-md border border-deck-border bg-white/[0.02] px-3 py-2 hover:bg-white/[0.05]"
-              >
-                <div className="flex items-center gap-2">
-                  <StatusBadge
-                    activity={s.activity}
-                    lifecycle={s.lifecycle}
-                    archived={s.archivedAt !== null}
-                  />
-                  {/* CHANGELOG_29：与 SessionCard / SessionDetail.SourceBadge 风格一致的「内/外」标签 ——
-                      历史 tab 同样是用户主要查找入口，列表里就要能预判这条点进去能不能继续聊
-                      （SDK=内 可以；其他 source=外 走 CliFooter 只读，不能在 detail 里发消息）。
-                      REVIEW_7 L2：tooltip 显示真实 source 名（而非固定写「外部终端 CLI」）；
-                      未来加入新 adapter 时，本标签 + SessionDetail 渲染分支需要同步加判断。 */}
-                  <span
-                    className={`inline-flex h-4 items-center rounded-sm px-1 text-[9px] font-medium leading-none ${
-                      s.source === 'sdk'
-                        ? 'bg-emerald-500/15 text-emerald-400'
-                        : 'bg-white/10 text-deck-muted'
-                    }`}
-                    title={
-                      s.source === 'sdk'
-                        ? '应用内创建的会话（可继续对话）'
-                        : '终端启动的会话（只读，不可继续对话）'
-                    }
-                  >
-                    {s.source === 'sdk' ? '内' : '外'}
-                  </span>
-                  <div className="flex-1 truncate text-[12px] font-medium hover:text-white">
-                    {s.title}
-                  </div>
-                  <span className="text-[9px] text-deck-muted/60">{agentIdLabel(s.agentId)}</span>
-                </div>
-                <div className="mt-0.5 truncate text-[10px] text-deck-muted">{s.cwd}</div>
-                <div className="mt-0.5 flex items-center justify-between text-[10px] text-deck-muted/70">
-                  <span>
-                    {new Date(s.lastEventAt).toLocaleString('zh-CN', { hour12: false })} ·{' '}
-                    {s.archivedAt !== null ? `已归档（${lifecycleLabel(s.lifecycle)}）` : lifecycleLabel(s.lifecycle)}
-                  </span>
-                  <span className="flex gap-2">
-                    {s.archivedAt !== null ? (
-                      <button
-                        type="button"
-                        className="hover:text-deck-text"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void unarchive(s.id);
-                        }}
-                      >
-                        <RefreshIcon className="mr-1 inline h-3 w-3" />取消归档
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="hover:text-deck-text"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void archive(s.id);
-                        }}
-                      >
-                        <ArchiveIcon className="mr-1 inline h-3 w-3" />归档
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="text-status-waiting/80 hover:text-status-waiting"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void remove(s.id);
-                      }}
-                    >
-                      <TrashIcon className="mr-1 inline h-3 w-3" />删除
-                    </button>
-                  </span>
-                </div>
+              <li key={s.id}>
+                <LocalHistorySummaryCard
+                  session={s}
+                  onSelect={() => onSelect(s.id)}
+                  onArchive={() => archive(s.id)}
+                  onUnarchive={() => unarchive(s.id)}
+                  onDelete={() => remove(s.id)}
+                />
               </li>
             ))}
           </ol>

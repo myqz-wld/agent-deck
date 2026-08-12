@@ -130,8 +130,11 @@ Remote Grok available, first prepare the host configuration described in
 `deploy/linux/provider-session/README.md` with `rootless-podman.config.example.json` on Linux or
 `colima.config.example.json` on macOS. On macOS, fill the optional `providerSupervisor` block from
 `deploy/examples/relay-worker.config.example.json`, including the exact Worker config id and a
-mode-0600 Grok credential. `deploy:relay-worker --check` validates the credential, runtime paths,
-and packaged supervisor; the underlying explicit diagnostic is
+mode-0600 Grok credential. The credential may be Grok CLI's current `~/.grok/auth.json` after
+`grok auth login`, or the dedicated minimal document described in the Provider-session README.
+For a native OIDC login, installation projects only the access token and expiry; refresh tokens and
+account/profile metadata never leave the source login file. `deploy:relay-worker --check` validates
+the credential, runtime paths, and packaged supervisor; the underlying explicit diagnostic is
 `agent-deck-provider-supervisor runtime-paths`. `--deploy` or `--upgrade` atomically projects the credential into the
 Worker-private root, installs the shipped LaunchAgent, waits for readiness, and restarts that exact
 Worker through `agent-deck-worker install-provider-credential` and

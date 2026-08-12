@@ -26,7 +26,7 @@ function request(
   };
 }
 
-function harness() {
+function harness(getUsageSnapshotOverride?: AgentAdapter['getUsageSnapshot']) {
   const base: DaemonCoreRuntime = {
     supportedMethods: ['system.health'],
     start: vi.fn(async () => undefined),
@@ -34,7 +34,7 @@ function harness() {
     currentRevision: () => 9,
     execute: vi.fn(async () => ({ result: { ok: true, revision: 9 }, revision: 9 })),
   };
-  const getUsageSnapshot = vi.fn(async () => ({
+  const defaultUsageSnapshot: NonNullable<AgentAdapter['getUsageSnapshot']> = async () => ({
     provider: 'codex-cli' as const,
     label: 'Codex',
     status: 'ok' as const,
@@ -45,7 +45,8 @@ function harness() {
       resetsAt: '2026-08-10T12:00:00.000Z',
     }],
     updatedAt: 10,
-  }));
+  });
+  const getUsageSnapshot = vi.fn(getUsageSnapshotOverride ?? defaultUsageSnapshot);
   const codex = { getUsageSnapshot } as unknown as AgentAdapter;
   const runtime = new ServerCoreUsageRuntime(base, {
     tokenUsage: {
@@ -93,6 +94,32 @@ describe('ServerCoreUsageRuntime', () => {
     expect(getUsageSnapshot).toHaveBeenCalledOnce();
     await runtime.execute(request('usage.providers.get', { force: true }));
     expect(getUsageSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not pre-empt a healthy cold provider probe at the former five-second fence', async () => {
+    vi.useFakeTimers();
+    try {
+      const { runtime } = harness(() => new Promise((resolve) => {
+        setTimeout(() => resolve({
+          provider: 'codex-cli',
+          label: 'Codex',
+          status: 'ok',
+          windows: [],
+          updatedAt: 10,
+        }), 6_000);
+      }));
+      const pending = runtime.execute(request('usage.providers.get', { force: true }));
+      await vi.advanceTimersByTimeAsync(6_000);
+      await expect(pending).resolves.toMatchObject({
+        result: {
+          snapshots: expect.arrayContaining([
+            expect.objectContaining({ provider: 'codex-cli', status: 'ok' }),
+          ]),
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects invalid requests and never exposes usage to Feishu', async () => {
