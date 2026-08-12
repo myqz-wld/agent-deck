@@ -102,6 +102,28 @@ describe('RemoteHostManagerDialog', () => {
     expect(within(card).getByRole('button', { name: '删除配置' })).toBeTruthy();
   });
 
+  it('uses Remote accent and status colors instead of opaque gray connection fills', () => {
+    const profiles = [remoteProfile(1), remoteProfile(2)];
+    render(<RemoteHostManagerDialog
+      open
+      hosts={hosts(profiles, [
+        remoteState(profiles[0]!.id, 'connected'),
+        remoteState(profiles[1]!.id, 'offline'),
+      ])}
+      onClose={vi.fn()}
+    />);
+
+    expect(screen.getByText('1/2 已连接')).toBeTruthy();
+    const [selected, unselected] = screen.getAllByTestId('remote-connection-card');
+    expect(selected!.className).toContain('from-blue-500/[0.12]');
+    expect(selected!.className).not.toContain('bg-white/[0.08]');
+    expect(within(selected!).getByText('默认连接')).toBeTruthy();
+    expect(within(selected!).getByText('已连接').className)
+      .toContain('bg-emerald-400/[0.07]');
+    expect(unselected!.className).toContain('bg-black/[0.10]');
+    expect(within(unselected!).queryByText('默认连接')).toBeNull();
+  });
+
   it('renders a compact empty state without reserving a detail pane', () => {
     render(<RemoteHostManagerDialog open hosts={hosts([], [])} onClose={vi.fn()} />);
 

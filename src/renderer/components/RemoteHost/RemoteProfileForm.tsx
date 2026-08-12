@@ -9,7 +9,7 @@ import type {
 import { CloseIcon } from '../icons';
 import { useModalFocus } from '../use-modal-focus';
 
-const INPUT_CLASS = 'w-full rounded border border-deck-border bg-white/[0.04] px-2.5 py-2 text-[11px] outline-none transition focus:border-white/20';
+const INPUT_CLASS = 'w-full rounded-md border border-white/[0.08] bg-black/[0.12] px-2.5 py-2 text-[11px] outline-none transition placeholder:text-deck-muted/40 hover:border-white/[0.12] focus:border-blue-300/30 focus:bg-blue-400/[0.035]';
 
 interface RemoteProfileFormProps {
   profile: RemoteHostProfileDto | null;
@@ -93,7 +93,7 @@ export function RemoteProfileForm({
         aria-modal="true"
         aria-labelledby={titleId}
         onSubmit={(event) => void submit(event)}
-        className="max-h-[90%] w-full max-w-lg overflow-y-auto rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl scrollbar-deck"
+        className="max-h-[90%] w-full max-w-lg overflow-y-auto rounded-xl border border-white/[0.09] bg-deck-bg-strong p-4 shadow-2xl scrollbar-deck"
       >
         <div className="mb-4 flex items-center justify-between">
           <div>
@@ -127,7 +127,7 @@ export function RemoteProfileForm({
           type="button"
           disabled={effectiveBusy}
           onClick={() => void chooseConnection()}
-          className="mt-3 w-full rounded-lg border border-deck-border bg-white/[0.03] p-3 text-left transition hover:border-white/15 hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-3 w-full rounded-lg border border-blue-300/10 bg-gradient-to-r from-blue-500/[0.08] via-blue-500/[0.025] to-transparent p-3 text-left transition hover:border-blue-300/20 hover:from-blue-500/[0.12] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -138,8 +138,8 @@ export function RemoteProfileForm({
             </div>
             <span className={`shrink-0 rounded px-2 py-1 text-[10px] ${
               connectionChosen
-                ? 'bg-status-working/15 text-status-working'
-                : 'bg-white/[0.06] text-deck-muted'
+                ? 'border border-emerald-300/15 bg-emerald-400/[0.08] text-emerald-200'
+                : 'border border-blue-300/10 bg-blue-400/[0.07] text-blue-100/80'
             }`}>
               {connectionChosen ? (selection ? '已导入' : '已配置') : '选择文件…'}
             </span>
@@ -158,7 +158,7 @@ export function RemoteProfileForm({
         )}
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" onClick={onClose} disabled={effectiveBusy} className="rounded px-3 py-1.5 text-[11px] text-deck-muted hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40">取消</button>
-          <button type="submit" disabled={effectiveBusy} className="rounded bg-status-working/30 px-3 py-1.5 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50">
+          <button type="submit" disabled={effectiveBusy} className="rounded-md border border-blue-300/15 bg-blue-400/10 px-3 py-1.5 text-[11px] text-blue-100 transition hover:border-blue-300/25 hover:bg-blue-400/15 disabled:opacity-50">
             {effectiveBusy ? '保存中…' : '保存'}
           </button>
         </div>
@@ -169,7 +169,7 @@ export function RemoteProfileForm({
 
 function ConnectionSummary({ endpoint }: { endpoint: RemoteHostEndpointDto }): JSX.Element {
   return (
-    <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2 text-[10px]">
+    <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/[0.12] px-3 py-2 text-[10px]">
       <div className="flex items-center justify-between gap-3">
         <span className="text-deck-muted">连接地址</span>
         <span className="truncate text-deck-text">{endpoint.username}@{endpoint.hostname}:{endpoint.port}</span>
