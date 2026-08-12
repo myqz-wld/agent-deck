@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { makeInternalSession } from './types';
+import { makeInternalSession, type PendingUserMessage } from './types';
 import {
   translateSdkMessageCore,
   type ClaudeSdkMessageTranslationHost,
@@ -49,6 +49,44 @@ function host(): ClaudeSdkMessageTranslationHost & {
 }
 
 describe('Claude SDK message translator Core', () => {
+  it('persists a deferred user turn before translating its UUID-rewritten assistant response', () => {
+    const translationHost = host();
+    const internal = makeInternalSession({
+      cwd: '/workspace',
+      applicationSid: 'session-a',
+    });
+    const pending = vi.fn(async () => ({})) as unknown as PendingUserMessage;
+    pending.deferredUserEvent = {
+      text: 'queued input',
+      turnCorrelationId: 'turn-queued',
+    };
+    internal.submittingUserMessage = {
+      pending,
+      providerMessageId: 'sdk-input-uuid',
+      status: 'submitting',
+    };
+    const emitted: Array<{ payload: unknown }> = [];
+
+    translateSdkMessageCore(
+      (event) => emitted.push(event),
+      'session-a',
+      {
+        type: 'assistant',
+        uuid: 'assistant-uuid',
+        parent_tool_use_id: null,
+        message: { content: [{ type: 'text', text: 'response' }] },
+      },
+      internal,
+      translationHost,
+    );
+
+    expect(internal.submittingUserMessage).toBeNull();
+    expect(emitted.map((event) => event.payload)).toEqual([
+      { text: 'queued input', role: 'user', turnCorrelationId: 'turn-queued' },
+      { text: 'response', role: 'assistant' },
+    ]);
+  });
+
   it('uses the injected identity and clock for translated assistant content', () => {
     const translationHost = host();
     const internal = makeInternalSession({

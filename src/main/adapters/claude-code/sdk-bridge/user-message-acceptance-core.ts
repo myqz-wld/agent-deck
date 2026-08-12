@@ -11,14 +11,26 @@ export interface ClaudeUserMessageAcceptanceHost {
 export function confirmClaudeUserMessageAcceptanceCore(
   emit: (event: AgentEvent) => void,
   sessionId: string,
-  msg: { type: string; uuid?: unknown },
+  msg: { type: string; uuid?: unknown; parent_tool_use_id?: unknown },
   internal: InternalSession,
   host: ClaudeUserMessageAcceptanceHost,
 ): void {
-  if (msg.type !== 'user' || typeof msg.uuid !== 'string') return;
-  if (internal.ignoredUserMessageIds?.delete(msg.uuid)) return;
+  if (
+    msg.type === 'user' &&
+    typeof msg.uuid === 'string' &&
+    internal.ignoredUserMessageIds?.delete(msg.uuid)
+  ) return;
   const submitting = internal.submittingUserMessage;
-  if (!submitting || submitting.providerMessageId !== msg.uuid) return;
+  if (!submitting) return;
+  if (msg.type === 'user') {
+    if (typeof msg.uuid !== 'string') return;
+    if (submitting.providerMessageId !== msg.uuid) return;
+  } else if (msg.type !== 'assistant' || msg.parent_tool_use_id != null) {
+    return;
+  }
+  // Claude Code may replace the UUID supplied on an SDK input before echoing the persisted user
+  // frame. The first top-level assistant frame is downstream proof that the sole in-flight user
+  // turn was accepted; subagent frames do not establish that boundary.
   internal.submittingUserMessage = null;
   const deferred = submitting.pending.deferredUserEvent;
   if (!deferred) return;
