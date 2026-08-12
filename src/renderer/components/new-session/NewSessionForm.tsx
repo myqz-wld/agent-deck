@@ -51,6 +51,7 @@ interface Props {
   error: string | null;
   images: UseImageAttachmentsResult;
   loading: boolean;
+  modelLoading?: boolean;
   notice?: ReactNode;
   sourceLabel?: string;
   title?: string;
@@ -73,6 +74,7 @@ const SELECT_CLASS =
 
 export function NewSessionForm(props: Props): JSX.Element {
   const disabled = props.busy || props.loading;
+  const defaultsDisabled = disabled || props.modelLoading === true;
   const titleId = `${props.authoringId.replace(/[^A-Za-z0-9_-]/g, '-')}-title`;
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalFocus({ blocked: props.busy, dialogRef, onClose: props.onClose });
@@ -101,12 +103,14 @@ export function NewSessionForm(props: Props): JSX.Element {
 
         {props.adapters.length === 0 ? (
           <div className={props.error ? 'text-[11px] text-status-waiting' : 'text-[11px] text-deck-muted'}>
-            {props.error ?? (props.loading ? '正在读取运行时配置…' : '没有可用的运行时')}
+            {props.error ?? (props.loading || props.modelLoading
+              ? '正在读取运行时配置…'
+              : '没有可用的运行时')}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
             {props.sourceLabel && (
-              <div className="rounded border border-status-working/25 bg-status-working/10 px-2.5 py-2 text-[10px] text-status-working">
+              <div className="rounded border border-deck-border bg-black/20 px-2.5 py-2 text-[10px] text-deck-muted">
                 创建目标：{props.sourceLabel}
               </div>
             )}
@@ -121,20 +125,30 @@ export function NewSessionForm(props: Props): JSX.Element {
               />
             </Field>
 
-            <SessionModelDisclosure
-              adapterId={props.model.adapterId}
-              provider={props.model.provider}
-              model={props.model.model}
-              thinking={props.model.thinking}
-              disabled={disabled}
-              providerOptions={props.model.providerOptions}
-              providerClosed={props.model.providerClosed}
-              thinkingOptions={props.model.thinkingOptions}
-              disabledReasons={props.model.disabledReasons}
-              onProviderChange={props.model.onProviderChange}
-              onModelChange={props.model.onModelChange}
-              onThinkingChange={props.model.onThinkingChange}
-            />
+            {props.modelLoading ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className="rounded border border-deck-border bg-black/20 px-2 py-1.5 text-[11px] text-deck-muted"
+              >
+                正在读取模型配置…
+              </div>
+            ) : (
+              <SessionModelDisclosure
+                adapterId={props.model.adapterId}
+                provider={props.model.provider}
+                model={props.model.model}
+                thinking={props.model.thinking}
+                disabled={defaultsDisabled}
+                providerOptions={props.model.providerOptions}
+                providerClosed={props.model.providerClosed}
+                thinkingOptions={props.model.thinkingOptions}
+                disabledReasons={props.model.disabledReasons}
+                onProviderChange={props.model.onProviderChange}
+                onModelChange={props.model.onModelChange}
+                onThinkingChange={props.model.onThinkingChange}
+              />
+            )}
 
             <Field label="工作目录">
               <div className="flex gap-1">
@@ -192,7 +206,7 @@ export function NewSessionForm(props: Props): JSX.Element {
                     value={control.value}
                     onChange={control.onChange}
                     allowUnset={false}
-                    disabled={disabled}
+                    disabled={defaultsDisabled}
                     ariaLabel="Grok Build 沙盒请求档位"
                   />
                 ) : (
@@ -200,7 +214,7 @@ export function NewSessionForm(props: Props): JSX.Element {
                     value={control.value}
                     onChange={control.onChange}
                     options={control.options}
-                    disabled={disabled}
+                    disabled={defaultsDisabled}
                     buttonClassName={SELECT_CLASS}
                   />
                 )}
@@ -230,7 +244,7 @@ export function NewSessionForm(props: Props): JSX.Element {
               <button
                 type="button"
                 onClick={props.onCreate}
-                disabled={!props.canCreate || disabled}
+                disabled={!props.canCreate || defaultsDisabled}
                 className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
               >
                 {!props.busy && <SendIcon className="mr-1 inline h-3 w-3" />}

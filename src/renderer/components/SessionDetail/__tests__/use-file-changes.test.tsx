@@ -241,6 +241,42 @@ describe('useFileChanges paging and request fencing', () => {
     expect(screen.queryByText(/raw transport failure/)).toBeNull();
   });
 
+  it('aligns the empty diff state with the other session detail tabs', () => {
+    render(
+      <DiffTab
+        sessionId="s1"
+        changes={[]}
+        diffError={null}
+        hasMore={false}
+        loadedCount={0}
+        loadingMore={false}
+        lastLoadSummary={null}
+        hasNewerChanges={false}
+        payloadLoading={false}
+        payloadError={null}
+        fileGroups={[]}
+        selectedFilePath={null}
+        selectedGroup={null}
+        selectedChangeId={null}
+        diffMode="single"
+        finalDiffLoading={false}
+        finalDiff={null}
+        diffPayload={null}
+        finalDiffPayload={null}
+        onSelectFile={vi.fn()}
+        onSelectChange={vi.fn()}
+        onDiffModeChange={vi.fn()}
+        onLoadMore={vi.fn()}
+        onFollowLatest={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const emptyState = screen.getByText('本会话暂无文件改动').parentElement;
+    expect(emptyState?.className).toContain('px-2');
+    expect(emptyState?.className).toContain('py-3');
+  });
+
   it('keeps an exhausted load result visible after the button disappears', () => {
     render(
       <DiffTab

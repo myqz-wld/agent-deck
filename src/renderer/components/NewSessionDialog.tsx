@@ -264,6 +264,7 @@ export function NewSessionDialog({
       error={combinedError}
       images={images}
       loading={remote.loading}
+      modelLoading={remoteMode ? remote.loading : localOptions.defaultsLoading}
       model={{
         adapterId,
         provider,

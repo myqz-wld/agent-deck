@@ -312,7 +312,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                   role="tab"
                   aria-selected={activeTab === tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`no-drag flex-1 rounded px-2 py-1 text-[11px] transition-colors ${
+                  className={`no-drag min-w-0 flex-1 whitespace-nowrap rounded px-1.5 py-1 text-[11px] transition-colors ${
                     activeTab === tab.id
                       ? 'bg-white/15 text-deck-text'
                       : 'text-deck-muted hover:bg-white/5 hover:text-deck-text'

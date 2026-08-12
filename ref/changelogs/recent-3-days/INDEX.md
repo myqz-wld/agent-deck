@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-08-12 | `CHANGELOG_593_new-session-defaults-and-tab-alignment.md` | Stabilize new-session defaults and compact UI alignment |
 | 2026-08-12 | `CHANGELOG_592_remote-full-ui-parity.md` | Complete source-authoritative Remote UI parity |
 | 2026-08-11 | `CHANGELOG_591_remote-transport-ui-convergence.md` | Stabilize Remote transport and align offline/list UI |
 | 2026-08-11 | `CHANGELOG_590_remote-session-continuity.md` | Complete Remote continuity and active input |

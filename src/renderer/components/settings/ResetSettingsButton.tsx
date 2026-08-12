@@ -38,7 +38,7 @@ export function ResetSettingsButton({
         type="button"
         disabled={busy}
         onClick={() => void reset()}
-        className="no-drag w-full rounded border border-status-waiting/30 bg-status-waiting/10 px-3 py-1.5 text-[11px] text-status-waiting/90 hover:bg-status-waiting/20 disabled:opacity-50"
+        className="no-drag w-full rounded border border-deck-border bg-black/20 px-3 py-1.5 text-[11px] text-deck-muted transition-colors hover:bg-white/[0.06] hover:text-deck-text disabled:opacity-50"
       >
         <RefreshIcon className="mr-1 inline h-3 w-3" />
         重置到默认配置

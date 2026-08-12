@@ -23,6 +23,8 @@ interface Options {
 }
 
 export interface SessionCreationOptionsState {
+  /** The model/provider defaults are being resolved for the current adapter and cwd. */
+  defaultsLoading: boolean;
   permissionMode: PermissionModeChoice;
   sessionMode: AdapterSessionMode;
   approvalPolicy: CodexApprovalPolicyChoice;
@@ -74,7 +76,9 @@ export function useSessionCreationOptions({
   const [model, setModelState] = useState(initial.model);
   const [thinking, setThinkingState] = useState<SessionThinkingChoice>(initial.thinking);
   const [selectionRevision, setSelectionRevision] = useState(0);
+  const [resolvedRequestKey, setResolvedRequestKey] = useState<string | null>(null);
   const defaultsRequestGeneration = useRef(0);
+  const requestKey = `${adapterId}\u0000${cwd.trim()}\u0000${selectionRevision}`;
 
   useEffect(() => {
     if (!active) return;
@@ -86,7 +90,12 @@ export function useSessionCreationOptions({
 
   useEffect(() => {
     const generation = ++defaultsRequestGeneration.current;
-    if (!active || typeof window.api.getAdapterSessionCreationDefaults !== 'function') {
+    if (!active) {
+      setResolvedRequestKey(null);
+      return;
+    }
+    if (typeof window.api.getAdapterSessionCreationDefaults !== 'function') {
+      setResolvedRequestKey(requestKey);
       return;
     }
     const timer = window.setTimeout(() => {
@@ -99,10 +108,14 @@ export function useSessionCreationOptions({
         .then((resolved) => {
           if (defaultsRequestGeneration.current === generation) {
             applyState(mergeRemembered(adapterId, resolved));
+            setResolvedRequestKey(requestKey);
           }
         })
         .catch(() => {
           // Defaults are convenience UI metadata. Session creation still validates natively.
+          if (defaultsRequestGeneration.current === generation) {
+            setResolvedRequestKey(requestKey);
+          }
         });
     }, 120);
 
@@ -129,6 +142,7 @@ export function useSessionCreationOptions({
   }
 
   return {
+    defaultsLoading: active && resolvedRequestKey !== requestKey,
     permissionMode,
     sessionMode,
     approvalPolicy,

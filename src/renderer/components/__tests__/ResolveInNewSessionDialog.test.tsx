@@ -90,14 +90,14 @@ describe('ResolveInNewSessionDialog model options', () => {
     );
 
     await screen.findByText('Codex');
-    const disclosure = screen.getByText('模型配置').closest('details');
+    const disclosure = (await screen.findByText('模型配置')).closest('details');
     expect(disclosure?.open).toBe(false);
     fireEvent.click(screen.getByText('模型配置'));
     expect(disclosure?.open).toBe(true);
     fireEvent.change(await screen.findByLabelText('Provider'), {
       target: { value: 'openai-custom' },
     });
-    fireEvent.change(screen.getByLabelText('模型'), {
+    fireEvent.change(await screen.findByLabelText('模型'), {
       target: { value: 'gpt-custom-preview' },
     });
     fireEvent.click(screen.getByLabelText('思考程度'));
@@ -159,6 +159,7 @@ describe('ResolveInNewSessionDialog model options', () => {
       />,
     );
 
+    await screen.findByText('模型配置');
     fireEvent.click(await screen.findByLabelText('Grok Build 沙盒请求档位'));
     fireEvent.click(screen.getByRole('option', { name: '广泛只读' }));
     fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
@@ -217,6 +218,7 @@ describe('ResolveInNewSessionDialog model options', () => {
       <ResolveInNewSessionDialog issue={issue} onClose={vi.fn()} onResolved={vi.fn()} />,
     );
     await screen.findByText('Codex');
+    await screen.findByText('模型配置');
 
     const compact = screen.getByLabelText('第一条消息');
     const trigger = screen.getByRole('button', { name: '展开编辑第一条消息' });
@@ -270,6 +272,7 @@ describe('ResolveInNewSessionDialog model options', () => {
     );
 
     await screen.findByText('Codex');
+    await screen.findByText('模型配置');
     const submit = screen.getByRole('button', { name: '新建会话' }) as HTMLButtonElement;
     fireEvent.click(submit);
 
