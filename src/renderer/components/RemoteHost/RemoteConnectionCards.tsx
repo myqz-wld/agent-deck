@@ -42,7 +42,7 @@ export function RemoteConnectionCards({
   if (remoteProfiles.length === 0) {
     return (
       <div className="p-3">
-        <div className="rounded-xl border border-dashed border-blue-300/15 bg-gradient-to-br from-blue-500/[0.07] to-transparent px-5 py-9 text-center">
+        <div className="rounded-xl border border-dashed border-white/[0.09] bg-black/[0.08] px-5 py-9 text-center">
           <div className="text-[11px] text-deck-text">还没有远程连接</div>
           <div className="mt-1 text-[10px] leading-relaxed text-deck-muted/75">
             点击右上角“添加”，导入服务端签发的连接凭证。
@@ -65,22 +65,16 @@ export function RemoteConnectionCards({
             key={profile.id}
             data-testid="remote-connection-card"
             data-selected={selected ? 'true' : 'false'}
-            className={`group relative overflow-hidden rounded-xl border transition-all duration-150 ${
+            className={`overflow-hidden rounded-xl border transition-colors duration-150 ${
               selected
-                ? 'border-blue-300/25 bg-gradient-to-r from-blue-500/[0.12] via-blue-500/[0.035] to-transparent shadow-[inset_0_1px_0_rgba(255,255,255,0.055),0_10px_28px_rgba(0,0,0,0.12)]'
+                ? 'border-white/[0.14] bg-white/[0.035]'
                 : 'border-white/[0.065] bg-black/[0.10] hover:border-white/[0.12] hover:bg-black/[0.04]'
             }`}
           >
-            {selected && (
-              <span
-                aria-hidden="true"
-                className="absolute inset-y-3 left-0 w-px rounded-full bg-blue-300/80 shadow-[0_0_10px_rgba(147,197,253,0.65)]"
-              />
-            )}
             <button
               type="button"
               onClick={() => onSelect(profile.id)}
-              className="block w-full min-w-0 px-3 py-3 text-left outline-none transition focus-visible:bg-blue-400/[0.07]"
+              className="block w-full min-w-0 px-3 py-3 text-left outline-none transition focus-visible:bg-white/[0.045]"
               aria-label={`选择连接 ${profile.label}`}
               aria-pressed={selected}
             >
@@ -91,7 +85,7 @@ export function RemoteConnectionCards({
                       {profile.label}
                     </div>
                     {selected && (
-                      <span className="shrink-0 rounded-full border border-blue-300/15 bg-blue-400/10 px-1.5 py-px text-[8px] text-blue-100/90">
+                      <span className="shrink-0 rounded-full border border-white/[0.09] bg-white/[0.045] px-1.5 py-px text-[8px] text-deck-muted/90">
                         默认连接
                       </span>
                     )}
@@ -161,11 +155,11 @@ export function RemoteConnectionCards({
 }
 
 function statusColor(status: RemoteHostStateDto['status']): string {
-  if (status === 'connected') return 'bg-emerald-300 shadow-[0_0_7px_rgba(110,231,183,0.65)]';
+  if (status === 'connected') return 'bg-emerald-300';
   if (status === 'connecting' || status === 'reconnecting') {
-    return 'bg-amber-300 shadow-[0_0_7px_rgba(252,211,77,0.55)]';
+    return 'bg-amber-300';
   }
-  if (status === 'incompatible') return 'bg-red-300 shadow-[0_0_7px_rgba(252,165,165,0.5)]';
+  if (status === 'incompatible') return 'bg-red-300';
   return 'bg-white/30';
 }
 
