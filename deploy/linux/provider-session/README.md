@@ -22,8 +22,12 @@ the shim answers only the fixed local `GET /v1/models` catalog required by pinne
 Claude Messages, OpenAI Responses, or other trusted profiles can be added without allowing a
 container to choose an origin, inject an authorization header, or reuse a credential.
 
-The production Grok credential input is a Core-only, mode-0600 JSON file with exactly one
-top-level `xai::cached` entry. That entry must use `auth_mode: "oauth"`, contain one non-empty
+The host-side deployment credential source may be Grok CLI's current mode-0600
+`~/.grok/auth.json` created by `grok auth login`, or a dedicated mode-0600 JSON file with exactly
+one top-level `xai::cached` entry. The installer accepts one unambiguous, unexpired native OIDC
+account and projects only its access token and expiry into the Worker; refresh tokens and
+account/profile metadata are not copied. The resulting Core-only document always uses the minimal
+schema below. A dedicated source entry must use `auth_mode: "oauth"`, contain one non-empty
 printable-ASCII `key`, and may contain an ISO timestamp `expires_at` that is still in the future:
 
 ```json
@@ -36,9 +40,10 @@ printable-ASCII `key`, and may contain an ISO timestamp `expires_at` that is sti
 }
 ```
 
-Any sibling provider entry, different namespace/auth mode, expired timestamp, or malformed token
-fails closed and keeps only Grok unavailable. The file is read by Core on demand and is never
-mounted into the Provider container or projected into Worker/provider state.
+An ambiguous native account selection, or a dedicated source with any sibling provider entry,
+different namespace/auth mode, expired timestamp, or malformed token fails closed and keeps only
+Grok unavailable. Only the minimal projected document is read by Core on demand; neither it nor the
+source login file is mounted into the Provider container.
 
 Run the macOS Colima acceptance gate only against an explicitly provisioned acceptance root and
 an immutable, locally built image. The test creates and removes identity-checked children beneath

@@ -20,6 +20,10 @@ import {
   ensureCodexClientWithHost,
   type CodexClientConstructionHost,
 } from '@main/adapters/codex-cli/sdk-bridge/client-construction';
+import {
+  readCodexUsageSnapshotWithHost,
+  type CodexUsageSnapshotHost,
+} from '@main/adapters/codex-cli/usage-snapshot-core';
 import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
@@ -28,7 +32,6 @@ import {
   DEFAULT_SETTINGS,
   type AppSettings,
 } from '@shared/types';
-import { unavailableUsageSnapshot } from '@main/adapters/provider-usage';
 import {
   providerProcessEnvironment,
   providerLogger,
@@ -160,10 +163,23 @@ function createClient(
   });
 }
 
+/** Electron-free Codex account-limit probe bound to the Worker's private provider home. */
+export function createServerCoreCodexUsageSnapshotHost(
+  input: ServerCoreProviderHostInput,
+): CodexUsageSnapshotHost {
+  return Object.freeze({
+    createClient: (options) => createClient(options, input),
+    readCodexCliPath: () => input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,
+    readProbeCwd: () => input.workspaceBoundary.providerTempRoot,
+    snapshotProcessEnv: () => providerProcessEnvironment(input),
+  });
+}
+
 /** Concrete Codex value host for one Electron-free Server Core process. */
 export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
   const logger = providerLogger(input.diagnostics, 'codex-cli');
   const appSettings = settings(input);
+  const usageSnapshotHost = createServerCoreCodexUsageSnapshotHost(input);
   const clientHost: CodexClientConstructionHost = {
     createClient: (options) => createClient(options, input),
     readCodexCliPath: () => input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,
@@ -220,10 +236,7 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
               clients.delete(sessionId);
             }
           },
-          getUsageSnapshot: async () => unavailableUsageSnapshot(
-            'codex-cli',
-            'Server Core 未启用 Codex 额度探针',
-          ),
+          getUsageSnapshot: () => readCodexUsageSnapshotWithHost(usageSnapshotHost),
           renameClient: (clients, oldId, newId) => {
             const client = clients.get(oldId);
             if (!client || clients.has(newId)) return;

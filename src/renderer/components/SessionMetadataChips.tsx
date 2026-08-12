@@ -15,6 +15,8 @@ interface Props {
 export function SessionMetadataChips({ session, branch, compact = false }: Props): JSX.Element {
   return (
     <RuntimeMetadataChips
+      adapterId={session.agentId}
+      runtimeProvider={session.runtimeProvider}
       model={session.model}
       thinking={session.thinking}
       branch={branch}
@@ -24,11 +26,15 @@ export function SessionMetadataChips({ session, branch, compact = false }: Props
 }
 
 export function RuntimeMetadataChips({
+  adapterId,
+  runtimeProvider,
   model,
   thinking,
   branch,
   compact = false,
 }: {
+  adapterId?: string;
+  runtimeProvider?: string | null;
   model: string | null | undefined;
   thinking: string | null | undefined;
   branch?: string | null;
@@ -42,6 +48,11 @@ export function RuntimeMetadataChips({
 
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1">
+      {runtimeProvider && (
+        <span className={chipClass} title={runtimeProvider}>
+          {adapterId === 'claude-code' ? 'Gateway' : 'Provider'} {runtimeProvider}
+        </span>
+      )}
       <span className={chipClass} title={model ?? '使用适配器 / 用户配置默认模型'}>
         模型 {modelLabel}
       </span>

@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 
 import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
 import { CrownIcon, PushpinIcon, ShieldIcon, UsersIcon } from './icons';
+import { RuntimeMetadataChips } from './SessionMetadataChips';
 import { SessionCardFrame, SessionCardHeader } from './SessionListPrimitives';
 
 const ACTIVITY_LABELS = {
@@ -27,18 +28,12 @@ function ContextChip({ session }: { session: RemoteHostSessionPresentationDto })
   return (
     <span
       aria-label="上下文窗口用量"
-      className="whitespace-nowrap rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] text-deck-muted/80"
+      className={`whitespace-nowrap rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] ${
+        context ? 'text-deck-muted/80' : 'text-deck-muted/65'
+      }`}
       title="Worker 权威上下文快照"
     >
       {label}
-    </span>
-  );
-}
-
-function MetadataChip({ children }: { children: string }): JSX.Element {
-  return (
-    <span className="max-w-[9rem] truncate rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] text-deck-muted/80" title={children}>
-      {children}
     </span>
   );
 }
@@ -121,9 +116,13 @@ export function RemoteSessionSummaryCard({
         )}
       </SessionCardHeader>
       <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1">
-        {session.runtimeProvider && <MetadataChip>{session.runtimeProvider}</MetadataChip>}
-        {session.model && <MetadataChip>{session.model}</MetadataChip>}
-        {session.thinking && <MetadataChip>{session.thinking}</MetadataChip>}
+        <RuntimeMetadataChips
+          adapterId={session.adapterId}
+          runtimeProvider={session.runtimeProvider}
+          model={session.model}
+          thinking={session.thinking}
+          compact
+        />
         <ContextChip session={session} />
       </div>
       <div className="mt-1 truncate text-[10px] text-deck-text/85" title={activityLine}>{activityLine}</div>

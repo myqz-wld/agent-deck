@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import type { ServerCoreProviderHostInput } from './provider-host-common';
 import {
   codexProcessEnvironment,
+  createServerCoreCodexUsageSnapshotHost,
   withServerCoreCodexWorkspaceBoundary,
 } from './provider-codex-host';
 import {
@@ -16,6 +17,29 @@ import {
 import { buildThreadStartParams } from '@main/adapters/codex-cli/app-server/thread-params';
 
 describe('Server Core Codex process environment', () => {
+  it('binds the quota probe to the Worker-private Codex home and probe directory', () => {
+    const input = {
+      settings: { codexCliPath: '/opt/providers/codex' },
+      workspaceBoundary: {
+        workspaceRoot: '/workspaces',
+        privateRoot: '/private/worker',
+        providerHomeRoot: '/private/worker/provider-home',
+        runtimeReadRoots: ['/opt/providers'],
+        providerCacheRoot: '/private/worker/provider-cache',
+        providerTempRoot: '/private/worker/provider-tmp',
+      },
+    } as unknown as ServerCoreProviderHostInput;
+
+    const host = createServerCoreCodexUsageSnapshotHost(input);
+    expect(host.readCodexCliPath()).toBe('/opt/providers/codex');
+    expect(host.readProbeCwd()).toBe('/private/worker/provider-tmp');
+    expect(host.snapshotProcessEnv()).toMatchObject({
+      HOME: '/private/worker/provider-home',
+      CODEX_HOME: '/private/worker/provider-home/.codex',
+      TMPDIR: '/private/worker/provider-tmp',
+    });
+  });
+
   it('prepends only the signed sibling tool directory when its rg exists', () => {
     const source = { HOME: '/private/worker', PATH: '/usr/bin:/bin' };
     const executable = '/Applications/Agent Deck.app/Contents/MacOS/' +
