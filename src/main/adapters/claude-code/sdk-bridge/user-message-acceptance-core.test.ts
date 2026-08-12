@@ -73,13 +73,68 @@ describe('Claude user message acceptance Core', () => {
     });
   });
 
+  it('accepts a UUID-rewritten turn when its first top-level assistant frame arrives', () => {
+    const session = internal();
+    const emit = vi.fn();
+    submitted(session);
+
+    confirmClaudeUserMessageAcceptanceCore(
+      emit,
+      'application-a',
+      { type: 'user', uuid: 'provider-rewritten' },
+      session,
+      host,
+    );
+    expect(session.submittingUserMessage).not.toBeNull();
+
+    confirmClaudeUserMessageAcceptanceCore(
+      emit,
+      'application-a',
+      { type: 'assistant', uuid: 'assistant-1', parent_tool_use_id: null },
+      session,
+      host,
+    );
+
+    expect(session.submittingUserMessage).toBeNull();
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'application-a',
+      kind: 'message',
+      payload: expect.objectContaining({
+        text: 'accepted input',
+        role: 'user',
+        turnCorrelationId: 'turn-1',
+      }),
+    }));
+  });
+
+  it('does not treat a subagent assistant frame as main-turn acceptance', () => {
+    const session = internal();
+    const emit = vi.fn();
+    submitted(session);
+
+    confirmClaudeUserMessageAcceptanceCore(
+      emit,
+      'application-a',
+      {
+        type: 'assistant',
+        uuid: 'subagent-assistant-1',
+        parent_tool_use_id: 'parent-tool-1',
+      },
+      session,
+      host,
+    );
+
+    expect(session.submittingUserMessage).not.toBeNull();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
   it('ignores non-user, malformed, mismatched, and explicitly fenced echoes', () => {
     const session = internal();
     const emit = vi.fn();
     submitted(session);
 
     for (const message of [
-      { type: 'assistant', uuid: 'provider-1' },
+      { type: 'system', uuid: 'provider-1' },
       { type: 'user', uuid: 1 },
       { type: 'user', uuid: 'provider-other' },
     ]) {

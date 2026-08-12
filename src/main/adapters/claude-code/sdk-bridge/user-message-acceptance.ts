@@ -15,7 +15,7 @@ const desktopClaudeUserMessageAcceptanceHost = {
 export function confirmClaudeUserMessageAcceptance(
   emit: (event: AgentEvent) => void,
   sessionId: string,
-  msg: { type: string; uuid?: unknown },
+  msg: { type: string; uuid?: unknown; parent_tool_use_id?: unknown },
   internal: InternalSession,
 ): void {
   confirmClaudeUserMessageAcceptanceCore(
