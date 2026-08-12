@@ -29,6 +29,10 @@ function fullHello(profile: ReturnType<typeof remoteProfile>) {
   };
 }
 
+function expectedAuthority(profileId: string) {
+  return { authoritativeCoreId: `core-${profileId}`, workerGeneration: null };
+}
+
 function harness(bindings?: ElectronHostClientBinding[]) {
   const local = standaloneProfile('local');
   const remote = remoteProfile('server-a', 'server-core');
@@ -208,6 +212,7 @@ describe('RemoteHostService', () => {
       initialMessage: 'Inspect the repository',
       workingDirectory: projects.projects[0]!.projectRef,
       options: sessionConsoleCreateOptionsFixture('codex-cli'),
+      expectedAuthority: expectedAuthority(remote.id),
       intentId: 'intent-create-1',
     });
 
@@ -255,7 +260,11 @@ describe('RemoteHostService', () => {
     }) as typeof first.request);
     await service.connect(remote.id);
     const target = { profileId: remote.id, sessionId: 's1' };
-    const mutationTarget = { ...target, intentId: 'intent-business-1' };
+    const mutationTarget = {
+      ...target,
+      expectedAuthority: expectedAuthority(remote.id),
+      intentId: 'intent-business-1',
+    };
 
     expect((await service.getSession(target))?.id).toBe('s1');
     expect((await service.listHistory({ ...target, limit: 20 })).entries).toHaveLength(1);
@@ -287,7 +296,7 @@ describe('RemoteHostService', () => {
     ]]);
   });
 
-  it('probes a live Relay worker_offline binding and restores connected on Worker success', async () => {
+  it('waits for transport recovery instead of probing a Relay worker_offline binding', async () => {
     const context = observedHarness('relay');
     await context.service.connect(context.remote.id);
     const hello = fullHello(context.remote);
@@ -304,29 +313,21 @@ describe('RemoteHostService', () => {
       status: 'offline',
       error: { code: 'worker_offline' },
     });
-    vi.mocked(context.client.request).mockImplementationOnce(async (method) => {
-      expect(method).toBe('project.list');
-      context.emit({
-        profileId: context.remote.id,
-        topology: 'relay',
-        status: 'connected',
-        attempt: 1,
-        hello,
-        reason: null,
-        errorCode: null,
-      });
-      return {
-        projects: [{ projectId: 'p1', projectRef: 'opaque-ref', alias: 'demo', title: 'Demo' }],
-        nextCursor: null,
-        total: 1,
-        revision: 4,
-      } as never;
-    });
-
     await expect(context.service.listProjects({
       profileId: context.remote.id,
       limit: 20,
-    })).resolves.toMatchObject({ projects: [{ projectRef: 'opaque-ref' }] });
+    })).rejects.toMatchObject({ code: 'not_connected' });
+    expect(context.client.request).not.toHaveBeenCalled();
+
+    context.emit({
+      profileId: context.remote.id,
+      topology: 'relay',
+      status: 'connected',
+      attempt: 1,
+      hello,
+      reason: null,
+      errorCode: null,
+    });
     expect(context.registry.state(context.remote.id)).toMatchObject({
       status: 'connected',
       error: null,

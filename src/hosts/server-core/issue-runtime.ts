@@ -81,6 +81,7 @@ export interface ServerCoreIssueMetadataPort {
     expectedRevision?: number,
   ): ServerCoreMutationClaim;
   completeMutation(identity: ServerCoreMutationIdentity, result: JsonValue, revision: number): void;
+  releaseMutationClaim(identity: ServerCoreMutationIdentity): void;
 }
 
 export interface ServerCoreIssueRuntimeOptions {
@@ -241,9 +242,14 @@ export class ServerCoreIssueRuntime implements DaemonCoreRuntime {
       idempotencyKey: this.childCreateId(identity),
       signal: input.signal,
     };
-    const created = parseSessionConsoleCreateResult(
-      await this.options.sessionConsole.createSession(params.create, createContext),
-    );
+    let created: ReturnType<typeof parseSessionConsoleCreateResult>;
+    try {
+      created = parseSessionConsoleCreateResult(
+        await this.options.sessionConsole.createSession(params.create, createContext),
+      );
+    } catch (cause) {
+      return this.releaseClaim(identity, cause);
+    }
     const current = this.options.issues.get(params.issueId);
     if (current?.resolutionSessionId === created.sessionId) {
       return this.completeResolution(identity, current, created.sessionId, true);
@@ -253,14 +259,14 @@ export class ServerCoreIssueRuntime implements DaemonCoreRuntime {
       current.status === 'resolved' || current.updatedAt !== params.issueUpdatedAt
     ) {
       await this.rollbackCreatedSession(params.create.adapterId, created.sessionId);
-      throw new DaemonRequestError(
+      return this.releaseClaim(identity, new DaemonRequestError(
         input.signal.aborted
           ? AgentDeckClientErrorCode.Cancelled
           : AgentDeckClientErrorCode.Conflict,
         input.signal.aborted
           ? 'Request was cancelled'
           : 'Issue changed before the resolution session could be linked',
-      );
+      ));
     }
     const linked = this.options.issues.linkResolutionSession(
       params.issueId,
@@ -269,10 +275,10 @@ export class ServerCoreIssueRuntime implements DaemonCoreRuntime {
     );
     if (!linked) {
       await this.rollbackCreatedSession(params.create.adapterId, created.sessionId);
-      throw new DaemonRequestError(
+      return this.releaseClaim(identity, new DaemonRequestError(
         AgentDeckClientErrorCode.Conflict,
         'Issue changed before the resolution session could be linked',
-      );
+      ));
     }
     return this.completeResolution(identity, linked, created.sessionId, false);
   }
@@ -290,7 +296,9 @@ export class ServerCoreIssueRuntime implements DaemonCoreRuntime {
       input.expectedRevision ?? undefined,
     ));
     if (replay) return replay;
-    const record = operation();
+    let record: IssueRecord;
+    try { record = operation(); }
+    catch (cause) { return this.releaseClaim(identity, cause); }
     const revision = this.options.metadata.appendChange(kind, issueId, {
       issueId,
       method: input.method,
@@ -359,6 +367,14 @@ export class ServerCoreIssueRuntime implements DaemonCoreRuntime {
         false,
       );
     }
+  }
+
+  private releaseClaim(identity: ServerCoreMutationIdentity, cause: unknown): never {
+    try { this.options.metadata.releaseMutationClaim(identity); }
+    catch (releaseError) {
+      throw new AggregateError([cause, releaseError], 'Issue mutation claim release failed');
+    }
+    throw cause;
   }
 
   private project(record: IssueRecord, appendices: readonly IssueAppendix[]): IssueDto {

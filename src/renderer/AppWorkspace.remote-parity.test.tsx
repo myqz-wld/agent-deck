@@ -85,7 +85,9 @@ function workspace(
   return render(
     <AppWorkspace
       view={view}
-      remoteMode={remoteMode}
+      authority={remoteMode ? 'remote' : 'local'}
+      authorityError={null}
+      onAuthorityRetry={vi.fn()}
       localDetail={null}
       remoteSource={source(capabilities, selectedSessionId, status, usable)}
       remoteUsage={usage}
@@ -100,7 +102,7 @@ function workspace(
 describe('AppWorkspace Local and Remote page parity', () => {
   it.each([
     ['live', 'live', ['session-console.read']],
-    ['pending', 'pending', ['session-console.read', 'pending.read']],
+    ['pending', 'pending', ['pending.index.read']],
     ['history', 'history', ['session-console.read', 'sessions.history']],
   ] as const)('routes %s through the selected source without Local fallback', (
     view,
@@ -151,7 +153,7 @@ describe('AppWorkspace Local and Remote page parity', () => {
 
   it.each([
     ['live', 'session-console.read', 'reconnecting', true],
-    ['pending', 'pending.read', 'offline', false],
+    ['pending', 'pending.index.read', 'offline', false],
     ['history', 'sessions.history', 'incompatible', false],
     ['teams', 'teams', 'reconnecting', true],
     ['issues', 'issues', 'offline', false],
@@ -163,7 +165,7 @@ describe('AppWorkspace Local and Remote page parity', () => {
     usable,
   ) => {
     const capabilities = view === 'pending'
-      ? ['session-console.read', capability]
+      ? [capability]
       : view === 'history'
         ? ['session-console.read', capability]
         : [capability];
@@ -184,5 +186,30 @@ describe('AppWorkspace Local and Remote page parity', () => {
     );
     expect(screen.queryByTestId('detail')).toBeNull();
     expect(screen.getByTestId('remote-page-unavailable')).toBeTruthy();
+  });
+
+  it('mounts neither Local nor Remote business UI before source authority is known', () => {
+    const onAuthorityRetry = vi.fn();
+    render(
+      <AppWorkspace
+        view="live"
+        authority="unknown"
+        authorityError="snapshot unavailable"
+        onAuthorityRetry={onAuthorityRetry}
+        localDetail={null}
+        remoteSource={source([])}
+        remoteUsage={usage}
+        onLocalClose={vi.fn()}
+        onLocalHistorySelect={vi.fn()}
+        onOpenLocalSession={vi.fn()}
+        onViewChange={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId('live')).toBeNull();
+    expect(screen.queryByTestId('detail')).toBeNull();
+    expect(screen.getByText('无法确认数据源')).toBeTruthy();
+    expect(screen.getByText(/停止 Local 与 Remote 业务读取/u)).toBeTruthy();
+    screen.getByRole('button', { name: '重新读取数据源' }).click();
+    expect(onAuthorityRetry).toHaveBeenCalledOnce();
   });
 });

@@ -80,6 +80,8 @@ export interface DaemonConnectionLimits {
   readonly maxQueuedBytes: number;
   readonly maxPendingMessages: number;
   readonly protocolCloseGraceMs: number;
+  /** Maximum interval without stream write callback/drain progress while bytes remain queued. */
+  readonly writeProgressTimeoutMs: number;
 }
 
 export const DEFAULT_DAEMON_CONNECTION_LIMITS: DaemonConnectionLimits = Object.freeze({
@@ -92,6 +94,7 @@ export const DEFAULT_DAEMON_CONNECTION_LIMITS: DaemonConnectionLimits = Object.f
   maxQueuedBytes: 32 * 1024 * 1024,
   maxPendingMessages: 64,
   protocolCloseGraceMs: 100,
+  writeProgressTimeoutMs: 10_000,
 });
 
 export class DaemonRequestError extends Error {

@@ -10,6 +10,7 @@ const target: RemoteHostPlanReviewTargetDto = {
   profileId: 'profile-a',
   sessionId: 'session-a',
   requestId: 'mcp-exit-plan-request-a',
+  expectedAuthority: { authoritativeCoreId: 'core-a', workerGeneration: 3 },
   expectedRevision: 10,
   intentId: 'intent-a',
 };
@@ -39,14 +40,20 @@ function harness(results: unknown[]) {
     sourceEpoch: 1,
     client: { request },
   } as unknown as RemoteHostScopedClient;
-  const scopedCalls: Array<{ profileId: string; method: string; additional?: readonly string[] }> = [];
+  const scopedCalls: Array<{
+    profileId: string;
+    method: string;
+    additional?: readonly string[];
+    expectedAuthority?: RemoteHostPlanReviewTargetDto['expectedAuthority'];
+  }> = [];
   const requestScoped = (async <T>(
     profileId: string,
     method: string,
     run: (value: RemoteHostScopedClient) => Promise<T>,
     additional?: readonly string[],
+    expectedAuthority?: RemoteHostPlanReviewTargetDto['expectedAuthority'],
   ): Promise<T> => {
-    scopedCalls.push({ profileId, method, additional });
+    scopedCalls.push({ profileId, method, additional, expectedAuthority });
     return run(scope);
   }) as RemoteHostScopedRequest;
   const assertScope = vi.fn();
@@ -74,6 +81,7 @@ describe('RemoteHostPlanReviewController', () => {
       profileId: 'profile-a',
       method: 'plan.review.start',
       additional: ['pending.list'],
+      expectedAuthority: target.expectedAuthority,
     }]);
     expect(state.request.mock.calls).toEqual([
       ['pending.list', { sessionId: 'session-a' }, { deadlineMs: 45_000 }],

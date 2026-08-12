@@ -8,6 +8,7 @@ const MAX_RECORDED_DIFF_BYTES = 4 * 1024 * 1024;
 export async function getSessionFileFinalDiff(
   sessionId: string,
   filePath: string,
+  acceptedPathAuthority?: string,
 ): Promise<FileFinalDiffResult> {
   const session = sessionRepo.get(sessionId);
   const inputPath = String(filePath || '');
@@ -15,7 +16,7 @@ export async function getSessionFileFinalDiff(
   const targetPath = normalize(isAbsolute(inputPath) ? inputPath : resolve(cwd, inputPath));
   const candidates = session ? normalizedPathCandidates(inputPath, cwd, targetPath) : [];
   const boundaries = session
-    ? fileChangeReadRepo.readPathBoundaries(sessionId, candidates)
+    ? fileChangeReadRepo.readPathBoundaries(sessionId, candidates, acceptedPathAuthority)
     : null;
 
   if (!session || !boundaries) {
@@ -32,7 +33,12 @@ export async function getSessionFileFinalDiff(
   const snapshot = snapshotFinalDiff(targetPath, boundaries.first, boundaries.last);
   if (snapshot) return snapshot;
 
-  const recorded = recordedPatchFallback(targetPath, sessionId, candidates);
+  const recorded = recordedPatchFallback(
+    targetPath,
+    sessionId,
+    candidates,
+    acceptedPathAuthority,
+  );
   if (recorded) return recorded;
 
   return {
@@ -135,12 +141,18 @@ function recordedPatchFallback(
   targetPath: string,
   sessionId: string,
   candidates: string[],
+  acceptedPathAuthority?: string,
 ): FileFinalDiffResult | null {
   const patches: Array<{ id: number; ts: number; diff: string }> = [];
   let cursor: string | null = null;
   let totalBytes = 0;
   do {
-    const page = fileChangeReadRepo.listPathPatchPage(sessionId, candidates, cursor);
+    const page = fileChangeReadRepo.listPathPatchPage(
+      sessionId,
+      candidates,
+      cursor,
+      acceptedPathAuthority,
+    );
     for (const item of page.items) {
       if (!item.diff?.trim()) continue;
       totalBytes += Buffer.byteLength(item.diff, 'utf8') + (patches.length > 0 ? 2 : 0);

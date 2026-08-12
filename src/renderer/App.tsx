@@ -1,18 +1,24 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { FloatingFrame } from './components/FloatingFrame';
 import { SettingsDialog } from './components/SettingsDialog';
 import { NewSessionDialog } from './components/NewSessionDialog';
 import { AssetsLibraryDialog } from './components/AssetsLibraryDialog';
 import { AppHeader, type AppView } from './components/AppHeader';
 import { useSessionStore } from './stores/session-store';
-import { useEventBridge } from './hooks/use-event-bridge';
-import { useIssuesBridge } from './hooks/use-issues-bridge';
-import { useStartupDataPreload } from './hooks/use-startup-data-preload';
+import { useLocalAppBridges } from './hooks/use-local-app-bridges';
+import { useLocalSessionState } from './hooks/use-local-session-state';
 import { registerBuiltinDiffRenderers } from './components/diff/install';
 import { selectLiveSessions, selectPendingBuckets, sumPendingBuckets } from './lib/session-selectors';
-import { loadStableSnapshot } from './lib/load-stable-snapshot';
 import { MAX_CALLER_ARCHIVE_FAILURE_REASON_LENGTH } from '@shared/types';
-import type { AppSettings, CallerArchiveFailedEvent, SessionRecord } from '@shared/types';
+import type {
+  AppSettings,
+  AskUserQuestionRequest,
+  CallerArchiveFailedEvent,
+  DiffReviewRequest,
+  ExitPlanModeRequest,
+  PermissionRequest,
+  SessionRecord,
+} from '@shared/types';
 import log from '@renderer/utils/logger';
 import { AppArchiveFailureBanner } from './AppArchiveFailureBanner';
 import { AppWorkspace } from './AppWorkspace';
@@ -24,27 +30,43 @@ import { useRemoteUsageSource } from './remote-host/use-remote-usage-source';
 import { remoteAssetsDialogContext, remoteConfigurationDialogContext } from './remote-host/remote-node-dialog-context';
 import { remoteSessionActivityCounts } from './remote-host/session-summary-presentation';
 import { RemoteHostManagerDialog } from './components/RemoteHost/RemoteHostManagerDialog';
+import { appSourceAuthority } from './source-authority';
+import { useLocalSessionFocus } from './hooks/use-local-session-focus';
 registerBuiltinDiffRenderers();
 const logger = log.scope('renderer-app');
+const EMPTY_LOCAL_SESSIONS = new Map<string, SessionRecord>();
+const EMPTY_PENDING_PERMISSIONS = new Map<string, PermissionRequest[]>();
+const EMPTY_PENDING_QUESTIONS = new Map<string, AskUserQuestionRequest[]>();
+const EMPTY_PENDING_PLANS = new Map<string, ExitPlanModeRequest[]>();
+const EMPTY_PENDING_DIFFS = new Map<string, DiffReviewRequest[]>();
 function boundedArchiveReason(reason: string): string {
   if (reason.length <= MAX_CALLER_ARCHIVE_FAILURE_REASON_LENGTH) return reason;
   return `${reason.slice(0, MAX_CALLER_ARCHIVE_FAILURE_REASON_LENGTH - 1)}…`;
 }
 
 export function App(): JSX.Element {
-  useEventBridge();
-  useIssuesBridge();
-  useStartupDataPreload();
   const remoteHosts = useRemoteHostSnapshot();
+  const authority = remoteHosts.snapshotError
+    ? 'unknown'
+    : appSourceAuthority(remoteHosts.snapshot);
+  const localMode = authority === 'local';
+  useLocalAppBridges(localMode);
+  const localState = useLocalSessionState(localMode);
   const remoteSource = useRemoteSessionSource(remoteHosts);
-  const remoteMode = remoteHosts.snapshot?.sourceMode === 'remote';
-  const setRemoteSourceMode = remoteHosts.setSourceMode;
-  const sessions = useSessionStore((s) => s.sessions);
-  const selectedId = useSessionStore((s) => s.selectedSessionId);
-  const select = useSessionStore((s) => s.selectSession);
-  const setPendingAll = useSessionStore((s) => s.setPendingRequestsAll);
+  const remoteMode = authority === 'remote';
+  const sessions = localState?.sessions ?? EMPTY_LOCAL_SESSIONS;
+  const selectedId = localState?.selectedSessionId ?? null;
+  const select = useCallback(
+    (id: string | null): void => useSessionStore.getState().selectSession(id),
+    [],
+  );
 
   const [view, setView] = useState<AppView>('live');
+  const focusLocalSession = useCallback((sessionId: string): void => {
+    setView('live');
+    select(sessionId);
+  }, [select]);
+  useLocalSessionFocus(localMode, focusLocalSession);
   const remoteUsage = useRemoteUsageSource(remoteSource, remoteMode, view === 'data');
   useEffect(() => {
     if (remoteMode && !isAppViewAvailable(view, true, remoteSource.capabilities)) {
@@ -59,6 +81,13 @@ export function App(): JSX.Element {
   const [windowTransparent, setWindowTransparent] = useState(true);
   const [compact, setCompact] = useState(false);
   const [historySession, setHistorySession] = useState<SessionRecord | null>(null);
+  useEffect(() => {
+    if (authority !== 'unknown') return;
+    setSettingsOpen(false);
+    setAssetsLibraryOpen(false);
+    setNewSessionOpen(false);
+    setRemoteProfilesOpen(false);
+  }, [authority]);
   /** REVIEW_7 L1：historySession 的 ref 镜像，让 onSessionRenamed listener 能在 updater
    * callback 外读最新值。setState updater callback 必须 pure，不能调 setView/select 副作用
    * （StrictMode dev 双调）；改用 ref 比较后副作用走 listener 顶层。 */
@@ -74,12 +103,21 @@ export function App(): JSX.Element {
   const [archiveRetrying, setArchiveRetrying] = useState(false);
   const archiveFailureGeneration = useRef(0);
 
-  useEffect(() => window.api.onCallerArchiveFailed((payload) => {
-    archiveFailureGeneration.current += 1;
-    setArchiveFailure({ ...payload, reason: boundedArchiveReason(payload.reason) });
-    setArchiveRetryError(null);
-    setArchiveRetrying(false);
-  }), []);
+  useEffect(() => {
+    if (!localMode) {
+      archiveFailureGeneration.current += 1;
+      setArchiveFailure(null);
+      setArchiveRetryError(null);
+      setArchiveRetrying(false);
+      return;
+    }
+    return window.api.onCallerArchiveFailed((payload) => {
+      archiveFailureGeneration.current += 1;
+      setArchiveFailure({ ...payload, reason: boundedArchiveReason(payload.reason) });
+      setArchiveRetryError(null);
+      setArchiveRetrying(false);
+    });
+  }, [localMode]);
 
   // 初始化：从设置读取 alwaysOnTop / windowTransparent，并同步主进程（让 vibrancy 跟透明开关匹配）
   // deep-review H2 LOW：cancelled flag 防 StrictMode 双 mount / unmount 后 setState（App 根组件
@@ -104,43 +142,6 @@ export function App(): JSX.Element {
       cancelled = true;
     };
   }, []);
-
-  // 启动时同步主进程仍在等待的请求。请求期间若收到实时增删，版本守门会丢弃旧快照并重拉；
-  // 稳定后再全量替换，既不会抹掉新请求，也不会复活已取消请求。
-  useEffect(() => {
-    let cancelled = false;
-    void loadStableSnapshot({
-      readVersion: () => useSessionStore.getState().pendingRevisionsBySession,
-      load: async () => {
-        const adapters = await window.api.listAdapters();
-        const snapshots = await Promise.all(
-          adapters.map(async (adapter) => {
-            try {
-              return await window.api.listAdapterPendingAll(adapter.id);
-            } catch (err) {
-              throw new Error(`listAdapterPendingAll(${adapter.id}) failed`, { cause: err });
-            }
-          }),
-        );
-        const combined: Parameters<typeof setPendingAll>[0] = {};
-        for (const snapshot of snapshots) Object.assign(combined, snapshot);
-        return combined;
-      },
-      apply: setPendingAll,
-      isCancelled: () => cancelled,
-    })
-      .then((result) => {
-        if (result === 'unstable') {
-          logger.warn('[app] pending snapshot stayed unstable; kept live state');
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) logger.warn('[app] initial pending snapshot failed', err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [setPendingAll]);
 
   // 监听全局快捷键 Cmd+Alt+P：主进程已切换 alwaysOnTop+vibrancy，这里同步 UI 与持久化设置
   useEffect(() => {
@@ -177,44 +178,6 @@ export function App(): JSX.Element {
     return off;
   }, []);
 
-  // CLI / hand-off 创建会话后跳转。先挂实时监听，再领取主进程保留的最新请求，
-  // 覆盖窗口冷启动和 renderer HMR 尚未挂载监听器的空档。
-  useEffect(() => {
-    let cancelled = false;
-    let focusRequestSeq = 0;
-    const focusSession = (sid: string): void => {
-      if (cancelled) return;
-      void setRemoteSourceMode('local').catch((err: unknown) => {
-        logger.warn('[app] switching to Local for a local focus request failed', err);
-      });
-      setView('live');
-      select(sid);
-    };
-    const consumePendingFocus = (fallback?: string): void => {
-      const seq = ++focusRequestSeq;
-      void window.api
-        .takePendingSessionFocus()
-        .then((sid) => {
-          if (seq !== focusRequestSeq) return;
-          const target = sid ?? fallback;
-          if (target) focusSession(target);
-        })
-        .catch((err: unknown) => {
-          if (seq !== focusRequestSeq) return;
-          if (fallback) focusSession(fallback);
-          if (!cancelled) logger.warn('[app] takePendingSessionFocus failed', err);
-        });
-    };
-    const off = window.api.onSessionFocusRequest((sid) => {
-      consumePendingFocus(sid);
-    });
-    consumePendingFocus();
-    return () => {
-      cancelled = true;
-      off();
-    };
-  }, [select, setRemoteSourceMode]);
-
   useEffect(() => {
     if (view !== 'history') {
       // 让离开历史页前发出的 getSession 响应失效，避免稍后回到历史页时误开旧详情。
@@ -238,6 +201,7 @@ export function App(): JSX.Element {
   // 用 historySessionRef 比较。updater callback 必须 pure，StrictMode dev 双调原方案会让
   // setView/select 各执行 2 次（虽然第二次 noop 但反模式）。
   useEffect(() => {
+    if (!localMode) return;
     const off = window.api.onSessionRenamed(({ from, to }) => {
       const prev = historySessionRef.current;
       if (prev && prev.id === from) {
@@ -247,7 +211,7 @@ export function App(): JSX.Element {
       }
     });
     return off;
-  }, [select]);
+  }, [localMode, select]);
 
   const togglePin = async (): Promise<void> => {
     const next = !pinned;
@@ -318,10 +282,10 @@ export function App(): JSX.Element {
   // 避免 chip 数 ≠ tab 内显示数；CHANGELOG_31 之后归档会话即便仍有 pending 也不该骚扰用户。
   // pending（PermissionRequest / AskUserQuestion / ExitPlanMode / diff 展示）一起算 ——
   // ExitPlanMode 也走 canUseTool 拦截，UX 上就是同一类「待处理」，漏算会让 chip 与 tab 对不上。
-  const pendingPermsMap = useSessionStore((s) => s.pendingPermissionsBySession);
-  const pendingAsksMap = useSessionStore((s) => s.pendingAskQuestionsBySession);
-  const pendingExitsMap = useSessionStore((s) => s.pendingExitPlanModesBySession);
-  const pendingDiffsMap = useSessionStore((s) => s.pendingDiffReviewsBySession);
+  const pendingPermsMap = localState?.pendingPermissionsBySession ?? EMPTY_PENDING_PERMISSIONS;
+  const pendingAsksMap = localState?.pendingAskQuestionsBySession ?? EMPTY_PENDING_QUESTIONS;
+  const pendingExitsMap = localState?.pendingExitPlanModesBySession ?? EMPTY_PENDING_PLANS;
+  const pendingDiffsMap = localState?.pendingDiffReviewsBySession ?? EMPTY_PENDING_DIFFS;
   const localPending = useMemo(
     () =>
       sumPendingBuckets(
@@ -336,19 +300,26 @@ export function App(): JSX.Element {
     [sessions, pendingPermsMap, pendingAsksMap, pendingExitsMap, pendingDiffsMap],
   );
   const remoteActivityCounts = remoteSessionActivityCounts(remoteSource.sessions);
-  const stats = remoteMode
-    ? { total: remoteSource.sessionTotal, ...remoteActivityCounts }
+  const remoteAuthoritativeCounts = remoteSource.presentationCounts;
+  const stats = authority === 'unknown'
+    ? { total: null, waiting: 0, working: 0 }
+    : remoteMode
+    ? {
+        total: remoteSource.sessionTotal,
+        waiting: remoteAuthoritativeCounts?.waiting ?? remoteActivityCounts.waiting,
+        working: remoteAuthoritativeCounts?.working ?? remoteActivityCounts.working,
+      }
     : localStats;
-  const pending = remoteMode
-    ? [...remoteSource.pendingBySession.values()].reduce((sum, row) => sum + row.requests.length, 0)
-    : localPending;
+  const pending = authority === 'unknown'
+    ? null
+    : remoteMode ? remoteSource.pendingTotal : localPending;
 
   const jumpToPending = (): void => {
-    if (pending === 0) return;
+    if (pending === null || pending === 0) return;
     setView('pending');
     // 清掉当前 selected：detailSession 在 view!=='history' 时优先级高于 view 分支渲染
     // （main 区域 detailSession ? <SessionDetail/> : ...），不清就被 SessionDetail 盖住看不到 PendingTab
-    clearDetailForSourceView(remoteMode, 'pending', () => select(null),
+    clearDetailForSourceView(remoteMode, view, 'pending', () => select(null),
       () => remoteSource.selectSession(null));
   };
 
@@ -393,14 +364,15 @@ export function App(): JSX.Element {
           pending={pending}
           pinned={pinned}
           compact={compact}
-          sourceMode={remoteHosts.snapshot?.sourceMode ?? 'local'}
+          authority={authority}
           selectedRemoteProfileId={remoteHosts.snapshot?.selectedRemoteProfileId ?? null}
           remoteProfiles={remoteHosts.snapshot?.profiles ?? []}
           remoteCapabilities={remoteSource.capabilities}
+          remoteUsable={remoteSource.usable}
           remoteUsage={remoteMode ? remoteUsage : null}
           onViewChange={(nextView) => {
             setView(nextView);
-            clearDetailForSourceView(remoteMode, nextView, () => select(null),
+            clearDetailForSourceView(remoteMode, view, nextView, () => select(null),
               () => remoteSource.selectSession(null));
           }}
           onSourceChange={(value) => {
@@ -424,7 +396,7 @@ export function App(): JSX.Element {
           onOpenSettings={() => setSettingsOpen(true)}
         />
 
-        {archiveFailure && (
+        {localMode && archiveFailure && (
           <AppArchiveFailureBanner
             failure={archiveFailure}
             retryError={archiveRetryError}
@@ -441,7 +413,9 @@ export function App(): JSX.Element {
         <main className="flex-1 overflow-hidden">
           <AppWorkspace
             view={view}
-            remoteMode={remoteMode}
+            authority={authority}
+            authorityError={remoteHosts.snapshotError}
+            onAuthorityRetry={() => void remoteHosts.refresh()}
             localDetail={detailSession}
             remoteSource={remoteSource}
             remoteUsage={remoteUsage}
@@ -455,7 +429,7 @@ export function App(): JSX.Element {
           />
         </main>
       </div>
-      <SettingsDialog
+      {authority !== 'unknown' && <SettingsDialog
         open={settingsOpen}
         remote={remoteConfigurationDialogContext(remoteMode, remoteSource)}
         onClose={() => {
@@ -474,8 +448,8 @@ export function App(): JSX.Element {
               logger.warn('[app] refreshing transparency setting failed', err);
             });
         }}
-      />
-      <NewSessionDialog
+      />}
+      {authority !== 'unknown' && <NewSessionDialog
         open={newSessionOpen}
         remoteSource={remoteMode ? remoteSource : null}
         onClose={() => setNewSessionOpen(false)}
@@ -483,17 +457,17 @@ export function App(): JSX.Element {
           setView('live');
           if (!remoteMode) select(id);
         }}
-      />
-      <RemoteHostManagerDialog
+      />}
+      {authority !== 'unknown' && <RemoteHostManagerDialog
         open={remoteProfilesOpen}
         hosts={remoteHosts}
         onClose={() => setRemoteProfilesOpen(false)}
-      />
-      <AssetsLibraryDialog
+      />}
+      {authority !== 'unknown' && <AssetsLibraryDialog
         open={assetsLibraryOpen}
         remote={remoteAssetsDialogContext(remoteMode, remoteSource)}
         onClose={() => setAssetsLibraryOpen(false)}
-      />
+      />}
     </FloatingFrame>
   );
 }

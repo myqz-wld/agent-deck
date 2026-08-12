@@ -1,4 +1,4 @@
-import { opendirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { opendirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 
 import { NODE_ASSET_MAX_CONTENT_BYTES } from '@contracts/index';
@@ -15,6 +15,8 @@ import {
 import { parseFrontmatter } from '@main/utils/frontmatter';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 import { isNativeAssetName, type AssetMeta } from '@shared/types';
+import { isRemoteSensitiveAssetPath } from './remote-sensitive-data';
+import { readRemoteSafeFile } from './remote-safe-file-read';
 
 interface PluginDiscovery {
   searchPaths: string[];
@@ -43,17 +45,22 @@ function inside(root: string, candidate: string): boolean {
 }
 
 function canonicalDirectory(path: string): string | null {
+  if (isRemoteSensitiveAssetPath(path)) return null;
   try {
     const canonical = realpathSync(path);
-    return statSync(canonical).isDirectory() ? canonical : null;
+    return !isRemoteSensitiveAssetPath(canonical) && statSync(canonical).isDirectory()
+      ? canonical
+      : null;
   } catch {
     return null;
   }
 }
 
 function canonicalFile(path: string, home: string): string | null {
+  if (isRemoteSensitiveAssetPath(path)) return null;
   try {
     const canonical = realpathSync(path);
+    if (isRemoteSensitiveAssetPath(canonical)) return null;
     const stat = statSync(canonical);
     return inside(home, canonical) && stat.isFile() && stat.size <= NODE_ASSET_MAX_CONTENT_BYTES
       ? canonical
@@ -64,13 +71,12 @@ function canonicalFile(path: string, home: string): string | null {
 }
 
 function readAsset(path: string, home: string): { path: string; content: string } | null {
-  const canonical = canonicalFile(path, home);
-  if (!canonical) return null;
-  try {
-    return { path: canonical, content: readFileSync(canonical, 'utf8') };
-  } catch {
-    return null;
-  }
+  const read = readRemoteSafeFile(path, {
+    maximumBytes: NODE_ASSET_MAX_CONTENT_BYTES,
+    root: home,
+    sensitive: isRemoteSensitiveAssetPath,
+  });
+  return read ? { path: read.canonicalPath, content: read.content } : null;
 }
 
 function visitEntries(
@@ -78,6 +84,7 @@ function visitEntries(
   budget: ScanBudget,
   visit: (entry: string) => boolean,
 ): void {
+  if (isRemoteSensitiveAssetPath(path)) return;
   let directory: ReturnType<typeof opendirSync>;
   try {
     directory = opendirSync(path);
@@ -276,6 +283,7 @@ function componentPaths(
     }
   }
   return [...new Set(values)].filter((value) => {
+    if (isRemoteSensitiveAssetPath(value)) return false;
     const canonical = canonicalDirectory(value) ?? canonicalFile(value, home);
     return canonical !== null && inside(home, canonical) && inside(plugin.path, canonical);
   });
@@ -323,6 +331,8 @@ function scanPlugins(
     maxManifestBytes: NODE_ASSET_MAX_CONTENT_BYTES,
     maxResults: budget.remainingAssets,
     traversalBudget: budget,
+    denyPath: isRemoteSensitiveAssetPath,
+    readManifest: (path) => readAsset(path, home)?.content ?? null,
   })
     .filter((plugin) => inside(home, plugin.path) && isNativeAssetName(plugin.name));
   const assets: AssetMeta[] = [];
@@ -347,6 +357,55 @@ function scanPlugins(
   return assets;
 }
 
+function scanAdapter(
+  home: string,
+  adapter: BundledAdapter,
+  maxAssets: number,
+  maxVisitedEntries: number,
+): { assets: AssetMeta[]; truncated: boolean; visitedEntries: number } {
+  const budget: ScanBudget = {
+    remainingAssets: maxAssets,
+    remainingEntries: maxVisitedEntries,
+    truncated: maxAssets === 0,
+  };
+  const config = join(
+    home,
+    adapter === 'claude-code' ? '.claude' : adapter === 'codex-cli' ? '.codex' : '.grok',
+  );
+  const scanned = [
+    ...scanAgentPath(adapter, join(config, 'agents'), home, null, budget),
+    ...scanSkillPath(adapter, join(config, 'skills'), home, null, budget),
+    ...scanPlugins(home, adapter, budget),
+  ];
+  const unique = new Map<string, AssetMeta>();
+  for (const asset of scanned) {
+    const canonical = canonicalFile(asset.absPath, home);
+    if (canonical) unique.set(`${asset.kind}\u0000${canonical}`, asset);
+  }
+  return {
+    assets: [...unique.values()].sort((left, right) =>
+      left.kind.localeCompare(right.kind) ||
+      left.qualifiedName.localeCompare(right.qualifiedName) ||
+      left.absPath.localeCompare(right.absPath)),
+    truncated: budget.truncated || budget.remainingAssets === 0,
+    visitedEntries: maxVisitedEntries - budget.remainingEntries,
+  };
+}
+
+function selectFairly(groups: readonly AssetMeta[][], maximum: number): AssetMeta[] {
+  const queues = groups.map((group) => [...group]);
+  const result: AssetMeta[] = [];
+  for (let index = 0; result.length < maximum && queues.length > 0;) {
+    const queue = queues[index]!;
+    const next = queue.shift();
+    if (next) result.push(next);
+    if (queue.length === 0) queues.splice(index, 1);
+    else index += 1;
+    if (index >= queues.length) index = 0;
+  }
+  return result;
+}
+
 /** Read-only native asset inventory fenced to the Worker's isolated Provider Home. */
 export function scanServerCoreUserAssets(
   providerHomeRoot: string,
@@ -356,36 +415,20 @@ export function scanServerCoreUserAssets(
   if (!home) return { assets: [], truncated: false, visitedEntries: 0 };
   const maxAssets = Math.max(0, Math.floor(options.maxAssets));
   const maxVisitedEntries = Math.max(0, Math.floor(options.maxVisitedEntries));
-  const budget: ScanBudget = {
-    remainingAssets: maxAssets,
-    remainingEntries: maxVisitedEntries,
-    truncated: maxAssets === 0,
-  };
   const adapters = ['claude-code', 'codex-cli', 'grok-build'] as const;
-  const assets: AssetMeta[] = [];
-  for (const adapter of adapters) {
-    const config = join(
-      home,
-      adapter === 'claude-code' ? '.claude' : adapter === 'codex-cli' ? '.codex' : '.grok',
-    );
-    assets.push(...scanAgentPath(adapter, join(config, 'agents'), home, null, budget));
-    assets.push(...scanSkillPath(adapter, join(config, 'skills'), home, null, budget));
-    assets.push(...scanPlugins(home, adapter, budget));
-    if (budget.remainingAssets <= 0) break;
-  }
-  const unique = new Map<string, AssetMeta>();
-  for (const asset of assets) {
-    const canonical = canonicalFile(asset.absPath, home);
-    if (canonical) unique.set(`${asset.adapter}\u0000${asset.kind}\u0000${canonical}`, asset);
-  }
-  const result = [...unique.values()].sort((left, right) =>
-    left.adapter.localeCompare(right.adapter) ||
-    left.kind.localeCompare(right.kind) ||
-    left.qualifiedName.localeCompare(right.qualifiedName) ||
-    left.absPath.localeCompare(right.absPath));
+  const baseEntries = Math.floor(maxVisitedEntries / adapters.length);
+  const remainder = maxVisitedEntries % adapters.length;
+  const scans = adapters.map((adapter, index) => scanAdapter(
+    home,
+    adapter,
+    maxAssets,
+    baseEntries + (index < remainder ? 1 : 0),
+  ));
+  const result = selectFairly(scans.map((scan) => scan.assets), maxAssets);
+  const discovered = scans.reduce((total, scan) => total + scan.assets.length, 0);
   return {
     assets: result,
-    truncated: budget.truncated || budget.remainingAssets === 0,
-    visitedEntries: maxVisitedEntries - budget.remainingEntries,
+    truncated: scans.some((scan) => scan.truncated) || discovered > maxAssets,
+    visitedEntries: scans.reduce((total, scan) => total + scan.visitedEntries, 0),
   };
 }

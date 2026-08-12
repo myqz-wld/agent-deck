@@ -86,6 +86,13 @@ class Metadata implements ServerCoreIssueMetadataPort {
     row.result = result;
     row.revision = revision;
   }
+  releaseMutationClaim(identity: ServerCoreMutationIdentity): void {
+    const row = this.ledger.get(identity.idempotencyKey);
+    if (!row || row.identity.requestFingerprint !== identity.requestFingerprint) {
+      throw new Error('claim missing');
+    }
+    this.ledger.delete(identity.idempotencyKey);
+  }
 }
 
 function request(
@@ -243,13 +250,38 @@ describe('ServerCoreIssueRuntime', () => {
   });
 
   it('strictly rolls back when the presented issue changes during create', async () => {
-    const { rollbackSession, runtime } = harness({ updatedAt: 3 });
+    const { metadata, rollbackSession, runtime } = harness({ updatedAt: 3 });
     await expect(runtime.execute(request(
       'issues.resolve-in-new-session',
       resolutionParams(2),
       { expectedRevision: 4, idempotencyKey: 'resolve-stale-issue' },
     ))).rejects.toMatchObject({ code: 'conflict' });
     expect(rollbackSession).toHaveBeenCalledWith('codex-cli', 'session-resolution');
+    expect(metadata.ledger.has('resolve-stale-issue')).toBe(false);
+  });
+
+  it('releases deterministic repository failures so the same intent can retry', async () => {
+    const { metadata, runtime } = harness();
+    const input = request('issues.update', {
+      issueId: 'missing-issue', patch: { status: 'resolved' },
+    }, { expectedRevision: 4, idempotencyKey: 'missing-update' });
+
+    await expect(runtime.execute(input)).rejects.toMatchObject({ code: 'not_found' });
+    expect(metadata.ledger.has('missing-update')).toBe(false);
+    await expect(runtime.execute({ ...input, requestId: 'missing-update-retry' }))
+      .rejects.toMatchObject({ code: 'not_found' });
+    expect(metadata.ledger.has('missing-update')).toBe(false);
+  });
+
+  it('redacts secret-shaped Issue text before any Remote result is returned', async () => {
+    const { runtime } = harness({
+      description: 'token=sk-super-secret-value and /home/worker/.codex/auth.json',
+    });
+    const result = await runtime.execute(request('issues.get', { issueId: 'issue-a' }));
+    const serialized = JSON.stringify(result.result);
+    expect(serialized).not.toContain('sk-super-secret-value');
+    expect(serialized).not.toContain('.codex/auth.json');
+    expect(serialized).toContain('敏感内容已省略');
   });
 
   it('recovers an invoking parent intent after the Issue link committed', async () => {

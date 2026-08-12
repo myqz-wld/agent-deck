@@ -19,6 +19,7 @@ import { ServerCoreNodeAssetCatalog } from './node-asset-catalog';
 
 export const SERVER_CORE_NODE_ASSET_METHODS = Object.freeze([
   'node.assets.list',
+  'node.assets.catalog.list',
   'node.assets.content',
   'node.assets.convention',
 ] as const satisfies readonly CoreMethod[]);
@@ -64,7 +65,7 @@ export class ServerCoreNodeAssetRuntime implements DaemonCoreRuntime {
     }
     const revision = this.currentMetadataRevision();
     try {
-      if (input.method === 'node.assets.list') {
+      if (input.method === 'node.assets.list' || input.method === 'node.assets.catalog.list') {
         parseNodeAssetListParams(input.params);
         return this.result(this.catalog.list(revision), revision);
       }

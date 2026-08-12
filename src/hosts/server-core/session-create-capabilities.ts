@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 
 import {
   AgentDeckClientErrorCode,
@@ -22,23 +20,10 @@ import {
 } from '@contracts/index';
 import { DaemonRequestError } from '@hosts/daemon';
 import {
-  listClaudeGatewayProfilesCore,
-  resolveClaudeGatewayProfileCore,
-  type ClaudeGatewayProfileHost,
-} from '@main/adapters/claude-code/gateway-profiles-core';
-import {
-  resolveSessionCreationDefaultsCore,
-  type SessionCreationDefaultsHost,
-} from '@main/adapters/session-creation-defaults-core';
-import {
   getAdapterRuntimeProfile,
   isSessionAdapterId,
 } from '@main/adapters/runtime-profiles';
 import type { AgentAdapter } from '@main/adapters/types';
-import {
-  listCodexModelProviders,
-  resolveCodexModelProvider,
-} from '@main/codex-config/model-providers';
 import type { SessionAdapterId, SessionCreationDefaults } from '@shared/types';
 import {
   resolveServerCoreProjectWorkspace,
@@ -50,6 +35,7 @@ import {
   serverCoreProviderSandboxChoices,
 } from './provider-sandbox-policy';
 import type { ServerCoreProviderSettings } from './provider-settings';
+import type { ServerCoreSessionCreateCatalog } from './session-create-catalog';
 
 const ADAPTER_IDS = Object.freeze([
   'claude-code',
@@ -66,6 +52,7 @@ const REMOTE_GROK_SANDBOX_VALUES = Object.freeze([
 
 export interface ServerCoreSessionCreateCapabilityRegistry {
   get(adapterId: string): AgentAdapter | undefined;
+  isReady?(adapterId: string): boolean;
 }
 
 export interface ServerCoreSessionCreateCapabilityMetadata {
@@ -78,24 +65,10 @@ export interface ServerCoreSessionCreateCapabilityOptions {
   };
   metadata: ServerCoreSessionCreateCapabilityMetadata;
   projects: readonly ServerCoreProject[];
-  providerHomeRoot: string;
+  catalog: ServerCoreSessionCreateCatalog;
   registry: ServerCoreSessionCreateCapabilityRegistry;
   settings: ServerCoreProviderSettings;
   workspaceRoot: string;
-}
-
-function gatewayHost(): ClaudeGatewayProfileHost {
-  return {
-    joinPath: join,
-    listDirectory: (directory) => readdirSync(directory, { withFileTypes: true }).map((entry) => ({
-      name: entry.name,
-      isFile: entry.isFile(),
-      isSymbolicLink: entry.isSymbolicLink(),
-    })),
-    isFile: (path) => statSync(path).isFile(),
-    pathExists: existsSync,
-    readText: (path) => readFileSync(path, 'utf8'),
-  };
 }
 
 function canonical(value: unknown): string {
@@ -146,7 +119,10 @@ function adapterSummary(
 ): SessionConsoleAdapterSummaryDescriptor {
   const profile = getAdapterRuntimeProfile(adapterId);
   const adapter = registry.get(adapterId);
-  const enabled = Boolean(adapter?.createSession && adapter.capabilities.canCreateSession);
+  const initialized = registry.isReady?.(adapterId) ?? true;
+  const enabled = initialized && Boolean(
+    adapter?.createSession && adapter.capabilities.canCreateSession,
+  );
   const remotelyEnabled = enabled && (adapterId !== 'grok-build' || grokAvailable);
   return Object.freeze({
     adapterId,
@@ -185,10 +161,9 @@ function optionSchema(
       permissionMode: enabledOption(defaults.permissionMode, {
         allowedValues: profile.runtimeControls.permissionModes,
       }),
-      provider: enabledOption(defaults.provider, {
-        allowedValues: providers,
-        allowEmpty: true,
-      }),
+      provider: providers.length === 0
+        ? disabledOption('Worker 未配置可选 Gateway；当前会话将跟随提供方默认值。')
+        : enabledOption(defaults.provider, { allowedValues: providers, allowEmpty: true }),
       sessionMode: disabledOption(),
     });
   }
@@ -204,10 +179,9 @@ function optionSchema(
       grokSandbox: disabledOption(),
       ...common,
       permissionMode: disabledOption(),
-      provider: enabledOption(defaults.provider, {
-        allowedValues: providers,
-        allowEmpty: true,
-      }),
+      provider: providers.length === 0
+        ? disabledOption('Worker 未配置可选 Provider；当前会话将跟随提供方默认值。')
+        : enabledOption(defaults.provider, { allowedValues: providers, allowEmpty: true }),
       sessionMode: disabledOption(),
     });
   }
@@ -294,17 +268,9 @@ export class ServerCoreSessionCreateCapabilities {
         'Grok does not accept a provider override',
       );
     }
-    const cwd = this.resolveWorkspace(params.workingDirectory);
-    const providerHome = this.options.providerHomeRoot;
-    const gatewaysDir = join(providerHome, '.claude', 'gateways');
-    const codexConfigPath = join(providerHome, '.codex', 'config.toml');
-    const grokConfigPath = join(providerHome, '.grok', 'config.toml');
-    const host = gatewayHost();
-    const providers = requested === 'claude-code'
-      ? listClaudeGatewayProfilesCore({ gatewaysDir }, host).map((item) => item.id)
-      : requested === 'codex-cli'
-        ? listCodexModelProviders(codexConfigPath).map((item) => item.id)
-        : [];
+    this.resolveWorkspace(params.workingDirectory);
+    const catalog = this.options.catalog.get(requested);
+    const providers = catalog.providers;
     assertCatalogBounded(providers, requested);
     if (params.provider && !providers.includes(params.provider)) {
       throw new DaemonRequestError(
@@ -312,23 +278,9 @@ export class ServerCoreSessionCreateCapabilities {
         'Selected Remote provider is unavailable',
       );
     }
-    const defaults = await resolveSessionCreationDefaultsCore(
-      requested,
-      { cwd, ...(params.provider ? { provider: params.provider } : {}) },
-      {
-        settings: this.options.settings,
-        userHome: providerHome,
-        readCodexConfig: async () => ({}),
-        resolveClaudeProfile: (provider) => resolveClaudeGatewayProfileCore(
-          provider,
-          { gatewaysDir },
-          host,
-        ),
-        codexConfigPath,
-        grokConfigPath,
-      },
-      this.defaultsHost(providerHome, gatewaysDir, codexConfigPath),
-    );
+    const defaults = params.provider
+      ? { ...catalog.defaults, provider: params.provider }
+      : catalog.defaults;
     const summary = summaries.find((item) => item.adapterId === requested)!;
     const attachmentEnabled =
       this.options.registry.get(requested)?.capabilities.canAcceptAttachments === true;
@@ -422,19 +374,5 @@ export class ServerCoreSessionCreateCapabilities {
     } catch {
       return false;
     }
-  }
-
-  private defaultsHost(
-    providerHome: string,
-    gatewaysDir: string,
-    codexConfigPath: string,
-  ): SessionCreationDefaultsHost {
-    return {
-      userHome: () => providerHome,
-      anthropicModel: () => undefined,
-      codexConfigPath: () => codexConfigPath,
-      resolveCodexModelProvider: (provider, path) => resolveCodexModelProvider(provider, path),
-      claudeGatewaySettingsPath: (provider) => join(gatewaysDir, `${provider}.json`),
-    };
   }
 }

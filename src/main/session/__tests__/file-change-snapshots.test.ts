@@ -1,29 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { buildFileChangeSnapshots } from '../file-change-snapshots';
-
-let tempRoot: string | null = null;
-
-function tempFile(name: string, content: string): string {
-  tempRoot ??= mkdtempSync(join(tmpdir(), 'agent-deck-file-snapshots-'));
-  const file = join(tempRoot, name);
-  writeFileSync(file, content, 'utf8');
-  return file;
-}
-
-afterEach(() => {
-  if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
-  tempRoot = null;
-});
 
 describe('buildFileChangeSnapshots', () => {
   it('captures full after content and reverses a Claude Edit snippet into full before content', () => {
-    const filePath = tempFile('edit.txt', 'alpha\nnew\nomega\n');
-
     const snapshots = buildFileChangeSnapshots({
-      filePath,
+      captureAuthorized: true,
+      capturedAfterSnapshot: 'alpha\nnew\nomega\n',
       kind: 'text',
       before: 'old',
       after: 'new',
@@ -37,10 +19,9 @@ describe('buildFileChangeSnapshots', () => {
   });
 
   it('reverses a Codex unified diff against the full after snapshot', () => {
-    const filePath = tempFile('codex.ts', 'alpha\nnew\nomega\n');
-
     const snapshots = buildFileChangeSnapshots({
-      filePath,
+      captureAuthorized: true,
+      capturedAfterSnapshot: 'alpha\nnew\nomega\n',
       kind: 'text',
       before: null,
       after: null,
@@ -67,11 +48,9 @@ describe('buildFileChangeSnapshots', () => {
   });
 
   it('records Codex deletes with an empty after snapshot when the file is gone', () => {
-    tempRoot = mkdtempSync(join(tmpdir(), 'agent-deck-file-snapshots-'));
-    const filePath = join(tempRoot, 'deleted.txt');
-
     const snapshots = buildFileChangeSnapshots({
-      filePath,
+      captureAuthorized: true,
+      capturedAfterSnapshot: null,
       kind: 'text',
       before: null,
       after: null,
@@ -96,10 +75,9 @@ describe('buildFileChangeSnapshots', () => {
   });
 
   it('records Codex adds with an empty before snapshot when the diff is raw content', () => {
-    const filePath = tempFile('created.md', '# Created\n\ncontent\n');
-
     const snapshots = buildFileChangeSnapshots({
-      filePath,
+      captureAuthorized: true,
+      capturedAfterSnapshot: '# Created\n\ncontent\n',
       kind: 'text',
       before: null,
       after: null,
@@ -114,5 +92,20 @@ describe('buildFileChangeSnapshots', () => {
       beforeSnapshot: '',
       afterSnapshot: '# Created\n\ncontent\n',
     });
+  });
+
+  it('stores no reconstructed snapshot when path identity could not be authorized', () => {
+    expect(buildFileChangeSnapshots({
+      captureAuthorized: false,
+      capturedAfterSnapshot: null,
+      kind: 'text',
+      before: null,
+      after: null,
+      metadata: {
+        source: 'codex',
+        changeKind: 'delete',
+        diff: '@@ -1 +0,0 @@\n-private',
+      },
+    })).toEqual({ beforeSnapshot: null, afterSnapshot: null });
   });
 });

@@ -13,14 +13,18 @@ import { TeamHub } from './components/TeamHub';
 import {
   RemotePageUnavailable,
   remotePageAvailability,
+  unknownSourceAvailability,
   type RemotePageSurface,
 } from './remote-host/RemotePageAvailability';
 import type { RemoteSessionSourceView } from './remote-host/source-types';
 import type { RemoteUsageSourceView } from './remote-host/use-remote-usage-source';
+import type { AppSourceAuthority } from './source-authority';
 
 export function AppWorkspace({
   view,
-  remoteMode,
+  authority,
+  authorityError,
+  onAuthorityRetry,
   localDetail,
   remoteSource,
   remoteUsage,
@@ -30,7 +34,9 @@ export function AppWorkspace({
   onViewChange,
 }: {
   view: AppView;
-  remoteMode: boolean;
+  authority: AppSourceAuthority;
+  authorityError: string | null;
+  onAuthorityRetry: () => void;
   localDetail: SessionRecord | null;
   remoteSource: RemoteSessionSourceView;
   remoteUsage: RemoteUsageSourceView;
@@ -39,14 +45,23 @@ export function AppWorkspace({
   onOpenLocalSession: (id: string) => void;
   onViewChange: (view: AppView) => void;
 }): JSX.Element {
+  if (authority === 'unknown') {
+    return (
+      <RemotePageUnavailable
+        availability={unknownSourceAvailability(authorityError)}
+        onRetry={authorityError ? onAuthorityRetry : undefined}
+      />
+    );
+  }
+  const remoteMode = authority === 'remote';
   const guardedSurface: RemotePageSurface = view;
   const availability = remoteMode
     ? remotePageAvailability(remoteSource, guardedSurface)
     : null;
+  const detailVisible = view === 'live' || view === 'history';
   if (availability && availability.kind !== 'available') {
     return <RemotePageUnavailable availability={availability} />;
   }
-  const detailVisible = view === 'live' || view === 'history';
   if (detailVisible && remoteMode && remoteSource.selectedSessionId) {
     return (
       <SessionDetail

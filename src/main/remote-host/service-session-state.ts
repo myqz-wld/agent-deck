@@ -84,6 +84,6 @@ export class RemoteHostSessionStateController {
         },
       );
       return parseRemoteHostPendingResponseResult(value);
-    }, ['pending.list']);
+    }, ['pending.list'], request.expectedAuthority);
   }
 }

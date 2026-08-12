@@ -206,6 +206,46 @@ describe.skipIf(!bindingAvailable)('session pinning and lifecycle guards', () =>
     }
   });
 
+  it('returns a bounded presentation page with structural owners outside the primary limit', () => {
+    insertSession(db, 'spawn-owner', 'active', 1);
+    insertSession(db, 'team-lead', 'dormant', 2);
+    insertSession(db, 'primary-child', 'active', 3);
+    db.prepare(`UPDATE sessions SET spawned_by = ? WHERE id = ?`).run(
+      'spawn-owner',
+      'primary-child',
+    );
+    db.prepare(
+      `INSERT INTO agent_deck_teams (id, name, created_at, archived_at, metadata)
+       VALUES ('presentation-team', 'Presentation Team', 1, NULL, '{}')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO agent_deck_team_members
+       (team_id, session_id, role, display_name, joined_at, left_at)
+       VALUES ('presentation-team', 'primary-child', 'teammate', NULL, 1, NULL),
+              ('presentation-team', 'team-lead', 'lead', NULL, 1, NULL)`,
+    ).run();
+    sessionRepo.setPinned('primary-child', 5000);
+
+    const page = sessionRepo.listLivePresentation(1, 0, 10);
+    expect(page.contextTruncated).toBe(false);
+    expect(page.records.filter((row) => !row.contextOnly).map((row) => row.record.id))
+      .toEqual(['primary-child']);
+    expect(new Set(page.records.filter((row) => row.contextOnly).map((row) => row.record.id)))
+      .toEqual(new Set(['spawn-owner', 'team-lead']));
+    expect(sessionRepo.sessionPresentationCounts('live')).toEqual({
+      total: 3, active: 2, dormant: 1, closed: 0, working: 0, waiting: 0,
+    });
+  });
+
+  it('searches the authoritative History index rather than only a loaded renderer page', () => {
+    insertSession(db, 'older-match', 'closed', 10);
+    insertSession(db, 'newer-other', 'closed', 20);
+    db.prepare(`UPDATE sessions SET title = 'remote searchable title' WHERE id = 'older-match'`).run();
+    const page = sessionRepo.listHistoryPresentation('searchable', 10, 0);
+    expect(page.records.map((row) => row.record.id)).toEqual(['older-match']);
+    expect(sessionRepo.sessionPresentationCounts('history', 'searchable').total).toBe(1);
+  });
+
   it('preserves the source pin when creating the canonical session id', () => {
     insertSession(db, 'old-missing-target');
     sessionRepo.setPinned('old-missing-target', 700);

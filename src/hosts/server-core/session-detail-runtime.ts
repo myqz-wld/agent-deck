@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import {
@@ -39,6 +40,7 @@ import {
 import type {
   FileChangePage,
   FileChangePayload,
+  FileChangeSummary,
   FileFinalDiffResult,
   SessionRecord,
   SummaryRecord,
@@ -50,7 +52,12 @@ import {
   projectSessionJson,
   projectSessionText,
 } from './session-event-projection';
-import { ServerCoreSessionImageAssetReader } from './session-image-asset';
+import {
+  fileChangePayloadMatchesDescriptor,
+  ServerCoreSessionImageAssetReader,
+} from './session-image-asset';
+import { projectSessionFilePath } from './session-file-path-authority';
+import { withoutStoredFileChangePathAuthority } from '@shared/file-change-path-authority';
 
 export const SERVER_CORE_SESSION_DETAIL_METHODS = Object.freeze([
   'session.summaries.list',
@@ -77,10 +84,17 @@ export interface ServerCoreSessionDetailRuntimeOptions {
       sessionId: string,
       options: { cursor?: string | null; limit: number },
     ): FileChangePage;
+    getDescriptor(sessionId: string, id: number): FileChangeSummary | null;
+    getPathDescriptor(sessionId: string, candidates: string[]): FileChangeSummary | null;
     getPayload(sessionId: string, id: number): FileChangePayload | null;
   };
-  readonly getFinalDiff: (sessionId: string, filePath: string) => Promise<FileFinalDiffResult>;
+  readonly getFinalDiff: (
+    sessionId: string,
+    filePath: string,
+    pathAuthority: string,
+  ) => Promise<FileFinalDiffResult>;
   readonly privateRoots?: readonly string[];
+  readonly canonicalizePath?: (path: string) => string;
 }
 
 function isSessionDetailMethod(method: CoreMethod): method is SessionDetailMethod {
@@ -94,6 +108,11 @@ function supportedMethods(base: DaemonCoreRuntime): readonly CoreMethod[] {
 function inside(root: string, target: string): boolean {
   const rel = relative(root, target);
   return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
+}
+
+function isMissingPath(error: unknown): boolean {
+  return typeof error === 'object' && error !== null &&
+    'code' in error && error.code === 'ENOENT';
 }
 
 function truncateUtf8(value: string, maximum: number): string {
@@ -112,16 +131,28 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
   readonly subscribe?: DaemonCoreRuntime['subscribe'];
   private readonly workspaceRoot: string;
   private readonly imageAssets: ServerCoreSessionImageAssetReader;
+  private readonly canonicalizePath: (path: string) => string;
 
   constructor(
     private readonly base: DaemonCoreRuntime,
     private readonly options: ServerCoreSessionDetailRuntimeOptions,
   ) {
     this.supportedMethods = supportedMethods(base);
-    this.workspaceRoot = resolve(options.workspaceRoot);
+    this.canonicalizePath = options.canonicalizePath ?? realpathSync;
+    const configuredWorkspaceRoot = resolve(options.workspaceRoot);
+    try {
+      this.workspaceRoot = this.canonicalizePath(configuredWorkspaceRoot);
+    } catch (error) {
+      if (!isMissingPath(error)) throw error;
+      // A newly provisioned Worker may start before its Workspace mount exists. Keep the
+      // resolved configured identity so bootstrap succeeds; every actual session read still
+      // requires a canonical cwd and therefore fails closed until the root exists unchanged.
+      this.workspaceRoot = configuredWorkspaceRoot;
+    }
     this.imageAssets = new ServerCoreSessionImageAssetReader(
       this.workspaceRoot,
       options.fileChanges,
+      this.canonicalizePath,
     );
     if (base.subscribe) {
       const subscribe = base.subscribe.bind(base);
@@ -182,7 +213,12 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
     if (!session) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.NotFound, 'Session was not found');
     }
-    const cwd = resolve(session.cwd);
+    let cwd: string;
+    try {
+      cwd = this.canonicalizePath(resolve(session.cwd));
+    } catch {
+      throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Session path is unavailable');
+    }
     if (!inside(this.workspaceRoot, cwd)) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Session is outside Workspace');
     }
@@ -196,7 +232,7 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
     const summaries = this.options.summaries.listForSession(params.sessionId, params.limit)
       .map((record): SessionSummaryDto => ({
         ...record,
-        content: truncateUtf8(record.content, SESSION_DETAIL_MAX_SUMMARY_BYTES),
+        content: truncateUtf8(this.publicText(record.content), SESSION_DETAIL_MAX_SUMMARY_BYTES),
       }));
     const result = parseSessionSummaryListResult(
       { summaries, revision },
@@ -228,7 +264,13 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
     this.requireSession(params.sessionId);
     const revision = await this.revision(input);
     const result = parseSessionTaskListResult({
-      tasks: this.options.tasks.listForSession(params.sessionId, params.limit),
+      tasks: this.options.tasks.listForSession(params.sessionId, params.limit).map((task) => ({
+        ...task,
+        subject: this.publicText(task.subject),
+        description: task.description === null ? null : this.publicText(task.description),
+        activeForm: task.activeForm === null ? null : this.publicText(task.activeForm),
+        labels: task.labels.map((label) => this.publicText(label)),
+      })),
       revision,
     }, params.limit);
     return this.result(result, revision);
@@ -242,12 +284,14 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
       limit: params.limit,
     });
     const revision = await this.revision(input);
-    const items = page.items
-      .filter((item) => item.kind === 'text' || item.kind === 'image')
-      .map((item): SessionFileChangeSummaryDto => ({
-        ...item,
-        filePath: this.publicPath(session, item.filePath),
-      }));
+    const items: SessionFileChangeSummaryDto[] = [];
+    for (const item of page.items) {
+      if (item.kind !== 'text' && item.kind !== 'image') continue;
+      const filePath = this.publicPath(session, item.filePath, item.pathAuthority);
+      if (filePath === null) continue;
+      const { pathAuthority: _authority, ...publicItem } = item;
+      items.push({ ...publicItem, filePath });
+    }
     const result = parseSessionFileChangeListResult(
       { items, nextCursor: page.nextCursor, revision },
       params.sessionId,
@@ -259,13 +303,28 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
   private async getFileChange(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     const params = parseSessionFileChangeGetParams(input.params);
     const session = this.requireSession(params.sessionId);
-    const stored = this.options.fileChanges.getPayload(params.sessionId, params.changeId);
+    const descriptor = this.options.fileChanges.getDescriptor(params.sessionId, params.changeId);
     const revision = await this.revision(input);
-    const change = stored?.kind === 'text'
-      ? this.publicPayload(session, stored)
-      : stored?.kind === 'image'
-        ? this.publicImagePayload(session, stored)
-        : null;
+    if (!descriptor || (descriptor.kind !== 'text' && descriptor.kind !== 'image')) {
+      return this.result(parseSessionFileChangeGetResult(
+        { change: null, revision }, params.sessionId, params.changeId,
+      ), revision);
+    }
+    const filePath = this.publicPath(session, descriptor.filePath, descriptor.pathAuthority);
+    if (filePath === null) {
+      return this.result(parseSessionFileChangeGetResult(
+        { change: null, revision }, params.sessionId, params.changeId,
+      ), revision);
+    }
+    const stored = this.options.fileChanges.getPayload(params.sessionId, params.changeId);
+    if (!stored || !fileChangePayloadMatchesDescriptor(descriptor, stored)) {
+      return this.result(parseSessionFileChangeGetResult(
+        { change: null, revision }, params.sessionId, params.changeId,
+      ), revision);
+    }
+    const change = descriptor.kind === 'text'
+      ? this.publicPayload(filePath, stored)
+      : this.publicImagePayload(filePath, descriptor, stored);
     const result = parseSessionFileChangeGetResult(
       { change, revision }, params.sessionId, params.changeId,
     );
@@ -274,63 +333,97 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
 
   private async getFinalDiff(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     const params = parseSessionFileFinalDiffParams(input.params);
-    this.requireSession(params.sessionId);
+    const session = this.requireSession(params.sessionId);
     const absolutePath = resolve(this.workspaceRoot, params.filePath);
-    if (!inside(this.workspaceRoot, absolutePath)) {
-      throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'File is outside Workspace');
+    const cwd = this.canonicalizePath(resolve(session.cwd));
+    const descriptor = this.options.fileChanges.getPathDescriptor(params.sessionId, [
+      absolutePath,
+      params.filePath,
+      relative(cwd, absolutePath),
+    ]);
+    const publicPath = descriptor
+      ? this.publicPath(session, descriptor.filePath, descriptor.pathAuthority)
+      : null;
+    if (
+      publicPath === null || publicPath !== params.filePath ||
+      typeof descriptor?.pathAuthority !== 'string'
+    ) {
+      const revision = await this.revision(input);
+      const fileDiff: SessionFileFinalDiffDto = {
+        ok: false,
+        filePath: params.filePath,
+        diff: null,
+        source: 'recorded-snapshot',
+        reason: 'not_in_session',
+        message: '此文件不允许在 Remote 中显示。',
+      };
+      return this.result(
+        parseSessionFileFinalDiffResult({ fileDiff, revision }, params.filePath),
+        revision,
+      );
     }
-    const stored = await this.options.getFinalDiff(params.sessionId, absolutePath);
+    const stored = await this.options.getFinalDiff(
+      params.sessionId,
+      absolutePath,
+      descriptor.pathAuthority,
+    );
     const revision = await this.revision(input);
     const fileDiff = this.publicFinalDiff(params.filePath, stored);
     const result = parseSessionFileFinalDiffResult({ fileDiff, revision }, params.filePath);
     return this.result(result, revision);
   }
 
-  private publicPath(session: SessionRecord, value: string): string {
-    const target = resolve(isAbsolute(value) ? value : resolve(session.cwd, value));
-    if (!inside(this.workspaceRoot, target)) {
-      throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'File is outside Workspace');
-    }
-    const projected = relative(this.workspaceRoot, target).split(sep).join('/');
-    if (!projected) {
-      throw new DaemonRequestError(AgentDeckClientErrorCode.InvalidRequest, 'File path is invalid');
-    }
-    return projected;
+  private publicPath(
+    session: SessionRecord,
+    value: string,
+    pathAuthority: FileChangeSummary['pathAuthority'],
+  ): string | null {
+    const cwd = this.canonicalizePath(resolve(session.cwd));
+    return projectSessionFilePath({
+      authority: pathAuthority,
+      canonicalize: this.canonicalizePath,
+      cwd,
+      filePath: value,
+      workspaceRoot: this.workspaceRoot,
+    });
   }
 
   private publicPayload(
-    session: SessionRecord,
+    filePath: string,
     stored: FileChangePayload,
   ): SessionFileChangePayloadDto {
     return {
       id: stored.id,
       sessionId: stored.sessionId,
-      filePath: this.publicPath(session, stored.filePath),
+      filePath,
       kind: stored.kind,
-      beforeBlob: stored.beforeBlob,
-      afterBlob: stored.afterBlob,
-      beforeSnapshot: stored.beforeSnapshot ?? null,
-      afterSnapshot: stored.afterSnapshot ?? null,
-      metadata: this.publicMetadata(stored.metadata),
+      beforeBlob: stored.beforeBlob === null ? null : this.publicText(stored.beforeBlob),
+      afterBlob: stored.afterBlob === null ? null : this.publicText(stored.afterBlob),
+      beforeSnapshot: stored.beforeSnapshot === undefined || stored.beforeSnapshot === null
+        ? null : this.publicText(stored.beforeSnapshot),
+      afterSnapshot: stored.afterSnapshot === undefined || stored.afterSnapshot === null
+        ? null : this.publicText(stored.afterSnapshot),
+      metadata: this.publicMetadata(withoutStoredFileChangePathAuthority(stored.metadata)),
       toolCallId: stored.toolCallId,
       ts: stored.ts,
     };
   }
 
   private publicImagePayload(
-    session: SessionRecord,
+    filePath: string,
+    descriptor: FileChangeSummary,
     stored: FileChangePayload,
   ): SessionFileChangePayloadDto {
     return {
       id: stored.id,
       sessionId: stored.sessionId,
-      filePath: this.publicPath(session, stored.filePath),
+      filePath,
       kind: 'image',
-      beforeBlob: this.imageAssets.publicHandle(stored, 'before'),
-      afterBlob: this.imageAssets.publicHandle(stored, 'after'),
+      beforeBlob: this.imageAssets.publicHandle(descriptor, stored, 'before'),
+      afterBlob: this.imageAssets.publicHandle(descriptor, stored, 'after'),
       beforeSnapshot: null,
       afterSnapshot: null,
-      metadata: this.publicMetadata(stored.metadata),
+      metadata: this.publicMetadata(withoutStoredFileChangePathAuthority(stored.metadata)),
       toolCallId: stored.toolCallId,
       ts: stored.ts,
     };
@@ -338,8 +431,20 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
 
   private async readImageAsset(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     const params = parseSessionImageAssetReadParams(input.params);
-    this.requireSession(params.sessionId);
-    const payload = await this.imageAssets.read(params, input.signal);
+    const session = this.requireSession(params.sessionId);
+    const descriptor = this.options.fileChanges.getDescriptor(params.sessionId, params.changeId);
+    let payload: Awaited<ReturnType<ServerCoreSessionImageAssetReader['read']>>;
+    if (!descriptor || descriptor.kind !== 'image') {
+      payload = { ok: false, reason: 'unsupported_source' };
+    } else if (this.publicPath(
+      session,
+      descriptor.filePath,
+      descriptor.pathAuthority,
+    ) === null) {
+      payload = { ok: false, reason: 'denied' };
+    } else {
+      payload = await this.imageAssets.read(params, input.signal, descriptor);
+    }
     const revision = await this.revision(input);
     return this.result(parseSessionImageAssetReadResult(
       { ...payload, revision }, params,

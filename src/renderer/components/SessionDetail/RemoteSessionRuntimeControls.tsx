@@ -13,7 +13,6 @@ import {
   CODEX_APPROVAL_POLICY_OPTIONS,
   GROK_SANDBOX_MODE_OPTIONS,
   type ClaudeSandboxMode,
-  type CodexApprovalPolicyChoice,
   type CodexSandboxMode,
 } from '@renderer/lib/sandbox-options';
 import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
@@ -21,12 +20,16 @@ import type { RemoteHostJsonObject } from '@shared/remote-host';
 import {
   ADAPTER_SESSION_MODES,
   isSelectablePermissionMode,
-  type AdapterSessionMode,
-  type PermissionMode,
 } from '@shared/types';
 
 const MODEL_PERSIST_DELAY_MS = 250;
 const CUSTOM_GROK_PROFILE = '__agent_deck_remote_custom_grok_sandbox__';
+const PROVIDER_DEFAULT_RUNTIME_VALUE = '__agent_deck_provider_default__';
+const PROVIDER_DEFAULT_RUNTIME_OPTION = {
+  value: PROVIDER_DEFAULT_RUNTIME_VALUE,
+  label: '由提供方默认值决定（未记录权威值）',
+  disabled: true,
+};
 
 interface RuntimeSelection {
   identity: string;
@@ -40,6 +43,13 @@ interface PendingSelection {
   selection: RuntimeSelection;
   apply: (patch: RemoteHostJsonObject) => Promise<void>;
 }
+
+interface RuntimeAuthority {
+  eligible: boolean;
+  identity: string;
+}
+
+type ApplyPatchResult = 'applied' | 'deferred' | 'failed' | 'stale';
 
 function stringValue(values: RemoteHostJsonObject | null, key: string): string {
   const value = values?.[key];
@@ -65,8 +75,13 @@ export function RemoteSessionRuntimeControls({
   const [provider, setProvider] = useState('');
   const [thinking, setThinking] = useState<SessionThinkingChoice>('');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const modelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeIdentity = useRef(identity);
+  const authority = useRef<RuntimeAuthority>({
+    eligible: canWrite && !busy && values !== null,
+    identity,
+  });
   const mounted = useRef(true);
   const applyRef = useRef(onApply);
   const applyTail = useRef<Promise<void>>(Promise.resolve());
@@ -86,24 +101,36 @@ export function RemoteSessionRuntimeControls({
   });
   applyRef.current = onApply;
   activeIdentity.current = identity;
+  const eligible = canWrite && !busy && values !== null;
+  authority.current = {
+    eligible,
+    identity,
+  };
   const disabled = busy || !canWrite || !values;
 
   const applyPatch = async (
     patch: RemoteHostJsonObject,
     apply: (value: RemoteHostJsonObject) => Promise<void>,
     originIdentity: string,
-  ): Promise<boolean> => {
-    const task = applyTail.current.then(() => apply(patch));
+  ): Promise<ApplyPatchResult> => {
+    const task = applyTail.current.then(async () => {
+      const current = authority.current;
+      if (!mounted.current || current.identity !== originIdentity) return 'stale' as const;
+      if (!current.eligible) return 'deferred' as const;
+      await apply(patch);
+      return 'applied' as const;
+    });
     applyTail.current = task.then(() => undefined, () => undefined);
     try {
-      await task;
+      const result = await task;
+      if (result !== 'applied') return result;
       if (mounted.current && activeIdentity.current === originIdentity) setError(null);
-      return true;
+      return 'applied';
     } catch (cause) {
       if (mounted.current && activeIdentity.current === originIdentity) {
         setError(cause instanceof Error ? cause.message : String(cause));
       }
-      return false;
+      return 'failed';
     }
   };
 
@@ -113,12 +140,23 @@ export function RemoteSessionRuntimeControls({
       provider: selection.provider.trim() || null,
       model: selection.model.trim() || null,
       thinking: selection.thinking || null,
-    }, apply, selection.identity).then((ok) => {
+    }, apply, selection.identity).then((result) => {
       const current = draft.current.selection;
+      const isCurrent = current.identity === selection.identity &&
+        current.revision === selection.revision;
+      if (result === 'applied' && isCurrent) {
+        draft.current.hasLocalEdits = false;
+        if (mounted.current) setNotice(null);
+        return;
+      }
       if (
-        ok && current.identity === selection.identity &&
-        current.revision === selection.revision
-      ) draft.current.hasLocalEdits = false;
+        result === 'deferred' && isCurrent && mounted.current &&
+        activeIdentity.current === selection.identity
+      ) {
+        pendingSelection.current = pending;
+        setNotice('当前会话正忙，模型编辑将在空闲后自动保存。');
+        if (authority.current.eligible) queueMicrotask(flushSelection);
+      }
     });
   };
 
@@ -149,6 +187,7 @@ export function RemoteSessionRuntimeControls({
     setModel(selection.model);
     setThinking(selection.thinking);
     setError(null);
+    setNotice(null);
     pendingSelection.current = { selection, apply: applyRef.current };
     if (immediate) {
       flushSelection();
@@ -166,6 +205,7 @@ export function RemoteSessionRuntimeControls({
   useEffect(() => {
     const current = draft.current;
     if (current.selection.identity !== identity) {
+      const discardedLocalEdits = current.hasLocalEdits;
       flushSelection();
       const selection = {
         identity,
@@ -179,6 +219,9 @@ export function RemoteSessionRuntimeControls({
       setModel(selection.model);
       setThinking(selection.thinking);
       setError(null);
+      setNotice(discardedLocalEdits
+        ? '会话已切换，上一会话尚未保存的模型编辑已丢弃。'
+        : null);
       return;
     }
     if (current.hasLocalEdits) return;
@@ -194,17 +237,32 @@ export function RemoteSessionRuntimeControls({
     setModel(selection.model);
     setThinking(selection.thinking);
   }, [identity, values?.model, values?.provider, values?.thinking]);
-  useEffect(() => () => { mounted.current = false; flushSelection(); }, []);
+  useEffect(() => {
+    if (!eligible) return;
+    const pending = pendingSelection.current;
+    if (pending?.selection.identity === identity) flushSelection();
+  }, [eligible, identity]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      flushSelection();
+    };
+  }, []);
 
   const apply = async (patch: RemoteHostJsonObject): Promise<boolean> => {
     setError(null);
-    return applyPatch(patch, applyRef.current, identity);
+    return (await applyPatch(patch, onApply, identity)) === 'applied';
   };
-  const currentPermission = (stringValue(values, 'permissionMode') || 'default') as PermissionMode;
+  const currentPermission = stringValue(values, 'permissionMode');
   const permissionOptions = currentPermission === 'dontAsk'
-    ? [{ value: 'dontAsk' as const, label: '模型提供方状态：不询问（只读）', disabled: true },
+    ? [{ value: 'dontAsk', label: '模型提供方状态：不询问（只读）', disabled: true },
         ...PERMISSION_MODE_OPTIONS]
-    : [...PERMISSION_MODE_OPTIONS];
+    : [PROVIDER_DEFAULT_RUNTIME_OPTION, ...PERMISSION_MODE_OPTIONS];
+  const claudeSandbox = stringValue(values, 'claudeCodeSandbox');
+  const approvalPolicy = stringValue(values, 'approvalPolicy');
+  const codexSandbox = stringValue(values, 'codexSandbox');
+  const sessionMode = stringValue(values, 'sessionMode');
 
   return (
     <>
@@ -223,6 +281,7 @@ export function RemoteSessionRuntimeControls({
             providerOptions={[]}
             onProviderChange={(next) => updateSelection({ provider: next, model: '' }, true)}
             onModelChange={(next) => updateSelection({ model: next }, false)}
+            onModelBlur={flushSelection}
             onThinkingChange={(next) => updateSelection({ thinking: next }, true)}
           />
           <p className="text-[9px] text-deck-muted/65">
@@ -234,19 +293,25 @@ export function RemoteSessionRuntimeControls({
         <>
           <SelectRow
             label="权限"
-            value={currentPermission}
+            value={currentPermission || PROVIDER_DEFAULT_RUNTIME_VALUE}
             options={permissionOptions}
             disabled={disabled}
             onChange={(next) => {
-              if (isSelectablePermissionMode(next)) void apply({ permissionMode: next });
+              if (next !== PROVIDER_DEFAULT_RUNTIME_VALUE && isSelectablePermissionMode(next)) {
+                void apply({ permissionMode: next });
+              }
             }}
           />
           <SelectRow
             label="沙盒"
-            value={(stringValue(values, 'claudeCodeSandbox') || 'off') as ClaudeSandboxMode}
-            options={CLAUDE_CODE_SANDBOX_OPTIONS}
+            value={claudeSandbox || PROVIDER_DEFAULT_RUNTIME_VALUE}
+            options={[PROVIDER_DEFAULT_RUNTIME_OPTION, ...CLAUDE_CODE_SANDBOX_OPTIONS]}
             disabled={disabled}
-            onChange={(next) => void confirmClaudeSandbox(next, apply)}
+            onChange={(next) => {
+              if (next !== PROVIDER_DEFAULT_RUNTIME_VALUE) {
+                void confirmClaudeSandbox(next as ClaudeSandboxMode, apply);
+              }
+            }}
           />
         </>
       )}
@@ -254,17 +319,23 @@ export function RemoteSessionRuntimeControls({
         <>
           <SelectRow
             label="审批"
-            value={(stringValue(values, 'approvalPolicy') || 'never') as CodexApprovalPolicyChoice}
-            options={CODEX_APPROVAL_POLICY_OPTIONS}
+            value={approvalPolicy || PROVIDER_DEFAULT_RUNTIME_VALUE}
+            options={[PROVIDER_DEFAULT_RUNTIME_OPTION, ...CODEX_APPROVAL_POLICY_OPTIONS]}
             disabled={disabled}
-            onChange={(next) => void apply({ approvalPolicy: next })}
+            onChange={(next) => {
+              if (next !== PROVIDER_DEFAULT_RUNTIME_VALUE) void apply({ approvalPolicy: next });
+            }}
           />
           <SelectRow
             label="沙盒"
-            value={(stringValue(values, 'codexSandbox') || 'workspace-write') as CodexSandboxMode}
-            options={CODEX_SANDBOX_OPTIONS}
+            value={codexSandbox || PROVIDER_DEFAULT_RUNTIME_VALUE}
+            options={[PROVIDER_DEFAULT_RUNTIME_OPTION, ...CODEX_SANDBOX_OPTIONS]}
             disabled={disabled}
-            onChange={(next) => void confirmCodexSandbox(next, apply)}
+            onChange={(next) => {
+              if (next !== PROVIDER_DEFAULT_RUNTIME_VALUE) {
+                void confirmCodexSandbox(next as CodexSandboxMode, apply);
+              }
+            }}
           />
         </>
       )}
@@ -272,10 +343,15 @@ export function RemoteSessionRuntimeControls({
         <>
           <SelectRow
             label="模式"
-            value={(stringValue(values, 'sessionMode') || 'default') as AdapterSessionMode}
-            options={adapterSessionModeOptions(ADAPTER_SESSION_MODES)}
+            value={sessionMode || PROVIDER_DEFAULT_RUNTIME_VALUE}
+            options={[
+              PROVIDER_DEFAULT_RUNTIME_OPTION,
+              ...adapterSessionModeOptions(ADAPTER_SESSION_MODES),
+            ]}
             disabled={disabled}
-            onChange={(next) => void apply({ sessionMode: next })}
+            onChange={(next) => {
+              if (next !== PROVIDER_DEFAULT_RUNTIME_VALUE) void apply({ sessionMode: next });
+            }}
           />
           <RemoteGrokSandbox
             value={stringValue(values, 'grokSandbox')}
@@ -288,6 +364,14 @@ export function RemoteSessionRuntimeControls({
         <p className="mb-1.5 text-[9px] text-deck-muted/70">
           此 Remote Core 未提供会话运行时写入能力；控件只显示权威值。
         </p>
+      )}
+      {notice && (
+        <div
+          role="status"
+          className="mb-1.5 rounded border border-amber-300/20 bg-amber-300/[0.06] px-2 py-1.5 text-[10px] leading-relaxed text-amber-100/80"
+        >
+          {notice}
+        </div>
       )}
       <ErrorBanner message={error} prefix="远端运行时设置失败" onDismiss={() => setError(null)} />
     </>

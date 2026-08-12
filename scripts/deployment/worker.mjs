@@ -56,6 +56,17 @@ function assertSupervisorWorker(config, workerStatus) {
   }
 }
 
+export function workerConfigureArgs(config) {
+  return [
+    'configure',
+    '--credential', config.credentialFile,
+    '--workspace', config.workspace,
+    ...(config.sessionCatalogFile === null
+      ? []
+      : ['--session-catalog', config.sessionCatalogFile]),
+  ];
+}
+
 export async function runWorkerDeployment(config, action) {
   if (action === 'dry-run') {
     return {
@@ -68,6 +79,9 @@ export async function runWorkerDeployment(config, action) {
         '验证签名 Worker runtime 与 Node SQLite ABI',
         '确保隔离 Workspace 不位于 Agent Deck 仓库中',
         '从 Worker connection credential 配置或重启 LaunchAgent/systemd-user service',
+        ...(config.sessionCatalogFile === null ? [] : [
+          '导入仅含 provider/model 标识的 Remote 新会话安全目录',
+        ]),
         ...(config.providerSupervisor === null ? [] : [
           '验证 Grok 凭证、Provider supervisor 配置与 Worker identity',
           '原子投射凭证、安装 LaunchAgent、等待就绪并受控重启 Worker',
@@ -94,11 +108,13 @@ export async function runWorkerDeployment(config, action) {
   if (action === 'verify') {
     const service = await status(config, true);
     assertSupervisorWorker(config, service);
+    const providerSupervisor = await verifyWorkerProviderSupervisor(supervisor(config));
     return {
       action,
       name: config.name,
+      status: providerSupervisor.status === 'degraded' ? 'degraded' : 'ok',
       service,
-      providerSupervisor: await verifyWorkerProviderSupervisor(supervisor(config)),
+      providerSupervisor,
     };
   }
   if (action === 'deploy') {
@@ -113,11 +129,7 @@ export async function runWorkerDeployment(config, action) {
     await workspaceStatus(config);
     await checkAbi(config);
     await checkWorkerProviderSupervisor(supervisor(config));
-    await worker(config, [
-      'configure',
-      '--credential', config.credentialFile,
-      '--workspace', config.workspace,
-    ], { timeoutMs: 300_000 });
+    await worker(config, workerConfigureArgs(config), { timeoutMs: 300_000 });
     const configured = await status(config, true);
     assertSupervisorWorker(config, configured);
     const providerSupervisor = await deployWorkerProviderSupervisor(supervisor(config));

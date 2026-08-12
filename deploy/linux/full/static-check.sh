@@ -59,6 +59,8 @@ done
 grep -Fq '"runtimeModule": "/opt/agent-deck/linux-headless/server-core-runtime/index.mjs"' \
   "$full_dir/server-core.config.example.json" ||
   fail 'Server Core config does not bind the packaged concrete runtime'
+grep -Fq '"sessionCreationCatalog"' "$full_dir/server-core.config.example.json" ||
+  fail 'Server Core config does not provision the safe Remote session catalog'
 for required in \
   '"surface": "desktop-full"' \
   '"surface": "feishu-session-console"' \

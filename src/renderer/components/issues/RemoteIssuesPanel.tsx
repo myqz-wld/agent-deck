@@ -14,6 +14,7 @@ import {
   RemoteUserIntentLedger,
   remoteSessionCreateIntentPayload,
 } from '@renderer/remote-host/remote-intent-ledger';
+import { remoteMutationAuthority } from '@renderer/remote-host/remote-source-utils';
 import { IssueDetail, type IssueDetailDataSource } from '../IssueDetail';
 import { EmptyIssueDetail, IssueBoard } from './IssueBoard';
 
@@ -60,20 +61,26 @@ export function RemoteIssuesPanel({
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<IssueRecord | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
   const navigation = useRef(new Map<string, string | null>());
   const identityRef = useRef(source.identity);
+  const sourceRef = useRef(source);
   const filtersRef = useRef(filters);
   const selectedIssueIdRef = useRef(selectedIssueId);
   const revisionRef = useRef<number | null>(null);
   const issuesRef = useRef<IssueRecord[]>([]);
   const listSequence = useRef(0);
+  const listFlight = useRef<Promise<void> | null>(null);
+  const queuedRefresh = useRef<number | null>(null);
+  const requestListRef = useRef<(mode: 'replace' | 'append', generation: number) => void>(() => {});
   const detailSequence = useRef(0);
   const mutationSequence = useRef(0);
   const intents = useRef(new RemoteUserIntentLedger());
 
-  useEffect(() => { filtersRef.current = filters; }, [filters]);
+  filtersRef.current = filters;
+  sourceRef.current = source;
   useEffect(() => { selectedIssueIdRef.current = selectedIssueId; }, [selectedIssueId]);
   useEffect(() => {
     const key = source.addressableIdentityKey;
@@ -84,6 +91,8 @@ export function RemoteIssuesPanel({
   useEffect(() => {
     identityRef.current = source.identity;
     listSequence.current += 1;
+    listFlight.current = null;
+    queuedRefresh.current = null;
     detailSequence.current += 1;
     mutationSequence.current += 1;
     revisionRef.current = null;
@@ -96,6 +105,7 @@ export function RemoteIssuesPanel({
     setTruncated(false);
     setListError(null);
     setLoading(false);
+    setLoadingMore(false);
   }, [source.identity]);
 
   useEffect(() => {
@@ -109,30 +119,41 @@ export function RemoteIssuesPanel({
     return () => clearTimeout(timer);
   }, [keywordInput]);
 
-  useEffect(() => {
-    const profileId = source.profile?.id;
-    if (!source.usable || !profileId || !source.capabilities.has('issues')) {
-      listSequence.current += 1;
-      setLoading(false);
+  requestListRef.current = (mode, generation) => {
+    const current = sourceRef.current;
+    const profileId = current.profile?.id;
+    if (!current.usable || !profileId || !current.capabilities.has('issues')) return;
+    if (listFlight.current) {
+      if (mode === 'replace') queuedRefresh.current = generation;
       return;
     }
-    const expectedIdentity = source.identity;
-    const sequence = ++listSequence.current;
-    setLoading(true);
-    setListError(null);
-    void window.api.listRemoteHostIssues({
+    const expectedIdentity = current.identity;
+    const offset = mode === 'append' ? issuesRef.current.length : 0;
+    const query = filtersRef.current;
+    if (mode === 'append') setLoadingMore(true);
+    else {
+      setLoading(true);
+      setListError(null);
+    }
+    let flight!: Promise<void>;
+    flight = window.api.listRemoteHostIssues({
       profileId,
-      statuses: filters.statuses ?? [],
-      kinds: filters.kinds ?? [],
-      titleKeyword: filters.titleKeyword ?? null,
-      includeDeleted: filters.showDeleted ?? false,
+      statuses: query.statuses ?? [],
+      kinds: query.kinds ?? [],
+      titleKeyword: query.titleKeyword ?? null,
+      includeDeleted: query.showDeleted ?? false,
       limit: REMOTE_ISSUE_LIMIT,
-      offset: 0,
+      offset,
     }).then((result) => {
-      if (identityRef.current !== expectedIdentity || listSequence.current !== sequence) return;
+      if (identityRef.current !== expectedIdentity || listSequence.current !== generation) return;
       if (revisionRef.current !== null && result.revision < revisionRef.current) return;
       revisionRef.current = result.revision;
-      const next = ordered(result.issues.map(issueListRecord));
+      const rows = result.issues.map(issueListRecord);
+      const next = mode === 'replace'
+        ? ordered(rows)
+        : ordered([...new Map(
+          [...issuesRef.current, ...rows].map((issue) => [issue.id, issue]),
+        ).values()]);
       issuesRef.current = next;
       setIssues(next);
       setTruncated(result.truncated);
@@ -141,23 +162,59 @@ export function RemoteIssuesPanel({
         const observed = next.find((issue) => issue.id === currentId);
         if (observed) setSelectedIssue(observed);
       }
-    }).catch((reason: unknown) => {
-      if (identityRef.current === expectedIdentity && listSequence.current === sequence) {
-        setListError(reason instanceof Error ? reason.message : String(reason));
+    }).catch(() => {
+      if (identityRef.current === expectedIdentity && listSequence.current === generation) {
+        setListError(mode === 'append'
+          ? '更多问题读取失败，请稍后重试。'
+          : '问题列表读取失败，请稍后重试。');
       }
     }).finally(() => {
-      if (identityRef.current === expectedIdentity && listSequence.current === sequence) {
+      if (listFlight.current === flight) listFlight.current = null;
+      if (identityRef.current === expectedIdentity && listSequence.current === generation) {
         setLoading(false);
+        setLoadingMore(false);
+      }
+      const queued = queuedRefresh.current;
+      if (queued !== null && listFlight.current === null) {
+        queuedRefresh.current = null;
+        requestListRef.current('replace', queued);
       }
     });
+    listFlight.current = flight;
+  };
+
+  useEffect(() => {
+    const generation = ++listSequence.current;
+    issuesRef.current = [];
+    setIssues([]);
+    setTruncated(false);
+    requestListRef.current('replace', generation);
   }, [
-    filters,
+    filters.kinds,
+    filters.showDeleted,
+    filters.statuses,
+    filters.titleKeyword,
     source.capabilities,
-    source.dataRevision,
     source.identity,
     source.profile?.id,
     source.usable,
   ]);
+
+  const observedRevision = useRef({
+    identity: source.identity,
+    revision: source.resourceRevisions.issues,
+  });
+  useEffect(() => {
+    const observed = observedRevision.current;
+    const revision = source.resourceRevisions.issues;
+    observedRevision.current = { identity: source.identity, revision };
+    if (observed.identity !== source.identity || observed.revision === revision) return;
+    const timer = setTimeout(() => {
+      const generation = ++listSequence.current;
+      requestListRef.current('replace', generation);
+    }, 750);
+    return () => clearTimeout(timer);
+  }, [source.identity, source.resourceRevisions.issues]);
 
   const selectIssue = (issueId: string | null): void => {
     detailSequence.current += 1;
@@ -205,19 +262,30 @@ export function RemoteIssuesPanel({
     };
   };
 
-  const requireMutationTarget = (): { profileId: string; identity: string; revision: number } => {
+  const requireMutationTarget = (): {
+    expectedAuthority: ReturnType<typeof remoteMutationAuthority>;
+    profileId: string;
+    identity: string;
+    revision: number;
+  } => {
     const target = requireReadTarget();
     if (revisionRef.current === null) throw new Error('问题列表已变化，请刷新后重试。');
-    return { ...target, revision: revisionRef.current };
+    return {
+      ...target,
+      expectedAuthority: remoteMutationAuthority(source.state),
+      revision: revisionRef.current,
+    };
   };
 
   const loadIssue = async (issueId: string): Promise<IssueRecord | null> => {
     const target = requireReadTarget();
     const sequence = ++detailSequence.current;
-    const result = await window.api.getRemoteHostIssue({
-      profileId: target.profileId,
-      issueId,
-    });
+    let result;
+    try {
+      result = await window.api.getRemoteHostIssue({ profileId: target.profileId, issueId });
+    } catch {
+      throw new Error('问题详情读取失败，请稍后重试。');
+    }
     if (
       identityRef.current !== target.identity ||
       detailSequence.current !== sequence ||
@@ -241,25 +309,31 @@ export function RemoteIssuesPanel({
     const target = requireMutationTarget();
     const sequence = ++mutationSequence.current;
     const payload = { issueId, ...(patch ? { patch } : {}) };
-    const result = await intents.current.run(
-      target.identity,
-      `issue-${operation}`,
-      payload,
-      (intentId): Promise<RemoteHostIssueMutationResultDto> => {
-        const common = {
-          profileId: target.profileId,
-          issueId,
-          expectedRevision: target.revision,
-          intentId,
-        };
-        if (operation === 'update') {
-          return window.api.updateRemoteHostIssue({ ...common, patch: patch ?? {} });
-        }
-        return operation === 'soft-delete'
-          ? window.api.softDeleteRemoteHostIssue(common)
-          : window.api.undeleteRemoteHostIssue(common);
-      },
-    );
+    let result: RemoteHostIssueMutationResultDto;
+    try {
+      result = await intents.current.run(
+        target.identity,
+        `issue-${operation}`,
+        payload,
+        (intentId): Promise<RemoteHostIssueMutationResultDto> => {
+          const common = {
+            profileId: target.profileId,
+            issueId,
+            expectedAuthority: target.expectedAuthority,
+            expectedRevision: target.revision,
+            intentId,
+          };
+          if (operation === 'update') {
+            return window.api.updateRemoteHostIssue({ ...common, patch: patch ?? {} });
+          }
+          return operation === 'soft-delete'
+            ? window.api.softDeleteRemoteHostIssue(common)
+            : window.api.undeleteRemoteHostIssue(common);
+        },
+      );
+    } catch {
+      throw new Error('问题更新失败，请稍后重试。');
+    }
     if (identityRef.current !== target.identity || mutationSequence.current !== sequence) {
       throw new Error('问题数据源已切换，请刷新后重试。');
     }
@@ -295,17 +369,26 @@ export function RemoteIssuesPanel({
                 issueUpdatedAt: issue.updatedAt,
                 create: await remoteSessionCreateIntentPayload(create),
               };
-              const result = await intents.current.run(
-                target.identity,
-                'issue-resolve-in-new-session',
-                intentPayload,
-                (intentId) => window.api.resolveRemoteHostIssueInNewSession({
-                  ...payload,
-                  profileId: target.profileId,
-                  expectedRevision: target.revision,
-                  intentId,
-                }),
-              );
+              if (identityRef.current !== target.identity) {
+                throw new Error('问题数据源已切换，请刷新后重试。');
+              }
+              let result;
+              try {
+                result = await intents.current.run(
+                  target.identity,
+                  'issue-resolve-in-new-session',
+                  intentPayload,
+                  (intentId) => window.api.resolveRemoteHostIssueInNewSession({
+                    ...payload,
+                    profileId: target.profileId,
+                    expectedAuthority: target.expectedAuthority,
+                    expectedRevision: target.revision,
+                    intentId,
+                  }),
+                );
+              } catch {
+                throw new Error('处理会话创建或关联失败，请稍后重试。');
+              }
               if (identityRef.current !== target.identity || mutationSequence.current !== sequence) {
                 throw new Error('问题数据源已切换，请刷新后重试。');
               }
@@ -331,11 +414,13 @@ export function RemoteIssuesPanel({
       keywordInput={keywordInput}
       listError={listError}
       loading={loading}
+      loadingMore={loadingMore}
       selectedIssueId={selectedIssueId}
       truncated={truncated}
       onFiltersChange={setFilters}
       onKeywordChange={setKeywordInput}
       onSelectIssue={selectIssue}
+      onLoadMore={truncated ? () => requestListRef.current('append', listSequence.current) : undefined}
       detail={selectedIssueId ? (
         <IssueDetail
           key={`${source.identity}:${selectedIssueId}`}

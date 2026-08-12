@@ -1,0 +1,53 @@
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import type { RemoteHostRuntimeControlsDto } from '@shared/remote-host';
+
+import { RemoteUserIntentLedger } from './remote-intent-ledger';
+import { createRemoteSessionActions } from './remote-session-actions';
+
+describe('Remote session mutation authority', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Reflect.deleteProperty(window, 'api');
+  });
+
+  it('dispatches no mutation when the source generation changes during attachment hashing', async () => {
+    let resolveDigest!: (value: ArrayBuffer) => void;
+    const digest = new Promise<ArrayBuffer>((resolve) => { resolveDigest = resolve; });
+    const digestSpy = vi.spyOn(globalThis.crypto.subtle, 'digest').mockReturnValue(digest);
+    const sendRemoteHostMessage = vi.fn(async () => ({
+      messageId: 'message-a', sequence: 1, revision: 2,
+    }));
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { sendRemoteHostMessage },
+    });
+
+    const identityRef = { current: 'profile-a|core-a|1' };
+    const actions = createRemoteSessionActions({
+      activeProfileId: 'profile-a',
+      expectedAuthority: { authoritativeCoreId: 'core-a', workerGeneration: 1 },
+      identityRef,
+      intents: new RemoteUserIntentLedger(() => 'intent-a'),
+      requireCapability: vi.fn(),
+      runBusiness: (operation) => operation(),
+      runTerminalBusiness: (operation) => operation(),
+      runtimeRef: { current: null as RemoteHostRuntimeControlsDto | null },
+      selectSession: vi.fn(),
+      setRuntime: vi.fn(),
+      sourceIdentity: identityRef.current,
+      target: () => ({ profileId: 'profile-a', sessionId: 'session-a' }),
+    });
+
+    const pending = actions.send('with image', [{
+      kind: 'image', base64: 'YQ==', mime: 'image/png', bytes: 1,
+    }]);
+    await vi.waitFor(() => expect(digestSpy).toHaveBeenCalledOnce());
+    identityRef.current = 'profile-a|core-a|2';
+    resolveDigest(new Uint8Array(32).buffer);
+
+    await expect(pending).rejects.toThrow('数据源已切换');
+    expect(sendRemoteHostMessage).not.toHaveBeenCalled();
+  });
+});

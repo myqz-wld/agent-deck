@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type JSX } from 'react';
+import { useId, useRef, useState, type FormEvent, type JSX } from 'react';
 
 import type {
   RemoteHostConnectionSelectionDto,
@@ -7,6 +7,7 @@ import type {
   RemoteHostProfileDto,
 } from '@shared/remote-host';
 import { CloseIcon } from '../icons';
+import { useModalFocus } from '../use-modal-focus';
 
 const INPUT_CLASS = 'w-full rounded border border-deck-border bg-white/[0.04] px-2.5 py-2 text-[11px] outline-none transition focus:border-white/20';
 
@@ -27,14 +28,23 @@ export function RemoteProfileForm({
   onSave,
   onClose,
 }: RemoteProfileFormProps): JSX.Element {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLFormElement>(null);
   const [draft, setDraft] = useState(() => initialDraft(profile));
   const [selection, setSelection] = useState<RemoteHostConnectionSelectionDto | null>(null);
   const [connectionChosen, setConnectionChosen] = useState(
     profile?.credentials.connectionCredentialConfigured ?? false,
   );
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const choosingRef = useRef(false);
+  const savingRef = useRef(false);
+  const effectiveBusy = busy || saving;
+  useModalFocus({ blocked: effectiveBusy, dialogRef, onClose });
 
   const chooseConnection = async (): Promise<void> => {
+    if (effectiveBusy || choosingRef.current) return;
+    choosingRef.current = true;
     setError(null);
     try {
       const next = await window.api.chooseRemoteHostConnection();
@@ -47,21 +57,29 @@ export function RemoteProfileForm({
       }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      choosingRef.current = false;
     }
   };
 
   const submit = async (event: FormEvent): Promise<void> => {
     event.preventDefault();
+    if (effectiveBusy || savingRef.current) return;
     if (!connectionChosen) {
       setError('请先导入服务端签发的连接凭证。');
       return;
     }
+    savingRef.current = true;
+    setSaving(true);
     setError(null);
     try {
       await onSave({ ...draft, label: draft.label.trim() });
       onClose();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -69,19 +87,25 @@ export function RemoteProfileForm({
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
       <form
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         onSubmit={(event) => void submit(event)}
         className="max-h-[90%] w-full max-w-lg overflow-y-auto rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl scrollbar-deck"
       >
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-[13px] font-medium">{profile ? '编辑远程连接' : '添加远程连接'}</h2>
+            <h2 id={titleId} className="text-[13px] font-medium">{profile ? '编辑远程连接' : '添加远程连接'}</h2>
             <p className="mt-0.5 text-[10px] text-deck-muted">导入服务端签发的单个连接凭证即可。</p>
           </div>
           <button
             type="button"
             onClick={onClose}
+            disabled={effectiveBusy}
             aria-label="关闭远程连接表单"
-            className="flex h-5 w-5 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
+            className="flex h-5 w-5 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text disabled:cursor-not-allowed disabled:opacity-40"
           >
             <CloseIcon className="h-3.5 w-3.5" />
           </button>
@@ -90,7 +114,8 @@ export function RemoteProfileForm({
         <label className="flex flex-col gap-1">
           <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">名称</span>
           <input
-            required
+          required
+          disabled={effectiveBusy}
             value={draft.label}
             onChange={(event) => setDraft({ ...draft, label: event.target.value })}
             className={INPUT_CLASS}
@@ -100,8 +125,9 @@ export function RemoteProfileForm({
 
         <button
           type="button"
+          disabled={effectiveBusy}
           onClick={() => void chooseConnection()}
-          className="mt-3 w-full rounded-lg border border-deck-border bg-white/[0.03] p-3 text-left transition hover:border-white/15 hover:bg-white/[0.07]"
+          className="mt-3 w-full rounded-lg border border-deck-border bg-white/[0.03] p-3 text-left transition hover:border-white/15 hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-50"
         >
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -131,9 +157,9 @@ export function RemoteProfileForm({
           </div>
         )}
         <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded px-3 py-1.5 text-[11px] text-deck-muted hover:bg-white/5">取消</button>
-          <button type="submit" disabled={busy} className="rounded bg-status-working/30 px-3 py-1.5 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50">
-            {busy ? '保存中…' : '保存'}
+          <button type="button" onClick={onClose} disabled={effectiveBusy} className="rounded px-3 py-1.5 text-[11px] text-deck-muted hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40">取消</button>
+          <button type="submit" disabled={effectiveBusy} className="rounded bg-status-working/30 px-3 py-1.5 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50">
+            {effectiveBusy ? '保存中…' : '保存'}
           </button>
         </div>
       </form>

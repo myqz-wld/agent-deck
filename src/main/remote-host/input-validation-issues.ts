@@ -14,6 +14,7 @@ import type {
 } from '@shared/remote-host';
 import {
   RemoteHostInputError,
+  parseRemoteHostMutationAuthority,
   parseRemoteHostCreateSession,
   parseRemoteHostProfileId,
 } from './input-validation';
@@ -83,12 +84,15 @@ export function parseRemoteHostIssueMutationTarget(
   value: unknown,
 ): RemoteHostIssueMutationTargetDto {
   const raw = object(value, 'issue');
-  exactKeys(raw, ['expectedRevision', 'intentId', 'issueId', 'profileId'], 'issue');
+  exactKeys(raw, [
+    'expectedAuthority', 'expectedRevision', 'intentId', 'issueId', 'profileId',
+  ], 'issue');
   try {
     const parsed = parseIssueGetParams({ issueId: raw.issueId });
     return {
       profileId: parseRemoteHostProfileId(raw.profileId),
       issueId: parsed.issueId,
+      expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
       intentId: intent(raw.intentId),
       expectedRevision: revision(raw.expectedRevision),
     };
@@ -99,13 +103,16 @@ export function parseRemoteHostIssueMutationTarget(
 
 export function parseRemoteHostIssueUpdate(value: unknown): RemoteHostIssueUpdateDto {
   const raw = object(value, 'issue');
-  exactKeys(raw, ['expectedRevision', 'intentId', 'issueId', 'patch', 'profileId'], 'issue');
+  exactKeys(raw, [
+    'expectedAuthority', 'expectedRevision', 'intentId', 'issueId', 'patch', 'profileId',
+  ], 'issue');
   try {
     const parsed = parseIssueUpdateParams({ issueId: raw.issueId, patch: raw.patch });
     return {
       profileId: parseRemoteHostProfileId(raw.profileId),
       issueId: parsed.issueId,
       patch: parsed.patch,
+      expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
       intentId: intent(raw.intentId),
       expectedRevision: revision(raw.expectedRevision),
     };
@@ -120,7 +127,8 @@ export function parseRemoteHostIssueResolveSession(
   const raw = object(value, 'issueResolution');
   exactKeys(raw, [
     'adapterId', 'attachments', 'capabilityRevision', 'expectedRevision', 'initialMessage',
-    'intentId', 'issueId', 'issueUpdatedAt', 'options', 'profileId', 'workingDirectory',
+    'expectedAuthority', 'intentId', 'issueId', 'issueUpdatedAt', 'options', 'profileId',
+    'workingDirectory',
   ], 'issueResolution');
   try {
     const create = parseRemoteHostCreateSession({
@@ -128,6 +136,7 @@ export function parseRemoteHostIssueResolveSession(
       adapterId: raw.adapterId,
       attachments: raw.attachments,
       capabilityRevision: raw.capabilityRevision,
+      expectedAuthority: raw.expectedAuthority,
       initialMessage: raw.initialMessage,
       intentId: raw.intentId,
       options: raw.options,

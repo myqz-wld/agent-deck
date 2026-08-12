@@ -330,6 +330,7 @@ describe('getSessionFileFinalDiff', () => {
     expect(fileChangeRepoMock.readPathBoundaries).toHaveBeenCalledWith(
       's1',
       expect.arrayContaining(['/repo/src/a.ts', 'src/a.ts']),
+      undefined,
     );
     expect(fileChangeRepoMock.readPathBoundaries.mock.calls[0][1]).toHaveLength(2);
   });

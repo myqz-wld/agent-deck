@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { StatusBadge } from './StatusBadge';
 import { lifecycleLabel, agentIdLabel } from './TeamDetail/helpers';
@@ -293,12 +293,14 @@ function RemoteHistoryPanel({
   onSelect: (id: string) => void;
 }): JSX.Element {
   const [keyword, setKeyword] = useState('');
-  const normalizedKeyword = keyword.trim().toLocaleLowerCase();
-  const rows = useMemo(() => source.historySessions.filter((session) => {
-    if (!normalizedKeyword) return true;
-    return [session.title ?? '', session.adapterId, session.status]
-      .some((value) => value.toLocaleLowerCase().includes(normalizedKeyword));
-  }), [normalizedKeyword, source.historySessions]);
+  useEffect(() => {
+    setKeyword('');
+  }, [source.identity]);
+  useEffect(() => {
+    const timer = setTimeout(() => source.setHistoryQuery(keyword.trim()), KEYWORD_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [keyword, source.setHistoryQuery]);
+  const rows = source.historySessions;
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-col gap-1 border-b border-deck-border px-3 py-2">
@@ -306,11 +308,11 @@ function RemoteHistoryPanel({
           type="text"
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
-          placeholder="搜索已载入的标题、运行时或状态…"
+          placeholder="搜索标题、工作区、事件或总结…"
           className="no-drag w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
         />
         <p className="mt-0.5 text-[9px] text-deck-muted/70">
-          搜索当前已载入的有界摘要；归档和删除尚未由远程契约开放。
+          由 Remote Core 在完整历史索引中查询；归档和删除尚未开放。
         </p>
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
@@ -322,7 +324,7 @@ function RemoteHistoryPanel({
           <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">加载中…</div>
         ) : rows.length === 0 ? (
           <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">
-            {source.historySessions.length === 0 ? '没有历史会话' : '没有匹配结果'}
+            {source.historyQuery ? '没有匹配结果' : '没有历史会话'}
           </div>
         ) : (
           <ol className="flex flex-col gap-1.5">
@@ -338,7 +340,7 @@ function RemoteHistoryPanel({
               <li>
                 <button
                   type="button"
-                  disabled={source.busy}
+                  disabled={source.historyPaginationBusy ?? source.busy}
                   onClick={() => void source.loadMoreHistorySessions()}
                   className="w-full rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
                 >

@@ -11,19 +11,21 @@ import { AppHeader } from '@renderer/components/AppHeader';
 afterEach(cleanup);
 
 function renderHeader(
-  sourceMode: 'local' | 'remote',
+  authority: 'unknown' | 'local' | 'remote',
   total: number | null = 1,
   remoteCapabilities: ReadonlySet<string> = new Set(),
+  pending: number | null = 0,
+  remoteUsable = true,
 ) {
   const onSourceChange = vi.fn();
   render(
     <AppHeader
       view="live"
       stats={{ total, waiting: 0, working: 1 }}
-      pending={0}
+      pending={pending}
       pinned={false}
       compact={false}
-      sourceMode={sourceMode}
+      authority={authority}
       selectedRemoteProfileId="remote-a"
       remoteProfiles={[
         {
@@ -47,6 +49,7 @@ function renderHeader(
         },
       ]}
       remoteCapabilities={remoteCapabilities}
+      remoteUsable={remoteUsable}
       remoteUsage={null}
       onViewChange={vi.fn()}
       onSourceChange={onSourceChange}
@@ -86,9 +89,9 @@ describe('AppHeader source selection', () => {
     expect(screen.queryByRole('button', { name: '团队' })).toBeNull();
     expect(screen.queryByRole('button', { name: '问题' })).toBeNull();
     expect(screen.queryByRole('button', { name: '数据' })).toBeNull();
-    expect(screen.getByRole('button', { name: '实时' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '待处理' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '历史' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '实时' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '待处理' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '历史' })).toBeNull();
   });
 
   it('shows the shared Issues entry when the Remote Core advertises it', () => {
@@ -99,7 +102,10 @@ describe('AppHeader source selection', () => {
   });
 
   it('uses the same primary page catalog when Remote advertises Teams, Issues, and Usage', () => {
-    renderHeader('remote', 1, new Set(['teams', 'issues', 'usage']));
+    renderHeader('remote', 1, new Set([
+      'session-console.read', 'pending.index.read', 'sessions.history',
+      'teams', 'issues', 'usage',
+    ]));
     expect(screen.getByRole('button', { name: '实时' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '待处理' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '历史' })).toBeTruthy();
@@ -109,8 +115,42 @@ describe('AppHeader source selection', () => {
   });
 
   it('keeps the Local history label and does not invent a Remote total', () => {
-    renderHeader('remote', null);
+    renderHeader('remote', null, new Set(['sessions.history']));
     expect(screen.getByText('会话总数未提供')).toBeTruthy();
     expect(screen.getByRole('button', { name: '历史' })).toBeTruthy();
+  });
+
+  it('disables authority-dependent controls while the source is unknown', () => {
+    const onSourceChange = renderHeader('unknown', null, new Set(), null);
+    expect((screen.getByRole('button', { name: '数据源' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '新建会话' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '资产库' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '设置' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: '实时' })).toBeNull();
+    expect(onSourceChange).not.toHaveBeenCalled();
+  });
+
+  it('distinguishes unknown, zero, and positive Pending totals', () => {
+    const pendingCapability = new Set(['pending.index.read']);
+    const unknown = renderHeader('remote', 1, pendingCapability, null);
+    expect(screen.getByText(/待处理数量未提供/u)).toBeTruthy();
+    cleanup();
+    renderHeader('remote', 1, pendingCapability, 0);
+    expect(screen.queryByText(/0 待处理/u)).toBeNull();
+    cleanup();
+    renderHeader('remote', 1, pendingCapability, 3);
+    expect(screen.getByText('3 待处理')).toBeTruthy();
+    expect(unknown).not.toHaveBeenCalled();
+  });
+
+  it('keeps stale Remote capabilities from enabling page and create actions offline', () => {
+    renderHeader('remote', 1, new Set([
+      'session-console.read', 'pending.index.read', 'sessions.history',
+      'teams', 'issues', 'usage',
+    ]), null, false);
+    expect((screen.getByRole('button', { name: '实时' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '团队' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '新建会话' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '数据源' }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

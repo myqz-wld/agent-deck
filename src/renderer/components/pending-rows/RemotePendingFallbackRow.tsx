@@ -50,8 +50,8 @@ export function RemotePendingFallbackRow({
     setError(null);
     try {
       await onRespond(presentation, action, action === 'submit' ? value() : undefined);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+    } catch {
+      setError('处理失败，请刷新后重试。');
     }
   };
   const settled = !pending;
@@ -114,9 +114,9 @@ export function RemotePendingFallbackRow({
         </div>
       )}
       {request.kind === 'diff-review' && (
-        <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap text-deck-muted">
-          {JSON.stringify(request.display, null, 2)}
-        </pre>
+        <div className="mt-1 rounded bg-black/15 p-1.5 text-[10px] text-deck-muted">
+          此差异展示格式不受支持。为避免显示未经投影的内容，原始数据已隐藏。
+        </div>
       )}
       <div className="mt-2 flex justify-end gap-1">
         {actions.map((action) => (

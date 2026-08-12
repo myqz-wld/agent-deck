@@ -168,7 +168,8 @@ function harness() {
     metadata,
   });
   return {
-    addMember, archive, base, closeSession, members, metadata, notifyMembershipChanged, runtime,
+    addMember, archive, base, closeSession, members, messages, metadata,
+    notifyMembershipChanged, runtime, sessions, team,
   };
 }
 
@@ -194,6 +195,24 @@ describe('ServerCoreTeamRuntime', () => {
     expect(result.team.recentMessages).toEqual([
       expect.objectContaining({ body: 'Review this' }),
     ]);
+  });
+
+  it('redacts secret-shaped Team names, member labels, session titles, and messages', async () => {
+    const state = harness();
+    state.team.name = 'token=sk-team-secret-value';
+    state.members[1]!.displayName = 'Bearer secret-bearer-value';
+    state.sessions.set('mate-a', {
+      ...state.sessions.get('mate-a')!,
+      title: '/home/worker/.codex/auth.json',
+    });
+    state.messages[0]!.body = 'api_key=xai-message-secret';
+    const response = await state.runtime.execute(request('teams.get', { teamId: 'team-a' }));
+    const serialized = JSON.stringify(response.result);
+    expect(serialized).not.toContain('sk-team-secret-value');
+    expect(serialized).not.toContain('secret-bearer-value');
+    expect(serialized).not.toContain('.codex/auth.json');
+    expect(serialized).not.toContain('xai-message-secret');
+    expect(serialized).toContain('敏感内容已省略');
   });
 
   it('replays one revision-bound archive and denies the Feishu surface', async () => {

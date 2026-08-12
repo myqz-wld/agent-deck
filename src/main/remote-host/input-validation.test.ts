@@ -4,6 +4,7 @@ import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-c
 import {
   parseRemoteHostCreateSession,
   parseRemoteHostHistoryRequest,
+  parseRemoteHostMutationAuthority,
   parseRemoteHostPendingResponse as parseRemoteHostPendingResponseInput,
   parseRemoteHostProfileDraft,
   parseRemoteHostRuntimeUpdate,
@@ -22,10 +23,15 @@ import {
 } from './input-validation-session-detail';
 
 const EXPECTED_PRESENTATION_DIGEST = `sha256:${'a'.repeat(64)}`;
+const EXPECTED_AUTHORITY = {
+  authoritativeCoreId: 'core-a',
+  workerGeneration: 3,
+};
 
 function parseRemoteHostPendingResponse(value: unknown) {
   return parseRemoteHostPendingResponseInput({
     ...(value as Record<string, unknown>),
+    expectedAuthority: EXPECTED_AUTHORITY,
     expectedPresentationDigest: EXPECTED_PRESENTATION_DIGEST,
   });
 }
@@ -38,6 +44,24 @@ function draft() {
 }
 
 describe('remote-host IPC input validation', () => {
+  it('accepts only one exact bounded Remote mutation authority token', () => {
+    expect(parseRemoteHostMutationAuthority(EXPECTED_AUTHORITY)).toEqual(EXPECTED_AUTHORITY);
+    expect(parseRemoteHostMutationAuthority({
+      authoritativeCoreId: null,
+      workerGeneration: null,
+    })).toEqual({ authoritativeCoreId: null, workerGeneration: null });
+    expect(() => parseRemoteHostMutationAuthority({ authoritativeCoreId: 'core-a' }))
+      .toThrow('unexpected fields');
+    expect(() => parseRemoteHostMutationAuthority({
+      ...EXPECTED_AUTHORITY,
+      workerGeneration: -1,
+    })).toThrow('non-negative safe integer');
+    expect(() => parseRemoteHostMutationAuthority({
+      ...EXPECTED_AUTHORITY,
+      authoritativeCoreId: 'core-a\nforged',
+    })).toThrow('invalid token');
+  });
+
   it('accepts only an opaque connection selection and rejects renderer paths or argv', () => {
     expect(parseRemoteHostProfileDraft(draft())).toEqual(draft());
     expect(() => parseRemoteHostProfileDraft({
@@ -107,6 +131,7 @@ describe('remote-host IPC input validation', () => {
       initialMessage: 'Inspect the repository',
       workingDirectory: 'repo/subdir',
       options: sessionConsoleCreateOptionsFixture(),
+      expectedAuthority: EXPECTED_AUTHORITY,
       intentId: 'intent-create-a',
     };
     expect(parseRemoteHostCreateSession(valid).workingDirectory).toBe('repo/subdir');
@@ -148,6 +173,7 @@ describe('remote-host IPC input validation', () => {
       sessionId: 'session-a',
       text: '',
       attachments: [{ kind: 'image', mime: 'image/png', bytes: 1, base64: 'YQ==' }],
+      expectedAuthority: EXPECTED_AUTHORITY,
       intentId: 'intent-send-a',
     };
     expect(parseRemoteHostSend(valid)).toEqual(valid);
@@ -163,6 +189,7 @@ describe('remote-host IPC input validation', () => {
     expect(parseRemoteHostRuntimeUpdate({
       profileId: 'remote-a',
       sessionId: 'session-a',
+      expectedAuthority: EXPECTED_AUTHORITY,
       intentId: 'intent-runtime-a',
       patch: { model: 'gpt-5', nested: { enabled: true } },
       expectedRevision: 4,
@@ -171,16 +198,19 @@ describe('remote-host IPC input validation', () => {
     expect(() => parseRemoteHostRuntimeUpdate({
       profileId: 'remote-a',
       sessionId: 'session-a',
+      expectedAuthority: EXPECTED_AUTHORITY,
       intentId: 'intent-runtime-a',
       patch: polluted,
       expectedRevision: 4,
     })).toThrow('invalid key');
     expect(() => parseRemoteHostPendingResponseInput({
       profileId: 'remote-a', sessionId: 'session-a', requestId: 'request-a',
+      expectedAuthority: EXPECTED_AUTHORITY,
       intentId: 'intent-pending-a', action: 'approve', expectedRevision: 3,
     })).toThrow('unexpected fields');
     expect(() => parseRemoteHostPendingResponseInput({
       profileId: 'remote-a', sessionId: 'session-a', requestId: 'request-a',
+      expectedAuthority: EXPECTED_AUTHORITY,
       intentId: 'intent-pending-a', action: 'approve', expectedRevision: 3,
       expectedPresentationDigest: 'sha256:not-a-digest',
     })).toThrow('invalid digest');

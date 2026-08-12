@@ -76,6 +76,8 @@ describe('Remote handoff dialog authority', () => {
     />);
 
     expect(screen.getByRole('heading', { name: '接力到新会话' })).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: '接力到新会话' })).toBeTruthy();
+    expect(screen.getByRole('dialog').getAttribute('aria-modal')).toBe('true');
     const prepare = await screen.findByRole('button', { name: '生成续接上下文' });
     await waitFor(() => expect((prepare as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(prepare);
@@ -125,5 +127,57 @@ describe('Remote handoff dialog authority', () => {
     await Promise.resolve();
 
     expect(screen.queryByText('remote continuation preview')).toBeNull();
+  });
+
+  it('lets a nested runtime selector consume Escape before the modal closes', async () => {
+    const onClose = vi.fn();
+    render(<RemoteHandOffDialog
+      source={source()}
+      sessionId="session-a"
+      onClose={onClose}
+      onCommitted={vi.fn()}
+    />);
+    const runtime = (await screen.findByText('Codex CLI')).closest('button');
+    if (!runtime) throw new Error('未找到 Remote 运行时选择器。');
+    fireEvent.click(runtime);
+    expect(runtime.getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.keyDown(runtime, { key: 'Escape' });
+    expect(runtime.getAttribute('aria-expanded')).toBe('false');
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(runtime, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps Escape blocked while a commit is in progress', async () => {
+    let resolveCommit!: (value: Awaited<ReturnType<RemoteSessionSourceView['commitHandOff']>>) => void;
+    const commitHandOff = vi.fn(() => new Promise<
+      Awaited<ReturnType<RemoteSessionSourceView['commitHandOff']>>
+    >((resolve) => { resolveCommit = resolve; }));
+    const current = source({ commitHandOff });
+    const onClose = vi.fn();
+    render(<RemoteHandOffDialog
+      source={current}
+      sessionId="session-a"
+      onClose={onClose}
+      onCommitted={vi.fn()}
+    />);
+    const prepareButton = await screen.findByRole('button', { name: '生成续接上下文' });
+    await waitFor(() => expect((prepareButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(prepareButton);
+    await screen.findByText('remote continuation preview');
+    fireEvent.click(screen.getByRole('button', { name: '确认接力' }));
+    await waitFor(() => expect(commitHandOff).toHaveBeenCalledOnce());
+
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+    resolveCommit({
+      successorSessionId: 'session-successor',
+      cutoverEventRevision: 9,
+      lateMessagesDelivered: 0,
+      usedLowerBudgetRetry: false,
+      sourceFinalizationWarning: null,
+      revision: 10,
+    });
   });
 });

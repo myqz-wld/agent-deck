@@ -1,18 +1,23 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 
 import { AdapterSubTab, type AssetAdapter } from './AdapterSubTab';
+import { BoundedTextPreview } from './BoundedTextPreview';
 
 interface Props {
+  catalogRevision: number | null;
   identity: string;
   label: string;
   profileId: string;
+  onCatalogChanged(): void;
 }
 
 /** Read-only application conventions sourced exclusively from the selected Remote Worker. */
 export function RemoteApplicationConventionTab({
+  catalogRevision,
   identity,
   label,
   profileId,
+  onCatalogChanged,
 }: Props): JSX.Element {
   const [adapter, setAdapter] = useState<AssetAdapter>('claude-code');
   const [content, setContent] = useState<string | null>(null);
@@ -26,6 +31,11 @@ export function RemoteApplicationConventionTab({
     void window.api.getRemoteHostNodeAssetConvention({ profileId, adapterId: adapter })
       .then((result) => {
         if (seq !== requestSeqRef.current) return;
+        if (result.adapterId !== adapter || result.revision !== catalogRevision) {
+          setError('Worker 资产目录已更新，正在重新读取；请稍后重试。');
+          onCatalogChanged();
+          return;
+        }
         setContent(result.content);
       })
       .catch(() => {
@@ -35,7 +45,7 @@ export function RemoteApplicationConventionTab({
     return () => {
       ++requestSeqRef.current;
     };
-  }, [adapter, identity, profileId]);
+  }, [adapter, catalogRevision, identity, onCatalogChanged, profileId]);
 
   return (
     <div className="flex min-h-[310px] flex-col gap-2">
@@ -50,13 +60,7 @@ export function RemoteApplicationConventionTab({
       ) : content === null ? (
         <div className="text-[11px] text-deck-muted">读取 Worker 应用约定中…</div>
       ) : (
-        <pre
-          aria-label={`${adapter} Remote 应用约定`}
-          className="min-h-0 flex-1 overflow-y-auto scrollbar-deck whitespace-pre-wrap rounded border border-deck-border bg-white/[0.04] p-2 font-mono text-[10px] leading-relaxed text-deck-text"
-          style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}
-        >
-          {content}
-        </pre>
+        <BoundedTextPreview content={content} ariaLabel={`${adapter} Remote 应用约定`} />
       )}
     </div>
   );

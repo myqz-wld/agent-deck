@@ -59,7 +59,7 @@ export class RemoteHostTeamController {
         'teams.archive',
         { teamId: request.teamId },
         this.options('archive', request),
-      ), request.teamId));
+      ), request.teamId), [], request.expectedAuthority);
   }
 
   addMember(request: RemoteHostTeamAddMemberDto): Promise<RemoteHostTeamAddMemberResultDto> {
@@ -68,7 +68,7 @@ export class RemoteHostTeamController {
         teamId: request.teamId,
         sessionId: request.sessionId,
         role: request.role,
-      }, this.options('add-member', request)), request));
+      }, this.options('add-member', request)), request), [], request.expectedAuthority);
   }
 
   shutdownTeammates(
@@ -79,7 +79,7 @@ export class RemoteHostTeamController {
         'teams.shutdown-teammates',
         { teamId: request.teamId },
         this.options('shutdown-teammates', request),
-      )));
+      )), [], request.expectedAuthority);
   }
 
   private options(

@@ -138,7 +138,8 @@ describe('RemotePendingRequests', () => {
       target: { value: 'stale answer' },
     });
     fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('stale presentation');
+    expect((await screen.findByRole('alert')).textContent).toContain('处理失败，请刷新后重试。');
+    expect(screen.queryByText(/stale presentation/u)).toBeNull();
 
     const changed = pending('ask-a', 'ask-user-question', {
       prompt: 'changed prompt', questionIds: ['answer'],

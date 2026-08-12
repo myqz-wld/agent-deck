@@ -1,5 +1,6 @@
 import { SESSION_EVENT_MAX_ITEMS } from '@contracts/index';
 import type {
+  RemoteHostMutationAuthorityDto,
   RemoteHostPlanReviewTargetDto,
 } from '@shared/remote-host';
 import type { AgentEvent } from '@shared/types';
@@ -12,6 +13,7 @@ interface Context {
   activeProfileId: string | null;
   capabilities: ReadonlySet<string>;
   dataRevision: number;
+  expectedAuthority: RemoteHostMutationAuthorityDto;
   identity: string;
   usable: boolean;
   currentIdentity(): string;
@@ -44,6 +46,7 @@ function target(entry: Entry): Omit<RemoteHostPlanReviewTargetDto, 'intentId'> {
     sessionId: presentation.request.sessionId,
     requestId: presentation.request.id,
     expectedRevision: entry.revision,
+    expectedAuthority: context.expectedAuthority,
   };
 }
 

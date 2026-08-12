@@ -22,15 +22,20 @@ import {
   type RemoteHostPageRequestDto,
   type RemoteHostPendingAction,
   type RemoteHostPendingResponseDto,
-  type RemoteHostProfileDraftDto,
   type RemoteHostRuntimeUpdateDto,
   type RemoteHostSendDto,
   type RemoteHostSessionPageRequestDto,
   type RemoteHostSessionCapabilitiesRequestDto,
   type RemoteHostSessionTargetDto,
-  type RemoteHostSourceMode,
   type RemoteHostWorkspaceDirectoryRequestDto,
 } from '@shared/remote-host';
+
+import { RemoteHostInputError } from './input-validation-error';
+import { parseRemoteHostMutationAuthority } from './input-validation-mutation-authority';
+
+export { RemoteHostInputError } from './input-validation-error';
+export { parseRemoteHostMutationAuthority } from './input-validation-mutation-authority';
+export { parseRemoteHostProfileDraft, parseRemoteHostSourceMode } from './input-validation-profile';
 
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 const PENDING_ANSWER_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/u;
@@ -38,13 +43,6 @@ const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
 const MAX_JSON_DEPTH = 16;
 const MAX_JSON_NODES = 4_096;
 const EXIT_PLAN_TARGET_MODES = new Set(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']);
-
-export class RemoteHostInputError extends Error {
-  constructor(field: string, reason: string) {
-    super(`invalid remote host input: ${field} (${reason})`);
-    this.name = 'RemoteHostInputError';
-  }
-}
 
 function utf8Bytes(value: string): number {
   return new TextEncoder().encode(value).byteLength;
@@ -211,10 +209,6 @@ function pendingValue(
   return parsed;
 }
 
-function nullableToken(value: unknown, field: string, maxBytes: number): string | null {
-  return value === null ? null : token(value, field, maxBytes);
-}
-
 function positiveInteger(value: unknown, field: string, maximum: number): number {
   if (!Number.isSafeInteger(value) || (value as number) <= 0 || (value as number) > maximum) {
     throw new RemoteHostInputError(field, `must be in range 1..${maximum}`);
@@ -231,26 +225,6 @@ function revision(value: unknown, field: string): number {
 
 export function parseRemoteHostProfileId(value: unknown): string {
   return token(value, 'profileId', 128);
-}
-
-export function parseRemoteHostSourceMode(value: unknown): RemoteHostSourceMode {
-  if (value !== 'local' && value !== 'remote') {
-    throw new RemoteHostInputError('sourceMode', 'must be local or remote');
-  }
-  return value;
-}
-
-export function parseRemoteHostProfileDraft(value: unknown): RemoteHostProfileDraftDto {
-  const raw = object(value, 'profile');
-  exactKeys(raw, ['connectionSelectionId', 'label'], 'profile');
-  return {
-    label: text(raw.label, 'profile.label', 256),
-    connectionSelectionId: nullableToken(
-      raw.connectionSelectionId,
-      'profile.connectionSelectionId',
-      256,
-    ),
-  };
 }
 
 function parsePageBase(value: unknown): {
@@ -349,9 +323,14 @@ function intentId(value: unknown): string {
 
 export function parseRemoteHostMutationTarget(value: unknown): RemoteHostMutationTargetDto {
   const raw = object(value, 'mutationTarget');
-  exactKeys(raw, ['intentId', 'profileId', 'sessionId'], 'mutationTarget');
+  exactKeys(
+    raw,
+    ['expectedAuthority', 'intentId', 'profileId', 'sessionId'],
+    'mutationTarget',
+  );
   return {
     ...parseRemoteHostSessionTarget({ profileId: raw.profileId, sessionId: raw.sessionId }),
+    expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
     intentId: intentId(raw.intentId),
   };
 }
@@ -419,7 +398,7 @@ export function parseRemoteHostCreateSession(value: unknown): RemoteHostCreateSe
   const raw = object(value, 'create');
   exactKeys(raw, [
     'adapterId', 'attachments', 'capabilityRevision', 'initialMessage', 'intentId',
-    'options', 'profileId', 'workingDirectory',
+    'expectedAuthority', 'options', 'profileId', 'workingDirectory',
   ], 'create');
   let workingDirectory: string;
   try {
@@ -441,13 +420,14 @@ export function parseRemoteHostCreateSession(value: unknown): RemoteHostCreateSe
     options: contractValue(
       () => parseSessionConsoleCreateOptions(raw.options),
       'options', 'invalid create options'),
+    expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
     intentId: intentId(raw.intentId),
   };
 }
 
 export function parseRemoteHostSend(value: unknown): RemoteHostSendDto {
   const raw = object(value, 'send');
-  const expected = ['intentId', 'profileId', 'sessionId', 'text'];
+  const expected = ['expectedAuthority', 'intentId', 'profileId', 'sessionId', 'text'];
   if (raw.attachments !== undefined) expected.push('attachments');
   exactKeys(raw, expected, 'send');
   let attachments;
@@ -461,17 +441,21 @@ export function parseRemoteHostSend(value: unknown): RemoteHostSendDto {
     ...parseRemoteHostSessionTarget({ profileId: raw.profileId, sessionId: raw.sessionId }),
     text: raw.text.length === 0 ? '' : multilineText(raw.text, 'text'),
     ...(raw.attachments === undefined ? {} : { attachments }),
+    expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
     intentId: intentId(raw.intentId),
   };
 }
 
 export function parseRemoteHostRuntimeUpdate(value: unknown): RemoteHostRuntimeUpdateDto {
   const raw = object(value, 'runtime');
-  exactKeys(raw, ['expectedRevision', 'intentId', 'patch', 'profileId', 'sessionId'], 'runtime');
+  exactKeys(raw, [
+    'expectedAuthority', 'expectedRevision', 'intentId', 'patch', 'profileId', 'sessionId',
+  ], 'runtime');
   return {
     ...parseRemoteHostSessionTarget({ profileId: raw.profileId, sessionId: raw.sessionId }),
     patch: parseRemoteHostJsonObject(raw.patch, 'patch'),
     expectedRevision: revision(raw.expectedRevision, 'expectedRevision'),
+    expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
     intentId: intentId(raw.intentId),
   };
 }
@@ -480,7 +464,7 @@ export function parseRemoteHostPendingResponse(value: unknown): RemoteHostPendin
   const raw = object(value, 'pendingResponse');
   const expected = [
     'action', 'expectedPresentationDigest', 'expectedRevision', 'intentId',
-    'profileId', 'requestId', 'sessionId',
+    'expectedAuthority', 'profileId', 'requestId', 'sessionId',
   ];
   if (raw.value !== undefined) expected.push('value');
   exactKeys(raw, expected, 'pendingResponse');
@@ -493,6 +477,7 @@ export function parseRemoteHostPendingResponse(value: unknown): RemoteHostPendin
     ...(parsedValue === undefined ? {} : { value: parsedValue }),
     expectedRevision: revision(raw.expectedRevision, 'expectedRevision'),
     expectedPresentationDigest: pendingPresentationDigest(raw.expectedPresentationDigest),
+    expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
     intentId: intentId(raw.intentId),
   };
 }

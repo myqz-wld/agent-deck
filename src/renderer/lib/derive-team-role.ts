@@ -1,4 +1,6 @@
-import type { SessionRecord } from '@shared/types';
+interface TeamRoleSource {
+  teams?: readonly { role: 'lead' | 'teammate' }[] | null;
+}
 
 /**
  * 从 session 推断 team 角色 badge。SSOT for 所有 renderer 渲染 lead/teammate badge 的位置
@@ -23,7 +25,7 @@ import type { SessionRecord } from '@shared/types';
  *                        (避免 spawn-link 误判为 universal team 角色;详 plan §D6 + isPureSpawnChain)
  */
 export function deriveTeamRole(
-  session: SessionRecord,
+  session: TeamRoleSource,
   hasOwner: boolean,
   childrenCount: number,
   pureSpawnChain: boolean,

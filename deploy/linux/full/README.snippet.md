@@ -7,6 +7,13 @@ runtime config, credential authority, and optional provider-auth files outside t
 Full has no separate Worker deployment: Server Core, repositories, providers, session state, and
 Browser data all live in the appliance.
 
+The runtime config must also carry `runtimeOptions.sessionCreationCatalog`, as shown in
+`server-core.config.example.json`. This bounded allowlist is the only source for Remote
+Gateway/Provider choices. It may contain provider/model identifiers and defaults only—never
+endpoints, environment values, tokens, auth material, private keys, or raw provider configuration.
+Core validates the projection and does not inspect Claude, Codex, or Grok configuration to build
+the New Session form.
+
 ```bash
 pnpm deploy:full-server -- --config /absolute/path/full-server.json --check
 pnpm deploy:full-server -- --config /absolute/path/full-server.json --dry-run

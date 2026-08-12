@@ -11,7 +11,12 @@
 
 import { ipcRenderer } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
-import type { AdapterSessionMode, CodexApprovalPolicy, IssueRecord } from '@shared/types';
+import type {
+  AdapterSessionMode,
+  CodexApprovalPolicy,
+  IssueRecord,
+  UploadedAttachmentInput,
+} from '@shared/types';
 import type { SessionThinkingLevel } from '@shared/session-metadata';
 
 export interface IssuesListFilters {
@@ -42,6 +47,8 @@ export interface IssuesResolveInNewSessionArgs {
   cwd?: string;
   /** D8 模板预填（含 title / description / repro / logsRef / appendices null fallback 整段省略） */
   prompt: string;
+  /** 与普通新建会话共用的有界首回合图片输入。 */
+  attachments?: UploadedAttachmentInput[];
   /** optional — adapter 默认 + settings 白名单 */
   permissionMode?: string;
   sessionMode?: AdapterSessionMode;

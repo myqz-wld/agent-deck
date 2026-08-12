@@ -3,6 +3,7 @@ import {
   chmodSync,
   copyFileSync,
   cpSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
@@ -15,6 +16,20 @@ import { brotliDecompressSync } from 'node:zlib';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SOURCE = resolve(ROOT, 'resources/native/worker-sandbox');
+
+function resolvePackageNodeModules() {
+  let current = ROOT;
+  while (true) {
+    const candidate = resolve(current, 'node_modules');
+    if (existsSync(resolve(candidate, 'electron/package.json'))) return candidate;
+    const parent = dirname(current);
+    if (parent === current) throw new Error('Unable to locate installed package dependencies.');
+    current = parent;
+  }
+}
+
+const packageNodeModules = resolvePackageNodeModules();
+const electronRoot = realpathSync(resolve(packageNodeModules, 'electron'));
 const requestedArchIndex = process.argv.indexOf('--arch');
 const requestedArch = requestedArchIndex >= 0 ? process.argv[requestedArchIndex + 1] : process.arch;
 if (process.platform !== 'darwin') {
@@ -48,7 +63,7 @@ function compile(source, destination, infoPlist) {
 }
 
 function nestedPackageRoot(parentPackage, childPackage) {
-  const parentRoot = realpathSync(resolve(ROOT, 'node_modules', parentPackage));
+  const parentRoot = realpathSync(resolve(packageNodeModules, parentPackage));
   const nestedRequire = createRequire(resolve(parentRoot, 'package.json'));
   return dirname(nestedRequire.resolve(`${childPackage}/package.json`));
 }
@@ -67,7 +82,7 @@ compile('bookmark-broker.swift', 'agent-deck-worker-bookmark', 'bookmark-broker-
 compile('worker-launcher.swift', 'agent-deck-worker-sandbox', 'worker-launcher-info.plist');
 const workerCli = resolve(output, 'Agent Deck Worker CLI');
 const workerNode = resolve(output, 'Agent Deck Worker Node');
-const electronNode = resolve(ROOT, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
+const electronNode = resolve(electronRoot, 'dist/Electron.app/Contents/MacOS/Electron');
 for (const destination of [workerCli, workerNode]) {
   copyFileSync(electronNode, destination);
   chmodSync(destination, 0o755);

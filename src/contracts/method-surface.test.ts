@@ -39,7 +39,10 @@ describe('fixed Core transport surfaces', () => {
       AccessSurface.FeishuSessionConsole,
       'node.configuration.get',
     )).toBe(false);
-    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'node.hook.install')).toBe(false);
+    expect(isCoreMethodAllowed(
+      AccessSurface.FeishuSessionConsole,
+      'node.hook.projection.install',
+    )).toBe(false);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'node.assets.list')).toBe(false);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'issues.list')).toBe(false);
     expect(isCoreMethodAllowed(

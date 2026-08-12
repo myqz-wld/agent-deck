@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import type { TeamSummaryDto } from '@contracts/index';
 import log from '@renderer/utils/logger';
 import { TeamDetail } from './TeamDetail';
@@ -27,10 +27,20 @@ export function TeamHub({
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const refreshRef = useRef<() => Promise<void>>(async () => undefined);
+  const observedRevision = useRef({ identity: source.identity, revision: source.revision });
 
   useEffect(() => {
     let aborted = false;
+    let inFlight = false;
+    let pending = false;
     const fetch = async (): Promise<void> => {
+      if (aborted) return;
+      if (inFlight) {
+        pending = true;
+        return;
+      }
+      inFlight = true;
       setListError(null);
       try {
         const result = await source.list();
@@ -44,17 +54,34 @@ export function TeamHub({
           setListError('读取团队列表失败，请稍后重试。');
           setLoading(false);
         }
+      } finally {
+        inFlight = false;
+        if (!aborted && pending) {
+          pending = false;
+          void fetch();
+        }
       }
     };
+    refreshRef.current = fetch;
     void fetch();
     const off = source.subscribe(() => {
       void fetch();
     });
     return () => {
       aborted = true;
+      pending = false;
       off();
+      if (refreshRef.current === fetch) refreshRef.current = async () => undefined;
     };
-  }, [source]);
+  }, [source.identity]);
+
+  useEffect(() => {
+    const previous = observedRevision.current;
+    observedRevision.current = { identity: source.identity, revision: source.revision };
+    if (previous.identity !== source.identity || previous.revision === source.revision) return;
+    const timer = setTimeout(() => { void refreshRef.current(); }, 750);
+    return () => clearTimeout(timer);
+  }, [source.identity, source.revision]);
 
   if (selectedTeamId) {
     return (
@@ -72,8 +99,15 @@ export function TeamHub({
   }
   if (listError) {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-status-waiting/90">
-        {listError}
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[11px] text-status-waiting/90">
+        <div>{listError}</div>
+        <button
+          type="button"
+          onClick={() => void refreshRef.current()}
+          className="rounded bg-white/[0.06] px-2 py-1 text-deck-muted hover:text-deck-text"
+        >
+          重试
+        </button>
       </div>
     );
   }

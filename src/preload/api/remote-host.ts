@@ -30,6 +30,8 @@ import type {
   RemoteHostMutationTargetDto,
   RemoteHostPageRequestDto,
   RemoteHostPendingListDto,
+  RemoteHostPendingIndexDto,
+  RemoteHostPendingIndexRequestDto,
   RemoteHostPendingResponseDto,
   RemoteHostPendingResponseResultDto,
   RemoteHostPlanReviewAcceptedDto,
@@ -49,9 +51,19 @@ import type {
   RemoteHostSessionCapabilitiesDto,
   RemoteHostSessionCapabilitiesRequestDto,
   RemoteHostSessionSummaryDto,
+  RemoteHostSessionPresentationPageDto,
+  RemoteHostSessionPresentationRequestDto,
   RemoteHostSessionTargetDto,
   RemoteHostSessionContextDto,
   RemoteHostSessionInputCapabilitiesDto,
+  RemoteHostSessionMessagesDto,
+  RemoteHostSessionMessagesRequestDto,
+  RemoteHostSessionPermissionsDto,
+  RemoteHostSessionPermissionsRequestDto,
+  RemoteHostSessionOutgoingDto,
+  RemoteHostSessionOutgoingRemoveDto,
+  RemoteHostSessionOutgoingRemoveRequestDto,
+  RemoteHostSessionOutgoingRequestDto,
   RemoteHostHandOffPreviewRequestDto,
   RemoteHostHandOffPreviewDto,
   RemoteHostHandOffCommitRequestDto,
@@ -119,6 +131,10 @@ export const remoteHostApi = {
     request: RemoteHostSessionPageRequestDto,
   ): Promise<RemoteHostSessionPageDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.SessionsList, request),
+  listRemoteHostSessionPresentations: (
+    request: RemoteHostSessionPresentationRequestDto,
+  ): Promise<RemoteHostSessionPresentationPageDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionPresentationsList, request),
   getRemoteHostSession: (
     request: RemoteHostSessionTargetDto,
   ): Promise<RemoteHostSessionSummaryDto | null> =>
@@ -263,6 +279,22 @@ export const remoteHostApi = {
     request: RemoteHostSessionTargetDto,
   ): Promise<RemoteHostSessionInputCapabilitiesDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.SessionInputCapabilities, request),
+  getRemoteHostSessionPermissions: (
+    request: RemoteHostSessionPermissionsRequestDto,
+  ): Promise<RemoteHostSessionPermissionsDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionPermissionsGet, request),
+  listRemoteHostSessionMessages: (
+    request: RemoteHostSessionMessagesRequestDto,
+  ): Promise<RemoteHostSessionMessagesDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionMessagesList, request),
+  listRemoteHostSessionOutgoing: (
+    request: RemoteHostSessionOutgoingRequestDto,
+  ): Promise<RemoteHostSessionOutgoingDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionOutgoingList, request),
+  removeRemoteHostSessionOutgoing: (
+    request: RemoteHostSessionOutgoingRemoveRequestDto,
+  ): Promise<RemoteHostSessionOutgoingRemoveDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionOutgoingRemove, request),
   previewRemoteHostSessionHandOff: (
     request: RemoteHostHandOffPreviewRequestDto,
   ): Promise<RemoteHostHandOffPreviewDto> =>
@@ -275,6 +307,10 @@ export const remoteHostApi = {
     request: RemoteHostSessionTargetDto,
   ): Promise<RemoteHostPendingListDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.PendingList, request),
+  listRemoteHostPendingIndex: (
+    request: RemoteHostPendingIndexRequestDto,
+  ): Promise<RemoteHostPendingIndexDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.PendingIndexList, request),
   respondRemoteHostPending: (
     request: RemoteHostPendingResponseDto,
   ): Promise<RemoteHostPendingResponseResultDto> =>

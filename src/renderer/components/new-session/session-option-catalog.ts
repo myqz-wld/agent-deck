@@ -55,12 +55,14 @@ export function remoteSessionOptionKeys(
   descriptor: SessionConsoleCapabilitiesResult | null,
 ): SessionConsoleCreateOptionKey[] {
   if (!descriptor) return [];
+  const adapterId = descriptor.create.adapterId;
   return SESSION_OPTION_CATALOG.flatMap(({ key }) => {
-    const schema = descriptor.create.options[key];
-    if (!schema.enabled) return [];
     if (SANDBOX_KEYS.has(key)) {
       return descriptor.create.sandbox.optionKey === key ? [key] : [];
     }
-    return schema.allowedValues ? [key] : [];
+    if (key === 'permissionMode') return adapterId === 'claude-code' ? [key] : [];
+    if (key === 'approvalPolicy') return adapterId === 'codex-cli' ? [key] : [];
+    if (key === 'sessionMode') return adapterId === 'grok-build' ? [key] : [];
+    return [];
   });
 }

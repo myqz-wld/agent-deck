@@ -19,3 +19,26 @@ export async function mapServerCoreConcurrent<T>(
     throw new AggregateError(failures, 'Provider session retirement failed');
   }
 }
+
+/** Runs a bounded fan-out that stops admitting work after the first failure. */
+export async function mapServerCoreConcurrentResults<T, U>(
+  values: readonly T[],
+  concurrency: number,
+  consume: (value: T, index: number) => Promise<U>,
+): Promise<U[]> {
+  const results = new Array<U>(values.length);
+  let nextIndex = 0;
+  let failure: unknown;
+  await Promise.all(Array.from(
+    { length: Math.min(concurrency, values.length) },
+    async () => {
+      while (failure === undefined && nextIndex < values.length) {
+        const index = nextIndex++;
+        try { results[index] = await consume(values[index]!, index); }
+        catch (error) { failure = error; }
+      }
+    },
+  ));
+  if (failure !== undefined) throw failure;
+  return results;
+}

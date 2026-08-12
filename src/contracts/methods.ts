@@ -72,7 +72,7 @@ import type {
 import type {
   NodeConfigurationGetResult,
   NodeHookParams,
-  NodeHookStatusResult,
+  NodeHookProjectionResult,
 } from './node-configuration';
 import type {
   NodeAssetContentParams,
@@ -92,41 +92,27 @@ import type {
   SessionHandOffPreviewParams,
   SessionHandOffPreviewResult,
 } from './session-handoff';
+import type {
+  SessionPresentationListParams,
+  SessionPresentationListResult,
+} from './session-presentation';
+import type { PendingIndexListParams, PendingIndexListResult } from './pending-index';
+import type { SessionMessagesListParams, SessionMessagesListResult } from './session-messages';
+import type { SessionPermissionsGetParams, SessionPermissionsGetResult } from './session-permissions';
+import type {
+  SessionOutgoingListParams,
+  SessionOutgoingListResult,
+  SessionOutgoingRemoveParams,
+  SessionOutgoingRemoveResult,
+} from './session-outgoing';
+import type {
+  PendingRequestDto,
+  SessionHistoryEntryDto,
+  SessionListItemDto,
+  SessionRuntimeControlsDto,
+} from './runtime-dtos';
 
-export interface SessionListItemDto {
-  id: string;
-  adapterId: string;
-  cwd: string;
-  title: string | null;
-  status: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-export interface SessionHistoryEntryDto {
-  id: string;
-  sessionId: string;
-  sequence: number;
-  role: 'assistant' | 'system' | 'user';
-  content: JsonValue;
-  createdAt: number;
-}
-
-export interface PendingRequestDto {
-  id: string;
-  sessionId: string;
-  kind: 'ask-user-question' | 'diff-review' | 'exit-plan' | 'permission';
-  status: 'cancelled' | 'denied' | 'expired' | 'pending' | 'resolved' | 'stale';
-  createdAt: number;
-  expiresAt: number | null;
-  display: JsonObject;
-}
-
-export interface SessionRuntimeControlsDto {
-  adapterId: string;
-  values: JsonObject;
-  revision: number;
-}
+export * from './runtime-dtos';
 
 export type CoreMethodMap = {
   'desktop.broker.next': {
@@ -172,6 +158,26 @@ export type CoreMethodMap = {
   'session.console.create': {
     params: SessionConsoleCreateParams;
     result: SessionConsoleCreateResult;
+  };
+  'session.presentation.list': {
+    params: SessionPresentationListParams;
+    result: SessionPresentationListResult;
+  };
+  'session.messages.list': {
+    params: SessionMessagesListParams;
+    result: SessionMessagesListResult;
+  };
+  'session.permissions.get': {
+    params: SessionPermissionsGetParams;
+    result: SessionPermissionsGetResult;
+  };
+  'session.outgoing.list': {
+    params: SessionOutgoingListParams;
+    result: SessionOutgoingListResult;
+  };
+  'session.outgoing.remove': {
+    params: SessionOutgoingRemoveParams;
+    result: SessionOutgoingRemoveResult;
   };
   'session.console.capabilities': {
     params: SessionConsoleCapabilitiesParams;
@@ -224,10 +230,11 @@ export type CoreMethodMap = {
     params: Record<string, never>;
     result: NodeConfigurationGetResult;
   };
-  'node.hook.status': { params: NodeHookParams; result: NodeHookStatusResult };
-  'node.hook.install': { params: NodeHookParams; result: NodeHookStatusResult };
-  'node.hook.uninstall': { params: NodeHookParams; result: NodeHookStatusResult };
+  'node.hook.projection.get': { params: NodeHookParams; result: NodeHookProjectionResult };
+  'node.hook.projection.install': { params: NodeHookParams; result: NodeHookProjectionResult };
+  'node.hook.projection.uninstall': { params: NodeHookParams; result: NodeHookProjectionResult };
   'node.assets.list': { params: Record<string, never>; result: NodeAssetListResult };
+  'node.assets.catalog.list': { params: Record<string, never>; result: NodeAssetListResult };
   'node.assets.content': { params: NodeAssetContentParams; result: NodeAssetContentResult };
   'node.assets.convention': {
     params: NodeAssetConventionParams;
@@ -272,6 +279,10 @@ export type CoreMethodMap = {
   'pending.list': {
     params: { sessionId: string };
     result: { requests: PendingRequestDto[]; revision: number };
+  };
+  'pending.index.list': {
+    params: PendingIndexListParams;
+    result: PendingIndexListResult;
   };
   'pending.respond': {
     params: { sessionId: string; requestId: string; action: string; value?: JsonValue };
@@ -374,6 +385,18 @@ export const CORE_METHOD_METADATA = {
   'project.list': readMethod(AgentDeckCapability.ProjectsRead),
   'project.resolve': readMethod(AgentDeckCapability.ProjectsRead),
   'session.console.create': mutationMethod(AgentDeckCapability.SessionConsoleCreate),
+  'session.presentation.list': readMethod(
+    AgentDeckCapability.SessionPresentationRead,
+    'none',
+  ),
+  'session.messages.list': readMethod(AgentDeckCapability.SessionMessagesRead, 'none'),
+  'session.permissions.get': readMethod(AgentDeckCapability.SessionPermissionsRead, 'none'),
+  'session.outgoing.list': readMethod(AgentDeckCapability.SessionOutgoingRead, 'none'),
+  'session.outgoing.remove': mutationMethod(
+    AgentDeckCapability.SessionOutgoingWrite,
+    'none',
+    'none',
+  ),
   'session.history': readMethod(AgentDeckCapability.SessionHistory),
   'session.events.list': readMethod(AgentDeckCapability.Replay, 'none'),
   'session.summaries.list': readMethod(AgentDeckCapability.SessionSummariesRead, 'none'),
@@ -393,18 +416,19 @@ export const CORE_METHOD_METADATA = {
   'usage.tokens.get': readMethod(AgentDeckCapability.Usage, 'none'),
   'usage.providers.get': readMethod(AgentDeckCapability.Usage, 'none'),
   'node.configuration.get': readMethod(AgentDeckCapability.NodeConfiguration, 'none'),
-  'node.hook.status': readMethod(AgentDeckCapability.NodeConfiguration, 'none'),
-  'node.hook.install': mutationMethod(
-    AgentDeckCapability.NodeConfiguration,
+  'node.hook.projection.get': readMethod(AgentDeckCapability.NodeHooksRead, 'none'),
+  'node.hook.projection.install': mutationMethod(
+    AgentDeckCapability.NodeHooksWrite,
     'none',
     'none',
   ),
-  'node.hook.uninstall': mutationMethod(
-    AgentDeckCapability.NodeConfiguration,
+  'node.hook.projection.uninstall': mutationMethod(
+    AgentDeckCapability.NodeHooksWrite,
     'none',
     'none',
   ),
   'node.assets.list': readMethod(AgentDeckCapability.NodeAssets, 'none'),
+  'node.assets.catalog.list': readMethod(AgentDeckCapability.NodeAssetsBound, 'none'),
   'node.assets.content': readMethod(AgentDeckCapability.NodeAssets, 'none'),
   'node.assets.convention': readMethod(AgentDeckCapability.NodeAssets, 'none'),
   'issues.list': readMethod(AgentDeckCapability.Issues, 'none'),
@@ -421,6 +445,7 @@ export const CORE_METHOD_METADATA = {
   'session.interrupt': mutationMethod(AgentDeckCapability.SessionsWrite),
   'session.steer': mutationMethod(AgentDeckCapability.SessionsWrite),
   'pending.list': readMethod(AgentDeckCapability.PendingRead),
+  'pending.index.list': readMethod(AgentDeckCapability.PendingIndexRead, 'none'),
   'pending.respond': mutationMethod(AgentDeckCapability.PendingRespond, 'required'),
   'plan.review.start': mutationMethod(AgentDeckCapability.PlanReview, 'required', 'none'),
   'plan.review.ask': mutationMethod(AgentDeckCapability.PlanReview, 'required', 'none'),

@@ -102,6 +102,7 @@ describe('TeamDetail refresh sequencing', () => {
     const source = (revision: number): TeamDataSource => ({
       identity: 'remote-a:core-a:1',
       revision,
+      isUsable: () => true,
       list: vi.fn(),
       get,
       archive: vi.fn(),
@@ -220,6 +221,43 @@ describe('TeamDetail refresh sequencing', () => {
     await screen.findByText('Team B');
     confirmation.resolve(true);
     await Promise.resolve();
+    expect(shutdown).not.toHaveBeenCalled();
+  });
+
+  it('abandons a Remote confirmation when the source becomes unusable', async () => {
+    const confirmation = deferred<boolean>();
+    const shutdown = vi.fn().mockResolvedValue({ failed: [] });
+    let usable = true;
+    const row = {
+      ...snapshot('A', 'remote event', [teammate('A')]),
+      sessions: [],
+      pending: [],
+    } as unknown as TeamDetailDto;
+    const source: TeamDataSource = {
+      identity: 'remote-a:core-a:1',
+      revision: 1,
+      isUsable: () => usable,
+      list: vi.fn(),
+      get: vi.fn().mockResolvedValue({ team: row, revision: 1 }),
+      archive: vi.fn(),
+      addMember: vi.fn(),
+      shutdownTeammates: shutdown,
+      subscribe: vi.fn(() => vi.fn()),
+    };
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { confirmDialog: vi.fn(() => confirmation.promise) },
+    });
+
+    render(
+      <TeamDetail teamId="A" source={source} onBack={vi.fn()} onOpenSession={vi.fn()} />,
+    );
+    await screen.findByText('Team A');
+    fireEvent.click(screen.getByRole('button', { name: '关闭 1 个协作者' }));
+    usable = false;
+    confirmation.resolve(true);
+    await Promise.resolve();
+
     expect(shutdown).not.toHaveBeenCalled();
   });
 

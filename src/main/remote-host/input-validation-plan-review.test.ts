@@ -9,6 +9,7 @@ const target = {
   profileId: 'profile-a',
   sessionId: 'session-a',
   requestId: 'request-a',
+  expectedAuthority: { authoritativeCoreId: 'core-a', workerGeneration: 3 },
   intentId: 'intent-a',
   expectedRevision: 4,
 };

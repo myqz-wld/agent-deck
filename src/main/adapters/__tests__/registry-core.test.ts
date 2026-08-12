@@ -33,6 +33,8 @@ describe('adapter registry core diagnostics port', () => {
       { id: 'healthy', ok: true },
     ]);
     expect(results[0]?.err).toBe(failure);
+    expect(registry.isReady('failed')).toBe(false);
+    expect(registry.isReady('healthy')).toBe(true);
     expect(diagnostics.observe).toHaveBeenCalledWith('init', 2, 1, 41);
   });
 });

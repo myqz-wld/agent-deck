@@ -1,13 +1,10 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, normalize, resolve } from 'node:path';
 import { reverseUnifiedDiffSnapshot } from '@shared/unified-diff';
-import { PAYLOAD_LIMITS } from '@main/store/payload-truncate';
 
 const MULTIEDIT_SEPARATOR = '\n---\n';
 
 export interface FileChangeSnapshotInput {
-  cwd?: string | null;
-  filePath: string;
+  captureAuthorized: boolean;
+  capturedAfterSnapshot: string | null;
   kind: string;
   before: unknown;
   after: unknown;
@@ -20,13 +17,12 @@ export interface FileChangeSnapshots {
 }
 
 export function buildFileChangeSnapshots(input: FileChangeSnapshotInput): FileChangeSnapshots {
-  if (input.kind !== 'text') {
+  if (input.kind !== 'text' || !input.captureAuthorized) {
     return { beforeSnapshot: null, afterSnapshot: null };
   }
 
-  const targetPath = resolveSnapshotPath(input.filePath, input.cwd);
-  const diskAfter = targetPath ? readTextSnapshot(targetPath) : null;
-  const afterSnapshot = diskAfter ?? (isDeleteChange(input.metadata) ? '' : null);
+  const afterSnapshot = input.capturedAfterSnapshot ??
+    (isDeleteChange(input.metadata) ? '' : null);
   if (afterSnapshot === null) {
     return { beforeSnapshot: null, afterSnapshot: null };
   }
@@ -35,25 +31,6 @@ export function buildFileChangeSnapshots(input: FileChangeSnapshotInput): FileCh
     beforeSnapshot: reverseRecordedTextChange(afterSnapshot, input),
     afterSnapshot,
   };
-}
-
-function resolveSnapshotPath(filePath: string, cwd?: string | null): string | null {
-  const raw = String(filePath || '');
-  if (!raw) return null;
-  if (isAbsolute(raw)) return normalize(raw);
-  if (!cwd) return null;
-  return normalize(resolve(cwd, raw));
-}
-
-function readTextSnapshot(filePath: string): string | null {
-  try {
-    if (!existsSync(filePath)) return null;
-    const stat = statSync(filePath);
-    if (!stat.isFile() || stat.size > PAYLOAD_LIMITS.MAX_FILE_SNAPSHOT_BYTES) return null;
-    return readFileSync(filePath, 'utf8');
-  } catch {
-    return null;
-  }
 }
 
 function reverseRecordedTextChange(

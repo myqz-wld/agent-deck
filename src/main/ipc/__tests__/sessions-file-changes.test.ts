@@ -54,24 +54,36 @@ describe('session file-change IPC', () => {
   });
 
   it('validates and forwards a bounded summary-page request', () => {
+    readRepo.listSummaryPage.mockReturnValue({
+      items: [{ id: 1, pathAuthority: '/workspaces/private/hidden.ts' }],
+      nextCursor: null,
+    });
     const invoke = handler(IpcInvoke.SessionListFileChangePage);
     expect(invoke).toBeTypeOf('function');
 
-    invoke!({} as never, 's1', { cursor: 'opaque', limit: 25 });
+    const result = invoke!({} as never, 's1', { cursor: 'opaque', limit: 25 });
 
     expect(readRepo.listSummaryPage).toHaveBeenCalledWith('s1', {
       cursor: 'opaque',
       limit: 25,
     });
+    expect(result).toEqual({ items: [{ id: 1 }], nextCursor: null });
     expect(() => invoke!({} as never, 's1', { limit: 5000 })).toThrow(IpcInputError);
   });
 
   it('binds payload lookup to the requested session and numeric id', () => {
+    readRepo.getPayload.mockReturnValue({
+      metadata: {
+        source: 'Edit',
+        __agentDeckCanonicalPathAuthorityV1: 'canonical:/workspaces/private/hidden.ts',
+      },
+    });
     const invoke = handler(IpcInvoke.SessionGetFileChange);
     expect(invoke).toBeTypeOf('function');
 
-    invoke!({} as never, 's1', 42);
+    const result = invoke!({} as never, 's1', 42);
     expect(readRepo.getPayload).toHaveBeenCalledWith('s1', 42);
+    expect(result).toEqual({ metadata: { source: 'Edit' } });
     expect(() => invoke!({} as never, 's1', '42')).toThrow(IpcInputError);
   });
 });

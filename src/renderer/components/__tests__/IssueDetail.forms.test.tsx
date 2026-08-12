@@ -10,7 +10,7 @@ import {
 } from '@testing-library/react';
 import type { IssueRecord } from '@shared/types';
 import { useIssuesStore } from '@renderer/stores/issues-store';
-import { IssueDetail } from '../IssueDetail';
+import { IssueDetail, type IssueDetailDataSource } from '../IssueDetail';
 
 function issue(overrides: Partial<IssueRecord> = {}): IssueRecord {
   return {
@@ -72,7 +72,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 describe('IssueDetail expandable evidence and drafts', () => {
   it('edits description through the shared expanded surface and restores trigger focus', async () => {
@@ -159,5 +162,24 @@ describe('IssueDetail expandable evidence and drafts', () => {
       expect(screen.getByLabelText('状态').textContent).toContain('resolved');
     });
     expect(description.value).toBe('Local draft survives');
+  });
+
+  it('uses the shared expanded fields without subscribing to Local Issue state remotely', async () => {
+    const subscribe = vi.spyOn(useIssuesStore, 'subscribe');
+    const remoteIssue = issue({ cwd: 'repo' });
+    const source: IssueDetailDataSource = {
+      identity: 'remote-a:core-a:1\u0000issues',
+      observedIssue: remoteIssue,
+      load: vi.fn(async () => remoteIssue),
+      update: vi.fn(async () => remoteIssue),
+      softDelete: vi.fn(async () => remoteIssue),
+      undelete: vi.fn(async () => remoteIssue),
+      onUpdated: vi.fn(),
+    };
+
+    render(<IssueDetail issueId={remoteIssue.id} source={source} onClose={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: '展开 Issue 描述' })).toBeTruthy();
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(window.api.issuesGet).not.toHaveBeenCalled();
   });
 });

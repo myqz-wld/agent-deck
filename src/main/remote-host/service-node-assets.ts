@@ -20,9 +20,9 @@ export class RemoteHostNodeAssetController {
   constructor(private readonly request: RemoteHostScopedRequest) {}
 
   list(request: RemoteHostNodeAssetListRequestDto): Promise<RemoteHostNodeAssetListDto> {
-    return this.request(request.profileId, 'node.assets.list', async (scope) =>
+    return this.request(request.profileId, 'node.assets.catalog.list', async (scope) =>
       parseNodeAssetListResult(await scope.client.request(
-        'node.assets.list',
+        'node.assets.catalog.list',
         {},
         { deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS },
       )));
@@ -49,11 +49,16 @@ export class RemoteHostNodeAssetController {
   convention(
     request: RemoteHostNodeAssetConventionRequestDto,
   ): Promise<RemoteHostNodeAssetConventionDto> {
-    return this.request(request.profileId, 'node.assets.convention', async (scope) =>
-      parseNodeAssetConventionResult(await scope.client.request(
+    return this.request(request.profileId, 'node.assets.convention', async (scope) => {
+      const result = parseNodeAssetConventionResult(await scope.client.request(
         'node.assets.convention',
         { adapterId: request.adapterId },
         { deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS },
-      )));
+      ));
+      if (result.adapterId !== request.adapterId) {
+        throw new Error('Remote Worker returned a mismatched asset convention');
+      }
+      return result;
+    });
   }
 }

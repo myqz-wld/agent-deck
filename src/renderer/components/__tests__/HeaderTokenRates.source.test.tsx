@@ -28,6 +28,8 @@ function remoteUsage(enabled: boolean): RemoteUsageSourceView {
     identity: 'remote-a:core-a:1',
     rates: [],
     topToday: [],
+    ratesLoading: false,
+    ratesError: null,
     today: '2026-08-10',
     daily: [],
     dailyLoading: false,

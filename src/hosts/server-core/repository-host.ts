@@ -13,6 +13,8 @@ import { setAgentDeckTeamRepositoryDiagnostics } from '@main/store/agent-deck-te
 import { fileChangeReadRepo } from '@main/store/file-change-read-repo';
 import { setFileChangeReadDiagnostics } from '@main/store/file-change-read-diagnostics-core';
 import { setEventRepositoryDiagnostics } from '@main/store/event-repo-diagnostics-core';
+import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { setMessageDeliveryStateDiagnostics } from '@main/store/message-delivery-state-diagnostics-core';
 import { sessionRepo } from '@main/store/session-repo';
 import { summaryRepo } from '@main/store/summary-repo';
@@ -24,6 +26,7 @@ import {
   type ServerCoreSessionManagerObserver,
 } from './session-manager';
 import type { ServerCoreSessionConsoleRepositoryPort } from './session-console-authority';
+import type { ServerCoreSessionPresentationRepositoryPort } from './session-presentation-runtime';
 import { ServerCoreSessionTaskReadRepository } from './session-task-read-repository';
 import { ServerCoreIssueRepository } from './issue-repository';
 import { backfillServerCoreTokenUsageEvents } from './token-usage-backfill';
@@ -66,10 +69,12 @@ export class ServerCoreRepositoryHost implements LifecycleComponent {
   readonly events = eventRepo;
   readonly fileChanges = fileChangeReadRepo;
   readonly issues: ServerCoreIssueRepository;
+  readonly messages = agentDeckMessageRepo;
   readonly summaries = summaryRepo;
   readonly tasks: ServerCoreSessionTaskReadRepository;
   readonly sessionManager: ServerCoreSessionManager;
   readonly sessionConsoleRepository: ServerCoreSessionConsoleRepositoryPort;
+  readonly sessionPresentationRepository: ServerCoreSessionPresentationRepositoryPort;
   readonly databasePath: string;
   private started = false;
 
@@ -107,6 +112,18 @@ export class ServerCoreRepositoryHost implements LifecycleComponent {
           WHERE hidden_from_history = 0
             AND (lifecycle = 'closed' OR archived_at IS NOT NULL)`,
       ).pluck().get()),
+    });
+    this.sessionPresentationRepository = Object.freeze({
+      listLive: (limit: number, offset: number, maximumContextRows: number) =>
+        this.sessions.listLivePresentation(limit, offset, maximumContextRows),
+      listHistory: (query: string | undefined, limit: number, offset: number) =>
+        this.sessions.listHistoryPresentation(query, limit, offset),
+      counts: (kind: 'history' | 'live', query?: string) =>
+        this.sessions.sessionPresentationCounts(kind, query),
+      listPendingCandidates: (limit: number) => this.sessions.listActiveAndDormant(limit, 0),
+      memberships: (sessionIds: string[]) =>
+        agentDeckTeamRepo.findActiveMembershipsBySessionIds(sessionIds),
+      summaries: (sessionIds: string[]) => summaryRepo.latestForSessions(sessionIds),
     });
   }
 

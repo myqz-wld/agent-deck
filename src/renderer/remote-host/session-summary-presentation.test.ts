@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   groupRemoteSessionSummaries,
+  legacyRemoteSessionPresentation,
   remoteSessionActivityCounts,
   remoteSessionStatus,
 } from './session-summary-presentation';
 
-const row = (id: string, status: string) => ({
+const row = (id: string, status: string) => legacyRemoteSessionPresentation({
   id,
   adapterId: 'codex-cli',
   title: id,
@@ -16,15 +17,14 @@ const row = (id: string, status: string) => ({
 });
 
 describe('Remote session summary presentation', () => {
-  it('decodes the authoritative lifecycle/activity token and compatible legacy tokens', () => {
+  it('decodes only exact legacy lifecycle/activity tokens', () => {
     expect(remoteSessionStatus('active-working'))
       .toEqual({ lifecycle: 'active', activity: 'working' });
     expect(remoteSessionStatus('dormant-idle'))
       .toEqual({ lifecycle: 'dormant', activity: 'idle' });
-    expect(remoteSessionStatus('closed'))
-      .toEqual({ lifecycle: 'closed', activity: 'finished' });
-    expect(remoteSessionStatus('waiting'))
-      .toEqual({ lifecycle: 'active', activity: 'waiting' });
+    expect(() => remoteSessionStatus('closed')).toThrow(/不兼容/);
+    expect(() => remoteSessionStatus('waiting')).toThrow(/不兼容/);
+    expect(() => remoteSessionStatus('future-idle')).toThrow(/不兼容/);
   });
 
   it('drives Remote sections and header counts from the same status decoder', () => {

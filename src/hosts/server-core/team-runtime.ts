@@ -38,11 +38,10 @@ import type { AgentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import type { AgentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import type { SessionRecord, StoredAgentEvent, TaskRecord } from '@shared/types';
 import { projectSessionEvents } from './session-event-projection';
-import type {
-  ServerCoreMutationClaim,
-  ServerCoreMutationIdentity,
-} from './runtime-metadata-store';
+import type { ServerCoreMutationClaim, ServerCoreMutationIdentity } from './runtime-metadata-store';
 import { canonicalJson } from './runtime-validation';
+import { redactRemoteSensitiveText } from './remote-sensitive-data';
+import { mapServerCoreConcurrentResults } from './runtime-concurrency';
 
 export const SERVER_CORE_TEAM_METHODS = Object.freeze([
   'teams.list',
@@ -54,31 +53,6 @@ export const SERVER_CORE_TEAM_METHODS = Object.freeze([
 
 type TeamMethod = (typeof SERVER_CORE_TEAM_METHODS)[number];
 const PENDING_READ_CONCURRENCY = 8;
-
-async function mapConcurrent<T, U>(
-  values: readonly T[],
-  concurrency: number,
-  consume: (value: T, index: number) => Promise<U>,
-): Promise<U[]> {
-  const results = new Array<U>(values.length);
-  let nextIndex = 0;
-  let failure: unknown;
-  await Promise.all(Array.from(
-    { length: Math.min(concurrency, values.length) },
-    async () => {
-      while (failure === undefined && nextIndex < values.length) {
-        const index = nextIndex++;
-        try {
-          results[index] = await consume(values[index]!, index);
-        } catch (error) {
-          failure = error;
-        }
-      }
-    },
-  ));
-  if (failure !== undefined) throw failure;
-  return results;
-}
 
 export interface ServerCoreTeamRuntimeOptions {
   readonly workspaceRoot: string;
@@ -221,10 +195,8 @@ export class ServerCoreTeamRuntime implements DaemonCoreRuntime {
         byId.set(session.id, session);
       }
     }
-    const activeMembers = team.members.filter((member) => member.leftAt === null);
-    const pending = await mapConcurrent(
-      activeMembers,
-      PENDING_READ_CONCURRENCY,
+    const pending = await mapServerCoreConcurrentResults(
+      team.members.filter((member) => member.leftAt === null), PENDING_READ_CONCURRENCY,
       (member, index) => this.pendingCounts(input, member.sessionId, index),
     );
     const recentEvents = this.options.events.findTeamEvents(teamId, TEAM_EVENT_MAX_ITEMS)
@@ -237,31 +209,40 @@ export class ServerCoreTeamRuntime implements DaemonCoreRuntime {
             }).events
           : [];
       });
-    const tasks = team.archivedAt === null
+    const tasks = (team.archivedAt === null
       ? this.options.tasks.list({ teamIdFilter: teamId, limit: TEAM_TASK_MAX_ITEMS })
-      : [];
-    const recentMessages = this.options.messages.listByTeam(teamId, {
-      limit: TEAM_MESSAGE_MAX_ITEMS,
-    }).map((message) => ({
-      id: message.id,
-      fromSessionId: message.fromSessionId,
-      toSessionId: message.toSessionId,
-      body: truncate(message.body, 64 * 1024),
-      status: message.status,
-      statusReason: message.statusReason === null
-        ? null
-        : truncate(message.statusReason, 4 * 1024),
-      sentAt: message.sentAt,
-      replyToMessageId: message.replyToMessageId,
-    }));
+      : []).map((task) => ({
+        ...task,
+        subject: this.safeText(task.subject, 4 * 1024),
+        description: task.description === null ? null : this.safeText(task.description, 32 * 1024),
+        activeForm: task.activeForm === null ? null : this.safeText(task.activeForm, 4 * 1024),
+        labels: task.labels.map((label) => this.safeText(label, 512)),
+      }));
+    const recentMessages = this.options.messages
+      .listByTeam(teamId, { limit: TEAM_MESSAGE_MAX_ITEMS }).map((message) => ({
+        id: message.id,
+        fromSessionId: message.fromSessionId,
+        toSessionId: message.toSessionId,
+        body: this.safeText(message.body, 64 * 1024),
+        status: message.status,
+        statusReason: message.statusReason === null
+          ? null
+          : this.safeText(message.statusReason, 4 * 1024),
+        sentAt: message.sentAt,
+        replyToMessageId: message.replyToMessageId,
+      }));
     const result = parseTeamGetResult({
       team: {
         id: team.id,
-        name: team.name,
+        name: this.safeText(team.name, 2 * 1024),
         createdAt: team.createdAt,
         archivedAt: team.archivedAt,
         archiveReason: team.archiveReason,
-        members: team.members,
+        members: team.members.map((member) => ({
+          ...member,
+          displayName: member.displayName === null
+            ? null : this.safeText(member.displayName, 2 * 1024),
+        })),
         sessions: [...byId.values()].map((session) => this.session(session)),
         pending,
         recentEvents,
@@ -412,7 +393,7 @@ export class ServerCoreTeamRuntime implements DaemonCoreRuntime {
     }, team.createdAt);
     return {
       id: team.id,
-      name: team.name,
+      name: this.safeText(team.name, 2 * 1024),
       createdAt: team.createdAt,
       archivedAt: team.archivedAt,
       memberCount: members.length,
@@ -424,12 +405,16 @@ export class ServerCoreTeamRuntime implements DaemonCoreRuntime {
     return {
       id: record.id,
       adapterId: record.agentId,
-      title: record.title,
+      title: this.safeText(record.title, 2 * 1024),
       lifecycle: record.lifecycle,
       lastEventAt: record.lastEventAt,
       archivedAt: record.archivedAt,
       spawnedBy: record.spawnedBy ?? null,
     };
+  }
+
+  private safeText(value: string, maximum: number): string {
+    return truncate(redactRemoteSensitiveText(value, () => 'Workspace'), maximum);
   }
 
   private claimMutation(input: DaemonRequestInput): {

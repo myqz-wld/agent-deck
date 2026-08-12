@@ -196,4 +196,25 @@ describe('AssetsLibraryDialog source authority', () => {
     expect(screen.queryByText('# stale Worker content')).toBeNull();
     for (const call of Object.values(local)) expect(call).not.toHaveBeenCalled();
   });
+
+  it('never renders content from a newer same-Worker catalog snapshot', async () => {
+    const { remote } = installApi();
+    remote.getRemoteHostNodeAssetContent.mockResolvedValue({
+      content: '# replaced after list',
+      revision: 8,
+    });
+    render(<AssetsLibraryDialog open onClose={vi.fn()} remote={{
+      identity: 'remote-a:core-a:1',
+      label: 'aws-relay-on-mac',
+      profileId: 'remote-a',
+      supportsNodeAssets: true,
+      usable: true,
+    }} />);
+
+    await screen.findByText('agent-deck:claude-code:deep-review');
+    fireEvent.click(screen.getByRole('button', { name: '查看' }));
+    await waitFor(() => expect(remote.listRemoteHostNodeAssets).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('# replaced after list')).toBeNull();
+    expect(screen.queryByRole('button', { name: '关闭' })).toBeNull();
+  });
 });

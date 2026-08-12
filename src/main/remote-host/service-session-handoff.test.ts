@@ -4,6 +4,11 @@ import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-c
 import type { RemoteHostScopedClient } from './service-scope';
 import { RemoteHostSessionHandOffController } from './service-session-handoff';
 
+const EXPECTED_AUTHORITY = {
+  authoritativeCoreId: 'core-a',
+  workerGeneration: 3,
+};
+
 function scoped(clientRequest: ReturnType<typeof vi.fn>, scopeCurrent = true) {
   const scope: RemoteHostScopedClient = {
     client: { request: clientRequest } as unknown as RemoteHostScopedClient['client'],
@@ -112,6 +117,7 @@ describe('RemoteHostSessionHandOffController', () => {
       sessionId: 'session-a',
       continuationInstruction: 'Continue.',
       target,
+      expectedAuthority: EXPECTED_AUTHORITY,
       expectedBindingDigest: `sha256:${'b'.repeat(64)}`,
       intentId: 'intent-a',
     });
@@ -141,7 +147,8 @@ describe('RemoteHostSessionHandOffController', () => {
 
     await expect(controller.commit({
       profileId: 'remote-a', sessionId: 'session-a', continuationInstruction: 'Continue.',
-      target, expectedBindingDigest: `sha256:${'b'.repeat(64)}`, intentId: 'intent-a',
+      target, expectedAuthority: EXPECTED_AUTHORITY,
+      expectedBindingDigest: `sha256:${'b'.repeat(64)}`, intentId: 'intent-a',
     })).resolves.toMatchObject({ successorSessionId: 'session-successor' });
     expect(selectSuccessor).not.toHaveBeenCalled();
   });

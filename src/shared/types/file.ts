@@ -29,6 +29,8 @@ export interface FileChangeSummary {
   hasAfterBlob: boolean;
   hasBeforeSnapshot: boolean;
   hasAfterSnapshot: boolean;
+  /** Internal ingestion-time authority. Never include this field in renderer/Core DTOs. */
+  pathAuthority?: string | null;
   ts: number;
 }
 

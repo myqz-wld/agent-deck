@@ -18,6 +18,7 @@ import type {
 } from '@shared/types';
 import type { ServerCorePendingResponseParams } from './runtime-validation';
 import type { ServerCoreMcpPresentationPort } from './mcp-presentation-port';
+import { redactRemoteSensitiveText } from './remote-sensitive-data';
 
 const MAX_DISPLAY_TEXT_BYTES = 4_096;
 const MAX_QUESTIONS = 32;
@@ -32,8 +33,9 @@ function invalid(message: string): never {
 
 function clip(value: string, maximum = MAX_DISPLAY_TEXT_BYTES): string {
   if (CONTROL.test(value)) return '[content omitted]';
-  const encoded = Buffer.from(value);
-  if (encoded.byteLength <= maximum) return value;
+  const projected = redactRemoteSensitiveText(value, () => 'Workspace');
+  const encoded = Buffer.from(projected);
+  if (encoded.byteLength <= maximum) return projected;
   const marker = '…';
   let cut = Math.max(0, maximum - Buffer.byteLength(marker));
   while (cut > 0 && (encoded[cut] & 0xc0) === 0x80) cut -= 1;

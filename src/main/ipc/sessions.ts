@@ -22,6 +22,7 @@ import {
 } from './_helpers';
 import { registerSessionHandOffIpc } from './session-hand-off';
 import { takePendingSessionFocusRequest } from '@main/session-focus-request';
+import { withoutStoredFileChangePathAuthority } from '@shared/file-change-path-authority';
 
 const logger = log.scope('ipc-sessions');
 const execFileAsync = promisify(execFile);
@@ -55,7 +56,11 @@ export function registerSessionsIpc(): void {
       min: 1,
       max: 100,
     });
-    return fileChangeReadRepo.listSummaryPage(sessionId, { cursor, limit });
+    const page = fileChangeReadRepo.listSummaryPage(sessionId, { cursor, limit });
+    return {
+      ...page,
+      items: page.items.map(({ pathAuthority: _authority, ...item }) => item),
+    };
   });
   on(IpcInvoke.SessionGetFileChange, (_event, id, rawChangeId) => {
     const sessionId = parseStringId('sessionId', id);
@@ -66,7 +71,10 @@ export function registerSessionsIpc(): void {
     ) {
       throw new IpcInputError('changeId', 'must be a positive integer');
     }
-    return fileChangeReadRepo.getPayload(sessionId, rawChangeId);
+    const payload = fileChangeReadRepo.getPayload(sessionId, rawChangeId);
+    return payload
+      ? { ...payload, metadata: withoutStoredFileChangePathAuthority(payload.metadata) }
+      : null;
   });
   on(IpcInvoke.SessionGetFileFinalDiff, (_event, id, filePath) =>
     getSessionFileFinalDiff(

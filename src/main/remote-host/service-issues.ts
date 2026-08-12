@@ -108,6 +108,7 @@ export class RemoteHostIssueController {
         this.options('resolve-in-new-session', request),
       ), request.issueId),
       ['session.console.create', 'session.console.capabilities'],
+      request.expectedAuthority,
     );
   }
 
@@ -117,8 +118,13 @@ export class RemoteHostIssueController {
     request: RemoteHostIssueMutationTargetDto,
     invoke: (scope: RemoteHostScopedClient) => Promise<unknown>,
   ): Promise<RemoteHostIssueMutationResultDto> {
-    return this.request(request.profileId, method, async (scope) =>
-      parseIssueMutationResult(await invoke(scope), request.issueId));
+    return this.request(
+      request.profileId,
+      method,
+      async (scope) => parseIssueMutationResult(await invoke(scope), request.issueId),
+      [],
+      request.expectedAuthority,
+    );
   }
 
   private options(

@@ -15,10 +15,12 @@ export function IssueBoard({
   loading,
   selectedIssueId,
   truncated,
+  loadingMore = false,
   detail,
   onFiltersChange,
   onKeywordChange,
   onSelectIssue,
+  onLoadMore,
 }: {
   filters: IssueFilters;
   issues: readonly IssueRecord[];
@@ -27,14 +29,19 @@ export function IssueBoard({
   loading: boolean;
   selectedIssueId: string | null;
   truncated?: boolean;
+  loadingMore?: boolean;
   detail: ReactNode;
   onFiltersChange(filters: IssueFilters): void;
   onKeywordChange(value: string): void;
-  onSelectIssue(issueId: string): void;
+  onSelectIssue(issueId: string | null): void;
+  onLoadMore?(): void;
 }): JSX.Element {
   return (
-    <div className="flex h-full">
-      <div className="flex w-1/2 min-w-[320px] max-w-[480px] flex-col border-r border-deck-border">
+    <div className="flex h-full min-w-0">
+      <div
+        data-issue-pane="list"
+        className={`${selectedIssueId ? 'hidden' : 'flex w-full'} min-w-0 flex-col border-deck-border sm:flex sm:w-1/2 sm:min-w-[320px] sm:max-w-[480px] sm:border-r`}
+      >
         <FilterBar
           filters={filters}
           keywordInput={keywordInput}
@@ -65,15 +72,42 @@ export function IssueBoard({
                 ))}
               </ul>
               {truncated && (
-                <div className="border-t border-deck-border px-3 py-2 text-[10px] text-deck-muted">
-                  仅显示当前筛选下最近的 100 条问题。
+                <div className="border-t border-deck-border px-3 py-2 text-center">
+                  {onLoadMore ? (
+                    <button
+                      type="button"
+                      disabled={loadingMore}
+                      onClick={onLoadMore}
+                      className="rounded border border-white/10 px-2 py-1 text-[10px] text-deck-muted hover:text-deck-text disabled:opacity-50"
+                    >
+                      {loadingMore ? '加载中…' : '加载更多问题'}
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-deck-muted">列表已达到读取上限。</span>
+                  )}
                 </div>
               )}
             </>
           )}
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto scrollbar-deck">{detail}</div>
+      <div
+        data-issue-pane="detail"
+        className={`${selectedIssueId ? 'flex' : 'hidden'} min-w-0 flex-1 flex-col overflow-hidden sm:flex`}
+      >
+        {selectedIssueId && (
+          <div className="shrink-0 border-b border-deck-border px-2 py-1.5 sm:hidden">
+            <button
+              type="button"
+              onClick={() => onSelectIssue(null)}
+              className="rounded px-2 py-1 text-[11px] text-deck-muted hover:bg-white/[0.06] hover:text-deck-text"
+            >
+              ← 返回问题列表
+            </button>
+          </div>
+        )}
+        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-deck">{detail}</div>
+      </div>
     </div>
   );
 }

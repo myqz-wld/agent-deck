@@ -1,4 +1,3 @@
-import { CORE_METHOD_METADATA, type CoreMethod } from '@contracts/index';
 import type { ElectronHostRegistry } from '@hosts/electron';
 import type {
   RemoteHostAcceptedResultDto,
@@ -9,6 +8,8 @@ import type {
   RemoteHostMutationTargetDto,
   RemoteHostPageRequestDto,
   RemoteHostPendingListDto,
+  RemoteHostPendingIndexDto,
+  RemoteHostPendingIndexRequestDto,
   RemoteHostPendingResponseDto,
   RemoteHostPendingResponseResultDto,
   RemoteHostProfileDraftDto,
@@ -23,20 +24,28 @@ import type {
   RemoteHostSessionCapabilitiesDto,
   RemoteHostSessionCapabilitiesRequestDto,
   RemoteHostSessionSummaryDto,
+  RemoteHostSessionPresentationPageDto,
+  RemoteHostSessionPresentationRequestDto,
   RemoteHostSessionTargetDto,
   RemoteHostSessionContextDto,
   RemoteHostSessionInputCapabilitiesDto,
+  RemoteHostSessionMessagesDto,
+  RemoteHostSessionMessagesRequestDto,
+  RemoteHostSessionPermissionsDto,
+  RemoteHostSessionPermissionsRequestDto,
+  RemoteHostSessionOutgoingDto,
+  RemoteHostSessionOutgoingRemoveDto,
+  RemoteHostSessionOutgoingRemoveRequestDto,
+  RemoteHostSessionOutgoingRequestDto,
   RemoteHostSnapshotDto,
   RemoteHostSourceMode,
   RemoteHostWorkspaceDirectoryListDto,
   RemoteHostWorkspaceDirectoryRequestDto,
 } from '@shared/remote-host';
-import { isRecoverableRelayWorkerOffline } from '@shared/remote-host';
 import type { RemoteHostConnectionSelections } from './connection-selections';
 import type { RemoteHostCredentialMaterialStore } from './credential-material-store';
 import { RemoteHostPublicError } from './errors';
 import { publishRemoteHostChanged } from './event-bridge';
-import { remoteHostMutationId } from './mutation-identity';
 import { RemoteHostProfileController } from './profile-controller';
 import type { RemoteHostProfileStore } from './profile-store';
 import { remoteHostSnapshot } from './service-snapshot';
@@ -57,9 +66,14 @@ import { RemoteHostNodeAssetController } from './service-node-assets';
 import { RemoteHostSessionMutationController } from './service-session-mutations';
 import { RemoteHostSessionHandOffController } from './service-session-handoff';
 import { RemoteHostSessionStateController } from './service-session-state';
+import { RemoteHostSessionPresentationController } from './service-session-presentation';
+import { RemoteHostSessionMetadataController } from './service-session-metadata';
 import { requestRemoteHistory } from './service-session-detail';
-import { RemoteHostScopeEpochs, type RemoteHostScopedClient } from './service-scope';
+import { RemoteHostScopeEpochs } from './service-scope';
+import { RemoteHostRequestAuthority } from './service-request-authority';
+import { remoteHostResourcesForCoreEvent } from './resource-invalidation';
 import type { RemoteHostDesktopBrokerPort } from './desktop-browser-broker';
+import type { RemoteHostResourceKind } from '@shared/remote-host';
 import log from '@main/utils/logger';
 
 const logger = log.scope('remote-host-transport');
@@ -80,8 +94,11 @@ export class RemoteHostService {
   readonly nodeAssets: RemoteHostNodeAssetController;
   readonly handoff: RemoteHostSessionHandOffController;
   private readonly sessionState: RemoteHostSessionStateController;
+  private readonly sessionPresentation: RemoteHostSessionPresentationController;
+  private readonly sessionMetadata: RemoteHostSessionMetadataController;
   private readonly sessionMutations: RemoteHostSessionMutationController;
   private readonly profiles: RemoteHostProfileController;
+  private readonly requestAuthority: RemoteHostRequestAuthority;
   private mutationTail: Promise<void> = Promise.resolve();
   private lifecycle: 'active' | 'shutting-down' | 'stopped' = 'active';
   private shutdownPromise: Promise<void> | null = null;
@@ -95,34 +112,6 @@ export class RemoteHostService {
       handleEvent: () => undefined,
       stop: () => Promise.resolve(),
     };
-    const requestScoped = this.requestScoped.bind(this);
-    const mutationId = this.mutationId.bind(this);
-    this.detail = new RemoteHostDetailReader(requestScoped);
-    this.issues = new RemoteHostIssueController(requestScoped, mutationId);
-    this.planReviews = new RemoteHostPlanReviewController(
-      requestScoped,
-      (scope) => this.assertScope(scope),
-      mutationId,
-    );
-    this.teams = new RemoteHostTeamController(requestScoped, mutationId);
-    this.usage = new RemoteHostUsageController(requestScoped);
-    this.nodeConfiguration = new RemoteHostNodeConfigurationController(requestScoped, mutationId);
-    this.nodeAssets = new RemoteHostNodeAssetController(requestScoped);
-    this.sessionMutations = new RemoteHostSessionMutationController(requestScoped, mutationId);
-    this.sessionState = new RemoteHostSessionStateController(
-      requestScoped,
-      (scope) => this.assertScope(scope),
-      mutationId,
-    );
-    this.handoff = new RemoteHostSessionHandOffController(
-      requestScoped,
-      this.requestTerminalScoped.bind(this),
-      mutationId,
-      (profileId, sessionId) => options.registry.updateNavigation(
-        profileId,
-        { selectedSessionId: sessionId },
-      ),
-    );
     const document = options.store.load();
     this.profiles = new RemoteHostProfileController(document, {
       registry: options.registry,
@@ -133,6 +122,45 @@ export class RemoteHostService {
       onProfileRescope: (profileId) => this.scopes.bumpProfile(profileId),
       onSourceRescope: () => this.scopes.bumpSource(),
     });
+    this.requestAuthority = new RemoteHostRequestAuthority({
+      registry: options.registry,
+      scopes: this.scopes,
+      active: () => this.lifecycle === 'active',
+      source: () => ({
+        mode: this.profiles.sourceMode,
+        selectedProfileId: this.profiles.selectedRemoteProfileId,
+      }),
+    });
+    const requestScoped = this.requestAuthority.request;
+    const mutationId = this.requestAuthority.mutationId.bind(this.requestAuthority);
+    this.detail = new RemoteHostDetailReader(requestScoped);
+    this.issues = new RemoteHostIssueController(requestScoped, mutationId);
+    this.planReviews = new RemoteHostPlanReviewController(
+      requestScoped,
+      (scope) => this.requestAuthority.assertScope(scope),
+      mutationId,
+    );
+    this.teams = new RemoteHostTeamController(requestScoped, mutationId);
+    this.usage = new RemoteHostUsageController(requestScoped);
+    this.nodeConfiguration = new RemoteHostNodeConfigurationController(requestScoped, mutationId);
+    this.nodeAssets = new RemoteHostNodeAssetController(requestScoped);
+    this.sessionMutations = new RemoteHostSessionMutationController(requestScoped, mutationId);
+    this.sessionState = new RemoteHostSessionStateController(
+      requestScoped,
+      (scope) => this.requestAuthority.assertScope(scope),
+      mutationId,
+    );
+    this.sessionPresentation = new RemoteHostSessionPresentationController(requestScoped);
+    this.sessionMetadata = new RemoteHostSessionMetadataController(requestScoped, mutationId);
+    this.handoff = new RemoteHostSessionHandOffController(
+      requestScoped,
+      this.requestAuthority.requestTerminal,
+      mutationId,
+      (profileId, sessionId) => options.registry.updateNavigation(
+        profileId,
+        { selectedSessionId: sessionId },
+      ),
+    );
     options.registry.onState((state) => {
       this.desktopBroker.handleState(state);
       if (state.error) {
@@ -159,7 +187,7 @@ export class RemoteHostService {
     });
     options.registry.onEvent((event) => {
       this.desktopBroker.handleEvent(event);
-      this.changed('data', event.profileId);
+      this.changed('data', event.profileId, remoteHostResourcesForCoreEvent(event.kind));
     });
   }
   getSnapshot(): Promise<RemoteHostSnapshotDto> {
@@ -272,48 +300,69 @@ export class RemoteHostService {
   }
 
   async listSessions(request: RemoteHostSessionPageRequestDto): Promise<RemoteHostSessionPageDto> {
-    return this.requestScoped(request.profileId, 'session.console.list', (scope) =>
+    return this.requestAuthority.request(request.profileId, 'session.console.list', (scope) =>
       requestRemoteSessions(scope, request));
   }
 
+  async listSessionPresentations(
+    request: RemoteHostSessionPresentationRequestDto,
+  ): Promise<RemoteHostSessionPresentationPageDto> {
+    return this.sessionPresentation.list(request);
+  }
+
+  async listPendingIndex(
+    request: RemoteHostPendingIndexRequestDto,
+  ): Promise<RemoteHostPendingIndexDto> {
+    return this.sessionPresentation.pending(request);
+  }
+
   async getSession(request: RemoteHostSessionTargetDto): Promise<RemoteHostSessionSummaryDto | null> {
-    return this.requestScoped(request.profileId, 'session.console.get', (scope) =>
+    return this.requestAuthority.request(request.profileId, 'session.console.get', (scope) =>
       requestRemoteSession(scope, request));
   }
 
   async listProjects(request: RemoteHostPageRequestDto): Promise<RemoteHostProjectPageDto> {
-    return this.requestScoped(request.profileId, 'project.list', (scope) =>
+    return this.requestAuthority.request(request.profileId, 'project.list', (scope) =>
       requestRemoteProjects(scope, request));
   }
 
   async getSessionCapabilities(
     request: RemoteHostSessionCapabilitiesRequestDto,
   ): Promise<RemoteHostSessionCapabilitiesDto> {
-    return this.requestScoped(request.profileId, 'session.console.capabilities', (scope) =>
+    return this.requestAuthority.request(request.profileId, 'session.console.capabilities', (scope) =>
       requestRemoteSessionCapabilities(scope, request));
   }
 
   async listWorkspaceDirectories(
     request: RemoteHostWorkspaceDirectoryRequestDto,
   ): Promise<RemoteHostWorkspaceDirectoryListDto> {
-    return this.requestScoped(request.profileId, 'workspace.directory.list', (scope) =>
+    return this.requestAuthority.request(request.profileId, 'workspace.directory.list', (scope) =>
       requestRemoteWorkspaceDirectories(scope, request));
   }
 
   async createSession(request: RemoteHostCreateSessionDto): Promise<{ sessionId: string; revision: number }> {
-    return this.requestScoped(request.profileId, 'session.console.create', async (scope) => {
-      const parsed = await requestRemoteSessionCreate(
-        scope,
-        request,
-        this.mutationId('create', request.profileId, request.intentId),
-      );
-      this.options.registry.updateNavigation(request.profileId, { selectedSessionId: parsed.sessionId });
-      return parsed;
-    });
+    return this.requestAuthority.request(
+      request.profileId,
+      'session.console.create',
+      async (scope) => {
+        const parsed = await requestRemoteSessionCreate(
+          scope,
+          request,
+          this.requestAuthority.mutationId('create', request.profileId, request.intentId),
+        );
+        this.options.registry.updateNavigation(
+          request.profileId,
+          { selectedSessionId: parsed.sessionId },
+        );
+        return parsed;
+      },
+      [],
+      request.expectedAuthority,
+    );
   }
 
   async listHistory(request: RemoteHostHistoryRequestDto): Promise<RemoteHostHistoryPageDto> {
-    return this.requestScoped(request.profileId, 'session.history', (scope) =>
+    return this.requestAuthority.request(request.profileId, 'session.history', (scope) =>
       requestRemoteHistory(scope, request));
   }
 
@@ -339,6 +388,30 @@ export class RemoteHostService {
     request: RemoteHostSessionTargetDto,
   ): Promise<RemoteHostSessionInputCapabilitiesDto> {
     return this.sessionState.inputCapabilities(request);
+  }
+
+  async getSessionPermissions(
+    request: RemoteHostSessionPermissionsRequestDto,
+  ): Promise<RemoteHostSessionPermissionsDto> {
+    return this.sessionMetadata.permissions(request);
+  }
+
+  async listSessionMessages(
+    request: RemoteHostSessionMessagesRequestDto,
+  ): Promise<RemoteHostSessionMessagesDto> {
+    return this.sessionMetadata.messages(request);
+  }
+
+  async listSessionOutgoing(
+    request: RemoteHostSessionOutgoingRequestDto,
+  ): Promise<RemoteHostSessionOutgoingDto> {
+    return this.sessionMetadata.outgoing(request);
+  }
+
+  async removeSessionOutgoing(
+    request: RemoteHostSessionOutgoingRemoveRequestDto,
+  ): Promise<RemoteHostSessionOutgoingRemoveDto> {
+    return this.sessionMetadata.removeOutgoing(request);
   }
 
   async listPending(request: RemoteHostSessionTargetDto): Promise<RemoteHostPendingListDto> {
@@ -370,92 +443,6 @@ export class RemoteHostService {
     });
   }
 
-  private beginScope(
-    profileId: string,
-    method: CoreMethod,
-    additionalMethods: readonly CoreMethod[],
-  ): RemoteHostScopedClient {
-    this.assertActive();
-    if (
-      this.profiles.sourceMode !== 'remote' ||
-      this.profiles.selectedRemoteProfileId !== profileId
-    ) {
-      throw new RemoteHostPublicError('stale_scope', '当前主机已切换，请重试。');
-    }
-    const state = this.options.registry.state(profileId);
-    const client = this.options.registry.getClient(profileId);
-    const canRequest = (
-      ['connected', 'reconnecting'].includes(state.status) ||
-      (client !== null && isRecoverableRelayWorkerOffline(state))
-    );
-    if (!canRequest || !client) {
-      throw new RemoteHostPublicError('not_connected', '请先连接远程主机。');
-    }
-    for (const requiredMethod of [method, ...additionalMethods]) {
-      const capability = CORE_METHOD_METADATA[requiredMethod].capability;
-      if (!state.capabilities.includes(capability)) {
-        throw new RemoteHostPublicError('capability_unavailable', '远程 Core 不支持此操作。');
-      }
-    }
-    return this.scopes.capture(profileId, client);
-  }
-
-  private assertScope(scope: RemoteHostScopedClient): void {
-    this.assertActive();
-    if (!this.isScopeCurrent(scope)) {
-      throw new RemoteHostPublicError('stale_scope', '当前主机或连接已切换，请重试。');
-    }
-  }
-
-  private isScopeCurrent(scope: RemoteHostScopedClient): boolean {
-    return this.lifecycle === 'active' &&
-      this.scopes.isCurrent(scope) &&
-      this.profiles.sourceMode === 'remote' &&
-      this.profiles.selectedRemoteProfileId === scope.profileId &&
-      this.options.registry.getClient(scope.profileId) === scope.client;
-  }
-
-  private async requestScoped<T>(
-    profileId: string,
-    method: CoreMethod,
-    run: (scope: RemoteHostScopedClient) => Promise<T>,
-    additionalMethods: readonly CoreMethod[] = [],
-  ): Promise<T> {
-    const scope = this.beginScope(profileId, method, additionalMethods);
-    try {
-      const result = await run(scope);
-      this.assertScope(scope);
-      return result;
-    } catch (error) {
-      this.assertScope(scope);
-      throw error;
-    }
-  }
-
-  private async requestTerminalScoped<T>(
-    profileId: string,
-    method: CoreMethod,
-    run: (scope: RemoteHostScopedClient) => Promise<T>,
-    onCurrent?: (result: T) => void,
-    additionalMethods: readonly CoreMethod[] = [],
-  ): Promise<{ result: T; scopeCurrent: boolean }> {
-    const scope = this.beginScope(profileId, method, additionalMethods);
-    try {
-      const result = await run(scope);
-      const scopeCurrent = this.isScopeCurrent(scope);
-      if (scopeCurrent) onCurrent?.(result);
-      return { result, scopeCurrent };
-    } catch (error) {
-      this.assertScope(scope);
-      throw error;
-    }
-  }
-
-  private mutationId(scope: string, profileId: string, intentId: string): string {
-    const { authoritativeCoreId, workerGeneration } = this.options.registry.state(profileId);
-    return remoteHostMutationId(scope, profileId, authoritativeCoreId, workerGeneration, intentId);
-  }
-
   private assertActive(): void {
     if (this.lifecycle !== 'active') {
       throw new RemoteHostPublicError('service_stopped', '远程主机服务已停止。');
@@ -465,9 +452,15 @@ export class RemoteHostService {
   private changed(
     reason: 'data' | 'profiles' | 'selection' | 'state',
     profileId: string | null,
+    resources: readonly RemoteHostResourceKind[] = [],
   ): void {
     this.snapshotRevision += 1;
-    publishRemoteHostChanged({ revision: this.snapshotRevision, profileId, reason });
+    publishRemoteHostChanged({
+      revision: this.snapshotRevision,
+      profileId,
+      reason,
+      resources: [...resources],
+    });
   }
 
   private mutate<T>(run: () => Promise<T> | T): Promise<T> {

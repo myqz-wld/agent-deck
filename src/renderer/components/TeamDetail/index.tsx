@@ -27,7 +27,7 @@ interface Props {
 }
 
 export function TeamDetail({ teamId, source, onBack, onOpenSession }: Props): JSX.Element {
-  const localSource = useTeamDataSource(null);
+  const localSource = useTeamDataSource(null, source === undefined);
   const activeSource = source ?? localSource;
   const [snap, setSnap] = useState<TeamDetailDto | null>(null);
   const [snapshotRevision, setSnapshotRevision] = useState(0);
@@ -105,6 +105,7 @@ export function TeamDetail({ teamId, source, onBack, onOpenSession }: Props): JS
     return () => {
       disposed = true;
       pending = false;
+      if (refreshGenerationRef.current === generation) refreshGenerationRef.current += 1;
       off();
       if (refreshRef.current === refresh) {
         refreshRef.current = async () => {};
@@ -115,9 +116,10 @@ export function TeamDetail({ teamId, source, onBack, onOpenSession }: Props): JS
   useEffect(() => {
     const previous = observedSourceRef.current;
     observedSourceRef.current = activeSource;
-    if (previous.identity !== activeSource.identity || previous === activeSource) return;
-    void refreshRef.current();
-  }, [activeSource]);
+    if (previous.identity !== activeSource.identity) return;
+    const timer = setTimeout(() => { void refreshRef.current(); }, 750);
+    return () => clearTimeout(timer);
+  }, [activeSource.revision]);
 
   const reloadAfterMemberAdded = useCallback(
     (): Promise<void> => refreshRef.current(),
@@ -131,9 +133,12 @@ export function TeamDetail({ teamId, source, onBack, onOpenSession }: Props): JS
     if (teammates.length === 0) return;
     const actionGeneration = refreshGenerationRef.current;
     const actionTeamId = teamId;
+    const actionSourceIdentity = activeSource.identity;
     const actionIsCurrent = (): boolean => (
       actionGeneration === refreshGenerationRef.current
       && actionTeamId === activeTeamIdRef.current
+      && activeSourceRef.current.identity === actionSourceIdentity
+      && activeSourceRef.current.isUsable()
     );
     const ok = await window.api.confirmDialog({
       title: `关闭团队「${snap.name}」的所有协作者`,
@@ -185,9 +190,12 @@ export function TeamDetail({ teamId, source, onBack, onOpenSession }: Props): JS
     if (snap.archivedAt !== null) return;
     const actionGeneration = refreshGenerationRef.current;
     const actionTeamId = teamId;
+    const actionSourceIdentity = activeSource.identity;
     const actionIsCurrent = (): boolean => (
       actionGeneration === refreshGenerationRef.current
       && actionTeamId === activeTeamIdRef.current
+      && activeSourceRef.current.identity === actionSourceIdentity
+      && activeSourceRef.current.isUsable()
     );
     const ok = await window.api.confirmDialog({
       title: `归档团队「${snap.name}」`,
@@ -232,7 +240,16 @@ export function TeamDetail({ teamId, source, onBack, onOpenSession }: Props): JS
     return (
       <div className="flex h-full flex-col">
         <Header onBack={onBack}>错误</Header>
-        <div className="px-3 py-2 text-[11px] text-status-waiting/90">{error ?? '未知错误'}</div>
+        <div className="flex flex-col items-start gap-2 px-3 py-2 text-[11px] text-status-waiting/90">
+          <div>{error ?? '未知错误'}</div>
+          <button
+            type="button"
+            onClick={() => void refreshRef.current()}
+            className="rounded bg-white/[0.06] px-2 py-1 text-deck-muted hover:text-deck-text"
+          >
+            重试
+          </button>
+        </div>
       </div>
     );
   }

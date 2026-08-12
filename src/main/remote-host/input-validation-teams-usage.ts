@@ -15,6 +15,7 @@ import type {
   RemoteHostUsageTokenRequestDto,
 } from '@shared/remote-host';
 import {
+  parseRemoteHostMutationAuthority,
   parseRemoteHostProfileId,
   RemoteHostInputError,
 } from './input-validation';
@@ -81,10 +82,13 @@ export function parseRemoteHostTeamMutationTarget(
   value: unknown,
 ): RemoteHostTeamMutationTargetDto {
   const raw = object(value, 'teamMutation');
-  exact(raw, ['expectedRevision', 'intentId', 'profileId', 'teamId'], 'teamMutation');
+  exact(raw, [
+    'expectedAuthority', 'expectedRevision', 'intentId', 'profileId', 'teamId',
+  ], 'teamMutation');
   const target = parseRemoteHostTeamTarget({ profileId: raw.profileId, teamId: raw.teamId });
   return {
     ...target,
+    expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
     intentId: intent(raw.intentId),
     expectedRevision: revision(raw.expectedRevision),
   };
@@ -93,10 +97,12 @@ export function parseRemoteHostTeamMutationTarget(
 export function parseRemoteHostTeamAddMember(value: unknown): RemoteHostTeamAddMemberDto {
   const raw = object(value, 'teamMember');
   exact(raw, [
-    'expectedRevision', 'intentId', 'profileId', 'role', 'sessionId', 'teamId',
+    'expectedAuthority', 'expectedRevision', 'intentId', 'profileId', 'role', 'sessionId',
+    'teamId',
   ], 'teamMember');
   const mutation = parseRemoteHostTeamMutationTarget({
     expectedRevision: raw.expectedRevision,
+    expectedAuthority: raw.expectedAuthority,
     intentId: raw.intentId,
     profileId: raw.profileId,
     teamId: raw.teamId,

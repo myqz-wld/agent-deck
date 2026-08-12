@@ -20,8 +20,14 @@ interface Props {
   providerOptions?: readonly { id: string; name?: string }[];
   providerClosed?: boolean;
   thinkingOptions?: readonly DeckSelectOption<SessionThinkingChoice>[];
+  disabledReasons?: {
+    provider?: string | null;
+    model?: string | null;
+    thinking?: string | null;
+  };
   onProviderChange?: (provider: string) => void;
   onModelChange: (model: string) => void;
+  onModelBlur?: () => void;
   onThinkingChange: (thinking: SessionThinkingChoice) => void;
 }
 
@@ -66,8 +72,10 @@ export function SessionModelFields({
   providerOptions: providedProviderOptions,
   providerClosed = false,
   thinkingOptions: providedThinkingOptions,
+  disabledReasons = {},
   onProviderChange,
   onModelChange,
+  onModelBlur,
   onThinkingChange,
 }: Props): JSX.Element {
   const modelId = useId();
@@ -114,17 +122,15 @@ export function SessionModelFields({
   ];
 
   return (
-    <div
-      className={`grid grid-cols-1 gap-3 ${
-        providerEnabled ? 'sm:grid-cols-3' : 'sm:grid-cols-2'
-      }`}
-    >
+    <div className="grid grid-cols-1 gap-3">
       {providerEnabled && onProviderChange && (
         <div className="flex min-w-0 flex-col gap-1">
           <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
             {adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
           </label>
-          {providerClosed ? (
+          {disabledReasons.provider ? (
+            <UnavailableField reason={disabledReasons.provider} />
+          ) : providerClosed ? (
             <DeckSelect
               value={provider}
               options={providerSelectOptions}
@@ -161,16 +167,21 @@ export function SessionModelFields({
         >
           模型
         </label>
-        <input
-          id={modelId}
-          type="text"
-          value={model}
-          maxLength={256}
-          disabled={disabled}
-          onChange={(event) => onModelChange(event.target.value)}
-          placeholder="留空仍使用配置文件中的模型"
-          className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
-        />
+        {disabledReasons.model ? (
+          <UnavailableField reason={disabledReasons.model} />
+        ) : (
+          <input
+            id={modelId}
+            type="text"
+            value={model}
+            maxLength={256}
+            disabled={disabled}
+            onChange={(event) => onModelChange(event.target.value)}
+            onBlur={onModelBlur}
+            placeholder="留空仍使用配置文件中的模型"
+            className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
+          />
+        )}
       </div>
       <div className="flex min-w-0 flex-col gap-1">
         <label
@@ -179,19 +190,31 @@ export function SessionModelFields({
         >
           思考程度
         </label>
-        <DeckSelect
-          id={thinkingId}
-          value={thinking}
-          onChange={onThinkingChange}
-          disabled={disabled}
-          options={providedThinkingOptions ?? thinkingOptionsForAdapter(
-            adapterId,
-            allowUnsetThinking,
-          )}
-          buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
-          menuMinWidth={190}
-        />
+        {disabledReasons.thinking ? (
+          <UnavailableField reason={disabledReasons.thinking} />
+        ) : (
+          <DeckSelect
+            id={thinkingId}
+            value={thinking}
+            onChange={onThinkingChange}
+            disabled={disabled}
+            options={providedThinkingOptions ?? thinkingOptionsForAdapter(
+              adapterId,
+              allowUnsetThinking,
+            )}
+            buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
+            menuMinWidth={190}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+function UnavailableField({ reason }: { reason: string }): JSX.Element {
+  return (
+    <div className="break-words rounded border border-white/[0.07] bg-white/[0.03] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted [overflow-wrap:anywhere]">
+      不可用：{reason}
     </div>
   );
 }

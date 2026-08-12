@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { REMOTE_HOST_PAGE_LIMIT, remoteSessionPageRequest } from '@shared/remote-host';
 import type {
-  RemoteHostPendingListDto,
   RemoteHostRuntimeControlsDto,
-  RemoteHostSessionPageDto,
   RemoteHostSessionSummaryDto,
   RemoteHostSummaryListDto,
   RemoteHostSessionContextDto,
@@ -14,47 +11,42 @@ import type { RemoteHostSnapshotState } from './use-remote-host-snapshot';
 import {
   RemoteUserIntentLedger,
 } from './remote-intent-ledger';
-import { appendUnique, remoteSourceIdentity } from './remote-source-utils';
+import {
+  remoteMutationAuthority,
+  remoteSourceIdentity,
+} from './remote-source-utils';
 import { useRemoteSourceContext } from './use-remote-source-context';
 import { createRemoteDetailReaders } from './remote-detail-readers';
 import { startRemoteSessionDetailLoad } from './remote-session-detail-load';
 import { useRemoteTaskRecords } from './use-remote-task-records';
 import { useRemoteEventRecords } from './use-remote-event-records';
 import { RemotePlanReviewTransports } from './remote-plan-review-transports';
-import { useRemotePendingHydrator } from './use-remote-pending-hydrator';
 import { useRemoteBusinessRunner } from './use-remote-business-runner';
 import { createRemoteSessionActions } from './remote-session-actions';
-const EMPTY_PENDING = new Map<string, RemoteHostPendingListDto>();
+import { useRemotePresentationLists } from './use-remote-presentation-lists';
 
 export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSessionSourceView {
   const {
-    activeProfileId, capabilities, dataRevision, identity, profile,
+    activeProfileId, capabilities, identity, profile, resourceRevisions,
     recoveringWorker, state, usable,
   } = useRemoteSourceContext(hosts);
-  const [sessions, setSessions] = useState<RemoteHostSessionSummaryDto[]>([]);
-  const [historySessions, setHistorySessions] = useState<RemoteHostSessionSummaryDto[]>([]);
-  const [sessionTotal, setSessionTotal] = useState<number | null>(null);
-  const [sessionNextCursor, setSessionNextCursor] = useState<string | null>(null);
-  const [historySessionNextCursor, setHistorySessionNextCursor] = useState<string | null>(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
+  const detailRevision = resourceRevisions['session-detail'];
   const [selection, setSelection] = useState<{ identity: string; sessionId: string | null }>({
     identity,
     sessionId: null,
   });
   const selectedSessionId = selection.identity === identity ? selection.sessionId : null;
   const [selectedSession, setSelectedSession] = useState<RemoteHostSessionSummaryDto | null>(null);
-  const [pendingBySession, setPendingBySession] = useState<ReadonlyMap<string, RemoteHostPendingListDto>>(EMPTY_PENDING);
   const [runtime, setRuntime] = useState<RemoteHostRuntimeControlsDto | null>(null);
+  const [runtimeLoadError, setRuntimeLoadError] = useState<string | null>(null);
   const [context, setContext] = useState<RemoteHostSessionContextDto | null>(null);
+  const [contextLoadError, setContextLoadError] = useState<string | null>(null);
   const [inputCapabilities, setInputCapabilities] =
     useState<RemoteHostSessionInputCapabilitiesDto | null>(null);
+  const [inputLoadError, setInputLoadError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<RemoteHostSummaryListDto | null>(null);
   const [summaryLoadError, setSummaryLoadError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [paginationBusy, setPaginationBusy] = useState(false);
   const [localRevision, setLocalRevision] = useState(0);
-  const [listRefreshTick, setListRefreshTick] = useState(0);
   const [detailRefreshTick, setDetailRefreshTick] = useState(0);
   const navigation = useRef(new Map<string, string | null>());
   const identityRef = useRef(identity);
@@ -63,22 +55,11 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   usableRef.current = usable;
   const capabilitiesRef = useRef(capabilities);
   capabilitiesRef.current = capabilities;
-  const connectionAdmission = useRef({ generation: 0, usable });
-  if (connectionAdmission.current.usable !== usable) {
-    connectionAdmission.current = {
-      generation: connectionAdmission.current.generation + 1,
-      usable,
-    };
-  }
   const {
     busy, error, reset: resetBusiness, run: runBusiness, runTerminal: runTerminalBusiness, setError,
   } = useRemoteBusinessRunner(identityRef, setLocalRevision);
   const runtimeRef = useRef<RemoteHostRuntimeControlsDto | null>(null);
-  const listSequence = useRef(0);
   const detailSequence = useRef(0);
-  const paginationSequence = useRef(0);
-  const listLoads = useRef(new Set<string>());
-  const listRefreshPending = useRef(new Set<string>());
   const detailLoads = useRef(new Set<string>());
   const detailRefreshPending = useRef(new Set<string>());
   const intents = useRef(new RemoteUserIntentLedger());
@@ -87,15 +68,19 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     (item) => remoteSourceIdentity(item.profileId, item.authoritativeCoreId, item.workerGeneration),
   ).sort().join('\u0000');
   const taskRecords = useRemoteTaskRecords({
-    activeProfileId, capabilities, dataRevision, identity, selectedSessionId, usable });
+    activeProfileId, capabilities, dataRevision: detailRevision,
+    identity, selectedSessionId, usable });
   const eventRecords = useRemoteEventRecords({
-    activeProfileId, capabilities, dataRevision, identity, selectedSessionId, usable });
-  const hydratePending = useRemotePendingHydrator({
-    identityRef, listSequence, setPendingBySession, setError,
+    activeProfileId, capabilities, dataRevision: detailRevision,
+    identity, selectedSessionId, usable });
+  const lists = useRemotePresentationLists({
+    activeProfileId,
+    capabilities,
+    identity,
+    localRevision,
+    resourceRevisions,
+    usable,
   });
-  const canReadSessions = usable && capabilities.has('session-console.read');
-  const canReadHistory = canReadSessions && capabilities.has('sessions.history');
-  const canReadPending = canReadSessions && capabilities.has('pending.read');
 
   useEffect(() => {
     if (addressableIdentityKey === null) return;
@@ -105,119 +90,30 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   }, [addressableIdentityKey, planReviews]);
   useEffect(() => {
     runtimeRef.current = null;
-    listSequence.current += 1;
     detailSequence.current += 1;
     resetBusiness();
-    paginationSequence.current += 1;
     setSelection({ identity, sessionId: navigation.current.get(identity) ?? null });
-    setSessions([]);
-    setHistorySessions([]);
-    setSessionTotal(null);
-    setSessionNextCursor(null);
-    setHistorySessionNextCursor(null);
-    setHistoryLoading(false);
-    setHistoryLoadError(null);
     setSelectedSession(null);
-    setPendingBySession(EMPTY_PENDING);
     setRuntime(null);
+    setRuntimeLoadError(null);
     setContext(null);
+    setContextLoadError(null);
     setInputCapabilities(null);
+    setInputLoadError(null);
     setSummaries(null);
     setSummaryLoadError(null);
-    setPaginationBusy(false);
   }, [identity, resetBusiness]);
-
-  useEffect(() => {
-    if (!activeProfileId || !canReadSessions) {
-      listSequence.current += 1;
-      paginationSequence.current += 1;
-      setLoading(false);
-      setHistoryLoading(false);
-      setHistoryLoadError(null);
-      setSessions([]);
-      setHistorySessions([]);
-      setSessionTotal(null);
-      setSessionNextCursor(null);
-      setHistorySessionNextCursor(null);
-      setPendingBySession(EMPTY_PENDING);
-      setPaginationBusy(false);
-      return;
-    }
-    const loadKey = `${identity}\u0000${connectionAdmission.current.generation}` +
-      `\u0000${canReadHistory ? 'history' : 'live'}` +
-      `\u0000${canReadPending ? 'pending' : 'plain'}`;
-    if (listLoads.current.has(loadKey)) {
-      listRefreshPending.current.add(loadKey);
-      return;
-    }
-    const sequence = ++listSequence.current;
-    listLoads.current.add(loadKey);
-    setLoading(true);
-    setHistoryLoading(canReadHistory);
-    setHistoryLoadError(null);
-    if (!canReadHistory) {
-      setHistorySessions([]);
-      setHistorySessionNextCursor(null);
-    }
-    if (!canReadPending) setPendingBySession(EMPTY_PENDING);
-    const load = async (): Promise<void> => {
-      const current = (): boolean =>
-        sequence === listSequence.current && identityRef.current === identity;
-      const live = window.api.listRemoteHostSessions(remoteSessionPageRequest(activeProfileId,
-        REMOTE_HOST_PAGE_LIMIT, { includeArchived: false })).then((page) => {
-        if (!current()) return;
-        setSessions(page.sessions); setSessionTotal(page.total); setSessionNextCursor(page.nextCursor);
-        setPendingBySession((value) => {
-          const activeIds = new Set(page.sessions.map((session) => session.id));
-          return new Map([...value].filter(([sessionId]) => activeIds.has(sessionId)));
-        });
-        setError(null);
-        if (canReadPending) {
-          hydratePending(activeProfileId, identity, sequence, page.sessions);
-        }
-      }).catch((reason: unknown) => {
-        if (current()) setError(reason instanceof Error ? reason.message : String(reason));
-      }).finally(() => { if (current()) setLoading(false); });
-      const history = canReadHistory
-        ? window.api.listRemoteHostSessions(remoteSessionPageRequest(activeProfileId,
-            REMOTE_HOST_PAGE_LIMIT, { includeArchived: true })).then((page) => {
-            if (!current()) return;
-            setHistorySessions(page.sessions); setHistorySessionNextCursor(page.nextCursor);
-            setHistoryLoadError(null);
-          }).catch((reason: unknown) => {
-            if (current()) {
-              setHistoryLoadError(reason instanceof Error ? reason.message : String(reason));
-            }
-          }).finally(() => { if (current()) setHistoryLoading(false); })
-        : Promise.resolve();
-      await Promise.allSettled([live, history]);
-    };
-    void load().finally(() => {
-      listLoads.current.delete(loadKey);
-      if (
-        listRefreshPending.current.delete(loadKey) &&
-        identityRef.current === identity
-      ) setListRefreshTick((current) => current + 1);
-    });
-  }, [
-    activeProfileId,
-    canReadHistory,
-    canReadPending,
-    canReadSessions,
-    dataRevision,
-    identity,
-    hydratePending,
-    listRefreshTick,
-    localRevision,
-  ]);
 
   useEffect(() => {
     if (!usable || !activeProfileId || !selectedSessionId) {
       detailSequence.current += 1;
       setSelectedSession(null);
       setRuntime(null);
+      setRuntimeLoadError(null);
       setContext(null);
+      setContextLoadError(null);
       setInputCapabilities(null);
+      setInputLoadError(null);
       runtimeRef.current = null;
       setSummaries(null);
       setSummaryLoadError(null);
@@ -240,14 +136,15 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
         setSelection({ identity, sessionId: null });
         setSelectedSession(null);
         setRuntime(null);
+        setRuntimeLoadError(null);
         setContext(null);
+        setContextLoadError(null);
         setInputCapabilities(null);
+        setInputLoadError(null);
         runtimeRef.current = null;
         setSummaries(null);
         setSummaryLoadError(null);
-        setPendingBySession((current) => {
-          const next = new Map(current); next.delete(selectedSessionId); return next;
-        });
+        lists.mergePending(selectedSessionId, null);
         setError('远程 session 不存在或已删除。');
         return;
       }
@@ -262,46 +159,43 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       } =
         await requests.optional;
       if (sequence !== detailSequence.current || identityRef.current !== identity) return;
-      const optionalErrors: string[] = [];
       if (runtimeResult.status === 'fulfilled') {
         runtimeRef.current = runtimeResult.value;
         setRuntime(runtimeResult.value);
+        setRuntimeLoadError(null);
       }
       else {
         runtimeRef.current = null;
         setRuntime(null);
-        optionalErrors.push(runtimeResult.reason instanceof Error
-          ? runtimeResult.reason.message : String(runtimeResult.reason));
+        setRuntimeLoadError('读取 Worker 运行时控制失败，请稍后重试。');
       }
       if (summaryResult.status === 'fulfilled') {
         setSummaries(summaryResult.value);
         setSummaryLoadError(null);
       } else {
-        const message = summaryResult.reason instanceof Error
-          ? summaryResult.reason.message : String(summaryResult.reason);
+        const message = '读取 Worker 会话总结失败，请稍后重试。';
         setSummaryLoadError(message);
-        optionalErrors.push(message);
       }
-      if (contextResult.status === 'fulfilled') setContext(contextResult.value);
+      if (contextResult.status === 'fulfilled') {
+        setContext(contextResult.value);
+        setContextLoadError(null);
+      }
       else {
         setContext(null);
-        optionalErrors.push(contextResult.reason instanceof Error
-          ? contextResult.reason.message : String(contextResult.reason));
+        setContextLoadError('读取 Worker 上下文窗口快照失败，请稍后重试。');
       }
-      if (inputResult.status === 'fulfilled') setInputCapabilities(inputResult.value);
+      if (inputResult.status === 'fulfilled') {
+        setInputCapabilities(inputResult.value);
+        setInputLoadError(null);
+      }
       else {
         setInputCapabilities(null);
-        optionalErrors.push(inputResult.reason instanceof Error
-          ? inputResult.reason.message : String(inputResult.reason));
+        setInputLoadError('读取 Worker 活动回合输入能力失败；图片输入已保持禁用。');
       }
       if (pendingResult.status === 'fulfilled' && pendingResult.value) {
         const nextPending = pendingResult.value;
-        setPendingBySession((current) => new Map(current).set(selectedSessionId, nextPending));
-      } else if (pendingResult.status === 'rejected') {
-        optionalErrors.push(pendingResult.reason instanceof Error
-          ? pendingResult.reason.message : String(pendingResult.reason));
+        lists.mergePending(selectedSessionId, nextPending);
       }
-      setError(optionalErrors[0] ?? null);
     };
     void load().catch((reason: unknown) => {
       if (sequence === detailSequence.current && identityRef.current === identity) {
@@ -317,10 +211,11 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   }, [
     activeProfileId,
     capabilities,
-    dataRevision,
+    detailRevision,
     detailRefreshTick,
     identity,
     localRevision,
+    lists.mergePending,
     selectedSessionId,
     usable,
   ]);
@@ -332,42 +227,15 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     setSelection({ identity: currentIdentity, sessionId });
     setSelectedSession(null);
     setRuntime(null);
+    setRuntimeLoadError(null);
     setContext(null);
+    setContextLoadError(null);
     setInputCapabilities(null);
+    setInputLoadError(null);
     runtimeRef.current = null;
     setSummaries(null);
     setSummaryLoadError(null);
     setError(null);
-  }, []);
-
-  const runPagination = useCallback(async <T,>(
-    request: () => Promise<T>,
-    applyPage: (page: T) => void,
-  ): Promise<void> => {
-    const expectedIdentity = identityRef.current;
-    const expectedListSequence = listSequence.current;
-    const sequence = ++paginationSequence.current;
-    setPaginationBusy(true);
-    setError(null);
-    try {
-      const page = await request();
-      if (
-        identityRef.current !== expectedIdentity ||
-        listSequence.current !== expectedListSequence ||
-        paginationSequence.current !== sequence
-      ) return;
-      applyPage(page);
-    } catch (reason) {
-      if (
-        identityRef.current === expectedIdentity &&
-        paginationSequence.current === sequence
-      ) setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      if (
-        identityRef.current === expectedIdentity &&
-        paginationSequence.current === sequence
-      ) setPaginationBusy(false);
-    }
   }, []);
 
   const target = (): { profileId: string; sessionId: string } => {
@@ -387,6 +255,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   });
   const sessionActions = createRemoteSessionActions({
     activeProfileId,
+    expectedAuthority: remoteMutationAuthority(state),
     identityRef,
     intents: intents.current,
     requireCapability,
@@ -395,84 +264,73 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     runtimeRef,
     selectSession,
     setRuntime,
+    sourceIdentity: identity,
     target,
   });
 
   return {
     addressableIdentityKey,
-    busy: usable && (busy || paginationBusy),
+    busy: usable && busy,
     capabilities,
-    dataRevision,
-    error: error ?? hosts.error,
+    dataRevision: detailRevision,
+    resourceRevisions,
+    error: error ?? lists.error ?? hosts.error,
     eventLoadError: usable && selectedSession?.id === selectedSessionId
       ? eventRecords.error : null,
     events: usable && selectedSession?.id === selectedSessionId ? eventRecords.value : null,
-    historySessions: usable ? historySessions : [],
-    historyLoading: usable && historyLoading,
-    historyLoadError: usable ? historyLoadError : null,
-    hasMoreHistorySessions: usable && historySessionNextCursor !== null,
-    hasMoreSessions: usable && sessionNextCursor !== null,
+    historySessions: lists.historySessions,
+    historyLoading: lists.historyLoading,
+    historyPaginationBusy: lists.historyPaginationBusy,
+    historyLoadError: lists.historyLoadError,
+    historyQuery: lists.historyQuery,
+    hasMoreHistorySessions: lists.hasMoreHistorySessions,
+    hasMoreSessions: lists.hasMoreSessions,
     identity,
-    loading: usable && loading,
-    pendingBySession: usable ? pendingBySession : EMPTY_PENDING,
+    loading: lists.loading,
+    livePaginationBusy: lists.livePaginationBusy,
+    pendingBuckets: lists.pendingBuckets,
+    pendingBySession: lists.pendingBySession,
+    pendingLoading: lists.pendingLoading,
+    pendingPaginationBusy: lists.pendingPaginationBusy,
+    pendingLoadError: lists.pendingLoadError,
+    pendingTotal: lists.pendingTotal,
+    pendingScanTruncated: lists.pendingScanTruncated,
+    hasMorePending: lists.hasMorePending,
+    presentationCounts: lists.counts,
     profile,
     recoveringWorker,
     runtime: usable ? runtime : null,
+    runtimeLoadError: usable ? runtimeLoadError : null,
     context: usable ? context : null,
+    contextLoadError: usable ? contextLoadError : null,
     inputCapabilities: usable ? inputCapabilities : null,
+    inputLoadError: usable ? inputLoadError : null,
     summaryLoadError: usable ? summaryLoadError : null,
     summaries: usable ? summaries : null,
     taskLoadError: usable && selectedSession?.id === selectedSessionId
       ? taskRecords.error : null,
     tasks: usable && selectedSession?.id === selectedSessionId ? taskRecords.value : null,
     selectedPending: usable && selectedSession?.id === selectedSessionId && selectedSessionId
-      ? pendingBySession.get(selectedSessionId) ?? null : null,
+      ? lists.pendingBySession.get(selectedSessionId) ?? null : null,
     selectedSession: usable ? selectedSession : null,
     selectedSessionId,
-    sessions: usable ? sessions : [],
-    sessionTotal: usable ? sessionTotal : null,
+    sessions: lists.sessions,
+    sessionTotal: lists.total,
     state,
     usable,
-    clearError: () => { setError(null); hosts.clearError(); },
+    clearError: () => { setError(null); lists.clearErrors(); hosts.clearError(); },
     ...sessionActions,
     ...detailReaders,
     planReviewTransport: (presentation, agentId) => planReviews.get({
-      activeProfileId, capabilities, dataRevision, identity,
-      currentIdentity: () => identityRef.current, usable,
+      activeProfileId, capabilities, dataRevision: detailRevision, identity,
+      currentIdentity: () => identityRef.current,
+      expectedAuthority: remoteMutationAuthority(state),
+      usable,
     }, presentation, agentId),
-    loadMoreHistorySessions: async () => {
-      if (
-        !usableRef.current || !capabilitiesRef.current.has('sessions.history') ||
-        !capabilitiesRef.current.has('session-console.read') ||
-        !activeProfileId || !historySessionNextCursor
-      ) return;
-      await runPagination<RemoteHostSessionPageDto>(
-        () => window.api.listRemoteHostSessions(remoteSessionPageRequest(activeProfileId,
-          REMOTE_HOST_PAGE_LIMIT, { cursor: historySessionNextCursor, includeArchived: true })),
-        (page) => {
-          setHistorySessions((current) => appendUnique(current, page.sessions, (item) => item.id));
-          setHistorySessionNextCursor(page.nextCursor);
-        },
-      );
-    },
-    loadMoreSessions: async () => {
-      if (
-        !usableRef.current || !capabilitiesRef.current.has('session-console.read') ||
-        !activeProfileId || !sessionNextCursor
-      ) return;
-      await runPagination(
-        () => window.api.listRemoteHostSessions(remoteSessionPageRequest(activeProfileId,
-          REMOTE_HOST_PAGE_LIMIT, { cursor: sessionNextCursor, includeArchived: false })),
-        (page) => {
-          setSessions((current) => appendUnique(current, page.sessions, (item) => item.id));
-          setSessionTotal(page.total);
-          setSessionNextCursor(page.nextCursor);
-          if (capabilitiesRef.current.has('pending.read')) {
-            hydratePending(activeProfileId, identityRef.current, listSequence.current, page.sessions);
-          }
-        },
-      );
-    },
+    loadMoreHistorySessions: lists.loadMoreHistorySessions,
+    loadMoreSessions: lists.loadMoreSessions,
+    loadMorePending: lists.loadMorePending,
+    setHistoryQuery: lists.setHistoryQuery,
     refresh: () => setLocalRevision((current) => current + 1),
     selectSession,
   };

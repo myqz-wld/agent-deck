@@ -9,6 +9,11 @@ import {
   parseRemoteHostIssueUpdate,
 } from './input-validation-issues';
 
+const EXPECTED_AUTHORITY = {
+  authoritativeCoreId: 'core-a',
+  workerGeneration: 3,
+};
+
 describe('remote issue input validation', () => {
   it('accepts exact bounded list and target requests', () => {
     expect(parseRemoteHostIssueListRequest({
@@ -30,15 +35,18 @@ describe('remote issue input validation', () => {
       profileId: 'remote-a',
       issueId: 'issue-a',
       patch: { title: 'Updated', status: 'in-progress', labels: ['remote'] },
+      expectedAuthority: EXPECTED_AUTHORITY,
       expectedRevision: 7,
       intentId: 'intent-issue-a',
     })).toMatchObject({ expectedRevision: 7, intentId: 'intent-issue-a' });
     expect(parseRemoteHostIssueMutationTarget({
       profileId: 'remote-a', issueId: 'issue-a', expectedRevision: 7,
+      expectedAuthority: EXPECTED_AUTHORITY,
       intentId: 'intent-delete-a',
     })).toMatchObject({ expectedRevision: 7 });
     expect(() => parseRemoteHostIssueUpdate({
       profileId: 'remote-a', issueId: 'issue-a', patch: { cwd: '/etc' },
+      expectedAuthority: EXPECTED_AUTHORITY,
       expectedRevision: 7, intentId: 'intent-issue-a',
     })).toThrow('invalid issue update request');
   });
@@ -50,6 +58,7 @@ describe('remote issue input validation', () => {
     })).toThrow('invalid remote host input');
     expect(() => parseRemoteHostIssueMutationTarget({
       profileId: 'remote-a', issueId: 'issue-a', expectedRevision: -1,
+      expectedAuthority: EXPECTED_AUTHORITY,
       intentId: 'intent-delete-a',
     })).toThrow('invalid issue mutation request');
     expect(() => parseRemoteHostIssueTarget({
@@ -63,6 +72,7 @@ describe('remote issue input validation', () => {
       issueId: 'issue-a',
       issueUpdatedAt: 2,
       expectedRevision: 7,
+      expectedAuthority: EXPECTED_AUTHORITY,
       intentId: 'intent-resolve-a',
       adapterId: 'codex-cli',
       attachments: [],

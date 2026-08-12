@@ -1,4 +1,7 @@
-import type { RemoteHostSessionSummaryDto } from '@shared/remote-host';
+import type {
+  RemoteHostSessionPresentationDto,
+  RemoteHostSessionSummaryDto,
+} from '@shared/remote-host';
 import type { ActivityState, LifecycleState } from '@shared/types';
 
 const LIFECYCLES: readonly LifecycleState[] = ['active', 'dormant', 'closed'];
@@ -10,52 +13,76 @@ export interface RemoteSessionStatusPresentation {
 }
 
 /**
- * Current Core summaries encode `${lifecycle}-${activity}` in the bounded status token. Older
- * fixtures and compatible hosts may expose one half only, so presentation stays fail-closed and
- * deterministic without widening the wire contract.
+ * Legacy Core summaries encode `${lifecycle}-${activity}`. Unknown values are incompatible; they
+ * must never be silently presented as an Active session.
  */
 export function remoteSessionStatus(status: string): RemoteSessionStatusPresentation {
   const separator = status.indexOf('-');
   const lifecycleToken = separator < 0 ? status : status.slice(0, separator);
   const activityToken = separator < 0 ? status : status.slice(separator + 1);
-  const lifecycle = LIFECYCLES.includes(lifecycleToken as LifecycleState)
-    ? lifecycleToken as LifecycleState
-    : 'active';
-  const activity = ACTIVITIES.includes(activityToken as ActivityState)
-    ? activityToken as ActivityState
-    : ACTIVITIES.includes(status as ActivityState)
-      ? status as ActivityState
-      : lifecycle === 'closed'
-        ? 'finished'
-        : 'idle';
+  if (!LIFECYCLES.includes(lifecycleToken as LifecycleState) ||
+      !ACTIVITIES.includes(activityToken as ActivityState)) {
+    throw new Error('远程 Core 返回了不兼容的会话状态。');
+  }
+  const lifecycle = lifecycleToken as LifecycleState;
+  const activity = activityToken as ActivityState;
   return { activity, lifecycle };
 }
 
+export function legacyRemoteSessionPresentation(
+  session: RemoteHostSessionSummaryDto,
+): RemoteHostSessionPresentationDto {
+  const status = remoteSessionStatus(session.status);
+  return {
+    id: session.id,
+    adapterId: session.adapterId,
+    title: session.title ?? '未命名会话',
+    source: 'sdk',
+    lifecycle: status.lifecycle,
+    activity: status.activity,
+    archived: status.lifecycle === 'closed',
+    pinned: false,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    endedAt: null,
+    model: null,
+    thinking: null,
+    runtimeProvider: null,
+    context: null,
+    spawnedBy: null,
+    spawnDepth: 0,
+    teams: [],
+    summary: null,
+    workspaceLabel: null,
+    contextOnly: false,
+  };
+}
+
 export function groupRemoteSessionSummaries(
-  sessions: readonly RemoteHostSessionSummaryDto[],
+  sessions: readonly RemoteHostSessionPresentationDto[],
 ): {
-  active: RemoteHostSessionSummaryDto[];
-  dormant: RemoteHostSessionSummaryDto[];
-  closed: RemoteHostSessionSummaryDto[];
+  active: RemoteHostSessionPresentationDto[];
+  dormant: RemoteHostSessionPresentationDto[];
+  closed: RemoteHostSessionPresentationDto[];
 } {
   const grouped = {
-    active: [] as RemoteHostSessionSummaryDto[],
-    dormant: [] as RemoteHostSessionSummaryDto[],
-    closed: [] as RemoteHostSessionSummaryDto[],
+    active: [] as RemoteHostSessionPresentationDto[],
+    dormant: [] as RemoteHostSessionPresentationDto[],
+    closed: [] as RemoteHostSessionPresentationDto[],
   };
   for (const session of sessions) {
-    grouped[remoteSessionStatus(session.status).lifecycle].push(session);
+    grouped[session.lifecycle].push(session);
   }
   return grouped;
 }
 
 export function remoteSessionActivityCounts(
-  sessions: readonly RemoteHostSessionSummaryDto[],
+  sessions: readonly RemoteHostSessionPresentationDto[],
 ): { waiting: number; working: number } {
   let waiting = 0;
   let working = 0;
   for (const session of sessions) {
-    const { activity, lifecycle } = remoteSessionStatus(session.status);
+    const { activity, lifecycle } = session;
     if (lifecycle === 'closed') continue;
     if (activity === 'waiting') waiting += 1;
     if (activity === 'working') working += 1;

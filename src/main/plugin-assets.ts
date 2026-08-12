@@ -3,7 +3,6 @@ import {
   opendirSync,
   readFileSync,
   realpathSync,
-  statSync,
 } from 'node:fs';
 import {
   basename,
@@ -26,6 +25,10 @@ export interface DiscoverPluginRootsOptions {
   maxManifestBytes?: number;
   maxResults?: number;
   traversalBudget?: PluginTraversalBudget;
+  /** Reject before any stat, directory enumeration, manifest lookup, or content read. */
+  denyPath?: (path: string) => boolean;
+  /** Optional authority-owned bounded reader; Remote callers use a same-handle reader. */
+  readManifest?: (path: string, maximumBytes: number | undefined) => string | null;
 }
 
 export interface PluginTraversalBudget {
@@ -36,6 +39,7 @@ export interface PluginTraversalBudget {
 export function discoverPluginRoots(options: DiscoverPluginRootsOptions): PluginRoot[] {
   const found = new Map<string, PluginRoot>();
   for (const searchPath of options.searchPaths) {
+    if (options.denyPath?.(searchPath)) continue;
     if (atResultLimit(options, found)) {
       options.traversalBudget && (options.traversalBudget.truncated = true);
       break;
@@ -70,7 +74,7 @@ export function safeIsDir(path: string): boolean {
 
 export function safeIsFile(path: string): boolean {
   try {
-    return statSync(path).isFile();
+    return lstatSync(path).isFile();
   } catch {
     return false;
   }
@@ -82,20 +86,26 @@ function walkPluginRoots(
   options: DiscoverPluginRootsOptions,
   found: Map<string, PluginRoot>,
 ): void {
+  if (options.denyPath?.(path)) return;
   if (atResultLimit(options, found)) {
     options.traversalBudget && (options.traversalBudget.truncated = true);
     return;
   }
   if (!safeIsDir(path)) return;
-  const manifestPath = findManifest(path, options.manifestPaths);
-  if (manifestPath || (options.allowContentOnly && hasPluginContent(path))) {
-    const normalized = normalizeExistingPath(path);
-    if (normalized) {
-      found.set(normalized, {
-        path: normalized,
-        name: readPluginName(normalized, manifestPath, options.maxManifestBytes),
-      });
-    }
+  const normalized = normalizeExistingPath(path);
+  if (!normalized || options.denyPath?.(normalized)) return;
+  const manifest = findManifest(normalized, options);
+  if (manifest || (options.allowContentOnly && hasPluginContent(normalized, options.denyPath))) {
+    found.set(normalized, {
+      path: normalized,
+      name: readPluginName(
+        normalized,
+        manifest,
+        options.maxManifestBytes,
+        options.denyPath,
+        options.readManifest,
+      ),
+    });
     return;
   }
   if (depth >= (options.maxDepth ?? 6)) return;
@@ -111,7 +121,10 @@ function walkPluginRoots(
       if (!entry) break;
       if (!takeTraversalEntry(options.traversalBudget)) break;
       if (entry.name.startsWith('.')) continue;
-      walkPluginRoots(join(path, entry.name), depth + 1, options, found);
+      const child = join(path, entry.name);
+      if (!options.denyPath?.(child)) {
+        walkPluginRoots(child, depth + 1, options, found);
+      }
       if (atResultLimit(options, found)) {
         options.traversalBudget && (options.traversalBudget.truncated = true);
         break;
@@ -139,31 +152,48 @@ function takeTraversalEntry(budget: PluginTraversalBudget | undefined): boolean 
   return true;
 }
 
-function findManifest(root: string, manifestPaths: readonly string[]): string | null {
-  for (const manifestPath of manifestPaths) {
+interface AcceptedManifest {
+  path: string;
+  content: string | null;
+}
+
+function findManifest(root: string, options: DiscoverPluginRootsOptions): AcceptedManifest | null {
+  for (const manifestPath of options.manifestPaths) {
     const candidate = join(root, manifestPath);
-    if (safeIsFile(candidate)) return candidate;
+    if (options.denyPath?.(candidate) || !safeIsFile(candidate)) continue;
+    const content = options.readManifest
+      ? options.readManifest(candidate, options.maxManifestBytes)
+      : null;
+    if (options.readManifest && content === null) continue;
+    return { path: candidate, content };
   }
   return null;
 }
 
-function hasPluginContent(root: string): boolean {
-  return safeIsFile(join(root, 'SKILL.md')) ||
-    safeIsDir(join(root, 'agents')) ||
-    safeIsDir(join(root, 'skills'));
+function hasPluginContent(root: string, denyPath?: (path: string) => boolean): boolean {
+  const candidates = [join(root, 'SKILL.md'), join(root, 'agents'), join(root, 'skills')];
+  return candidates.some((candidate) => !denyPath?.(candidate) && (
+    basename(candidate) === 'SKILL.md' ? safeIsFile(candidate) : safeIsDir(candidate)
+  ));
 }
 
 function readPluginName(
   root: string,
-  manifestPath: string | null,
+  manifest: AcceptedManifest | null,
   maxManifestBytes: number | undefined,
+  denyPath?: (path: string) => boolean,
+  readManifest?: (path: string, maximumBytes: number | undefined) => string | null,
 ): string {
-  if (manifestPath) {
+  if (manifest && !denyPath?.(manifest.path)) {
     try {
-      if (maxManifestBytes !== undefined && statSync(manifestPath).size > maxManifestBytes) {
+      if (maxManifestBytes !== undefined && lstatSync(manifest.path).size > maxManifestBytes) {
         return basename(root);
       }
-      const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as { name?: unknown };
+      const content = manifest.content ?? (readManifest
+        ? readManifest(manifest.path, maxManifestBytes)
+        : readFileSync(manifest.path, 'utf8'));
+      if (content === null) return basename(root);
+      const parsed = JSON.parse(content) as { name?: unknown };
       if (typeof parsed.name === 'string' && parsed.name.trim()) return parsed.name.trim();
     } catch {
       // Invalid manifests remain inspectable through the directory-name fallback.

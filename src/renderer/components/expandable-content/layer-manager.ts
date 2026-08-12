@@ -9,18 +9,16 @@ interface ElementIsolationState {
 }
 
 let layers: Layer[] = [];
-let originalBodyState = new Map<HTMLElement, ElementIsolationState>();
+let originalIsolationState = new Map<HTMLElement, ElementIsolationState>();
 const listeners = new Set<() => void>();
 let mountedHeavyView: symbol | null = null;
 
-function rememberBodyChildren(): void {
-  for (const element of document.body.children) {
-    if (!(element instanceof HTMLElement) || originalBodyState.has(element)) continue;
-    originalBodyState.set(element, {
-      ariaHidden: element.getAttribute('aria-hidden'),
-      inert: element.inert,
-    });
-  }
+function rememberElement(element: HTMLElement): void {
+  if (originalIsolationState.has(element)) return;
+  originalIsolationState.set(element, {
+    ariaHidden: element.getAttribute('aria-hidden'),
+    inert: element.inert,
+  });
 }
 
 function restoreElement(
@@ -38,20 +36,27 @@ function restoreElement(
 }
 
 function synchronizeDocumentIsolation(): void {
-  rememberBodyChildren();
+  for (const [element, state] of originalIsolationState) restoreElement(element, state);
+  originalIsolationState = new Map();
   const topRoot = layers.at(-1)?.root;
-  for (const element of document.body.children) {
-    if (!(element instanceof HTMLElement)) continue;
-    if (topRoot && element === topRoot) {
-      restoreElement(element, originalBodyState.get(element));
-    } else if (topRoot) {
-      element.inert = true;
-      element.setAttribute('aria-hidden', 'true');
-    } else {
-      restoreElement(element, originalBodyState.get(element));
+  if (!topRoot) return;
+
+  // A modal may be rendered inside the application root rather than through a
+  // body-level portal. Preserve the ancestor path that contains the modal and
+  // isolate every sibling along that path. This keeps the dialog reachable
+  // while preventing the rest of the application from receiving focus.
+  let current: HTMLElement | null = topRoot;
+  while (current?.parentElement) {
+    const parent: HTMLElement = current.parentElement;
+    for (const sibling of parent.children) {
+      if (!(sibling instanceof HTMLElement) || sibling === current) continue;
+      rememberElement(sibling);
+      sibling.inert = true;
+      sibling.setAttribute('aria-hidden', 'true');
     }
+    if (parent === document.body) break;
+    current = parent;
   }
-  if (!topRoot) originalBodyState = new Map();
 }
 
 function notify(): void {

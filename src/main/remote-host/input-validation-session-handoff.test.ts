@@ -12,6 +12,10 @@ const target = {
   capabilityRevision: null,
   options: sessionConsoleCreateOptionsFixture(),
 };
+const EXPECTED_AUTHORITY = {
+  authoritativeCoreId: 'core-a',
+  workerGeneration: 3,
+};
 
 describe('Remote handoff IPC input validation', () => {
   it('binds one profile to exact preview and commit contracts', () => {
@@ -24,6 +28,7 @@ describe('Remote handoff IPC input validation', () => {
     expect(parseRemoteHostHandOffPreview(preview)).toEqual(preview);
     const commit = {
       ...preview,
+      expectedAuthority: EXPECTED_AUTHORITY,
       expectedBindingDigest: `sha256:${'a'.repeat(64)}`,
       intentId: 'handoff-intent-a',
     };
@@ -41,6 +46,7 @@ describe('Remote handoff IPC input validation', () => {
       .toThrow('unexpected fields');
     expect(() => parseRemoteHostHandOffCommit({
       ...preview,
+      expectedAuthority: EXPECTED_AUTHORITY,
       expectedBindingDigest: 'stale',
       intentId: 'handoff-intent-a',
     })).toThrow('invalid Remote handoff commit');

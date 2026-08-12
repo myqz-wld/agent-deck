@@ -7,6 +7,7 @@ import type {
 } from '@contracts/index';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import type { SessionRecord } from '@shared/types';
+import { withStoredFileChangePathAuthority } from '@shared/file-change-path-authority';
 import { ServerCoreSessionDetailRuntime } from './session-detail-runtime';
 
 const desktop: AuthenticatedClientAccessContext = {
@@ -56,6 +57,8 @@ function harness(overrides: {
   fileKind?: string;
   beforeBlob?: string | null;
   afterBlob?: string | null;
+  canonicalizePath?: (path: string) => string;
+  pathAuthority?: string | null;
 } = {}) {
   const base: DaemonCoreRuntime = {
     supportedMethods: ['system.health'],
@@ -75,6 +78,45 @@ function harness(overrides: {
       '+const route = "/api/v1";',
     ].join('\n'),
     source: 'recorded-snapshot' as const,
+  }));
+  const filePath = overrides.filePath ?? '/workspaces/repo/src/index.ts';
+  const fileKind = overrides.fileKind ?? 'text';
+  const beforeBlob = overrides.beforeBlob === undefined ? 'before' : overrides.beforeBlob;
+  const afterBlob = overrides.afterBlob === undefined ? 'after' : overrides.afterBlob;
+  const pathAuthority = Object.prototype.hasOwnProperty.call(overrides, 'pathAuthority')
+    ? overrides.pathAuthority
+    : filePath;
+  const getDescriptor = vi.fn(() => ({
+    id: 3,
+    sessionId: session.id,
+    filePath,
+    kind: fileKind,
+    toolCallId: null,
+    hasBeforeBlob: beforeBlob !== null,
+    hasAfterBlob: afterBlob !== null,
+    hasBeforeSnapshot: false,
+    hasAfterSnapshot: false,
+    ...(pathAuthority === undefined ? {} : { pathAuthority }),
+    ts: 3,
+  }));
+  const getPayload = vi.fn(() => ({
+    id: 3,
+    sessionId: session.id,
+    filePath,
+    kind: fileKind,
+    beforeBlob,
+    afterBlob,
+    metadata: withStoredFileChangePathAuthority({
+      cwd: '/workspaces/repo',
+      diff: '--- /workspaces/repo/src/index.ts\n+++ /opt/worker-private/output.ts',
+      privatePath: '/state/private/provider-home',
+      externalPath: '/etc/secret',
+      access_key: 'AKIAIOSFODNN7EXAMPLE',
+      locationHint: '/mnt/custom-runtime/private/socket.json',
+      opaqueValue: 'aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY3zA5cD7eF9gH2jK4',
+    }, pathAuthority === undefined ? filePath : pathAuthority),
+    toolCallId: null,
+    ts: 3,
   }));
   const runtime = new ServerCoreSessionDetailRuntime(base, {
     workspaceRoot: '/workspaces',
@@ -123,38 +165,27 @@ function harness(overrides: {
         items: [{
           id: 3,
           sessionId: session.id,
-          filePath: overrides.filePath ?? '/workspaces/repo/src/index.ts',
-          kind: overrides.fileKind ?? 'text',
+          filePath,
+          kind: fileKind,
           toolCallId: null,
           hasBeforeBlob: true,
           hasAfterBlob: true,
           hasBeforeSnapshot: false,
           hasAfterSnapshot: false,
+          ...(pathAuthority === undefined ? {} : { pathAuthority }),
           ts: 3,
         }],
         nextCursor: null,
       }),
-      getPayload: () => ({
-        id: 3,
-        sessionId: session.id,
-        filePath: overrides.filePath ?? '/workspaces/repo/src/index.ts',
-        kind: overrides.fileKind ?? 'text',
-        beforeBlob: overrides.beforeBlob === undefined ? 'before' : overrides.beforeBlob,
-        afterBlob: overrides.afterBlob === undefined ? 'after' : overrides.afterBlob,
-        metadata: {
-          cwd: '/workspaces/repo',
-          diff: '--- /workspaces/repo/src/index.ts\n+++ /opt/worker-private/output.ts',
-          privatePath: '/state/private/provider-home',
-          externalPath: '/etc/secret',
-        },
-        toolCallId: null,
-        ts: 3,
-      }),
+      getDescriptor,
+      getPathDescriptor: () => getDescriptor(),
+      getPayload,
     },
     getFinalDiff,
     privateRoots: ['/state/private'],
+    canonicalizePath: overrides.canonicalizePath ?? ((path) => path),
   });
-  return { base, getFinalDiff, runtime };
+  return { base, getDescriptor, getFinalDiff, getPayload, runtime };
 }
 
 describe('ServerCoreSessionDetailRuntime', () => {
@@ -168,6 +199,38 @@ describe('ServerCoreSessionDetailRuntime', () => {
     await runtime.stop('done');
     expect(base.start).toHaveBeenCalledOnce();
     expect(base.stop).toHaveBeenCalledWith('done');
+  });
+
+  it('boots before a missing Workspace mount exists and keeps reads fail-closed', async () => {
+    const missing = Object.assign(new Error('missing'), { code: 'ENOENT' });
+    const base: DaemonCoreRuntime = {
+      supportedMethods: ['system.health'],
+      start: vi.fn(async () => undefined),
+      stop: vi.fn(async () => undefined),
+      currentRevision: vi.fn(() => 12),
+      execute: vi.fn(async () => ({ result: { ok: true }, revision: 12 })),
+    };
+    const runtime = new ServerCoreSessionDetailRuntime(base, {
+      workspaceRoot: '/workspaces',
+      sessions: { get: () => session },
+      summaries: { listForSession: () => [] },
+      events: { listValidForSession: () => [] },
+      tasks: { listForSession: () => [] },
+      fileChanges: {
+        listSummaryPage: () => ({ items: [], nextCursor: null }),
+        getDescriptor: () => null,
+        getPathDescriptor: () => null,
+        getPayload: () => null,
+      },
+      getFinalDiff: vi.fn(),
+      canonicalizePath: () => { throw missing; },
+    });
+
+    expect(runtime.supportedMethods).toContain('session.summaries.list');
+    await expect(runtime.execute(request('session.summaries.list', {
+      sessionId: session.id,
+      limit: 20,
+    }))).rejects.toMatchObject({ code: 'access_denied' });
   });
 
   it('returns bounded Workspace-projected event records', async () => {
@@ -230,7 +293,11 @@ describe('ServerCoreSessionDetailRuntime', () => {
       sessionId: session.id,
       filePath: 'repo/src/index.ts',
     }));
-    expect(getFinalDiff).toHaveBeenCalledWith(session.id, '/workspaces/repo/src/index.ts');
+    expect(getFinalDiff).toHaveBeenCalledWith(
+      session.id,
+      '/workspaces/repo/src/index.ts',
+      '/workspaces/repo/src/index.ts',
+    );
     expect(result.result).toMatchObject({
       fileDiff: {
         filePath: 'repo/src/index.ts',
@@ -240,11 +307,43 @@ describe('ServerCoreSessionDetailRuntime', () => {
           '+++ [private]',
           '--- [outside Workspace]',
           '+++ [outside Workspace]',
-          '+const route = "/api/v1";',
+          '+const route = "[outside Workspace]";',
         ].join('\n'),
       },
       revision: 12,
     });
+  });
+
+  it('keeps an ingestion-authorized deleted file visible without reading the current target', async () => {
+    const deleted = '/workspaces/repo/src/deleted.ts';
+    const missing = Object.assign(new Error('missing'), { code: 'ENOENT' });
+    const { getFinalDiff, getPayload, runtime } = harness({
+      filePath: deleted,
+      pathAuthority: deleted,
+      canonicalizePath: (path) => {
+        if (path === deleted) throw missing;
+        return path;
+      },
+    });
+
+    await expect(runtime.execute(request('session.file-changes.list', {
+      sessionId: session.id,
+      limit: 20,
+    }))).resolves.toMatchObject({
+      result: { items: [{ filePath: 'repo/src/deleted.ts' }] },
+    });
+    await expect(runtime.execute(request('session.file-changes.get', {
+      sessionId: session.id,
+      changeId: 3,
+    }))).resolves.toMatchObject({
+      result: { change: { filePath: 'repo/src/deleted.ts', beforeBlob: 'before' } },
+    });
+    await expect(runtime.execute(request('session.file-changes.final-diff', {
+      sessionId: session.id,
+      filePath: 'repo/src/deleted.ts',
+    }))).resolves.toMatchObject({ result: { fileDiff: { ok: true } } });
+    expect(getPayload).toHaveBeenCalledOnce();
+    expect(getFinalDiff).toHaveBeenCalledWith(session.id, deleted, deleted);
   });
 
   it('projects image rows to opaque asset handles without returning Worker paths', async () => {
@@ -275,11 +374,102 @@ describe('ServerCoreSessionDetailRuntime', () => {
     await expect(outside.execute(request('session.file-changes.list', {
       sessionId: session.id,
       limit: 20,
-    }))).rejects.toMatchObject({ code: 'access_denied' });
+    }))).resolves.toMatchObject({ result: { items: [] } });
     const feishu = { ...desktop, transport: 'feishu', surface: 'feishu-session-console' } as const;
     await expect(harness().runtime.execute(request('session.summaries.list', {
       sessionId: session.id,
       limit: 20,
     }, feishu))).rejects.toMatchObject({ code: 'access_denied' });
+  });
+
+  it('omits provider configuration rows before returning stored content or final diffs', async () => {
+    const { getFinalDiff, getPayload, runtime } = harness({
+      filePath: '/workspaces/repo/.codex/config.toml',
+      beforeBlob: 'apiToken=sk-secretmarker123',
+      afterBlob: 'after',
+    });
+    await expect(runtime.execute(request('session.file-changes.list', {
+      sessionId: session.id,
+      limit: 20,
+    }))).resolves.toMatchObject({ result: { items: [] } });
+    await expect(runtime.execute(request('session.file-changes.get', {
+      sessionId: session.id,
+      changeId: 3,
+    }))).resolves.toMatchObject({ result: { change: null } });
+    await expect(runtime.execute(request('session.file-changes.final-diff', {
+      sessionId: session.id,
+      filePath: 'repo/.codex/config.toml',
+    }))).resolves.toMatchObject({
+      result: { fileDiff: { ok: false, reason: 'not_in_session', diff: null } },
+    });
+    expect(getFinalDiff).not.toHaveBeenCalled();
+    expect(getPayload).not.toHaveBeenCalled();
+  });
+
+  it('contains a canonical Workspace escape before loading payload or final diff', async () => {
+    const escaped = '/private/secret.ts';
+    const { getFinalDiff, getPayload, runtime } = harness({
+      filePath: '/workspaces/repo/link.ts',
+      canonicalizePath: (path) => path === '/workspaces/repo/link.ts' ? escaped : path,
+    });
+
+    await expect(runtime.execute(request('session.file-changes.get', {
+      sessionId: session.id,
+      changeId: 3,
+    }))).resolves.toMatchObject({ result: { change: null } });
+    expect(getPayload).not.toHaveBeenCalled();
+
+    await expect(runtime.execute(request('session.file-changes.final-diff', {
+      sessionId: session.id,
+      filePath: 'repo/link.ts',
+    }))).resolves.toMatchObject({
+      result: { fileDiff: { ok: false, reason: 'not_in_session', diff: null } },
+    });
+    expect(getFinalDiff).not.toHaveBeenCalled();
+  });
+
+  it('denies a sensitive image descriptor before loading its stored source', async () => {
+    const { getPayload, runtime } = harness({
+      fileKind: 'image',
+      filePath: '/workspaces/repo/.claude/settings.png',
+      beforeBlob: null,
+      afterBlob: JSON.stringify({
+        kind: 'path',
+        path: '/workspaces/repo/.claude/settings.png',
+      }),
+    });
+
+    await expect(runtime.execute(request('session.assets.image-chunk.read', {
+      sessionId: session.id,
+      changeId: 3,
+      side: 'after',
+      offset: 0,
+    }))).resolves.toMatchObject({ result: { ok: false, reason: 'denied' } });
+    expect(getPayload).not.toHaveBeenCalled();
+  });
+
+  it('redacts secret-like values in otherwise allowed stored payloads', async () => {
+    const { runtime } = harness({
+      beforeBlob: [
+        'apiToken=sk-secretmarker123',
+        'access_key=AKIAIOSFODNN7EXAMPLE',
+        'opaque aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY3zA5cD7eF9gH2jK4',
+      ].join('\n'),
+      afterBlob: [
+        'Authorization: Bearer abcdefghijklmnop',
+        'socket=/mnt/custom-runtime/private/socket.json',
+      ].join('\n'),
+    });
+    const result = await runtime.execute(request('session.file-changes.get', {
+      sessionId: session.id,
+      changeId: 3,
+    }));
+    expect(JSON.stringify(result.result)).not.toContain('secretmarker');
+    expect(JSON.stringify(result.result)).not.toContain('abcdefghijklmnop');
+    expect(JSON.stringify(result.result)).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    expect(JSON.stringify(result.result)).not.toContain('aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY');
+    expect(JSON.stringify(result.result)).not.toContain('/mnt/custom-runtime');
+    expect(JSON.stringify(result.result)).not.toContain('custom-runtime/private');
+    expect(JSON.stringify(result.result)).toContain('敏感内容已省略');
   });
 });

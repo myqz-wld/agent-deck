@@ -14,6 +14,11 @@ interface Props {
   providerOptions?: readonly { id: string; name?: string }[];
   providerClosed?: boolean;
   thinkingOptions?: readonly DeckSelectOption<SessionThinkingChoice>[];
+  disabledReasons?: {
+    provider?: string | null;
+    model?: string | null;
+    thinking?: string | null;
+  };
   onProviderChange: (provider: string) => void;
   onModelChange: (model: string) => void;
   onThinkingChange: (thinking: SessionThinkingChoice) => void;
@@ -29,6 +34,7 @@ export function SessionModelDisclosure({
   providerOptions,
   providerClosed,
   thinkingOptions,
+  disabledReasons,
   onProviderChange,
   onModelChange,
   onThinkingChange,
@@ -36,11 +42,19 @@ export function SessionModelDisclosure({
   const providerLabel =
     adapterId === 'grok-build'
       ? null
-      : `${adapterId === 'claude-code' ? 'Gateway' : 'Provider'}：${provider || '原生'}`;
+      : `${adapterId === 'claude-code' ? 'Gateway' : 'Provider'}：${
+          disabledReasons?.provider ? '不可用' : provider || '原生'
+        }`;
+  const modelLabel = disabledReasons?.model ? '不可用' : model || '配置文件';
+  const thinkingLabel = disabledReasons?.thinking
+    ? '不可用'
+    : thinking
+      ? thinking.toUpperCase()
+      : '跟随运行时默认值';
   const summary = [
     providerLabel,
-    `模型：${model || '配置文件'}`,
-    `思考：${thinking ? thinking.toUpperCase() : 'HIGH'}`,
+    `模型：${modelLabel}`,
+    `思考：${thinkingLabel}`,
   ].filter(Boolean);
 
   return (
@@ -60,6 +74,7 @@ export function SessionModelDisclosure({
           providerOptions={providerOptions}
           providerClosed={providerClosed}
           thinkingOptions={thinkingOptions}
+          disabledReasons={disabledReasons}
           onProviderChange={onProviderChange}
           onModelChange={onModelChange}
           onThinkingChange={onThinkingChange}

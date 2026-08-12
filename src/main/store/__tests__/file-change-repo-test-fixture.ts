@@ -33,6 +33,14 @@ const loggerMock = vi.hoisted(() => ({ warn: vi.fn() }));
 vi.mock('@main/utils/logger', () => ({ default: { scope: () => loggerMock } }));
 
 const dbMock = vi.hoisted(() => {
+  const pathAuthority = (raw: string): unknown => {
+    try {
+      const metadata = JSON.parse(raw) as Record<string, unknown>;
+      return metadata.__agentDeckCanonicalPathAuthorityV1 ?? 'legacy';
+    } catch {
+      return 'unavailable';
+    }
+  };
   const state = {
     rows: [] as TestRow[],
     blobs: new Map<string, TestBlob>(),
@@ -70,6 +78,7 @@ const dbMock = vi.hoisted(() => {
         has_before_snapshot: candidate.before_snapshot_hash != null ? 1 : 0,
         has_after_snapshot: candidate.after_snapshot_hash != null ? 1 : 0,
         is_visible: visible?.(candidate.kind, candidate.metadata_json) ?? 1,
+        path_authority: pathAuthority(candidate.metadata_json),
       }));
     }),
     get: vi.fn((...args: unknown[]) => {
@@ -80,9 +89,16 @@ const dbMock = vi.hoisted(() => {
       }
       if (sql.includes('FROM file_changes')) {
         const [sessionId, id] = args;
-        const found = state.rows.find(
-          (candidate) => candidate.session_id === sessionId && candidate.id === id,
-        );
+        const found = sql.includes('fc.file_path IN')
+          ? state.rows
+              .filter((candidate) =>
+                candidate.session_id === sessionId &&
+                (args.slice(1) as string[]).includes(candidate.file_path),
+              )
+              .sort((a, b) => b.ts - a.ts || b.id - a.id)[0]
+          : state.rows.find(
+              (candidate) => candidate.session_id === sessionId && candidate.id === id,
+            );
         if (!found || sql.includes('fc.*')) return found;
         const projected: Record<string, unknown> = {
           id: found.id,
@@ -92,7 +108,16 @@ const dbMock = vi.hoisted(() => {
           metadata_json: found.metadata_json,
           tool_call_id: found.tool_call_id,
           ts: found.ts,
+          path_authority: pathAuthority(found.metadata_json),
         };
+        if (sql.includes('AS has_before_blob')) {
+          Object.assign(projected, {
+            has_before_blob: found.before_blob !== null ? 1 : 0,
+            has_after_blob: found.after_blob !== null ? 1 : 0,
+            has_before_snapshot: found.before_snapshot_hash != null ? 1 : 0,
+            has_after_snapshot: found.after_snapshot_hash != null ? 1 : 0,
+          });
+        }
         if (sql.includes('fc.before_blob AS before_blob')) {
           Object.assign(projected, {
             before_blob: found.before_blob,

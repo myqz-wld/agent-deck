@@ -9,6 +9,11 @@ import {
   type SessionEventDto,
 } from '@contracts/index';
 import type { SessionRecord, StoredAgentEvent } from '@shared/types';
+import {
+  isRemoteSensitiveKey,
+  redactRemoteSensitiveText,
+  REMOTE_SENSITIVE_OMISSION,
+} from './remote-sensitive-data';
 
 const OMITTED_BINARY = '[远程视图已省略二进制内容]';
 const OMITTED_DEPTH = '[远程视图已省略过深内容]';
@@ -44,15 +49,22 @@ function truncateUtf8(value: string, maximum: number): string {
   return `${encoded.subarray(0, cut).toString('utf8')}${marker}`;
 }
 
-function replaceRoots(value: string, state: ProjectionState): string {
+function replaceKnownRoots(value: string, state: ProjectionState): string {
   let projected = value;
   for (const root of state.privateRoots) projected = projected.split(root).join('[private]');
   return projected.split(state.workspaceRoot).join('Workspace');
 }
 
+function projectOrdinaryText(value: string, state: ProjectionState): string {
+  return replaceKnownRoots(
+    redactRemoteSensitiveText(value, (path) => projectPath(path, state)),
+    state,
+  );
+}
+
 function projectPath(value: string, state: ProjectionState): string {
   if (value === '/dev/null') return value;
-  if (!isAbsolute(value)) return replaceRoots(value, state);
+  if (!isAbsolute(value)) return replaceKnownRoots(value, state);
   const target = resolve(value);
   if (inside(state.workspaceRoot, target)) {
     const suffix = relative(state.workspaceRoot, target).split(sep).join('/');
@@ -159,7 +171,7 @@ function projectDiffText(value: string, state: ProjectionState): string {
     }
     expectNewHeader = false;
   }
-  return replaceRoots(parts.join(''), state);
+  return projectOrdinaryText(parts.join(''), state);
 }
 
 function isPathKey(key: string): boolean {
@@ -182,13 +194,14 @@ function projectValue(
   if (state.nodes > SESSION_EVENT_MAX_JSON_NODES || depth > SESSION_EVENT_MAX_JSON_DEPTH) {
     return OMITTED_DEPTH;
   }
+  if (key && isRemoteSensitiveKey(key)) return REMOTE_SENSITIVE_OMISSION;
   if (value === null || typeof value === 'boolean') return value;
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (typeof value === 'string') {
     if (key && BINARY_KEY.test(key)) return OMITTED_BINARY;
     const projected = key && isPathKey(key)
       ? projectPath(value, state)
-      : key && isDiffKey(key) ? projectDiffText(value, state) : replaceRoots(value, state);
+      : key && isDiffKey(key) ? projectDiffText(value, state) : projectOrdinaryText(value, state);
     return truncateUtf8(projected, 128 * 1024);
   }
   if (Array.isArray(value)) {

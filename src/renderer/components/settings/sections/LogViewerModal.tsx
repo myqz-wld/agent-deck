@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, ty
 import { createPortal } from 'react-dom';
 import log from '@renderer/utils/logger';
 import { CloseIcon, RefreshIcon } from '../../icons';
+import { useModalFocus } from '../../use-modal-focus';
 
 const logger = log.scope('log-viewer');
 
@@ -56,6 +57,7 @@ interface Props {
 export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
   const [result, setResult] = useState<LogReadResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
   // 防快速开关 / 连点刷新时旧响应回写新状态
   const seqRef = useRef(0);
 
@@ -92,8 +94,6 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
     };
   }, [open, load]);
 
-  if (!open) return null;
-
   const handleClose = (): void => {
     ++seqRef.current;
     setResult(null);
@@ -101,12 +101,23 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
     onClose();
   };
 
+  useModalFocus({ dialogRef, onClose: handleClose, open });
+
+  if (!open) return null;
+
   return createPortal(
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="no-drag flex h-[80%] w-[80%] max-w-[900px] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="log-viewer-title"
+        tabIndex={-1}
+        className="no-drag flex h-[80%] w-[min(900px,92vw)] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+      >
         <header className="mb-2 flex items-center justify-between gap-2">
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="text-[13px] font-medium text-deck-text">当天日志</span>
+            <span id="log-viewer-title" className="text-[13px] font-medium text-deck-text">当天日志</span>
             {result?.path && (
               <code className="truncate text-[9px] text-deck-muted/60" title={result.path}>
                 {result.path}

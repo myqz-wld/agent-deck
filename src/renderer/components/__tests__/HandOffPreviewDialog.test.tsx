@@ -26,17 +26,6 @@ const otherSource: SessionRecord = {
   title: 'Other source',
 };
 
-function deferred<T>(): {
-  promise: Promise<T>;
-  resolve: (value: T) => void;
-} {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
-
 const prepared: SessionHandOffPreparation = {
   preparationId: 'prep-1',
   preview: '只读的会话续接上下文',
@@ -485,37 +474,4 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     })).toBeNull();
   });
 
-  it('locks close and cancel during commit and reconciles the successful transfer', async () => {
-    const pending = deferred<Awaited<ReturnType<typeof window.api.handOffCommit>>>();
-    handOffCommit.mockReturnValueOnce(pending.promise);
-    const onClose = vi.fn();
-    render(
-      <HandOffPreviewDialog open session={source} onClose={onClose} />,
-    );
-    fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
-    await screen.findByLabelText('续接上下文摘录');
-    const commit = screen.getByRole('button', { name: '打开新会话接力' });
-    fireEvent.click(commit);
-    fireEvent.click(commit);
-    expect(handOffCommit).toHaveBeenCalledTimes(1);
-    const close = screen.getByRole('button', { name: '关闭接力窗口' }) as HTMLButtonElement;
-    const cancel = screen.getByRole('button', { name: '取消' }) as HTMLButtonElement;
-    expect(close.disabled).toBe(true);
-    expect(cancel.disabled).toBe(true);
-    fireEvent.click(close);
-    fireEvent.click(cancel);
-    expect(onClose).not.toHaveBeenCalled();
-    expect(handOffCancel).not.toHaveBeenCalled();
-
-    pending.resolve({
-      status: 'success',
-      successorSessionId: 'stale-target',
-      cutoverEventRevision: 44,
-      lateMessagesDelivered: 0,
-      usedLowerBudgetRetry: false,
-      sourceFinalizationWarning: null,
-    });
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
 });

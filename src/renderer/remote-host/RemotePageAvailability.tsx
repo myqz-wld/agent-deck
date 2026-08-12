@@ -13,6 +13,7 @@ export type RemotePageAvailabilityKind =
   | 'available'
   | 'connecting'
   | 'offline'
+  | 'unknown'
   | 'unsupported';
 
 export interface RemotePageAvailability {
@@ -35,7 +36,7 @@ const PAGE_REQUIREMENTS: Record<
   live: { label: '会话列表', capabilities: ['session-console.read'] },
   pending: {
     label: '待处理',
-    capabilities: ['session-console.read', 'pending.read'],
+    capabilities: ['pending.index.read'],
   },
   teams: { label: '团队', capabilities: ['teams'] },
 };
@@ -90,10 +91,23 @@ export function remotePageAvailability(
   };
 }
 
+export function unknownSourceAvailability(error: string | null): RemotePageAvailability {
+  return {
+    kind: 'unknown',
+    title: error ? '无法确认数据源' : '正在确认数据源',
+    detail: error
+      ? '数据源状态读取失败；已停止 Local 与 Remote 业务读取，请稍后重试。'
+      : '确认完成前不会读取 Local 或 Remote 业务数据。',
+    error,
+  };
+}
+
 export function RemotePageUnavailable({
   availability,
+  onRetry,
 }: {
   availability: Exclude<RemotePageAvailability, { kind: 'available' }>;
+  onRetry?: () => void;
 }): JSX.Element {
   return (
     <div
@@ -108,6 +122,15 @@ export function RemotePageUnavailable({
         <div className="max-w-md break-words text-[10px] leading-relaxed text-status-waiting/90">
           {availability.error}
         </div>
+      )}
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="no-drag mt-1 rounded border border-white/10 px-2 py-1 text-[10px] text-deck-muted hover:bg-white/[0.05] hover:text-deck-text"
+        >
+          重新读取数据源
+        </button>
       )}
     </div>
   );

@@ -10,6 +10,8 @@ import { fileChangeRepo } from '@main/store/file-change-repo';
 import { insertTokenUsageEvent, tokenUsageRepo } from '@main/store/token-usage-repo';
 import { extractCwd, nextActivityState } from './manager-helpers';
 import { buildFileChangeSnapshots } from './file-change-snapshots';
+import { captureFileChangePath } from './file-change-path-authority';
+import { withStoredFileChangePathAuthority } from '@shared/file-change-path-authority';
 import type { UpsertOptions } from './manager/_deps';
 import log from '@main/utils/logger';
 
@@ -232,14 +234,16 @@ export function persistFileChange(event: AgentEvent): void {
     return JSON.stringify(v);
   };
   const kind = typeof p.kind === 'string' ? p.kind : 'text';
-  const metadata =
+  const sourceMetadata =
     p.metadata && typeof p.metadata === 'object' && !Array.isArray(p.metadata)
       ? p.metadata
       : {};
   const cwd = typeof p.cwd === 'string' ? p.cwd : sessionRepo.get(event.sessionId)?.cwd ?? null;
+  const captured = captureFileChangePath(cwd, p.filePath, kind === 'text');
+  const metadata = withStoredFileChangePathAuthority(sourceMetadata, captured.authority);
   const snapshots = buildFileChangeSnapshots({
-    cwd,
-    filePath: p.filePath,
+    captureAuthorized: captured.authority !== null,
+    capturedAfterSnapshot: captured.afterSnapshot,
     kind,
     before: p.before,
     after: p.after,

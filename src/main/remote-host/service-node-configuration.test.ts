@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RemoteHostScopedClient } from './service-scope';
 import { RemoteHostNodeConfigurationController } from './service-node-configuration';
 
+const EXPECTED_AUTHORITY = {
+  authoritativeCoreId: 'core-a',
+  workerGeneration: 3,
+};
+
 function scoped(clientRequest: ReturnType<typeof vi.fn>) {
   const admitted = vi.fn(async (
     _profileId: string,
@@ -53,10 +58,11 @@ describe('RemoteHostNodeConfigurationController', () => {
       adapterId: 'claude-code',
       revision: 6,
       status: {
-        installed: true,
-        installedHooks: ['SessionStart'],
+        supported: true,
+        state: 'installed',
         scope: 'user',
-        settingsPath: '/provider-home/.claude/settings.json',
+        writeAllowed: true,
+        disabledReason: null,
       },
     }));
     const scope = scoped(clientRequest);
@@ -67,15 +73,39 @@ describe('RemoteHostNodeConfigurationController', () => {
     await controller.install({
       profileId: 'remote-a',
       adapterId: 'claude-code',
+      expectedAuthority: EXPECTED_AUTHORITY,
       intentId: 'intent-a',
     });
     expect(clientRequest).toHaveBeenCalledWith(
-      'node.hook.install',
+      'node.hook.projection.install',
       { adapterId: 'claude-code' },
       {
         deadlineMs: 45_000,
         idempotencyKey: 'node-hook-install:remote-a:intent-a',
       },
     );
+  });
+
+  it('rejects a Hook projection returned for a different adapter', async () => {
+    const clientRequest = vi.fn(async () => ({
+      adapterId: 'grok-build',
+      revision: 6,
+      status: {
+        supported: false,
+        state: 'unavailable',
+        scope: null,
+        writeAllowed: false,
+        disabledReason: 'adapter-unavailable',
+      },
+    }));
+    const scope = scoped(clientRequest);
+    const controller = new RemoteHostNodeConfigurationController(
+      scope.request,
+      vi.fn(() => 'mutation-a'),
+    );
+    await expect(controller.status({
+      profileId: 'remote-a',
+      adapterId: 'claude-code',
+    })).rejects.toMatchObject({ code: 'protocol_violation' });
   });
 });

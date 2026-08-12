@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useSyncExternalStore, type MutableRefObject } from 'react';
 
 import type {
   TeamAddMemberResult,
@@ -15,11 +15,13 @@ import { selectPendingBuckets } from '@renderer/lib/session-selectors';
 import { useSessionStore } from '@renderer/stores/session-store';
 import type { AgentDeckMessage, AgentEvent, SessionRecord, TaskRecord } from '@shared/types';
 import { RemoteUserIntentLedger } from '../remote-host/remote-intent-ledger';
+import { remoteMutationAuthority } from '../remote-host/remote-source-utils';
 import type { RemoteSessionSourceView } from '../remote-host/source-types';
 
 export interface TeamDataSource {
   identity: string;
-  revision: number;
+  readonly revision: number;
+  isUsable(): boolean;
   list(): Promise<TeamListResult>;
   get(teamId: string): Promise<TeamGetResult>;
   archive(teamId: string, expectedRevision: number): Promise<TeamMutationResult>;
@@ -33,35 +35,37 @@ export interface TeamDataSource {
   subscribe(listener: () => void, teamId?: string): () => void;
 }
 
-export function useTeamDataSource(remote: RemoteSessionSourceView | null): TeamDataSource {
-  const sessions = useSessionStore((state) => state.sessions);
-  const permissions = useSessionStore((state) => state.pendingPermissionsBySession);
-  const questions = useSessionStore((state) => state.pendingAskQuestionsBySession);
-  const plans = useSessionStore((state) => state.pendingExitPlanModesBySession);
-  const diffs = useSessionStore((state) => state.pendingDiffReviewsBySession);
+const EMPTY_LOCAL_STATE = Object.freeze({
+  sessions: new Map(),
+  pendingPermissionsBySession: new Map(),
+  pendingAskQuestionsBySession: new Map(),
+  pendingExitPlanModesBySession: new Map(),
+  pendingDiffReviewsBySession: new Map(),
+});
+const noSubscribe = (): (() => void) => () => undefined;
+const emptyLocalState = () => EMPTY_LOCAL_STATE;
+
+export function useTeamDataSource(
+  remote: RemoteSessionSourceView | null,
+  localEnabled = remote === null,
+): TeamDataSource {
+  const localState = useSyncExternalStore(
+    localEnabled ? useSessionStore.subscribe : noSubscribe,
+    localEnabled ? useSessionStore.getState : emptyLocalState,
+    emptyLocalState,
+  );
+  const remoteRef = useRef(remote);
+  remoteRef.current = remote;
   const intents = useRef(new RemoteUserIntentLedger());
-  // Keep the Remote adapter referentially stable when unrelated Local stores change. The hook
-  // still has to subscribe unconditionally, but Local state must not trigger Relay requests.
-  const localSessions = remote ? null : sessions;
-  const localPermissions = remote ? null : permissions;
-  const localQuestions = remote ? null : questions;
-  const localPlans = remote ? null : plans;
-  const localDiffs = remote ? null : diffs;
 
   return useMemo(() => {
-    if (remote) return remoteSource(
-      remote.identity,
-      remote.dataRevision,
-      remote.profile?.id ?? null,
-      remote.usable,
-      intents.current,
-    );
+    if (remote) return remoteSource(remote.identity, remoteRef, intents.current);
     const pending = new Map(selectPendingBuckets(
-      localSessions!,
-      localPermissions!,
-      localQuestions!,
-      localPlans!,
-      localDiffs!,
+      localState.sessions,
+      localState.pendingPermissionsBySession,
+      localState.pendingAskQuestionsBySession,
+      localState.pendingExitPlanModesBySession,
+      localState.pendingDiffReviewsBySession,
     ).map((bucket) => [bucket.session.id, {
       sessionId: bucket.session.id,
       permissions: bucket.permissions.length,
@@ -70,33 +74,47 @@ export function useTeamDataSource(remote: RemoteSessionSourceView | null): TeamD
       diffs: bucket.diffReviews.length,
       total: bucket.total,
     } satisfies TeamPendingCountsDto]));
-    return localSource(localSessions!, pending);
+    return localSource(localState.sessions, pending);
   }, [
-    localDiffs, localPermissions, localPlans, localQuestions, localSessions,
-    remote?.dataRevision, remote?.identity, remote?.profile?.id, remote?.usable,
+    localState, remote?.identity,
   ]);
 }
 
 function remoteSource(
   identity: string,
-  revision: number,
-  profileId: string | null,
-  usable: boolean,
+  remoteRef: MutableRefObject<RemoteSessionSourceView | null>,
   intents: RemoteUserIntentLedger,
 ): TeamDataSource {
   const requireProfile = (): string => {
-    if (!profileId || !usable) throw new Error('远程团队数据源尚未连接。');
-    return profileId;
+    const current = remoteRef.current;
+    if (!current || current.identity !== identity || !current.profile?.id || !current.usable) {
+      throw new Error('远程团队数据源尚未连接。');
+    }
+    return current.profile.id;
   };
   const mutate = <T>(
     operation: string,
     payload: { teamId: string; expectedRevision: number },
-    request: (intentId: string, profileId: string) => Promise<T>,
-  ): Promise<T> => intents.run(identity, operation, payload, (intentId) =>
-    request(intentId, requireProfile()));
+    request: (
+      intentId: string,
+      profileId: string,
+      expectedAuthority: ReturnType<typeof remoteMutationAuthority>,
+    ) => Promise<T>,
+  ): Promise<T> => intents.run(identity, operation, payload, (intentId) => {
+    const profileId = requireProfile();
+    return request(
+      intentId,
+      profileId,
+      remoteMutationAuthority(remoteRef.current?.state ?? null),
+    );
+  });
   return {
     identity,
-    revision,
+    get revision() { return remoteRef.current?.resourceRevisions.teams ?? 0; },
+    isUsable: () => {
+      const current = remoteRef.current;
+      return current?.identity === identity && current.usable;
+    },
     list: async () => window.api.listRemoteHostTeams({
       profileId: requireProfile(),
       includeArchived: false,
@@ -109,9 +127,10 @@ function remoteSource(
     archive: (teamId, expectedRevision) => mutate(
       'team-archive',
       { teamId, expectedRevision },
-      (intentId, currentProfileId) => window.api.archiveRemoteHostTeam({
+      (intentId, currentProfileId, expectedAuthority) => window.api.archiveRemoteHostTeam({
         profileId: currentProfileId,
         teamId,
+        expectedAuthority,
         expectedRevision,
         intentId,
       }),
@@ -120,24 +139,30 @@ function remoteSource(
       identity,
       'team-add-member',
       { teamId, sessionId, role, expectedRevision },
-      (intentId) => window.api.addRemoteHostTeamMember({
-        profileId: requireProfile(),
-        teamId,
-        sessionId,
-        role,
-        expectedRevision,
-        intentId,
-      }),
+      (intentId) => {
+        const profileId = requireProfile();
+        return window.api.addRemoteHostTeamMember({
+          profileId,
+          teamId,
+          sessionId,
+          role,
+          expectedAuthority: remoteMutationAuthority(remoteRef.current?.state ?? null),
+          expectedRevision,
+          intentId,
+        });
+      },
     ),
     shutdownTeammates: (teamId, expectedRevision) => mutate(
       'team-shutdown-teammates',
       { teamId, expectedRevision },
-      (intentId, currentProfileId) => window.api.shutdownRemoteHostTeamTeammates({
-        profileId: currentProfileId,
-        teamId,
-        expectedRevision,
-        intentId,
-      }),
+      (intentId, currentProfileId, expectedAuthority) =>
+        window.api.shutdownRemoteHostTeamTeammates({
+          profileId: currentProfileId,
+          teamId,
+          expectedAuthority,
+          expectedRevision,
+          intentId,
+        }),
     ),
     subscribe: () => () => undefined,
   };
@@ -150,6 +175,7 @@ function localSource(
   return {
     identity: 'local',
     revision: 0,
+    isUsable: () => true,
     list: async () => ({
       teams: (await window.api.listAgentDeckTeams({ includeArchived: false })).map((team) => {
         const members = team.members ?? [];

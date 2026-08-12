@@ -35,9 +35,33 @@ export interface NodeHookStatusDto {
   installedHooks: string[];
 }
 
-export interface NodeHookStatusResult {
+export const NODE_HOOK_PROJECTION_STATES = Object.freeze([
+  'installed',
+  'partial',
+  'not-installed',
+  'unavailable',
+] as const);
+export type NodeHookProjectionState = (typeof NODE_HOOK_PROJECTION_STATES)[number];
+
+export const NODE_HOOK_DISABLED_REASONS = Object.freeze([
+  'adapter-unavailable',
+  'status-unavailable',
+  'mutation-unavailable',
+] as const);
+export type NodeHookDisabledReason = (typeof NODE_HOOK_DISABLED_REASONS)[number];
+
+/** Remote-safe Hook projection. It deliberately contains no path or raw Hook identifiers. */
+export interface NodeHookProjectionStatusDto extends JsonObject {
+  supported: boolean;
+  state: NodeHookProjectionState;
+  scope: 'user' | null;
+  writeAllowed: boolean;
+  disabledReason: NodeHookDisabledReason | null;
+}
+
+export interface NodeHookProjectionResult {
   adapterId: NodeConfigurationAdapterId;
-  status: NodeHookStatusDto;
+  status: NodeHookProjectionStatusDto;
   revision: number;
 }
 
@@ -116,13 +140,50 @@ export function parseNodeHookStatus(value: unknown): NodeHookStatusDto {
   };
 }
 
-export function parseNodeHookStatusResult(value: unknown): NodeHookStatusResult {
-  if (!isJsonObject(value)) fail('node.hook.result');
-  exactKeys(value, ['adapterId', 'revision', 'status'], 'node.hook.result');
+export function parseNodeHookProjectionStatus(value: unknown): NodeHookProjectionStatusDto {
+  if (!isJsonObject(value)) fail('node.hook.projection.status');
+  exactKeys(
+    value,
+    ['disabledReason', 'scope', 'state', 'supported', 'writeAllowed'],
+    'node.hook.projection.status',
+  );
+  if (typeof value.supported !== 'boolean') fail('node.hook.projection.status.supported');
+  if (typeof value.writeAllowed !== 'boolean') fail('node.hook.projection.status.writeAllowed');
+  if (!NODE_HOOK_PROJECTION_STATES.includes(value.state as NodeHookProjectionState)) {
+    fail('node.hook.projection.status.state');
+  }
+  if (value.scope !== null && value.scope !== 'user') fail('node.hook.projection.status.scope');
+  if (
+    value.disabledReason !== null &&
+    !NODE_HOOK_DISABLED_REASONS.includes(value.disabledReason as NodeHookDisabledReason)
+  ) {
+    fail('node.hook.projection.status.disabledReason');
+  }
+  if (
+    (!value.supported && value.state !== 'unavailable') ||
+    (!value.supported && value.scope !== null) ||
+    (!value.supported && value.writeAllowed) ||
+    (value.supported && value.scope !== 'user') ||
+    (value.writeAllowed && value.disabledReason !== null)
+  ) {
+    fail('node.hook.projection.status.consistency');
+  }
+  return {
+    supported: value.supported,
+    state: value.state as NodeHookProjectionState,
+    scope: value.scope,
+    writeAllowed: value.writeAllowed,
+    disabledReason: value.disabledReason as NodeHookDisabledReason | null,
+  };
+}
+
+export function parseNodeHookProjectionResult(value: unknown): NodeHookProjectionResult {
+  if (!isJsonObject(value)) fail('node.hook.projection.result');
+  exactKeys(value, ['adapterId', 'revision', 'status'], 'node.hook.projection.result');
   return {
     adapterId: parseNodeConfigurationAdapterId(value.adapterId),
-    status: parseNodeHookStatus(value.status),
-    revision: revision(value.revision, 'node.hook.result.revision'),
+    status: parseNodeHookProjectionStatus(value.status),
+    revision: revision(value.revision, 'node.hook.projection.result.revision'),
   };
 }
 

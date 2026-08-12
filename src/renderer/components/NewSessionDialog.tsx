@@ -1,52 +1,29 @@
 import { useEffect, useId, useRef, useState, type JSX } from 'react';
 
-import type { SessionConsoleCreateOptionKey } from '@contracts/index';
-import { parseSessionConsoleAttachments } from '@contracts/index';
 import type { DeckSelectOption } from '@renderer/components/DeckSelect';
 import type { SessionThinkingChoice } from '@renderer/components/SessionModelFields';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import { getLastAdapter, setLastAdapter } from '@renderer/hooks/useLastSessionDefaults';
 import { useSessionCreationOptions } from '@renderer/hooks/useSessionCreationOptions';
-import {
-  CLAUDE_SANDBOX_OPTIONS,
-  CODEX_APPROVAL_POLICY_OPTIONS,
-  CODEX_SANDBOX_OPTIONS,
-  PERMISSION_OPTIONS,
-} from '@renderer/lib/sandbox-options';
-import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
 import { errorMessage } from '@renderer/lib/error-message';
-import type {
-  RemoteSessionCreateInput,
-  RemoteSessionSourceView,
-} from '@renderer/remote-host/source-types';
-import type { AdapterSessionMode } from '@shared/types';
-import {
-  NewSessionForm,
-  type NewSessionSelectControl,
-} from './new-session/NewSessionForm';
+import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
+import { NewSessionForm } from './new-session/NewSessionForm';
 import { RemoteWorkspaceDirectoryDialog } from './new-session/RemoteWorkspaceDirectoryDialog';
 import {
-  closedSessionOptions,
-  remoteSandboxOptions,
-} from './new-session/remote-sandbox-options';
-import {
-  localSessionOptionKeys,
-  remoteSessionOptionKeys,
-  sessionOptionLabel,
-} from './new-session/session-option-catalog';
+  localControls,
+  remoteControls,
+  submitLocalSession,
+  submitRemoteSession,
+  type LocalSessionAdapterInfo,
+} from './new-session/session-dialog-actions';
 import { useRemoteSessionCreation } from './new-session/useRemoteSessionCreation';
 
-interface AdapterInfo {
-  id: string;
-  displayName: string;
-  capabilities: {
-    canCreateSession?: boolean;
-    canSetPermissionMode?: boolean;
-    canSetSessionMode?: boolean;
-    canAcceptAttachments?: boolean;
-  };
-  sessionModes: AdapterSessionMode[];
-}
+export {
+  buildRemoteSessionCreateInput,
+  localControls,
+  remoteControls,
+} from './new-session/session-dialog-actions';
+export type { LocalSessionAdapterInfo } from './new-session/session-dialog-actions';
 
 interface Props {
   open: boolean;
@@ -62,7 +39,7 @@ export function NewSessionDialog({
   remoteSource = null,
 }: Props): JSX.Element | null {
   const remoteMode = remoteSource !== null;
-  const [localAdapters, setLocalAdapters] = useState<AdapterInfo[]>([]);
+  const [localAdapters, setLocalAdapters] = useState<LocalSessionAdapterInfo[]>([]);
   const [localAdapterId, setLocalAdapterId] = useState<string>(() => getLastAdapter());
   const [workingDirectory, setWorkingDirectory] = useState(remoteMode ? '.' : '');
   const [prompt, setPrompt] = useState('');
@@ -216,14 +193,14 @@ export function NewSessionDialog({
     setBusy(true);
     try {
       const id = remoteMode
-        ? await submitRemote(
+        ? await submitRemoteSession(
             remoteSource,
             remote,
             workingDirectory,
             prompt,
             images.toIpcInputs(),
           )
-        : await submitLocal(
+        : await submitLocalSession(
             localAdapterId,
             selectedLocalAdapter,
             localOptions,
@@ -302,6 +279,14 @@ export function NewSessionDialog({
               label: value.toUpperCase(),
             })) ?? []
           : undefined,
+        disabledReasons: remoteMode ? {
+          provider: descriptor?.create.options.provider.enabled
+            ? null : descriptor?.create.options.provider.disabledReason,
+          model: descriptor?.create.options.model.enabled
+            ? null : descriptor?.create.options.model.disabledReason,
+          thinking: descriptor?.create.options.thinking.enabled
+            ? null : descriptor?.create.options.thinking.disabledReason,
+        } : undefined,
         onProviderChange: (value) => remoteMode
           ? remote.setOption('provider', value) : localOptions.setProvider(value),
         onModelChange: (value) => remoteMode
@@ -311,6 +296,9 @@ export function NewSessionDialog({
       }}
       pickingDirectory={pickingDirectory}
       prompt={prompt}
+      sourceLabel={remoteMode
+        ? `Remote · ${remoteSource?.profile?.label ?? 'Worker'} · Workspace`
+        : 'Local · 本机'}
       workingDirectory={workingDirectory}
       onAdapterChange={(value) => {
         if (remoteMode) remote.setAdapterId(value);
@@ -337,145 +325,4 @@ export function NewSessionDialog({
       )}
     </>
   );
-}
-
-export function remoteControls(
-  descriptor: ReturnType<typeof useRemoteSessionCreation>['descriptor'],
-  values: ReturnType<typeof useRemoteSessionCreation>['options'],
-  setOption: (key: SessionConsoleCreateOptionKey, value: string) => void,
-): NewSessionSelectControl[] {
-  if (!descriptor) return [];
-  const result: NewSessionSelectControl[] = [];
-  const add = (key: SessionConsoleCreateOptionKey): void => {
-    const schema = descriptor.create.options[key];
-    const value = values[key];
-    if (!schema.enabled || value === null || !schema.allowedValues) return;
-    result.push({ label: sessionOptionLabel(key), value, options: closedSessionOptions(schema.allowedValues),
-      onChange: (next) => setOption(key, next) });
-  };
-  for (const key of remoteSessionOptionKeys(descriptor)) {
-    if (key !== descriptor.create.sandbox.optionKey) {
-      add(key);
-      continue;
-    }
-    const value = values[key];
-    if (value !== null) {
-      result.push({
-        label: sessionOptionLabel(key),
-        value,
-        options: remoteSandboxOptions(descriptor.create.sandbox.choices, key),
-        onChange: (next) => setOption(key, next),
-      });
-    }
-  }
-  return result;
-}
-
-function localControls(
-  adapterId: string,
-  adapter: AdapterInfo | undefined,
-  options: ReturnType<typeof useSessionCreationOptions>,
-): NewSessionSelectControl[] {
-  const result: NewSessionSelectControl[] = [];
-  const keys = localSessionOptionKeys(adapterId, {
-    canSetPermissionMode: adapter?.capabilities?.canSetPermissionMode === true,
-    canSetSessionMode: adapter?.capabilities?.canSetSessionMode === true,
-    hasSessionModes: (adapter?.sessionModes?.length ?? 0) > 0,
-  });
-  for (const key of keys) {
-    if (key === 'permissionMode') {
-      result.push({ label: sessionOptionLabel(key), value: options.permissionMode,
-        options: PERMISSION_OPTIONS, onChange: (value) => options.setPermissionMode(
-          value as Parameters<typeof options.setPermissionMode>[0]) });
-    } else if (key === 'sessionMode') {
-      result.push({ label: sessionOptionLabel(key), value: options.sessionMode,
-        options: adapterSessionModeOptions(adapter?.sessionModes ?? []), onChange: (value) =>
-          options.setSessionMode(value as Parameters<typeof options.setSessionMode>[0]) });
-    } else if (key === 'approvalPolicy') {
-      result.push({ label: sessionOptionLabel(key), value: options.approvalPolicy,
-        options: CODEX_APPROVAL_POLICY_OPTIONS, onChange: (value) =>
-          options.setApprovalPolicy(value as Parameters<typeof options.setApprovalPolicy>[0]) });
-    } else if (key === 'codexSandbox') {
-      result.push({ label: sessionOptionLabel(key), value: options.codexSandbox,
-        options: CODEX_SANDBOX_OPTIONS, onChange: (value) =>
-          options.setCodexSandbox(value as Parameters<typeof options.setCodexSandbox>[0]) });
-    } else if (key === 'claudeCodeSandbox') {
-      result.push({ label: sessionOptionLabel(key), value: options.claudeCodeSandbox,
-        options: CLAUDE_SANDBOX_OPTIONS, onChange: (value) =>
-          options.setClaudeCodeSandbox(value as Parameters<typeof options.setClaudeCodeSandbox>[0]) });
-    } else if (key === 'grokSandbox') {
-      result.push({ label: sessionOptionLabel(key), value: options.grokSandbox,
-        options: [], customGrok: true, onChange: options.setGrokSandbox });
-    }
-  }
-  return result;
-}
-
-async function submitRemote(
-  source: RemoteSessionSourceView | null,
-  remote: ReturnType<typeof useRemoteSessionCreation>,
-  workingDirectory: string,
-  prompt: string,
-  attachments: ReturnType<ReturnType<typeof useImageAttachments>['toIpcInputs']>,
-): Promise<string> {
-  if (!source || !remote.descriptor) throw new Error('远程运行时配置尚未就绪。');
-  return source.createSession(buildRemoteSessionCreateInput(
-    remote,
-    workingDirectory,
-    prompt,
-    attachments,
-  ));
-}
-
-export function buildRemoteSessionCreateInput(
-  remote: ReturnType<typeof useRemoteSessionCreation>,
-  workingDirectory: string,
-  prompt: string,
-  attachments: ReturnType<ReturnType<typeof useImageAttachments>['toIpcInputs']>,
-): RemoteSessionCreateInput {
-  if (!remote.descriptor) throw new Error('远程运行时配置尚未就绪。');
-  const validatedAttachments = parseSessionConsoleAttachments(attachments);
-  const policy = remote.descriptor.create.attachments;
-  const totalBytes = validatedAttachments.reduce((total, attachment) => total + attachment.bytes, 0);
-  if (
-    validatedAttachments.length > policy.maxCount ||
-    validatedAttachments.some((attachment) =>
-      attachment.bytes > policy.maxBytesEach || !policy.mimeTypes.includes(attachment.mime)) ||
-    totalBytes > policy.maxBytesTotal
-  ) {
-    throw new Error('图片超过当前 Remote Core 协商的传输限制；图片仍保留，可移除后重试。');
-  }
-  return {
-    adapterId: remote.adapterId,
-    attachments: validatedAttachments,
-    capabilityRevision: remote.descriptor.capabilityRevision,
-    initialMessage: prompt.trim(),
-    options: remote.options,
-    workingDirectory: workingDirectory.trim() || '.',
-  };
-}
-
-async function submitLocal(
-  adapterId: string,
-  adapter: AdapterInfo | undefined,
-  options: ReturnType<typeof useSessionCreationOptions>,
-  cwd: string,
-  prompt: string,
-  attachments: ReturnType<ReturnType<typeof useImageAttachments>['toIpcInputs']>,
-): Promise<string> {
-  return window.api.createAdapterSession(adapterId, {
-    cwd: cwd.trim(),
-    prompt: prompt.trim() || undefined,
-    permissionMode: adapter?.capabilities.canSetPermissionMode ? options.permissionMode : undefined,
-    sessionMode: adapter?.capabilities.canSetSessionMode ? options.sessionMode : undefined,
-    approvalPolicy: adapterId === 'codex-cli' ? options.approvalPolicy : undefined,
-    codexSandbox: adapterId === 'codex-cli' ? options.codexSandbox : undefined,
-    claudeCodeSandbox: adapterId === 'claude-code' ? options.claudeCodeSandbox : undefined,
-    grokSandbox: adapterId === 'grok-build' ? options.grokSandbox.trim() : undefined,
-    ...((adapterId === 'claude-code' || adapterId === 'codex-cli') && options.provider.trim()
-      ? { provider: options.provider.trim() } : {}),
-    ...(options.model.trim() ? { model: options.model.trim() } : {}),
-    ...(options.thinking ? { thinking: options.thinking } : {}),
-    ...(attachments.length > 0 ? { attachments } : {}),
-  });
 }

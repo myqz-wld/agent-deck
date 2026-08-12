@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
-import type { NodeAssetDto } from '@contracts/index';
 import {
   DEFAULT_SETTINGS,
   type AppSettings,
@@ -14,8 +13,10 @@ import { ApplicationConventionTab } from './assets/ApplicationConventionTab';
 import { RemoteApplicationConventionTab } from './assets/RemoteApplicationConventionTab';
 import { ContentViewerModal, type ContentViewerState } from './assets/ContentViewerModal';
 import { InjectionToggleBar } from './assets/InjectionToggleBar';
+import { remoteAssetSnapshots } from './assets/remote-asset-presentation';
 import { CloseIcon, LibraryIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
+import { useModalFocus } from './use-modal-focus';
 
 /**
  * 资产库 Dialog（CHANGELOG_57 / CHANGELOG_69 / CHANGELOG_137 / plan
@@ -48,42 +49,6 @@ interface Props {
 
 type TabKey = 'skills' | 'agents' | 'claude-md';
 
-function toAssetMeta(asset: NodeAssetDto): AssetMeta {
-  return {
-    kind: asset.kind,
-    source: asset.source,
-    adapter: asset.adapterId,
-    name: asset.name,
-    qualifiedName: asset.qualifiedName,
-    description: asset.description,
-    absPath: asset.location,
-    ...(asset.tools === null ? {} : { tools: asset.tools }),
-    ...(asset.model === null ? {} : { model: asset.model }),
-    ...(asset.thinking === null ? {} : { thinking: asset.thinking }),
-    ...(asset.provider === null ? {} : { provider: asset.provider }),
-    ...(asset.origin === null ? {} : { origin: asset.origin }),
-    ...(asset.pluginName === null ? {} : { pluginName: asset.pluginName }),
-    ...(asset.runtimeName === null ? {} : { runtimeName: asset.runtimeName }),
-  };
-}
-
-function snapshots(assets: NodeAssetDto[]): {
-  bundled: BundledAssetsSnapshot;
-  user: UserAssetsSnapshot;
-} {
-  const mapped = assets.map(toAssetMeta);
-  return {
-    bundled: {
-      agents: mapped.filter((asset) => asset.source === 'bundled' && asset.kind === 'agent'),
-      skills: mapped.filter((asset) => asset.source === 'bundled' && asset.kind === 'skill'),
-    },
-    user: {
-      agents: mapped.filter((asset) => asset.source === 'user' && asset.kind === 'agent'),
-      skills: mapped.filter((asset) => asset.source === 'user' && asset.kind === 'skill'),
-    },
-  };
-}
-
 export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JSX.Element | null {
   const [tab, setTab] = useState<TabKey>('skills');
   const [bundled, setBundled] = useState<BundledAssetsSnapshot | null>(null);
@@ -98,6 +63,8 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
   // plan §D1：Skills/Agents 各 tab 独立 sub-tab state（切换其他 tab 不影响其他 tab 的 sub-tab）
   const [skillsAdapter, setSkillsAdapter] = useState<AssetAdapter>('claude-code');
   const [agentsAdapter, setAgentsAdapter] = useState<AssetAdapter>('claude-code');
+  const [remoteCatalogRefresh, setRemoteCatalogRefresh] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   const remoteIdentity = remote?.identity ?? null;
   const remoteLabel = remote?.label ?? null;
@@ -111,11 +78,15 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
   const updateSeqRef = useRef(0);
   const claudeMdDirtyRef = useRef(false);
   const closeInFlightRef = useRef(false);
+  const remoteCatalogRevisionRef = useRef<number | null>(null);
   remoteIdentityRef.current = remoteIdentity;
   remoteUsableRef.current = remoteUsable;
 
   const onClaudeMdDirtyChange = useCallback((d: boolean) => {
     claudeMdDirtyRef.current = d;
+  }, []);
+  const refreshRemoteCatalog = useCallback(() => {
+    setRemoteCatalogRefresh((current) => current + 1);
   }, []);
 
   useEffect(() => {
@@ -142,6 +113,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
     setSettings(null);
     setReadOnlyReason(null);
     setAssetsTruncated(false);
+    remoteCatalogRevisionRef.current = null;
     if (remoteIdentity !== null) {
       claudeMdDirtyRef.current = false;
       if (!remoteUsable) {
@@ -162,7 +134,8 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
             seq !== fetchSeqRef.current || remoteIdentityRef.current !== fetchIdentity ||
             !remoteUsableRef.current
           ) return;
-          const next = snapshots(result.assets);
+          const next = remoteAssetSnapshots(result.assets);
+          remoteCatalogRevisionRef.current = result.revision;
           setBundled(next.bundled);
           setUser(next.user);
           setSettings({ ...DEFAULT_SETTINGS, ...result.injection });
@@ -201,6 +174,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
     open,
     remoteIdentity,
     remoteProfileId,
+    remoteCatalogRefresh,
     remoteSupportsNodeAssets,
     remoteUsable,
   ]);
@@ -249,9 +223,13 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
   const openViewer = (asset: AssetMeta): void => {
     const seq = ++viewerSeqRef.current;
     const viewerIdentity = remoteIdentity;
+    const catalogRevision = remoteCatalogRevisionRef.current;
     setViewer({ asset, content: null, error: null });
     if (remoteIdentity !== null) {
-      if (!remoteUsable || !remoteSupportsNodeAssets || remoteProfileId === null) {
+      if (
+        !remoteUsable || !remoteSupportsNodeAssets || remoteProfileId === null ||
+        catalogRevision === null
+      ) {
         setViewer({ asset, content: null, error: '当前 Remote Worker 资产不可用。' });
         return;
       }
@@ -268,6 +246,11 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
           seq !== viewerSeqRef.current || remoteIdentityRef.current !== viewerIdentity ||
           !remoteUsableRef.current
         ) return;
+        if (result.revision !== catalogRevision) {
+          setViewer(null);
+          refreshRemoteCatalog();
+          return;
+        }
         setViewer({ asset, content: result.content, error: null });
       }).catch(() => {
         if (
@@ -326,14 +309,28 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
     if (await confirmDiscardClaudeMd('switch')) setTab(next);
   };
 
+  useModalFocus({
+    blocked: closeInFlightRef.current,
+    dialogRef,
+    onClose: () => { void guardedClose(); },
+    open,
+  });
+
   if (!open) return null;
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="no-drag w-[420px] max-h-[85%] flex flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="assets-library-title"
+        className="no-drag w-[min(28rem,92vw)] max-h-[85%] flex flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+      >
         <header className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-1">
-            <h2 className="flex items-center gap-1.5 text-[13px] font-medium">
+            <h2 id="assets-library-title" className="flex items-center gap-1.5 text-[13px] font-medium">
               <LibraryIcon className="h-4 w-4" />资产库
             </h2>
             <span className="text-[10px] text-deck-muted/70">
@@ -429,11 +426,13 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
                 readOnlyReason={readOnlyReason}
               />
               {remoteIdentity !== null && remoteProfileId !== null && remoteUsable &&
-              remoteSupportsNodeAssets ? (
+              remoteSupportsNodeAssets && remoteCatalogRevisionRef.current !== null ? (
                 <RemoteApplicationConventionTab
+                  catalogRevision={remoteCatalogRevisionRef.current}
                   identity={remoteIdentity}
                   label={remoteLabel ?? 'Remote Worker'}
                   profileId={remoteProfileId}
+                  onCatalogChanged={refreshRemoteCatalog}
                 />
               ) : remoteIdentity === null ? (
                 <ApplicationConventionTab onDirtyChange={onClaudeMdDirtyChange} />
