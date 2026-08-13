@@ -15,7 +15,7 @@
   },
   "instance": {
     "id": "aws-relay-on-mac",
-    "runtimeConfigFile": "/Users/yourname/.config/agent-deck-deploy/relay-runtime.json"
+    "runtimeConfigFile": "/Users/yourname/.agent-deck/deploy/relay-runtime.json"
   },
   "image": {
     "repository": "localhost/agent-deck-relay",

@@ -15,7 +15,7 @@
   },
   "instance": {
     "id": "aws-full-production",
-    "runtimeConfigFile": "/Users/yourname/.config/agent-deck-deploy/full-runtime.json",
+    "runtimeConfigFile": "/Users/yourname/.agent-deck/deploy/full-runtime.json",
     "fullResources": {
       "cpuCores": 4,
       "memoryBytes": 8589934592,
@@ -29,7 +29,7 @@
     "reference": "registry.example.com/agent-deck-full@sha256:REPLACE_WITH_64_LOWERCASE_HEX_DIGEST"
   },
   "secrets": {
-    "credentialsFile": "/Users/yourname/.config/agent-deck-deploy/full-credentials.json",
+    "credentialsFile": "/Users/yourname/.agent-deck/deploy/full-credentials.json",
     "claudeCredentialsFile": null,
     "codexAuthFile": null,
     "grokAuthFile": null
