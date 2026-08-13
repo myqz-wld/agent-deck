@@ -38,7 +38,7 @@ export function RemoteApplicationConventionTab({
       .then((result) => {
         if (seq !== requestSeqRef.current) return;
         if (result.adapterId !== adapter || result.revision !== catalogRevision) {
-          setError('Worker 资产目录已更新，正在重新读取；请稍后重试。');
+          setError('远端资产已更新，请稍后重试。');
           onCatalogChanged();
           return;
         }
@@ -46,7 +46,7 @@ export function RemoteApplicationConventionTab({
       })
       .catch(() => {
         if (seq !== requestSeqRef.current) return;
-        setError('Worker 应用约定读取失败，请确认远端连接后重试。');
+        setError('应用约定读取失败，请检查远端连接后重试。');
       });
     return () => {
       ++requestSeqRef.current;
@@ -61,13 +61,13 @@ export function RemoteApplicationConventionTab({
           {error}
         </div>
       ) : content === null ? (
-        <div className="text-[11px] text-deck-muted">正在读取 Worker 应用约定…</div>
+        <div className="text-[11px] text-deck-muted">正在读取应用约定…</div>
       ) : (
         <ReadOnlyConventionDocument
           adapter={adapter}
           adapterName={ADAPTER_NAMES[adapter]}
           content={content}
-          description={`当前显示 Worker「${label}」部署的应用约定；新建会话会使用这份内容。`}
+          description={`当前显示「${label}」的应用约定；新建会话会使用这份内容。`}
           identity={identity}
         />
       )}

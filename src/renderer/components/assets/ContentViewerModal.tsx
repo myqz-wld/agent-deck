@@ -46,9 +46,13 @@ export function ContentViewerModal({
         <header className="mb-2 flex items-start justify-between gap-2">
           <div className="flex flex-col gap-0.5 min-w-0">
             <code id={titleId} className="text-[11px] font-medium text-deck-text truncate">{asset.qualifiedName}</code>
-            <code className="text-[9px] text-deck-muted/60 truncate" title={asset.absPath}>
-              {asset.absPath}
-            </code>
+            {onReveal ? (
+              <code className="text-[9px] text-deck-muted/60 truncate" title={asset.absPath}>
+                {asset.absPath}
+              </code>
+            ) : (
+              <span className="text-[9px] text-deck-muted/60">远端内容</span>
+            )}
           </div>
           <div className="flex shrink-0 gap-1">
             {onReveal ? (
@@ -60,11 +64,7 @@ export function ContentViewerModal({
               >
                 <FolderOpenIcon className="mr-1 inline h-3 w-3" />显示文件
               </button>
-            ) : (
-              <span className="rounded bg-white/5 px-2 py-0.5 text-[10px] text-deck-muted/60">
-                Worker 文件 · 只读
-              </span>
-            )}
+            ) : null}
             <button
               type="button"
               onClick={onClose}

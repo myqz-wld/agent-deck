@@ -54,7 +54,6 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
   const [bundled, setBundled] = useState<BundledAssetsSnapshot | null>(null);
   const [user, setUser] = useState<UserAssetsSnapshot | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [readOnlyReason, setReadOnlyReason] = useState<string | null>(null);
   const [assetsTruncated, setAssetsTruncated] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -111,21 +110,20 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
     setBundled(null);
     setUser(null);
     setSettings(null);
-    setReadOnlyReason(null);
     setAssetsTruncated(false);
     remoteCatalogRevisionRef.current = null;
     if (remoteIdentity !== null) {
       claudeMdDirtyRef.current = false;
       if (!remoteUsable) {
-        setLoadError('当前 Worker 尚未连接，暂时无法读取资产。');
+        setLoadError('当前远端环境尚未连接，暂时无法读取资产。');
         return;
       }
       if (!remoteSupportsNodeAssets) {
-        setLoadError('当前 Remote Core 版本未提供 Worker 资产能力；请先升级远端部署。');
+        setLoadError('当前远端版本不支持读取资产，请升级后重试。');
         return;
       }
       if (remoteProfileId === null) {
-        setLoadError('当前 Remote 缺少连接配置，暂时无法读取 Worker 资产。');
+        setLoadError('当前远端连接信息不完整，暂时无法读取资产。');
         return;
       }
       void window.api.listRemoteHostNodeAssets({ profileId: remoteProfileId })
@@ -139,7 +137,6 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
           setBundled(next.bundled);
           setUser(next.user);
           setSettings({ ...DEFAULT_SETTINGS, ...result.injection });
-          setReadOnlyReason(result.readOnlyReason);
           setAssetsTruncated(result.assetsTruncated);
         })
         .catch(() => {
@@ -147,7 +144,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
             seq !== fetchSeqRef.current || remoteIdentityRef.current !== fetchIdentity ||
             !remoteUsableRef.current
           ) return;
-          setLoadError('Worker 资产读取失败，请检查连接后重试。');
+          setLoadError('远端资产读取失败，请检查连接后重试。');
         });
       return;
     }
@@ -196,7 +193,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
 
   const updateSettings = async (patch: Partial<AppSettings>): Promise<void> => {
     if (remoteIdentity !== null) {
-      setUpdateError('注入开关由 Worker 部署管理，Remote 中不可修改。');
+      setUpdateError('远端资产不能在这里修改。');
       return;
     }
     const seq = ++updateSeqRef.current;
@@ -230,7 +227,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
         !remoteUsable || !remoteSupportsNodeAssets || remoteProfileId === null ||
         catalogRevision === null
       ) {
-        setViewer({ asset, content: null, error: '当前 Worker 资产不可用。' });
+        setViewer({ asset, content: null, error: '当前远端资产不可用。' });
         return;
       }
       void window.api.getRemoteHostNodeAssetContent({
@@ -257,7 +254,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
           seq !== viewerSeqRef.current || remoteIdentityRef.current !== viewerIdentity ||
           !remoteUsableRef.current
         ) return;
-        setViewer({ asset, content: null, error: 'Worker 资产内容读取失败，请重试。' });
+        setViewer({ asset, content: null, error: '远端资产内容读取失败，请重试。' });
       });
       return;
     }
@@ -336,7 +333,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
             <span className="text-[10px] text-deck-muted/70">
               {remoteIdentity === null
                 ? '(Local · Skills / Agents / 应用约定)'
-                : `(Remote · ${remoteLabel ?? 'Worker'})`}
+                : `(Remote · ${remoteLabel ?? '远端'})`}
             </span>
           </div>
           <button
@@ -355,6 +352,12 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
           <TabBtn active={tab === 'claude-md'} onClick={() => void guardedSwitchTab('claude-md')}>应用约定</TabBtn>
         </nav>
 
+        {remoteIdentity !== null && (
+          <div className="mb-3 rounded border border-deck-border/70 bg-white/[0.025] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted/75">
+            远端资产仅供查看。
+          </div>
+        )}
+
         {loadError && (
           <div className="mb-3 rounded border border-status-waiting/40 bg-status-waiting/10 p-2 text-[11px] text-status-waiting whitespace-pre-wrap">
             {loadError}
@@ -369,7 +372,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
 
         {assetsTruncated && (
           <div className="mb-3 rounded border border-status-waiting/40 bg-status-waiting/10 p-2 text-[11px] text-status-waiting">
-            Worker 资产数量超过远端列表上限；当前仅显示前 512 项。
+            远端资产较多，当前仅显示前 512 项。
           </div>
         )}
 
@@ -380,7 +383,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
                 tab="skills"
                 settings={settings}
                 update={updateSettings}
-                readOnlyReason={readOnlyReason}
+                readOnly={remoteIdentity !== null}
               />
               <div className="mb-2">
                 <AdapterSubTab current={skillsAdapter} onSelect={setSkillsAdapter} showGrok />
@@ -390,7 +393,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
                 adapter={skillsAdapter}
                 bundled={bundled?.skills ?? []}
                 user={user?.skills ?? []}
-                userHomeLabel={remoteIdentity === null ? '~' : 'Worker Provider Home'}
+                sourceScope={remoteIdentity === null ? 'local' : 'remote'}
                 onView={openViewer}
               />
             </>
@@ -401,7 +404,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
                 tab="agents"
                 settings={settings}
                 update={updateSettings}
-                readOnlyReason={readOnlyReason}
+                readOnly={remoteIdentity !== null}
               />
               <div className="mb-2">
                 <AdapterSubTab current={agentsAdapter} onSelect={setAgentsAdapter} showGrok />
@@ -411,7 +414,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
                 adapter={agentsAdapter}
                 bundled={bundled?.agents ?? []}
                 user={user?.agents ?? []}
-                userHomeLabel={remoteIdentity === null ? '~' : 'Worker Provider Home'}
+                sourceScope={remoteIdentity === null ? 'local' : 'remote'}
                 onView={openViewer}
                 onConfigureBundledAgent={remoteIdentity === null ? setBundledAgentEditor : undefined}
               />
@@ -423,14 +426,14 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
                 tab="claude-md"
                 settings={settings}
                 update={updateSettings}
-                readOnlyReason={readOnlyReason}
+                readOnly={remoteIdentity !== null}
               />
               {remoteIdentity !== null && remoteProfileId !== null && remoteUsable &&
               remoteSupportsNodeAssets && remoteCatalogRevisionRef.current !== null ? (
                 <RemoteApplicationConventionTab
                   catalogRevision={remoteCatalogRevisionRef.current}
                   identity={remoteIdentity}
-                  label={remoteLabel ?? 'Remote Worker'}
+                  label={remoteLabel ?? '远端'}
                   profileId={remoteProfileId}
                   onCatalogChanged={refreshRemoteCatalog}
                 />

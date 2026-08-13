@@ -20,11 +20,11 @@ export function presentLocalHookStatus(status: HookInstallStatus): HookStatusPre
 
 const REMOTE_HOOK_DISABLED_COPY: Record<
   Exclude<NodeHookProjectionStatusDto['disabledReason'], null>,
-  string
+  string | null
 > = {
-  'adapter-unavailable': '该 Provider 在当前 Worker 上不可用。',
-  'status-unavailable': '该 Provider 未提供可安全读取的 Hook 状态。',
-  'mutation-unavailable': '该 Provider 的 Hook 只能查看，当前 Worker 不允许修改。',
+  'adapter-unavailable': '当前远端环境未启用此工具。',
+  'status-unavailable': '暂时无法读取 Hook 状态。',
+  'mutation-unavailable': null,
 };
 
 export function presentRemoteHookStatus(
@@ -36,6 +36,6 @@ export function presentRemoteHookStatus(
     writeAllowed: false,
     disabledReason: status.disabledReason
       ? REMOTE_HOOK_DISABLED_COPY[status.disabledReason]
-      : 'Hook 由 Worker 部署管理，Remote 中仅供查看。',
+      : null,
   };
 }

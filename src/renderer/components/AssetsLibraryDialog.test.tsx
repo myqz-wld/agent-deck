@@ -85,14 +85,20 @@ describe('AssetsLibraryDialog source authority', () => {
 
     expect(await screen.findByText('(Remote · aws-relay-on-mac)')).toBeTruthy();
     expect(await screen.findByText('agent-deck:claude-code:deep-review')).toBeTruthy();
-    expect(screen.getByText('Worker Provider Home/.claude/skills/')).toBeTruthy();
-    expect(screen.getByText('Worker 启动配置只读。')).toBeTruthy();
+    expect(screen.getByText('远端资产')).toBeTruthy();
+    expect(screen.getAllByText('远端资产仅供查看。')).toHaveLength(1);
+    expect(screen.queryByText('Worker Provider Home/.claude/skills/')).toBeNull();
+    expect(screen.queryByText('Worker 启动配置只读。')).toBeNull();
     for (const toggle of screen.getAllByRole('checkbox')) {
       expect((toggle as HTMLInputElement).disabled).toBe(true);
     }
 
     fireEvent.click(screen.getByRole('button', { name: '查看' }));
     expect(await screen.findByText('# Worker deep review')).toBeTruthy();
+    expect(screen.getByText('远端内容')).toBeTruthy();
+    expect(screen.queryByText(
+      'Worker packaged resources/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md',
+    )).toBeNull();
     expect(screen.queryByRole('button', { name: '显示文件' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
 
@@ -138,7 +144,7 @@ describe('AssetsLibraryDialog source authority', () => {
     }} />);
 
     expect(await screen.findByText(
-      '当前 Remote Core 版本未提供 Worker 资产能力；请先升级远端部署。',
+      '当前远端版本不支持读取资产，请升级后重试。',
     )).toBeTruthy();
     expect(remote.listRemoteHostNodeAssets).not.toHaveBeenCalled();
     for (const call of Object.values(local)) expect(call).not.toHaveBeenCalled();
@@ -198,7 +204,7 @@ describe('AssetsLibraryDialog source authority', () => {
     rerender(
       <AssetsLibraryDialog open onClose={vi.fn()} remote={{ ...remoteProps, usable: false }} />,
     );
-    expect(await screen.findByText('当前 Worker 尚未连接，暂时无法读取资产。')).toBeTruthy();
+    expect(await screen.findByText('当前远端环境尚未连接，暂时无法读取资产。')).toBeTruthy();
     expect(screen.queryByText('agent-deck:claude-code:deep-review')).toBeNull();
     expect(screen.queryByRole('button', { name: '关闭' })).toBeNull();
 
