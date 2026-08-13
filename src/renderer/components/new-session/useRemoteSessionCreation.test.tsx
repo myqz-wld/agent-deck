@@ -29,7 +29,7 @@ function descriptor(
         ...fixture.create.options,
         provider: {
           allowedValues: ['default-provider', 'team-provider'],
-          allowCustom: false,
+          allowCustom: true,
           allowEmpty: false,
           defaultValue: provider,
           disabledReason: null,

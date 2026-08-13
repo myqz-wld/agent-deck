@@ -216,7 +216,7 @@ export function RemoteHandOffDialog({
                 model={displayOptions.model ?? ''}
                 thinking={(displayOptions.thinking ?? '') as SessionThinkingChoice}
                 disabled={busy}
-                providerClosed
+                providerClosed={!displayDescriptor.create.options.provider.allowCustom}
                 providerOptions={displayDescriptor.create.options.provider.allowedValues?.map(
                   (id) => ({ id }),
                 ) ?? []}

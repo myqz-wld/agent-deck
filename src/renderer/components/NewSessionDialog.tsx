@@ -310,7 +310,10 @@ export function NewSessionDialog({
         images={images}
         initializing={initializing}
         configurationPending={remoteMode ? remote.loading : localOptions.configurationLoading}
-        configurationControlsBlocked={remoteMode && remote.loading}
+        configurationControlsBlocked={remoteMode && (
+          remote.initializing ||
+          (remote.loading && remote.presentationAdapterId !== remote.adapterId)
+        )}
         configurationSubmissionBlocked={remoteMode
           ? remote.loading
           : localOptions.configurationLoading}
@@ -319,7 +322,7 @@ export function NewSessionDialog({
           provider,
           model,
           thinking,
-          providerClosed: remoteMode,
+          providerClosed: remoteMode && descriptor?.create.options.provider.allowCustom !== true,
           providerOptions: remoteMode
             ? descriptor?.create.options.provider.allowedValues?.map((id) => ({ id })) ?? []
             : localOptions.providerOptions,

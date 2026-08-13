@@ -92,6 +92,19 @@ describe('session-console capability contract', () => {
       .toThrow('disabledReason');
   });
 
+  it('accepts discovered provider suggestions together with custom entry', () => {
+    const descriptor = structuredClone(sessionConsoleCapabilitiesFixture('codex-cli'));
+    descriptor.create.options.provider = {
+      allowedValues: ['team-provider'],
+      allowCustom: true,
+      allowEmpty: true,
+      defaultValue: '',
+      disabledReason: null,
+      enabled: true,
+    };
+    expect(parseSessionConsoleCapabilitiesResult(descriptor)).toEqual(descriptor);
+  });
+
   it('admits a fully disabled sandbox only when the selected adapter is unavailable', () => {
     const disabled = structuredClone(sessionConsoleCapabilitiesFixture());
     const reason = '安全边界尚未满足。';

@@ -138,14 +138,16 @@ export function RemoteIssueResolutionDialog({
         images={images}
         initializing={remote.initializing}
         configurationPending={remote.loading}
-        configurationControlsBlocked={remote.loading}
+        configurationControlsBlocked={remote.initializing || (
+          remote.loading && remote.presentationAdapterId !== remote.adapterId
+        )}
         configurationSubmissionBlocked={remote.loading}
         model={{
           adapterId: remote.presentationAdapterId,
           provider: options.provider ?? '',
           model: options.model ?? '',
           thinking: (options.thinking ?? '') as SessionThinkingChoice,
-          providerClosed: true,
+          providerClosed: descriptor?.create.options.provider.allowCustom !== true,
           providerOptions: descriptor?.create.options.provider.allowedValues?.map((id) => ({ id })) ?? [],
           thinkingOptions: descriptor?.create.options.thinking.allowedValues?.map((value) => ({
             value: value as SessionThinkingChoice,
