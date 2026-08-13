@@ -2,6 +2,7 @@
 review_id: 237
 reviewed_at: 2026-08-12
 baseline_commit: 50ddf644f9e08803ed40d00b5237f2327c113364
+related_changelog: CHANGELOG_597
 expired: false
 skipped_expired:
   - file: "ref/**"

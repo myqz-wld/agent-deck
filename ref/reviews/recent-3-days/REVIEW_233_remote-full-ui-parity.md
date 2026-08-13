@@ -22,6 +22,10 @@ bounded targeted re-review.
 
 The final reviewed scope is the following 311-path product/deployment/test union:
 
+The preceding grouped UI audit and the exact paired-review dispatch/correction manifest are retained
+as `ref/evidence/remote-full-ui-parity-audit.md` and
+`ref/evidence/remote-full-ui-parity-deep-review-manifest.md`.
+
 ```review-scope
 deploy/examples/relay-worker.config.example.json
 deploy/examples/remote-session-catalog.example.json
@@ -394,9 +398,10 @@ CRITICAL, HIGH, MEDIUM, LOW, or INFO issue, and both reviewers recommended conve
   visible notice because the component no longer exists. The mounted/identity fence intentionally
   prefers zero stale mutation; normal navigation flushes on blur.
 
-## Follow-ups
+## Delivery status
 
-1. Commit and push the exact reviewed release.
-2. Build the macOS package from that clean pushed commit; the user installs it.
-3. Run non-invasive installed acceptance for connection/reconnect, all page groups, lifecycle,
-   sensitive-file exclusions, and real Claude/Codex sessions.
+- The corrected release plus the provider-readiness/History-parity follow-up is delivered on
+  `main` at `dc4943bb0d620d2ec7dd6013a33c62a32e6ec12a` and matches `origin/main`.
+- The exact macOS package was built and passed the packaged Worker sandbox check.
+- Remaining follow-up: install that exact package, then run non-invasive acceptance for Remote
+  History, provider quota, connection/reconnect, lifecycle, and sensitive-file exclusions.
