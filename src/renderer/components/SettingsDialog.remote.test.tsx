@@ -184,7 +184,7 @@ describe('SettingsDialog adapter views', () => {
     }) as HTMLButtonElement).disabled)
       .toBe(true);
     expect(screen.getAllByText(
-      '远端配置仅供查看，不能在这里修改。提醒、窗口、快捷键和日志属于这台电脑。',
+      '远端运行设置仅供查看。提醒、窗口和日志仍可在这里修改；快捷键显示的是这台电脑当前使用的按键。',
     )).toHaveLength(1);
     expect(localHookStatus).not.toHaveBeenCalled();
     expect(remoteHookStatus).toHaveBeenCalledTimes(3);
@@ -201,11 +201,15 @@ describe('SettingsDialog adapter views', () => {
       ({ adapterId }: { adapterId: 'claude-code' | 'codex-cli' | 'grok-build' }) =>
         Promise.resolve({ adapterId, revision: 4, status: REMOTE_HOOK_STATUS }),
     );
+    const setSettings = vi.fn().mockImplementation(
+      async (patch: Partial<typeof DEFAULT_SETTINGS>) => ({ ...DEFAULT_SETTINGS, ...patch }),
+    );
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
         getSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
         hookStatus,
+        setSettings,
         listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
         listCodexModelProviders: vi.fn().mockResolvedValue([]),
         summarizerLastErrors: vi.fn().mockResolvedValue({}),
@@ -242,17 +246,35 @@ describe('SettingsDialog adapter views', () => {
     expect(remoteStructure).toEqual(localStructure);
     expect(remoteStructure).toEqual(GENERAL_STRUCTURE);
     expect(remoteFields).toEqual(localFields);
-    for (const control of remoteView.container.querySelectorAll<
-      HTMLInputElement | HTMLButtonElement | HTMLSelectElement
-    >('[data-settings-section] input, [data-settings-section] select, [data-settings-section] button')) {
-      if (control instanceof HTMLButtonElement && control.parentElement?.dataset.settingsSection) {
-        continue;
+    const desktopOwnedSections = new Set(['提醒', '窗口', '快捷键', '日志']);
+    for (const section of remoteView.container.querySelectorAll<HTMLElement>(
+      '[data-settings-section]',
+    )) {
+      if (desktopOwnedSections.has(section.dataset.settingsSection ?? '')) continue;
+      for (const control of section.querySelectorAll<
+        HTMLInputElement | HTMLButtonElement | HTMLSelectElement
+      >('input, select, button')) {
+        if (control instanceof HTMLButtonElement && control.parentElement === section) continue;
+        expect(
+          control.disabled || (control instanceof HTMLInputElement && control.readOnly),
+          control.outerHTML,
+        ).toBe(true);
       }
-      expect(
-        control.disabled || (control instanceof HTMLInputElement && control.readOnly),
-        control.outerHTML,
-      ).toBe(true);
     }
+
+    const soundToggle = screen.getByRole('checkbox', { name: '启用声音' }) as HTMLInputElement;
+    const loginToggle = screen.getByRole('checkbox', { name: '开机自启' }) as HTMLInputElement;
+    const logsSection = remoteView.container.querySelector<HTMLElement>(
+      '[data-settings-section="日志"]',
+    );
+    const logLevel = logsSection?.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]');
+    expect(soundToggle.disabled).toBe(false);
+    expect(loginToggle.disabled).toBe(false);
+    expect(logLevel?.disabled).toBe(false);
+    fireEvent.click(soundToggle);
+    await vi.waitFor(() => expect(setSettings).toHaveBeenCalledWith({
+      enableSound: !DEFAULT_SETTINGS.enableSound,
+    }));
     expect(remoteView.container.textContent).not.toContain('Worker 配置');
     expect(remoteView.container.textContent).not.toContain('Remote Core');
   });

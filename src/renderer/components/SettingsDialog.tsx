@@ -262,7 +262,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="no-drag w-[min(26rem,92vw)] max-h-[85%] overflow-y-auto scrollbar-deck rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+        className="no-drag w-[min(28rem,92vw)] max-h-[85%] overflow-y-auto scrollbar-deck rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
       >
         <header className="mb-3 flex items-center justify-between">
           <h2 id={titleId} className="text-[13px] font-medium">
@@ -327,7 +327,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
 
             {remote && (
               <div className="mb-3 rounded border border-deck-border/70 bg-white/[0.025] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted/75">
-                远端配置仅供查看，不能在这里修改。提醒、窗口、快捷键和日志属于这台电脑。
+                远端运行设置仅供查看。提醒、窗口和日志仍可在这里修改；快捷键显示的是这台电脑当前使用的按键。
               </div>
             )}
 
@@ -362,8 +362,8 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                 </SectionGroup>
 
                 <SectionGroup title="提醒与外观">
-                  <NotifySection settings={settings} update={update} readOnly={Boolean(remote)} />
-                  <WindowSection settings={settings} update={update} readOnly={Boolean(remote)} />
+                  <NotifySection settings={settings} update={update} />
+                  <WindowSection settings={settings} update={update} />
                   <KeyboardShortcutsSection />
                 </SectionGroup>
 
@@ -388,7 +388,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                       />
                     </>
                   )}
-                  <LogsSection settings={settings} update={update} readOnly={Boolean(remote)} />
+                  <LogsSection settings={settings} update={update} />
                 </SectionGroup>
 
                 <SectionGroup title="跨工具协作（MCP）">

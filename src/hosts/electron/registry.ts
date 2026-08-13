@@ -30,6 +30,7 @@ import {
   registryErrorMessage,
 } from './registry-binding-failure';
 import type { RegistryEntry } from './registry-entry';
+import { isLiveWorkerOffline, shouldReplaceTerminalTransport } from './registry-reconnect';
 import { startRegistryConnect } from './registry-connect';
 import { disconnectRegistryEntry } from './registry-disconnect';
 import {
@@ -241,6 +242,9 @@ export class ElectronHostRegistry {
   private async connectEntry(entry: RegistryEntry, epoch: number): Promise<HostHello> {
     try {
       if (entry.retirement) await entry.retirement;
+      if (shouldReplaceTerminalTransport(entry) && entry.binding) {
+        await this.retireBinding(entry, entry.binding, epoch, true);
+      }
     } catch (error) {
       if (entry.epoch === epoch) this.applyRetirementError(entry, error);
       throw error;
@@ -252,7 +256,7 @@ export class ElectronHostRegistry {
     if (
       entry.binding &&
       entry.identity &&
-      (entry.state.status === 'connected' || this.isLiveWorkerOffline(entry))
+      (entry.state.status === 'connected' || isLiveWorkerOffline(entry))
     ) {
       return this.reaffirmLiveBinding(entry, epoch);
     }
@@ -287,7 +291,7 @@ export class ElectronHostRegistry {
         throw new Error('Host connection was replaced during registry setup');
       }
       entry.eventSubscription = subscription;
-      if (!this.isLiveWorkerOffline(entry)) {
+      if (!isLiveWorkerOffline(entry)) {
         this.updateState(entry, { status: 'connected', error: null });
       }
       return hello;
@@ -411,15 +415,6 @@ export class ElectronHostRegistry {
     });
   }
 
-  private isLiveWorkerOffline(entry: RegistryEntry): boolean {
-    return (
-      entry.profile.topology === 'relay' &&
-      entry.transportState?.status === 'offline' &&
-      entry.transportState.errorCode === 'worker_offline' &&
-      entry.transportState.hello !== null
-    );
-  }
-
   private reaffirmLiveBinding(entry: RegistryEntry, epoch: number): Promise<HostHello> {
     const binding = entry.binding;
     if (!binding) return Promise.reject(new Error('Host binding disappeared'));
@@ -430,7 +425,7 @@ export class ElectronHostRegistry {
           throw new Error('Host connection was replaced while reconnecting');
         }
         this.applyHello(entry, hello);
-        if (!this.isLiveWorkerOffline(entry)) {
+        if (!isLiveWorkerOffline(entry)) {
           this.updateState(entry, { status: 'connected', error: null });
         }
         return hello;
@@ -447,10 +442,11 @@ export class ElectronHostRegistry {
     entry: RegistryEntry,
     binding: ElectronHostClientBinding,
     epoch: number,
+    preserveConnectPromise = false,
   ): Promise<void> {
     if (entry.binding !== binding) return entry.retirement ?? Promise.resolve();
     entry.binding = null;
-    entry.connectPromise = null;
+    if (!preserveConnectPromise) entry.connectPromise = null;
     entry.transportState = null;
     const subscriptions = [entry.transportSubscription, entry.eventSubscription] as const;
     entry.transportSubscription = null;

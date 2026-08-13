@@ -74,7 +74,7 @@ export function ProviderCombobox({
   };
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="relative min-w-0">
       <input
         role="combobox"
         aria-label={ariaLabel}
@@ -111,7 +111,7 @@ export function ProviderCombobox({
         disabled={disabled}
         title={disabled ? value || placeholder : undefined}
         placeholder={placeholder}
-        className="no-drag w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 pr-7 text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
+        className="no-drag w-full min-w-0 rounded border border-deck-border bg-white/[0.04] px-2 py-1 pr-7 text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
       />
       <button
         type="button"

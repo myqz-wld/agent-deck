@@ -276,7 +276,15 @@ describe('SummarySection provider-specific thinking levels', () => {
       .map((field) => field.dataset.generatorField);
     expect(fields).toEqual(['adapter', 'provider', 'model', 'thinking']);
     expect(group.querySelector('[data-generator-fields]')?.className)
-      .toContain('min-[420px]:grid-cols-2');
+      .toContain('min-[420px]:grid-cols-3');
+    expect(group.querySelector('[data-generator-field="adapter"]')?.className)
+      .toContain('min-[420px]:col-span-1');
+    expect(group.querySelector('[data-generator-field="provider"]')?.className)
+      .toContain('min-[420px]:col-span-2');
+    expect(group.querySelector('[data-generator-field="model"]')?.className)
+      .toContain('min-[420px]:col-span-2');
+    expect(group.querySelector('[data-generator-field="thinking"]')?.className)
+      .toContain('min-[420px]:col-span-1');
     expect(group.textContent).toContain('助手');
     expect(group.textContent).toContain('模型来源');
     expect(group.textContent).toContain('模型');
@@ -292,6 +300,8 @@ describe('SummarySection provider-specific thinking levels', () => {
     }) as HTMLButtonElement;
     expect([adapter.disabled, provider.disabled, model.disabled, thinking.disabled])
       .toEqual([true, true, true, true]);
+    expect(provider.parentElement?.className).toContain('min-w-0');
+    expect(provider.className).toContain('min-w-0');
     expect(adapter.className).toContain('disabled:opacity-50');
     expect(thinking.className).toContain('disabled:opacity-50');
   });
