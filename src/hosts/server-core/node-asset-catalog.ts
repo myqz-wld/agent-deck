@@ -42,7 +42,7 @@ import { isRemoteSensitiveAssetPath } from './remote-sensitive-data';
 import { readRemoteSafeFile } from './remote-safe-file-read';
 
 const READ_ONLY_REASON =
-  'Remote 资产来自 Worker 的封装资源与隔离 Provider Home；当前协议只读，注入开关由 Worker 启动配置决定。';
+  '资产与注入状态来自 Worker 部署快照，在 Remote 中仅供查看。';
 const ASSET_SCAN_CACHE_TTL_MS = 5_000;
 const ASSET_SCAN_MAX_VISITED_ENTRIES = (NODE_ASSET_MAX_ITEMS + 1) * 32;
 

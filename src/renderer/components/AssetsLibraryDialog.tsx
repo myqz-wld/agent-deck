@@ -117,7 +117,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
     if (remoteIdentity !== null) {
       claudeMdDirtyRef.current = false;
       if (!remoteUsable) {
-        setLoadError('当前 Remote Worker 尚未连接，资产数据不可用。');
+        setLoadError('当前 Worker 尚未连接，暂时无法读取资产。');
         return;
       }
       if (!remoteSupportsNodeAssets) {
@@ -125,7 +125,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
         return;
       }
       if (remoteProfileId === null) {
-        setLoadError('当前 Remote 数据源缺少连接配置，无法读取 Worker 资产。');
+        setLoadError('当前 Remote 缺少连接配置，暂时无法读取 Worker 资产。');
         return;
       }
       void window.api.listRemoteHostNodeAssets({ profileId: remoteProfileId })
@@ -147,7 +147,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
             seq !== fetchSeqRef.current || remoteIdentityRef.current !== fetchIdentity ||
             !remoteUsableRef.current
           ) return;
-          setLoadError('Worker 资产读取失败，请确认远端连接后重试。');
+          setLoadError('Worker 资产读取失败，请检查连接后重试。');
         });
       return;
     }
@@ -196,7 +196,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
 
   const updateSettings = async (patch: Partial<AppSettings>): Promise<void> => {
     if (remoteIdentity !== null) {
-      setUpdateError('Remote 注入开关由 Worker 启动配置决定，当前协议只读。');
+      setUpdateError('注入开关由 Worker 部署管理，Remote 中不可修改。');
       return;
     }
     const seq = ++updateSeqRef.current;
@@ -230,7 +230,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
         !remoteUsable || !remoteSupportsNodeAssets || remoteProfileId === null ||
         catalogRevision === null
       ) {
-        setViewer({ asset, content: null, error: '当前 Remote Worker 资产不可用。' });
+        setViewer({ asset, content: null, error: '当前 Worker 资产不可用。' });
         return;
       }
       void window.api.getRemoteHostNodeAssetContent({

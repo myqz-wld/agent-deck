@@ -116,13 +116,14 @@ defaults are derived from `~/.codex/config.toml`; Grok's default model is derive
 
 Only the isolated Worker copy receives the provider runtime inputs it needs: Claude Gateway files
 are reduced to their model/effort and non-path environment fields, and Codex config is reduced to
-top-level model/provider/effort/approval plus `[model_providers.*]` definitions. Hooks, MCP
-definitions, plugins, global instructions, arbitrary paths, and the original settings files are
-not copied. Remote capability requests read a bounded non-secret snapshot generated during this
-trusted refresh; they never open the original provider configuration or return endpoints,
-environment values, tokens, auth material, private keys, or paths. After changing provider
-configuration, run `agent-deck-worker start` to atomically refresh the projection and restart that
-Worker.
+top-level model/provider/effort/approval plus `[model_providers.*]` definitions. Direct and
+discovered Plugin Agents/Skills are synchronized into a bounded, Worker-managed snapshot; only
+their definitions and bounded Skill support files are copied, not whole Plugin caches or runtime
+metadata. Hooks, MCP definitions, global instructions, arbitrary paths, and the original settings
+files are not copied. Remote capability requests read this non-secret snapshot; they never open the
+original provider configuration or return endpoints, environment values, tokens, auth material,
+private keys, or paths. After changing provider configuration or Local Agents/Skills, run
+`agent-deck-worker start` to refresh the projection and restart that Worker.
 
 ```bash
 agent-deck-worker status

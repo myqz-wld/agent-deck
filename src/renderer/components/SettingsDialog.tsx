@@ -23,10 +23,8 @@ import { ResetSettingsButton } from './settings/ResetSettingsButton';
 import { useModalFocus } from './use-modal-focus';
 import { RemoteNodeConfigurationSection } from './settings/sections/RemoteNodeConfigurationSection';
 import type { NodeConfigurationGetResult } from '@contracts/index';
-import type { RemoteHostMutationAuthorityDto } from '@shared/remote-host';
 import {
   presentLocalHookStatus,
-  presentRemoteHookResult,
   presentRemoteHookStatus,
 } from './settings/hook-status-presentation';
 
@@ -35,12 +33,10 @@ interface Props {
   onClose: () => void;
   remote?: {
     identity: string;
-    expectedAuthority: RemoteHostMutationAuthorityDto;
     label: string;
     profileId: string | null;
     supportsNodeConfiguration: boolean;
     supportsNodeHooksRead: boolean;
-    supportsNodeHooksWrite: boolean;
     usable: boolean;
   } | null;
 }
@@ -94,7 +90,6 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
     ? `${remote.identity}\u0000${remote.profileId ?? ''}\u0000${remote.usable ? 'ready' : 'offline'}` +
       `\u0000${remote.supportsNodeConfiguration ? 'supported' : 'unsupported'}`
       + `\u0000${remote.supportsNodeHooksRead ? 'hooks-read' : 'hooks-no-read'}`
-      + `\u0000${remote.supportsNodeHooksWrite ? 'hooks-write' : 'hooks-read-only'}`
     : 'local';
   const remoteAuthorityRef = useRef(remoteAuthorityKey);
   remoteAuthorityRef.current = remoteAuthorityKey;
@@ -159,7 +154,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
               }
               setStatus(
                 adapterId,
-                presentRemoteHookStatus(value.status, remote.supportsNodeHooksWrite),
+                presentRemoteHookStatus(value.status),
               );
             }).catch(() => appendLoadError(HOOK_FAILURE_COPY[adapterId].status));
           }
@@ -181,7 +176,6 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
     remote?.profileId,
     remote?.supportsNodeConfiguration,
     remote?.supportsNodeHooksRead,
-    remote?.supportsNodeHooksWrite,
     remote?.usable,
   ]);
 
@@ -212,16 +206,15 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
     else setGrokHookStatus(status);
   };
   const installHook = async (adapterId: HookAdapterId): Promise<void> => {
+    if (remote) return;
     const seq = ++updateSeqRef.current;
     const authority = remoteAuthorityKey;
     setBusy(true);
     setActionError(null);
     try {
-      const r = remote
-        ? await installRemoteHook(remote, adapterId)
-        : presentLocalHookStatus(
-            (await window.api.installHook('user', undefined, adapterId)) as HookInstallStatus,
-          );
+      const r = presentLocalHookStatus(
+        (await window.api.installHook('user', undefined, adapterId)) as HookInstallStatus,
+      );
       if (seq !== updateSeqRef.current || remoteAuthorityRef.current !== authority) return;
       setHookStatus(adapterId, r);
     } catch {
@@ -232,16 +225,15 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
     }
   };
   const uninstallHook = async (adapterId: HookAdapterId): Promise<void> => {
+    if (remote) return;
     const seq = ++updateSeqRef.current;
     const authority = remoteAuthorityKey;
     setBusy(true);
     setActionError(null);
     try {
-      const r = remote
-        ? await uninstallRemoteHook(remote, adapterId)
-        : presentLocalHookStatus(
-            (await window.api.uninstallHook('user', undefined, adapterId)) as HookInstallStatus,
-          );
+      const r = presentLocalHookStatus(
+        (await window.api.uninstallHook('user', undefined, adapterId)) as HookInstallStatus,
+      );
       if (seq !== updateSeqRef.current || remoteAuthorityRef.current !== authority) return;
       setHookStatus(adapterId, r);
     } catch {
@@ -264,7 +256,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
       >
         <header className="mb-3 flex items-center justify-between">
           <h2 id={titleId} className="text-[13px] font-medium">
-            设置{remote ? ` · ${remote.label}` : ''}
+            {remote ? `Remote 设置 · ${remote.label}` : '设置'}
           </h2>
           <button
             type="button"
@@ -374,12 +366,12 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                 <HookSection
                   title="Claude Code 终端 Hook"
                   storageKey="hook-claude"
-                  installLabel={remote ? '在 Worker 上安装 Hook' : '安装到 ~/.claude/settings.json'}
+                  installLabel={remote ? '安装 Hook' : '安装到 ~/.claude/settings.json'}
                   hookStatus={claudeHookStatus}
                   busy={busy}
                   installHook={() => installHook('claude-code')}
                   uninstallHook={() => uninstallHook('claude-code')}
-                  targetDescription={remote ? '作用目标：当前 Remote Worker 的 Claude Code Provider Home。' : undefined}
+                  targetDescription={remote ? '以下状态来自当前 Worker；Hook 由 Worker 部署管理。' : undefined}
                   unavailableReason={remote ? remoteHookUnavailableReason(remote) : null}
                 />
                 {remote ? <RemoteAdapterNote /> : <AdapterConfigHelp adapter="claude" />}
@@ -391,12 +383,12 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                 <HookSection
                   title="Codex CLI 终端 Hook"
                   storageKey="hook-codex"
-                  installLabel={remote ? '在 Worker 上安装 Hook' : '安装到 ~/.codex/hooks.json'}
+                  installLabel={remote ? '安装 Hook' : '安装到 ~/.codex/hooks.json'}
                   hookStatus={codexHookStatus}
                   busy={busy}
                   installHook={() => installHook('codex-cli')}
                   uninstallHook={() => uninstallHook('codex-cli')}
-                  targetDescription={remote ? '作用目标：当前 Remote Worker 的 Codex CLI Provider Home。' : undefined}
+                  targetDescription={remote ? '以下状态来自当前 Worker；Hook 由 Worker 部署管理。' : undefined}
                   unavailableReason={remote ? remoteHookUnavailableReason(remote) : null}
                 />
                 {remote ? <RemoteAdapterNote /> : <AdapterConfigHelp adapter="codex" />}
@@ -408,12 +400,12 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                 <HookSection
                   title="Grok Build 终端 Hook"
                   storageKey="hook-grok"
-                  installLabel={remote ? '在 Worker 上安装 Hook' : '安装到 ~/.grok/hooks/agent-deck.json'}
+                  installLabel={remote ? '安装 Hook' : '安装到 ~/.grok/hooks/agent-deck.json'}
                   hookStatus={grokHookStatus}
                   busy={busy}
                   installHook={() => installHook('grok-build')}
                   uninstallHook={() => uninstallHook('grok-build')}
-                  targetDescription={remote ? '作用目标：当前 Remote Worker 的 Grok Build Provider Home。' : undefined}
+                  targetDescription={remote ? '以下状态来自当前 Worker；Hook 由 Worker 部署管理。' : undefined}
                   unavailableReason={remote ? remoteHookUnavailableReason(remote) : null}
                 />
                 {!remote && <GrokAuthenticationSection />}
@@ -428,7 +420,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
 }
 
 function remoteConfigurationUnavailableReason(remote: NonNullable<Props['remote']>): string | null {
-  if (!remote.usable) return '当前 Remote Worker 尚未连接；不会读取或修改本机 Hook 作为替代。';
+  if (!remote.usable) return '当前 Worker 尚未连接，暂时无法读取部署配置。';
   if (!remote.supportsNodeConfiguration) {
     return '当前 Remote Core 版本未提供节点配置能力；请先升级远端部署。';
   }
@@ -437,7 +429,7 @@ function remoteConfigurationUnavailableReason(remote: NonNullable<Props['remote'
 }
 
 function remoteHookUnavailableReason(remote: NonNullable<Props['remote']>): string | null {
-  if (!remote.usable) return '当前 Remote Worker 尚未连接；不会读取或修改本机 Hook 作为替代。';
+  if (!remote.usable) return '当前 Worker 尚未连接，暂时无法读取 Hook 状态。';
   if (!remote.supportsNodeHooksRead) {
     return '当前 Remote Core 未提供安全 Hook 状态能力；不会读取旧版路径型状态。';
   }
@@ -445,46 +437,10 @@ function remoteHookUnavailableReason(remote: NonNullable<Props['remote']>): stri
   return null;
 }
 
-async function installRemoteHook(
-  remote: NonNullable<Props['remote']>,
-  adapterId: HookAdapterId,
-): Promise<HookStatusPresentation> {
-  const reason = remoteHookUnavailableReason(remote);
-  if (!reason && !remote.supportsNodeHooksWrite) {
-    throw new Error('Remote Hook mutation unavailable');
-  }
-  if (reason || !remote.profileId) throw new Error(reason ?? 'Remote profile unavailable');
-  const result = await window.api.installRemoteHostNodeHook({
-    profileId: remote.profileId,
-    adapterId,
-    expectedAuthority: remote.expectedAuthority,
-    intentId: crypto.randomUUID(),
-  });
-  return presentRemoteHookResult(result, adapterId, remote.supportsNodeHooksWrite);
-}
-
-async function uninstallRemoteHook(
-  remote: NonNullable<Props['remote']>,
-  adapterId: HookAdapterId,
-): Promise<HookStatusPresentation> {
-  const reason = remoteHookUnavailableReason(remote);
-  if (!reason && !remote.supportsNodeHooksWrite) {
-    throw new Error('Remote Hook mutation unavailable');
-  }
-  if (reason || !remote.profileId) throw new Error(reason ?? 'Remote profile unavailable');
-  const result = await window.api.uninstallRemoteHostNodeHook({
-    profileId: remote.profileId,
-    adapterId,
-    expectedAuthority: remote.expectedAuthority,
-    intentId: crypto.randomUUID(),
-  });
-  return presentRemoteHookResult(result, adapterId, remote.supportsNodeHooksWrite);
-}
-
 function RemoteAdapterNote(): JSX.Element {
   return (
     <p className="text-[10px] leading-relaxed text-deck-muted/75">
-      Provider 默认参数显示在“通用”页，数据来自 Worker。二进制路径、认证和托管策略由远端部署管理；本页不会读取或修改本机 Provider 配置。
+      当前页只显示 Worker 的部署状态。Hook、二进制、认证和运行策略均由 Worker 部署管理，Remote 中不可修改。
     </p>
   );
 }

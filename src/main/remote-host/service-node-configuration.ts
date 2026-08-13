@@ -5,7 +5,6 @@ import {
 import type {
   RemoteHostNodeConfigurationDto,
   RemoteHostNodeConfigurationRequestDto,
-  RemoteHostNodeHookMutationDto,
   RemoteHostNodeHookRequestDto,
   RemoteHostNodeHookStatusDto,
 } from '@shared/remote-host';
@@ -14,14 +13,9 @@ import type { RemoteHostScopedRequest } from './service-detail-reader';
 import { RemoteHostPublicError } from './errors';
 import { REMOTE_HOST_INTERACTIVE_DEADLINE_MS } from './service-scope';
 
-type MutationId = (operation: string, profileId: string, intentId: string) => string;
-
-/** Reads and mutates only the selected Remote Core's execution-node configuration. */
+/** Reads only the selected Remote Core's Worker-owned configuration snapshots. */
 export class RemoteHostNodeConfigurationController {
-  constructor(
-    private readonly request: RemoteHostScopedRequest,
-    private readonly mutationId: MutationId,
-  ) {}
+  constructor(private readonly request: RemoteHostScopedRequest) {}
 
   get(
     request: RemoteHostNodeConfigurationRequestDto,
@@ -41,42 +35,6 @@ export class RemoteHostNodeConfigurationController {
         { adapterId: request.adapterId },
         { deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS },
       ))));
-  }
-
-  install(request: RemoteHostNodeHookMutationDto): Promise<RemoteHostNodeHookStatusDto> {
-    return this.mutate('install', 'node.hook.projection.install', request);
-  }
-
-  uninstall(request: RemoteHostNodeHookMutationDto): Promise<RemoteHostNodeHookStatusDto> {
-    return this.mutate('uninstall', 'node.hook.projection.uninstall', request);
-  }
-
-  private mutate(
-    operation: 'install' | 'uninstall',
-    method: 'node.hook.projection.install' | 'node.hook.projection.uninstall',
-    request: RemoteHostNodeHookMutationDto,
-  ): Promise<RemoteHostNodeHookStatusDto> {
-    return this.request(
-      request.profileId,
-      method,
-      async (scope) => this.assertAdapter(
-        request.adapterId,
-        parseNodeHookProjectionResult(await scope.client.request(
-          method,
-          { adapterId: request.adapterId },
-          {
-            deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS,
-            idempotencyKey: this.mutationId(
-              `node-hook-${operation}`,
-              request.profileId,
-              request.intentId,
-            ),
-          },
-        )),
-      ),
-      [],
-      request.expectedAuthority,
-    );
   }
 
   private assertAdapter(

@@ -12,7 +12,6 @@ import type { AgentAdapter } from '@main/adapters/types';
 import { DEFAULT_SETTINGS } from '@shared/types';
 
 import { ServerCoreNodeConfigurationRuntime } from './node-configuration-runtime';
-import type { ServerCoreMutationIdentity } from './runtime-metadata-store';
 import { resolveServerCoreProviderSettings } from './provider-settings';
 
 const access: AuthenticatedClientAccessContext = {
@@ -100,7 +99,7 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
     });
   });
 
-  it('runs Hook mutations against the Worker adapter and replays completion', async () => {
+  it('never advertises Hook mutation even when the Worker adapter can install Hooks', async () => {
     const install = vi.fn(async () => ({
       installed: true,
       installedHooks: ['SessionStart'],
@@ -123,42 +122,35 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
         settingsPath: '/provider-home/.claude/settings.json',
       })),
     } as unknown as AgentAdapter;
-    let completed: { identity: ServerCoreMutationIdentity; result: JsonValue; revision: number } | null = null;
     const runtime = new ServerCoreNodeConfigurationRuntime(base(), {
       settings: resolveServerCoreProviderSettings({}),
-      hookStates: hookStates(),
+      hookStates: hookStates({ 'claude-code': 'installed' }),
       registry: { get: () => adapter, isReady: () => true },
       metadata: {
         currentRevision: () => 1,
-        appendChange: () => 2,
-        claimMutation: (_identity) => completed
-          ? { state: 'completed', result: completed.result, revision: completed.revision }
-          : { state: 'claimed' },
-        completeMutation: (identity, result, revision) => { completed = { identity, result, revision }; },
+        appendChange: vi.fn(),
+        claimMutation: vi.fn(),
+        completeMutation: vi.fn(),
         releaseMutationClaim: vi.fn(),
       },
     });
-    const input = request(
-      'node.hook.projection.install',
+    expect(runtime.supportedMethods).not.toContain('node.hook.projection.install');
+    expect(runtime.supportedMethods).not.toContain('node.hook.projection.uninstall');
+    await expect(runtime.execute(request(
+      'node.hook.projection.get',
       { adapterId: 'claude-code' },
-      'stable-hook-intent',
-    );
-    const first = await runtime.execute(input);
-    const replay = await runtime.execute(input);
-    expect(first).toEqual(replay);
-    expect(first).toMatchObject({
+    ))).resolves.toMatchObject({
       result: {
         status: {
           state: 'installed',
           supported: true,
-          writeAllowed: true,
+          writeAllowed: false,
+          disabledReason: 'mutation-unavailable',
         },
       },
-      revision: 2,
+      revision: 1,
     });
-    expect(JSON.stringify(first)).not.toContain('/provider-home');
-    expect(JSON.stringify(first)).not.toContain('SessionStart');
-    expect(install).toHaveBeenCalledOnce();
+    expect(install).not.toHaveBeenCalled();
   });
 
   it('reads only the Worker-owned safe Hook snapshot', async () => {
@@ -249,11 +241,7 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
     ))).resolves.toMatchObject({
       result: { status: { supported: false, state: 'unavailable', writeAllowed: false } },
     });
-    await expect(runtime.execute(request(
-      'node.hook.projection.install',
-      { adapterId: 'claude-code' },
-      'failed-adapter-hook-intent',
-    ))).rejects.toMatchObject({ code: 'capability_unavailable' });
+    expect(runtime.supportedMethods).not.toContain('node.hook.projection.install');
     expect(installIntegration).not.toHaveBeenCalled();
   });
 });

@@ -3,11 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RemoteHostScopedClient } from './service-scope';
 import { RemoteHostNodeConfigurationController } from './service-node-configuration';
 
-const EXPECTED_AUTHORITY = {
-  authoritativeCoreId: 'core-a',
-  workerGeneration: 3,
-};
-
 function scoped(clientRequest: ReturnType<typeof vi.fn>) {
   const admitted = vi.fn(async (
     _profileId: string,
@@ -38,10 +33,7 @@ describe('RemoteHostNodeConfigurationController', () => {
       revision: 5,
     }));
     const scope = scoped(clientRequest);
-    const controller = new RemoteHostNodeConfigurationController(
-      scope.request,
-      vi.fn(() => 'mutation-a'),
-    );
+    const controller = new RemoteHostNodeConfigurationController(scope.request);
     await expect(controller.get({ profileId: 'remote-a' })).resolves.toMatchObject({
       revision: 5,
       providerDefaults: { claudeCodeSandbox: 'strict' },
@@ -50,39 +42,6 @@ describe('RemoteHostNodeConfigurationController', () => {
       'remote-a',
       'node.configuration.get',
       expect.any(Function),
-    );
-  });
-
-  it('binds Hook installation to the selected Core and a stable intent', async () => {
-    const clientRequest = vi.fn(async () => ({
-      adapterId: 'claude-code',
-      revision: 6,
-      status: {
-        supported: true,
-        state: 'installed',
-        scope: 'user',
-        writeAllowed: true,
-        disabledReason: null,
-      },
-    }));
-    const scope = scoped(clientRequest);
-    const controller = new RemoteHostNodeConfigurationController(
-      scope.request,
-      (operation, profileId, intentId) => `${operation}:${profileId}:${intentId}`,
-    );
-    await controller.install({
-      profileId: 'remote-a',
-      adapterId: 'claude-code',
-      expectedAuthority: EXPECTED_AUTHORITY,
-      intentId: 'intent-a',
-    });
-    expect(clientRequest).toHaveBeenCalledWith(
-      'node.hook.projection.install',
-      { adapterId: 'claude-code' },
-      {
-        deadlineMs: 45_000,
-        idempotencyKey: 'node-hook-install:remote-a:intent-a',
-      },
     );
   });
 
@@ -99,10 +58,7 @@ describe('RemoteHostNodeConfigurationController', () => {
       },
     }));
     const scope = scoped(clientRequest);
-    const controller = new RemoteHostNodeConfigurationController(
-      scope.request,
-      vi.fn(() => 'mutation-a'),
-    );
+    const controller = new RemoteHostNodeConfigurationController(scope.request);
     await expect(controller.status({
       profileId: 'remote-a',
       adapterId: 'claude-code',
