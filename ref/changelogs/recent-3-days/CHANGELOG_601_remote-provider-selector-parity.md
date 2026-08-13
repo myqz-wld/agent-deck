@@ -17,16 +17,20 @@ the Worker discovers no custom provider definitions.
 
 - Keep the native Claude `settings.json` and Codex `config.toml` provider choices enabled even when
   the automatically derived catalog contains no custom provider identifiers.
-- Preserve the Remote trust boundary: custom provider values remain restricted to the exact
-  allowlist published by Core, while the empty value continues to mean the Worker-native provider.
+- Accept bounded custom Gateway and Provider identifiers in both Local and Remote while keeping
+  automatically discovered identifiers as suggestions and retaining the empty Worker-native value.
 
 ### Local and Remote UI parity
 
 - Use the shared searchable Provider combobox for both Local and Remote session-model fields.
-- Let Remote users filter advertised Gateway or Provider values without committing arbitrary
-  typed text, and commit only a selected Core-owned option.
+- Let Local and Remote users either select an automatically discovered Gateway or Provider or type
+  one directly in the same control.
 - Represent the native configuration exactly as Local does: an empty input with the existing
   placeholder, without adding a synthetic native option to the dropdown.
+- Treat an empty custom Provider catalog as a normal native-configuration state and avoid
+  presenting it as a `config.toml` configuration error.
+- Use the same neutral empty-catalog copy in Local and Remote instead of attaching source-specific
+  remediation to an expected state.
 
 ## Validation
 

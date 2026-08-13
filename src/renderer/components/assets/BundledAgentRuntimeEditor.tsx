@@ -259,8 +259,8 @@ export function BundledAgentRuntimeEditor({
                 }
                 emptyMessage={
                   asset.adapter === 'claude-code'
-                    ? '没有匹配的 Gateway profile'
-                    : '没有发现 Codex provider，请检查 $CODEX_HOME/config.toml'
+                    ? '没有匹配的 Gateway，可直接输入或留空'
+                    : '没有匹配的 Provider，可直接输入或留空'
                 }
               />
               <DefaultHint

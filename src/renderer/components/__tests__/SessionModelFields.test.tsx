@@ -116,14 +116,13 @@ describe('SessionModelFields', () => {
     expect(summary?.textContent).not.toContain('模型：配置文件');
   });
 
-  it('Remote Gateway 与 Local 共用 Combobox，并只提交 Core 白名单选项', () => {
+  it('Remote Gateway 与 Local 共用可输入 Combobox，并保留自动发现选项', () => {
     const onProviderChange = vi.fn();
     render(
       <SessionModelFields
         adapterId="claude-code"
         provider=""
         providerOptions={[{ id: 'deepseek' }]}
-        providerClosed
         model="sonnet"
         thinking="high"
         onProviderChange={onProviderChange}
@@ -138,9 +137,9 @@ describe('SessionModelFields', () => {
     fireEvent.focus(gateway);
     expect(screen.queryByRole('option', { name: '原生 settings.json' })).toBeNull();
     fireEvent.change(gateway, { target: { value: 'deep' } });
-    expect(onProviderChange).not.toHaveBeenCalled();
+    expect(onProviderChange).toHaveBeenCalledWith('deep');
     fireEvent.click(screen.getByRole('option', { name: 'deepseek' }));
-    expect(onProviderChange).toHaveBeenCalledWith('deepseek');
+    expect(onProviderChange).toHaveBeenLastCalledWith('deepseek');
   });
 
   it('Remote Codex 无自定义 Provider 时与 Local 一样以空值表达原生配置', () => {
@@ -150,7 +149,6 @@ describe('SessionModelFields', () => {
         adapterId="codex-cli"
         provider=""
         providerOptions={[]}
-        providerClosed
         model="gpt-5.6-sol"
         thinking="high"
         onProviderChange={onProviderChange}
@@ -164,6 +162,10 @@ describe('SessionModelFields', () => {
     expect((provider as HTMLInputElement).placeholder).toBe('留空使用 config.toml');
     fireEvent.focus(provider);
     expect(screen.queryByRole('option')).toBeNull();
-    expect(screen.getByText('没有发现 Codex provider，请检查 $CODEX_HOME/config.toml')).toBeTruthy();
+    expect(screen.getByText('没有匹配的 Provider，可直接输入或留空')).toBeTruthy();
+    expect(document.body.textContent).not.toContain('请检查');
+    fireEvent.change(provider, { target: { value: 'manual-provider' } });
+    expect(onProviderChange).toHaveBeenCalledWith('manual-provider');
   });
+
 });

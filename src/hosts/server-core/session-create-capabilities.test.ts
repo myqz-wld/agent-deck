@@ -155,7 +155,7 @@ describe('ServerCoreSessionCreateCapabilities', () => {
     });
     expect(descriptor.create.options.provider).toEqual({
       allowedValues: [],
-      allowCustom: false,
+      allowCustom: true,
       allowEmpty: true,
       defaultValue: '',
       disabledReason: null,
@@ -306,7 +306,7 @@ describe('ServerCoreSessionCreateCapabilities', () => {
     expect(explicitlyChanged.capabilityRevision).not.toBe(first.capabilityRevision);
   });
 
-  it('rejects stale revisions, cross-adapter options, unavailable adapters and providers', async () => {
+  it('rejects stale revisions and unavailable adapters while accepting custom providers', async () => {
     const { subject } = harness(['codex-cli']);
     const request = { adapterId: 'codex-cli' as const, provider: '', workingDirectory: 'repo' };
     const descriptor = await subject.describe(request);
@@ -326,9 +326,16 @@ describe('ServerCoreSessionCreateCapabilities', () => {
     await expect(subject.describe({
       adapterId: 'grok-build', provider: '', workingDirectory: 'repo',
     })).resolves.toMatchObject({ create: { enabled: false } });
-    await expect(subject.describe({
+    const custom = await subject.describe({
       adapterId: 'codex-cli', provider: 'missing', workingDirectory: 'repo',
-    })).rejects.toMatchObject({ code: 'invalid_request' });
+    });
+    expect(custom.create.options.provider).toMatchObject({
+      allowCustom: true,
+      defaultValue: 'missing',
+    });
+    await expect(subject.validateCreate(
+      'codex-cli', custom.capabilityRevision, 'repo', defaults(custom),
+    )).resolves.toEqual(custom);
   });
 
   it('rejects symlink escape before reading provider defaults or validating create', async () => {

@@ -111,7 +111,7 @@ function createDescriptor(
       permissionMode: values.permissionMode === null
         ? disabled() : enabled(values.permissionMode, ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']),
       provider: values.provider === null
-        ? disabled() : enabled(values.provider, [], false, true),
+        ? disabled() : enabled(values.provider, [], true, true),
       sessionMode: values.sessionMode === null
         ? disabled() : enabled(values.sessionMode, ['default', 'plan', 'ask']),
       thinking: enabled(values.thinking!, ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']),

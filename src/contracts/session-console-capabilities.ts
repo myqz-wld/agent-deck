@@ -254,7 +254,9 @@ function parseOptionDescriptor(
     if (new Set(allowedValues).size !== allowedValues.length) fail(`${field}.allowedValues`);
   }
   if (!value.enabled && (value.allowCustom || value.allowEmpty || allowedValues?.length)) fail(field);
-  if (value.enabled && value.allowCustom !== (allowedValues === null)) fail(field);
+  // `allowedValues` are selectable suggestions when custom entry is allowed, and the complete
+  // admission set when it is not. A closed option therefore always needs an explicit list.
+  if (value.enabled && !value.allowCustom && allowedValues === null) fail(field);
   if (value.enabled && defaultValue !== null) {
     if (!value.allowEmpty && defaultValue.length === 0) fail(`${field}.defaultValue`);
     if (
