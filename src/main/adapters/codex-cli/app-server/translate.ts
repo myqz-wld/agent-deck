@@ -24,16 +24,27 @@ import {
   type CodexTokenUsageObservation,
   type CodexTokenUsageSnapshot,
 } from './token-usage-observation';
+import {
+  consumePendingRawResponseUsage,
+  createCodexRawResponseUsageState,
+  translateCodexRawResponseUsage,
+  type CodexRawResponseUsageState,
+} from './raw-response-usage';
 const GENERIC_SKILL_TOOL_NAMES = new Set(['skill', 'invoke', 'invoke_skill', 'skill.invoke']);
 type AnyRecord = Record<string, unknown>;
 type EmitFn = (kind: AgentEventKind, payload: unknown) => void;
 export interface CodexAppServerTranslateState {
   reasoningSummaryByItemId: Map<string, string[]>;
   rawCollabCallsById: Map<string, Record<string, unknown>>;
+  rawResponseUsage: CodexRawResponseUsageState;
   tokenUsageWatermark?: CodexTokenUsageSnapshot;
 }
 export function createCodexAppServerTranslateState(): CodexAppServerTranslateState {
-  return { reasoningSummaryByItemId: new Map(), rawCollabCallsById: new Map() };
+  return {
+    reasoningSummaryByItemId: new Map(),
+    rawCollabCallsById: new Map(),
+    rawResponseUsage: createCodexRawResponseUsageState(),
+  };
 }
 export function translateCodexAppServerNotification(
   notification: CodexAppServerNotification,
@@ -73,7 +84,12 @@ export function translateCodexAppServerNotification(
       if (opts?.state && observation.watermark) {
         opts.state.tokenUsageWatermark = observation.watermark;
       }
+      const emitTokenUsage = !consumePendingRawResponseUsage(
+        opts?.state?.rawResponseUsage,
+        observation.delta,
+      );
       translateCodexTokenUsage(notification.params, emit, {
+        emitTokenUsage,
         model: opts?.model,
         observation,
         runtimeIdentity: opts?.runtimeIdentity,
@@ -106,6 +122,15 @@ export function translateCodexAppServerNotification(
     }
     case 'rawResponseItem/completed': {
       translateRawCollabResponseItem(notification.params, emit, opts?.state?.rawCollabCallsById);
+      return;
+    }
+    case 'rawResponse/completed': {
+      const state = opts?.state?.rawResponseUsage;
+      if (!state) return;
+      translateCodexRawResponseUsage(notification.params, emit, {
+        model: opts?.model,
+        state,
+      });
       return;
     }
     case 'item/mcpToolCall/progress':
