@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-05 | `REVIEW_215_adapter-event-and-collaboration-compatibility.md` | Current adapter event and native-agent contracts | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed / 1 LOW fixed / 1 INFO confirmed |
 | 2026-08-04 | `REVIEW_214_diff-history-and-runtime-diagnostics.md` | Diff freshness and runtime log signal | 0 CRITICAL / 0 HIGH / 4 MEDIUM fixed / 2 LOW fixed |
 | 2026-08-03 | `REVIEW_213_closed-session-worktree-cleanup.md` | Closed-session worktree ownership | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed |
 | 2026-08-03 | `REVIEW_212_context-window-observation-unification.md` | Deep review of observed continuation capacity | 0 CRITICAL / 0 HIGH / all material findings fixed |
@@ -72,4 +73,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 | 2026-07-14 | `REVIEW_160_checkpoint-lifecycle.md` | Automatic bounded continuation checkpoints | 0 CRITICAL / 3 HIGH fixed / 5 MEDIUM fixed / 6 LOW fixed |
 | 2026-07-14 | `REVIEW_159_present-plan-lifecycle.md` | Blocking plan gate and isolated review fork | 0 CRITICAL / 0 HIGH / 5 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-14 | `REVIEW_158_handoff-context-coverage.md` | Runtime persistence and hand-off context coverage | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 1 LOW residual |
-| 2026-07-13 | `REVIEW_157_codex-first-model-event-watchdog.md` | Codex accepted-turn recovery | 0 CRITICAL / 3 HIGH fixed / 1 MEDIUM fixed / 1 LOW fixed + 3 residuals |

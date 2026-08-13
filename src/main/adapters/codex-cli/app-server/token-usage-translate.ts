@@ -15,6 +15,7 @@ export function translateCodexTokenUsage(
   params: unknown,
   emit: EmitFn,
   opts?: {
+    emitTokenUsage?: boolean;
     model?: string | null;
     observation?: CodexTokenUsageObservation;
     runtimeIdentity?: ContextRuntimeIdentityEvidence | null;
@@ -35,6 +36,8 @@ export function translateCodexTokenUsage(
         : {}),
     });
   }
+
+  if (opts?.emitTokenUsage === false) return;
 
   const delta = observation.delta;
   if (!delta || !hasPositiveMetric(delta)) return;
