@@ -73,8 +73,6 @@ mutation to a replacement Core generation.
 - Earlier package-boundary validation also passed macOS Worker sandbox and bundled-runtime checks.
   No live desktop, Worker, credential, provider-private, or deployment state was mutated.
 - Full review details are recorded in `REVIEW_233_remote-full-ui-parity.md`.
-- The grouped audit and paired-review manifest are archived under `ref/evidence/` and indexed in
-  `ref/evidence/INDEX.md`.
 
 ## Do Not Split Protection
 

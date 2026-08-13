@@ -9,9 +9,6 @@ related_review: REVIEW_233
 base_commit: 3ec408aff18c85bdbd4ebb839d4e63a9dbf056e4
 delivery_branch: main
 delivery_commit: dc4943bb0d620d2ec7dd6013a33c62a32e6ec12a
-evidence:
-  - ref/evidence/remote-full-ui-parity-audit.md
-  - ref/evidence/remote-full-ui-parity-deep-review-manifest.md
 ---
 
 # PLAN_36_remote-full-ui-parity: Remote Full UI Parity and Safe File Presentation
@@ -176,8 +173,7 @@ Audit receipt state:
 
 ### T2 — Durable audit matrix and design
 
-- [x] Write and archive the complete page/sub-flow matrix as
-  `ref/evidence/remote-full-ui-parity-audit.md`.
+- [x] Consolidate the complete page/sub-flow matrix before implementation.
 - [x] Record the sensitive-file allow/deny contract and bounded Remote Permissions DTO design.
 - [x] Convert every accepted difference into a work package, acceptance check, and write boundary.
 - [x] Update this plan before implementation.
@@ -265,6 +261,6 @@ Implementation package order:
 ## Archive status
 
 Implementation, validation, heterogeneous paired review, source delivery, and exact-package build
-are complete. The plan is archived while the final installed acceptance remains pending. Durable
-audit and paired-review evidence live under `ref/evidence/`; the former `.ref/` workspace copies
-have been removed.
+are complete. The plan is archived while the final installed acceptance remains pending. Temporary
+audit and paired-review workspace materials have been removed; REVIEW_233 remains the final review
+record.
