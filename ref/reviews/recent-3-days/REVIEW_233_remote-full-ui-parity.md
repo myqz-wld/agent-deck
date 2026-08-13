@@ -22,10 +22,6 @@ bounded targeted re-review.
 
 The final reviewed scope is the following 311-path product/deployment/test union:
 
-The preceding grouped UI audit and the exact paired-review dispatch/correction manifest are retained
-as `ref/evidence/remote-full-ui-parity-audit.md` and
-`ref/evidence/remote-full-ui-parity-deep-review-manifest.md`.
-
 ```review-scope
 deploy/examples/relay-worker.config.example.json
 deploy/examples/remote-session-catalog.example.json

@@ -85,14 +85,6 @@ related_review: REVIEW_187
   call sites remain explicit follow-up debt.
 - Revisit task-edge persistence only at the measured scale/latency trigger.
 
-## Supporting evidence
-
-The
-[original execution evidence](../../evidence/whole-project-quality-improvements-20260728.md)
-is archived under `ref/evidence/` because it contains the original 23-batch write-set map,
-benchmark gates, and architecture decision history. This plan remains the authoritative final
-status and handoff.
-
 ## Final status
 
 Completed on 2026-07-29 with the maintenance terminal-policy and live installed-app smoke
