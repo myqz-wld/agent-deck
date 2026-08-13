@@ -8,6 +8,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { parseEntrypointArgs, SERVER_ACTIONS } from './common.mjs';
 import { loadServerConfig, loadWorkerConfig } from './config.mjs';
 import { runWorkerDeployment, workerConfigureArgs } from './worker.mjs';
+import {
+  bootstrapLaunchAgentWithRetry,
+  launchAgentProcessId,
+  waitForLaunchAgentProcessExit,
+} from './worker-supervisor.mjs';
 import { buildAcceptanceEvidence, renderManagedUnit, sha256 } from './evidence.mjs';
 import { buildEvidenceArchive, buildFullSecretsArchive } from './artifacts.mjs';
 import {
@@ -359,5 +364,61 @@ describe('deployment automation contracts', () => {
     expect(workerConfigureArgs({ ...loaded, credentialFile: '/private/worker.credential' })).toEqual([
       'configure', '--credential', '/private/worker.credential', '--workspace', workspace,
     ]);
+  });
+
+  it('retries transient macOS launchctl bootstrap failures only while the job is absent', async () => {
+    const calls = [];
+    const waits = [];
+    const results = [
+      { code: 5 },
+      { code: 113 },
+      { code: 0 },
+    ];
+    await bootstrapLaunchAgentWithRetry({
+      domain: 'gui/501',
+      plistPath: '/Users/test/Library/LaunchAgents/provider.plist',
+      target: 'gui/501/com.agentdeck.provider-supervisor.test',
+      execute: async (args, allowFailure) => {
+        calls.push({ args, allowFailure });
+        return results.shift();
+      },
+      wait: async (milliseconds) => { waits.push(milliseconds); },
+    });
+    expect(calls).toEqual([
+      {
+        args: [
+          'bootstrap', 'gui/501',
+          '/Users/test/Library/LaunchAgents/provider.plist',
+        ],
+        allowFailure: true,
+      },
+      {
+        args: ['print', 'gui/501/com.agentdeck.provider-supervisor.test'],
+        allowFailure: true,
+      },
+      {
+        args: [
+          'bootstrap', 'gui/501',
+          '/Users/test/Library/LaunchAgents/provider.plist',
+        ],
+        allowFailure: true,
+      },
+    ]);
+    expect(waits).toEqual([100]);
+  });
+
+  it('waits for the previous Provider supervisor process before bootstrapping its replacement', async () => {
+    expect(launchAgentProcessId('state = running\n\tpid = 54321\n')).toBe(54321);
+    expect(launchAgentProcessId('state = waiting\n')).toBeNull();
+    const waits = [];
+    const results = [
+      { code: 0, stdout: '54321\n' },
+      { code: 1, stdout: '' },
+    ];
+    await waitForLaunchAgentProcessExit(54321, {
+      probe: async () => results.shift(),
+      wait: async (milliseconds) => { waits.push(milliseconds); },
+    });
+    expect(waits).toEqual([100]);
   });
 });

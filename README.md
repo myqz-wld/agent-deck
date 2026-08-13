@@ -183,8 +183,9 @@ The Linux role definitions and their explicit evidence limits are documented in
 
 ### Deployment automation
 
-Copy only the required examples to a private directory outside the repository, set mode `0600`,
-then replace every placeholder and referenced runtime or credential path:
+Copy only the required examples to the user-level `~/.agent-deck/deploy/` directory outside the
+repository, keep that directory at mode `0700` and each file at mode `0600`, then replace every
+placeholder and referenced runtime or credential path:
 
 - [`relay-server.config.example.json`](deploy/examples/relay-server.config.example.json)
 - [`relay-worker.config.example.json`](deploy/examples/relay-worker.config.example.json)

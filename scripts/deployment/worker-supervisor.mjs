@@ -11,6 +11,7 @@ import {
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { runCommand } from './process.mjs';
 
@@ -171,6 +172,54 @@ async function launchctl(args, allowFailure = false) {
   return command('/bin/launchctl', args, { allowFailure, timeoutMs: 30_000 });
 }
 
+const BOOTSTRAP_RETRY_DELAYS_MS = Object.freeze([100, 250, 500]);
+const PROCESS_EXIT_RETRY_DELAYS_MS = Object.freeze([100, 250, 500, 1_000, 2_000, 2_000]);
+
+export function launchAgentProcessId(output) {
+  const raw = output.match(/^\s*pid = ([1-9][0-9]{0,9})\s*$/m)?.[1];
+  if (raw === undefined) return null;
+  const pid = Number(raw);
+  return Number.isSafeInteger(pid) && pid <= 0x7fffffff ? pid : null;
+}
+
+export async function waitForLaunchAgentProcessExit(pid, options = {}) {
+  if (pid === null) return;
+  const probe = options.probe ?? ((targetPid) => command(
+    '/bin/ps', ['-p', String(targetPid), '-o', 'pid='],
+    { allowFailure: true, timeoutMs: 5_000 },
+  ));
+  const wait = options.wait ?? delay;
+  for (let attempt = 0; ; attempt += 1) {
+    const result = await probe(pid);
+    if (result.code !== 0 || result.stdout.trim() === '') return;
+    const retryDelayMs = PROCESS_EXIT_RETRY_DELAYS_MS[attempt];
+    if (retryDelayMs === undefined) {
+      throw new Error('现有 Provider supervisor 进程未在受控停止后退出。');
+    }
+    await wait(retryDelayMs);
+  }
+}
+
+export async function bootstrapLaunchAgentWithRetry({
+  domain,
+  plistPath,
+  target,
+  execute = launchctl,
+  wait = delay,
+}) {
+  for (let attempt = 0; ; attempt += 1) {
+    const started = await execute(['bootstrap', domain, plistPath], true);
+    if (started.code === 0) return;
+    const registered = await execute(['print', target], true);
+    if (registered.code === 0) return;
+    const retryDelayMs = BOOTSTRAP_RETRY_DELAYS_MS[attempt];
+    if (started.code !== 5 || retryDelayMs === undefined) {
+      throw new Error(`Provider supervisor LaunchAgent 无法启动（exit ${started.code}）。`);
+    }
+    await wait(retryDelayMs);
+  }
+}
+
 async function verifyLaunchAgent(config) {
   const { target } = identity(config);
   const status = await launchctl(['print', target], true);
@@ -219,14 +268,17 @@ export async function deployWorkerProviderSupervisor(config) {
   const previous = await readExistingPrivateFile(plistPath);
   const rendered = Buffer.from(await renderLaunchAgent(config), 'utf8');
   const { target } = identity(config);
+  const domain = `gui/${process.getuid()}`;
   try {
     await writePrivateAtomic(plistPath, rendered);
     const current = await launchctl(['print', target], true);
     if (current.code === 0) {
+      const previousPid = launchAgentProcessId(current.stdout);
       const stopped = await launchctl(['bootout', target], true);
       if (stopped.code !== 0) throw new Error('现有 Provider supervisor 无法受控停止。');
+      await waitForLaunchAgentProcessExit(previousPid);
     }
-    await launchctl(['bootstrap', `gui/${process.getuid()}`, plistPath]);
+    await bootstrapLaunchAgentWithRetry({ domain, plistPath, target });
     await command(config.command, [
       'wait-ready', '--config', config.configFile, '--deadline-ms', '120000',
     ], { timeoutMs: 150_000 });
@@ -235,7 +287,7 @@ export async function deployWorkerProviderSupervisor(config) {
     await launchctl(['bootout', target], true).catch(() => undefined);
     await restoreLaunchAgent(plistPath, previous).catch(() => undefined);
     if (previous !== null) {
-      await launchctl(['bootstrap', `gui/${process.getuid()}`, plistPath], true)
+      await bootstrapLaunchAgentWithRetry({ domain, plistPath, target })
         .catch(() => undefined);
     }
     throw error;
