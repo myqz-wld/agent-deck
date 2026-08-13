@@ -471,9 +471,17 @@ export type RemoteHostResourceKind = (typeof REMOTE_HOST_RESOURCE_KINDS)[number]
 
 export type RemoteHostResourceRevisions = Record<RemoteHostResourceKind, number>;
 
+export interface RemoteHostSessionRenameDto {
+  fromId: string;
+  toId: string;
+  authoritativeCoreId: string;
+  workerGeneration: number | null;
+}
+
 export interface RemoteHostDataChangedDto {
   revision: number;
   profileId: string | null;
   reason: 'data' | 'profiles' | 'selection' | 'state';
   resources: RemoteHostResourceKind[];
+  sessionRename?: RemoteHostSessionRenameDto;
 }

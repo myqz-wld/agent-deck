@@ -90,6 +90,8 @@ describe('RemoteHostManagerDialog', () => {
     const dialog = screen.getByRole('dialog', { name: '远程数据源' });
     expect(dialog.getAttribute('data-layout')).toBe('single-column');
     expect(dialog.className).toContain('w-[min(34rem,92%)]');
+    expect(dialog.className).toContain('h-[85%]');
+    expect(dialog.className).toContain('max-h-[42rem]');
     expect(dialog.querySelector('aside')).toBeNull();
     expect(screen.queryByText(/选择左侧连接/)).toBeNull();
 

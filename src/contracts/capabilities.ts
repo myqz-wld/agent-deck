@@ -10,6 +10,7 @@ export const AgentDeckCapability = {
   WorkspaceDirectoryWrite: 'workspace.directory.write',
   SessionHistory: 'sessions.history',
   SessionHistoryWrite: 'sessions.history.write',
+  SessionReactivate: 'sessions.reactivate',
   SessionSummariesRead: 'sessions.summaries.read',
   SessionFileChangesRead: 'sessions.file-changes.read',
   SessionRuntimeRead: 'sessions.runtime.read',

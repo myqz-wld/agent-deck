@@ -58,7 +58,7 @@ export function RemoteHostManagerDialog({
         aria-modal="true"
         aria-labelledby="remote-host-manager-title"
         data-layout="single-column"
-        className="no-drag relative flex max-h-[85%] w-[min(34rem,92%)] flex-col overflow-hidden rounded-xl border border-white/[0.09] bg-deck-bg-strong shadow-2xl"
+        className="no-drag relative flex h-[85%] max-h-[42rem] w-[min(34rem,92%)] flex-col overflow-hidden rounded-xl border border-white/[0.09] bg-deck-bg-strong shadow-2xl"
       >
         <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] bg-black/[0.05] px-4 py-3.5">
           <div className="min-w-0">

@@ -339,6 +339,7 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
   ): Promise<SessionConsoleCreateResult> {
     return this.prepareProviderSession(input.params).then((prepared) =>
       this.createPreparedSession(input.params, prepared, {
+        awaitCanonicalId: true,
         initialSessionRegistration: input.initialSessionRegistration,
         ...(input.teamName === undefined ? {} : { teamName: input.teamName }),
       }));
@@ -376,6 +377,7 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
     params: SessionConsoleCreateParams,
     prepared: PreparedSessionCreate,
     internal: {
+      readonly awaitCanonicalId?: boolean;
       readonly initialSessionRegistration?: InitialSessionRegistration;
       readonly teamName?: string;
     } = {},

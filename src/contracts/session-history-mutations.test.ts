@@ -15,6 +15,9 @@ describe('session history mutation contract', () => {
     }, 'session-a', 'archived')).toEqual({
       sessionId: 'session-a', state: 'archived', revision: 43,
     });
+    expect(parseSessionHistoryMutationResult({
+      sessionId: 'session-a', state: 'reactivated', revision: 44,
+    }, 'session-a', 'reactivated').state).toBe('reactivated');
   });
 
   it('rejects malformed, extra-field, and wrong-identity results', () => {

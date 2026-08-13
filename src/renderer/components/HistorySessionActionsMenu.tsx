@@ -11,6 +11,7 @@ export function HistorySessionActionsMenu({
   onClose,
   onArchive,
   onDelete,
+  onReactivate,
   onUnarchive,
   position,
 }: {
@@ -18,6 +19,7 @@ export function HistorySessionActionsMenu({
   onClose(): void;
   onArchive(): Promise<void>;
   onDelete(): Promise<void>;
+  onReactivate?: () => Promise<void>;
   onUnarchive(): Promise<void>;
   position: SessionContextMenuPosition;
 }): JSX.Element {
@@ -37,6 +39,13 @@ export function HistorySessionActionsMenu({
               label: '归档',
               run: onArchive,
             },
+        ...(onReactivate
+          ? [{
+              icon: <RefreshIcon className="mr-1 inline h-3 w-3" />,
+              label: '重新激活',
+              run: onReactivate,
+            }]
+          : []),
         {
           danger: true,
           icon: <TrashIcon className="mr-1 inline h-3 w-3" />,

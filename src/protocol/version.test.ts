@@ -7,8 +7,8 @@ import {
 } from './version';
 
 describe('protocol version negotiation', () => {
-  it('advertises Remote history/directory mutations as protocol 2.5', () => {
-    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 5 });
+  it('advertises Remote session reactivation as protocol 2.6', () => {
+    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 6 });
   });
   it('selects the lower additive minor version for the same major', () => {
     expect(negotiateProtocolVersion({ major: 1, minor: 2 }, { major: 1, minor: 5 })).toEqual({

@@ -152,6 +152,10 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().historyMutations.unarchive(
       parseRemoteHostSessionHistoryMutation(request),
     )));
+  on(RemoteHostIpcInvoke.SessionReactivate, (_event, request) => safely(() =>
+    getRemoteHostService().historyMutations.reactivate(
+      parseRemoteHostSessionHistoryMutation(request),
+    )));
   on(RemoteHostIpcInvoke.SessionDelete, (_event, request) => safely(() =>
     getRemoteHostService().historyMutations.delete(
       parseRemoteHostSessionHistoryMutation(request),

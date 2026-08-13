@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
@@ -106,6 +106,7 @@ beforeEach(() => {
     configurable: true,
     value: {
       getSessionGitBranch,
+      confirmDialog: vi.fn(async () => true),
       setSessionPinned: vi.fn(async () => undefined),
     },
   });
@@ -221,6 +222,60 @@ describe('Local and Remote session-list parity', () => {
 
     expect(screen.getByRole('img', { name: '已置顶会话（Remote 只读）' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /置顶会话/ })).toBeNull();
+  });
+
+  it('opens archive and delete actions from a Remote Live card right click', async () => {
+    const archiveHistorySession = vi.fn(async () => undefined);
+    const deleteHistorySession = vi.fn(async () => undefined);
+    const source = remoteSource([remoteSession('Live', 'active-working')], {
+      capabilities: new Set(['session-console.read', 'sessions.history.write']),
+      archiveHistorySession,
+      deleteHistorySession,
+      unarchiveHistorySession: vi.fn(async () => undefined),
+    });
+    render(<SessionList remoteSource={source} />);
+
+    fireEvent.contextMenu(screen.getByText('Live Remote'), { clientX: 90, clientY: 60 });
+    fireEvent.click(screen.getByRole('menuitem', { name: '归档' }));
+    await waitFor(() => expect(archiveHistorySession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'Live' }),
+    ));
+
+    fireEvent.contextMenu(screen.getByText('Live Remote'), { clientX: 90, clientY: 60 });
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除' }));
+    await waitFor(() => expect(window.api.confirmDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ title: '删除会话', destructive: true }),
+    ));
+    await waitFor(() => expect(deleteHistorySession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'Live' }),
+    ));
+  });
+
+  it('offers Remote reactivation only on dormant Live rows when negotiated', async () => {
+    const reactivateSession = vi.fn(async () => undefined);
+    const source = remoteSource([
+      remoteSession('Active', 'active-idle'),
+      remoteSession('Dormant', 'dormant-idle'),
+    ], {
+      capabilities: new Set([
+        'session-console.read', 'sessions.history.write', 'sessions.reactivate',
+      ]),
+      archiveHistorySession: vi.fn(async () => undefined),
+      deleteHistorySession: vi.fn(async () => undefined),
+      reactivateSession,
+      unarchiveHistorySession: vi.fn(async () => undefined),
+    });
+    render(<SessionList remoteSource={source} />);
+
+    fireEvent.contextMenu(screen.getByText('Active Remote'));
+    expect(screen.queryByRole('menuitem', { name: '重新激活' })).toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.contextMenu(screen.getByText('Dormant Remote'));
+    fireEvent.click(screen.getByRole('menuitem', { name: '重新激活' }));
+
+    await waitFor(() => expect(reactivateSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'Dormant', lifecycle: 'dormant' }),
+    ));
   });
 
   it('uses one shared layout grammar for empty, loading, and failed states', () => {

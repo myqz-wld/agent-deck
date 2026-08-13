@@ -8,6 +8,7 @@ import type {
   RemoteHostSessionPageDto,
 } from '@shared/remote-host';
 import { legacyRemoteSessionPresentation } from './session-summary-presentation';
+import { remoteSourceIdentity } from './remote-source-utils';
 import { useRemoteSessionSource } from './use-remote-session-source';
 import { deferred, hosts, session } from './use-remote-session-source-test-fixture';
 
@@ -324,6 +325,64 @@ describe('useRemoteSessionSource source fencing', () => {
       includeArchived: false,
     }));
     expect(liveOnly.result.current.historySessions).toEqual([]);
+  });
+
+  it('selects the canonical session when create returns an already-renamed temporary id', async () => {
+    vi.mocked(window.api.getRemoteHostSession).mockResolvedValue({
+      id: 'canonical-a', adapterId: 'codex-cli', title: 'Canonical detail',
+      status: 'active-idle', createdAt: 1, updatedAt: 3,
+    });
+    const current = hosts('remote-a', 1);
+    const identity = remoteSourceIdentity('remote-a', 'core-remote-a', null);
+    const hook = renderHook(() => useRemoteSessionSource({
+      ...current,
+      sessionRenamesBySource: new Map([
+        [identity, new Map([['temporary-a', 'canonical-a']])],
+      ]),
+    }));
+    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
+
+    act(() => hook.result.current.selectSession('temporary-a'));
+
+    expect(hook.result.current.selectedSessionId).toBe('canonical-a');
+    await waitFor(() => expect(window.api.getRemoteHostSession).toHaveBeenCalledWith({
+      profileId: 'remote-a', sessionId: 'canonical-a',
+    }));
+    await waitFor(() => expect(hook.result.current.selectedSession?.id).toBe('canonical-a'));
+  });
+
+  it('moves an already-selected temporary session to a later canonical rename', async () => {
+    const temporaryDetail = deferred<ReturnType<typeof session>>();
+    vi.mocked(window.api.getRemoteHostSession).mockImplementation((request) =>
+      request.sessionId === 'temporary-a'
+        ? temporaryDetail.promise
+        : Promise.resolve(session('canonical-a', 'Canonical detail')));
+    const current = hosts('remote-a', 1);
+    const identity = remoteSourceIdentity('remote-a', 'core-remote-a', null);
+    const hook = renderHook(
+      ({ value }: { value: RemoteHostSnapshotState }) => useRemoteSessionSource(value),
+      { initialProps: { value: current } },
+    );
+    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
+    act(() => hook.result.current.selectSession('temporary-a'));
+    await waitFor(() => expect(window.api.getRemoteHostSession).toHaveBeenCalledWith({
+      profileId: 'remote-a', sessionId: 'temporary-a',
+    }));
+
+    hook.rerender({
+      value: {
+        ...current,
+        sessionRenamesBySource: new Map([
+          [identity, new Map([['temporary-a', 'canonical-a']])],
+        ]),
+      },
+    });
+
+    await waitFor(() => expect(hook.result.current.selectedSessionId).toBe('canonical-a'));
+    await waitFor(() => expect(hook.result.current.selectedSession?.id).toBe('canonical-a'));
+    temporaryDetail.resolve(session('temporary-a', 'Late temporary detail'));
+    await act(async () => { await temporaryDetail.promise; });
+    expect(hook.result.current.selectedSession?.id).toBe('canonical-a');
   });
 
   it('rejects a Workspace directory result after the source identity changes', async () => {

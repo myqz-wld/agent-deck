@@ -17,6 +17,7 @@ import type {
   RemoteHostRuntimeControlsDto,
   RemoteHostRuntimeUpdateDto,
   RemoteHostRuntimeUpdateResultDto,
+  RemoteHostResourceKind,
   RemoteHostSendDto,
   RemoteHostSendResultDto,
   RemoteHostSessionPageDto,
@@ -33,6 +34,7 @@ import type {
   RemoteHostSessionMessagesRequestDto,
   RemoteHostSessionPermissionsDto,
   RemoteHostSessionPermissionsRequestDto,
+  RemoteHostSessionRenameDto,
   RemoteHostSessionOutgoingDto,
   RemoteHostSessionOutgoingRemoveDto,
   RemoteHostSessionOutgoingRemoveRequestDto,
@@ -77,7 +79,7 @@ import { RemoteHostScopeEpochs } from './service-scope';
 import { RemoteHostRequestAuthority } from './service-request-authority';
 import { remoteHostResourcesForCoreEvent } from './resource-invalidation';
 import type { RemoteHostDesktopBrokerPort } from './desktop-browser-broker';
-import type { RemoteHostResourceKind } from '@shared/remote-host';
+import { RemoteHostSessionRenameTracker } from './remote-session-rename';
 import log from '@main/utils/logger';
 
 const logger = log.scope('remote-host-transport');
@@ -112,6 +114,7 @@ export class RemoteHostService {
   private readonly scopes = new RemoteHostScopeEpochs();
   private readonly hostIdentityByProfile = new Map<string, string>();
   private readonly desktopBroker: RemoteHostDesktopBrokerPort;
+  private readonly sessionRenames = new RemoteHostSessionRenameTracker();
   constructor(private readonly options: RemoteHostServiceOptions) {
     this.desktopBroker = options.desktopBroker ?? {
       handleState: () => undefined,
@@ -198,7 +201,9 @@ export class RemoteHostService {
     });
     options.registry.onEvent((event) => {
       this.desktopBroker.handleEvent(event);
-      this.changed('data', event.profileId, remoteHostResourcesForCoreEvent(event.kind));
+      const resources = remoteHostResourcesForCoreEvent(event.kind);
+      this.changed('data', event.profileId, resources,
+        this.sessionRenames.handle(options.registry, event) ?? undefined);
     });
   }
   getSnapshot(): Promise<RemoteHostSnapshotDto> {
@@ -361,11 +366,7 @@ export class RemoteHostService {
           request,
           this.requestAuthority.mutationId('create', request.profileId, request.intentId),
         );
-        this.options.registry.updateNavigation(
-          request.profileId,
-          { selectedSessionId: parsed.sessionId },
-        );
-        return parsed;
+        return this.sessionRenames.selectCreated(this.options.registry, request.profileId, parsed);
       },
       [],
       request.expectedAuthority,
@@ -464,6 +465,7 @@ export class RemoteHostService {
     reason: 'data' | 'profiles' | 'selection' | 'state',
     profileId: string | null,
     resources: readonly RemoteHostResourceKind[] = [],
+    sessionRename?: RemoteHostSessionRenameDto,
   ): void {
     this.snapshotRevision += 1;
     publishRemoteHostChanged({
@@ -471,6 +473,7 @@ export class RemoteHostService {
       profileId,
       reason,
       resources: [...resources],
+      ...(sessionRename ? { sessionRename } : {}),
     });
   }
 

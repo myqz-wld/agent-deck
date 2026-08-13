@@ -47,7 +47,9 @@ export function RemoteSessionSummaryCard({
   onSelect,
   onArchive,
   onDelete,
+  onReactivate,
   onUnarchive,
+  history = false,
   teamRole,
 }: {
   session: RemoteHostSessionPresentationDto;
@@ -55,7 +57,9 @@ export function RemoteSessionSummaryCard({
   onSelect: () => void;
   onArchive?: () => Promise<void>;
   onDelete?: () => Promise<void>;
+  onReactivate?: () => Promise<void>;
   onUnarchive?: () => Promise<void>;
+  history?: boolean;
   teamRole?: 'lead' | 'teammate';
 }): JSX.Element {
   const [menuPosition, setMenuPosition] = useState<SessionContextMenuPosition | null>(null);
@@ -66,12 +70,12 @@ export function RemoteSessionSummaryCard({
         `· ${team.teamName}［${team.role === 'lead' ? '负责人' : '协作者'}］`).join('\n')}`
     : '';
   const historyActions = onArchive && onDelete && onUnarchive
-    ? { onArchive, onDelete, onUnarchive }
+    ? { onArchive, onDelete, ...(onReactivate ? { onReactivate } : {}), onUnarchive }
     : null;
-  const summaryLine = historyActions
+  const summaryLine = history
     ? session.workspaceLabel ?? 'Workspace'
     : session.summary ?? session.workspaceLabel ?? '暂无会话摘要';
-  const activityLine = historyActions
+  const activityLine = history
     ? `${new Date(session.updatedAt).toLocaleString('zh-CN', { hour12: false })} · ${
         session.archived
           ? `已归档（${lifecycleLabel(session.lifecycle)}）`

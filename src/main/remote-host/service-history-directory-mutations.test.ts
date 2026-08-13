@@ -43,6 +43,23 @@ describe('Remote history and Workspace mutation controllers', () => {
     );
   });
 
+  it('routes dormant reactivation through its separately negotiated method', async () => {
+    const state = harness({ sessionId: 'session-a', state: 'reactivated', revision: 9 });
+    const controller = new RemoteHostSessionHistoryMutationController(
+      state.request,
+      state.mutationId,
+    );
+    await expect(controller.reactivate({
+      profileId: 'remote-a', sessionId: 'session-a', expectedArchived: false,
+      expectedUpdatedAt: 8, expectedAuthority, intentId: 'intent-r',
+    })).resolves.toEqual({ sessionId: 'session-a', state: 'reactivated', revision: 9 });
+    expect(state.client.request).toHaveBeenCalledWith(
+      'session.reactivate',
+      { sessionId: 'session-a', expectedArchived: false, expectedUpdatedAt: 8 },
+      expect.objectContaining({ idempotencyKey: 'reactivate:remote-a:intent-r' }),
+    );
+  });
+
   it('returns only the Workspace-relative directory from Core', async () => {
     const state = harness({ directory: 'repo/new-folder', revision: 8 });
     const controller = new RemoteHostWorkspaceDirectoryMutationController(

@@ -155,7 +155,10 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
         initialMessage: originalPrompt,
         options,
         workingDirectory: cwd,
-      }, absoluteCwd, [], args.teamName ? { teamName: args.teamName } : {});
+      }, absoluteCwd, [], {
+        awaitCanonicalId: true,
+        ...(args.teamName ? { teamName: args.teamName } : {}),
+      });
       forkSource = await validateServerCoreSpawnFork({
         adapter: forkAdapter,
         caller: liveCaller,

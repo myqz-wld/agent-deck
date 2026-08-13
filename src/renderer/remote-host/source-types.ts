@@ -131,6 +131,7 @@ export interface RemoteSessionSourceView {
   ): Promise<RemoteHostSessionOutgoingDto>;
   loadMorePending(): Promise<void>;
   loadMoreSessions(): Promise<void>;
+  reactivateSession(session: RemoteHostSessionPresentationDto): Promise<void>;
   refresh(): void;
   respondPending(
     presentation: RemotePendingPresentation,

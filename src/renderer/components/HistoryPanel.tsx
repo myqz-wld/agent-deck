@@ -314,6 +314,7 @@ function RemoteHistoryPanel({
               <li key={`${source.identity}:${session.id}`}>
                 <RemoteSessionSummaryCard
                   session={session}
+                  history
                   onSelect={() => onSelect(session.id)}
                   {...(canMutate ? {
                     onArchive: () => run('归档', () => source.archiveHistorySession(session)),

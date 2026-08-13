@@ -131,9 +131,10 @@ export function RemoteSessionComposer({
     <div data-remote-session-composer className="shrink-0 border-t border-deck-border px-2.5 py-2">
       <RemoteSessionRuntimeControls
         adapterId={adapterId}
-        busy={source.busy || turnBusy || turnWaiting}
+        busy={source.busy}
         canWrite={canWriteRuntime}
         identity={identity}
+        turnActive={turnBusy || turnWaiting}
         values={source.runtime?.values ?? null}
         onApply={source.updateRuntime}
       />

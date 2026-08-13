@@ -205,6 +205,7 @@ export type CoreMethodMap = {
     params: SessionHistoryMutationParams;
     result: SessionHistoryMutationResult;
   };
+  'session.reactivate': { params: SessionHistoryMutationParams; result: SessionHistoryMutationResult };
   'session.delete': {
     params: SessionHistoryMutationParams;
     result: SessionHistoryMutationResult;
@@ -411,6 +412,7 @@ export const CORE_METHOD_METADATA = {
   ),
   'session.archive': mutationMethod(AgentDeckCapability.SessionHistoryWrite, 'none', 'none'),
   'session.unarchive': mutationMethod(AgentDeckCapability.SessionHistoryWrite, 'none', 'none'),
+  'session.reactivate': mutationMethod(AgentDeckCapability.SessionReactivate, 'none', 'none'),
   'session.delete': mutationMethod(AgentDeckCapability.SessionHistoryWrite, 'none', 'none'),
   'project.list': readMethod(AgentDeckCapability.ProjectsRead),
   'project.resolve': readMethod(AgentDeckCapability.ProjectsRead),

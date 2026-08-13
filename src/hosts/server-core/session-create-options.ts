@@ -18,6 +18,7 @@ export function buildRemoteCreateOptions(
   cwd: string,
   attachments: UploadedAttachmentRef[],
   internal: {
+    readonly awaitCanonicalId?: boolean;
     readonly initialSessionRegistration?: InitialSessionRegistration;
     readonly teamName?: string;
   } = {},
@@ -37,7 +38,6 @@ export function buildRemoteCreateOptions(
       claudeCodeEffortLevel: options.thinking,
       permissionMode: options.permissionMode,
       claudeCodeSandbox: options.claudeCodeSandbox as 'off' | 'workspace-write' | 'strict',
-      awaitCanonicalId: true,
       ...internal,
       ...(attachments.length > 0 ? { attachments } : {}),
     });
@@ -56,7 +56,6 @@ export function buildRemoteCreateOptions(
       modelReasoningEffort: options.thinking,
       approvalPolicy: options.approvalPolicy,
       codexSandbox: options.codexSandbox as 'workspace-write' | 'read-only' | 'danger-full-access',
-      awaitCanonicalId: true,
       ...internal,
       ...(attachments.length > 0 ? { attachments } : {}),
     });
@@ -73,7 +72,6 @@ export function buildRemoteCreateOptions(
     reasoningEffort: options.thinking,
     sessionMode: options.sessionMode,
     grokSandbox: options.grokSandbox,
-    awaitCanonicalId: true,
     ...internal,
     ...(attachments.length > 0 ? { attachments } : {}),
   });

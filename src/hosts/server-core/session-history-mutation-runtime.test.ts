@@ -89,6 +89,10 @@ function harness(initial: SessionRecord) {
       if (current) current.archivedAt = null;
       revision += 1;
     }),
+    reactivate: vi.fn(() => {
+      if (current) current.lifecycle = 'active';
+      revision += 1;
+    }),
     delete: vi.fn(async () => {
       current = null;
       revision += 1;
@@ -136,6 +140,34 @@ describe('ServerCoreSessionHistoryMutationRuntime', () => {
       sessionId: 'session-a', expectedArchived: false, expectedUpdatedAt: 2,
     }))).resolves.toMatchObject({ result: { state: 'deleted' } });
     expect(deleted.manager.delete).toHaveBeenCalledOnce();
+  });
+
+  it('archives and deletes live rows with the same revision-bound contract', async () => {
+    const active = harness(record({ lifecycle: 'active', activity: 'working', endedAt: null }));
+    await expect(active.runtime.execute(request('session.archive', {
+      sessionId: 'session-a', expectedArchived: false, expectedUpdatedAt: 2,
+    }))).resolves.toMatchObject({ result: { state: 'archived' } });
+    expect(active.manager.archive).toHaveBeenCalledOnce();
+
+    const dormant = harness(record({ lifecycle: 'dormant', activity: 'idle', endedAt: null }));
+    await expect(dormant.runtime.execute(request('session.delete', {
+      sessionId: 'session-a', expectedArchived: false, expectedUpdatedAt: 2,
+    }))).resolves.toMatchObject({ result: { state: 'deleted' } });
+    expect(dormant.manager.delete).toHaveBeenCalledOnce();
+  });
+
+  it('reactivates an unarchived dormant row and rejects an already-active row', async () => {
+    const dormant = harness(record({ lifecycle: 'dormant', activity: 'idle', endedAt: null }));
+    await expect(dormant.runtime.execute(request('session.reactivate', {
+      sessionId: 'session-a', expectedArchived: false, expectedUpdatedAt: 2,
+    }))).resolves.toMatchObject({ result: { state: 'reactivated' } });
+    expect(dormant.manager.reactivate).toHaveBeenCalledOnce();
+
+    const active = harness(record({ lifecycle: 'active', activity: 'idle', endedAt: null }));
+    await expect(active.runtime.execute(request('session.reactivate', {
+      sessionId: 'session-a', expectedArchived: false, expectedUpdatedAt: 2,
+    }))).rejects.toMatchObject({ code: 'conflict' });
+    expect(active.manager.reactivate).not.toHaveBeenCalled();
   });
 
   it('rejects stale row state and releases the claim without mutation', async () => {

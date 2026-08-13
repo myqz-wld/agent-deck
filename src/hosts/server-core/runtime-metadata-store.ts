@@ -392,6 +392,18 @@ export class ServerCoreRuntimeMetadataStore {
     return result;
   }
 
+  renameSessionMutationResults(fromId: string, toId: string, now = Date.now()): void {
+    token(fromId, 'renamed session source', 256);
+    token(toId, 'renamed session target', 256);
+    if (fromId === toId) return;
+    this.db().prepare(
+      `UPDATE mutation_ledger
+          SET result_json = json_set(result_json, '$.sessionId', ?), updated_at = ?
+        WHERE status = 'completed'
+          AND json_extract(result_json, '$.sessionId') = ?`,
+    ).run(toId, now, fromId);
+  }
+
   releaseMutationClaim(identity: ServerCoreMutationIdentity): void {
     this.validateMutationIdentity(identity);
     const changed = this.db().prepare(

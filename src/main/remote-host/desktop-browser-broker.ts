@@ -18,6 +18,7 @@ import {
   executeRemoteBrowserRequest,
   remoteBrowserOwnerId,
 } from './remote-browser-executor';
+import { parseRemoteSessionRename } from './remote-session-rename';
 
 const POLL_WAIT_MS = 20_000;
 const POLL_DEADLINE_MS = 25_000;
@@ -72,13 +73,6 @@ function lifecycle(payload: JsonValue): string | null {
     : null;
 }
 
-function renamed(payload: JsonValue): { fromId: string; toId: string } | null {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
-  return typeof payload.fromId === 'string' && typeof payload.toId === 'string'
-    ? { fromId: payload.fromId, toId: payload.toId }
-    : null;
-}
-
 /** Desktop-owned long-poll worker for Core MCP browser requests. */
 export class RemoteHostDesktopBrowserBroker implements RemoteHostDesktopBrokerPort {
   private readonly loops = new Map<string, ProfileLoop>();
@@ -126,7 +120,7 @@ export class RemoteHostDesktopBrowserBroker implements RemoteHostDesktopBrokerPo
       return;
     }
     if (event.kind === 'session.renamed') {
-      const value = renamed(event.payload);
+      const value = parseRemoteSessionRename(event.payload);
       if (!value) return;
       const owner = loop.owners.get(value.fromId);
       if (owner) {
