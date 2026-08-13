@@ -135,7 +135,7 @@ export function AppWorkspace({
   }
   return (
     <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">
-      此页面仅在 Local 数据源可用。远程协议当前未提供对应能力。
+      此页面目前只支持本机数据，当前远端连接暂不提供。
     </div>
   );
 }

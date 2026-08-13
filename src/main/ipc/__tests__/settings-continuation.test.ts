@@ -20,7 +20,7 @@ vi.mock('@main/login-item', () => ({ syncLoginItemSetting: vi.fn() }));
 vi.mock('@main/session/lifecycle-scheduler', () => ({ getLifecycleScheduler: vi.fn() }));
 vi.mock('@main/store/issue-lifecycle-scheduler', () => ({ getIssueLifecycleScheduler: vi.fn() }));
 vi.mock('@main/store/message-lifecycle-scheduler', () => ({ getMessageLifecycleScheduler: vi.fn() }));
-vi.mock('@main/session/summarizer', () => ({ summarizer: {} }));
+vi.mock('@main/session/summarizer/desktop', () => ({ summarizer: {} }));
 vi.mock('@main/session/continuation-context/checkpoint-refresh-service', () => ({
   getContinuationCheckpointRefreshService: () => ({
     updateSettings: updateCheckpointRefresh,

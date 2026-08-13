@@ -121,25 +121,51 @@ export function RemotePendingRequests({
   }
   return (
     <ol className="flex flex-col gap-2">
-      {requests.map((request) => {
-        const presentation = remotePendingPresentation(sourceIdentity, pending.revision, request);
-        const mcp = remoteMcpPresentationRow(
-          presentation, agentId, busy, onRespond, planReviewTransport,
-        );
-        if (mcp) return mcp;
-        const provider = remoteProviderPresentationRow(
-          presentation, agentId, busy, onRespond,
-        );
-        if (provider) return provider;
-        return <RemotePendingFallbackRow
-          key={`${request.id}\u0000${presentation.revision}\u0000${presentation.digest}\u0000${sourceIdentity}`}
-          presentation={presentation}
+      {requests.map((request) => (
+        <RemotePendingRequestRow
+          key={`${request.id}\u0000${pending.revision}\u0000${sourceIdentity}`}
+          request={request}
+          revision={pending.revision}
+          sourceIdentity={sourceIdentity}
+          agentId={agentId}
           busy={busy}
           onRespond={onRespond}
-        />;
-      })}
+          planReviewTransport={planReviewTransport}
+        />
+      ))}
     </ol>
   );
+}
+
+/** The shared pending row is also injected into a session's activity timeline. */
+export function RemotePendingRequestRow({
+  request,
+  revision,
+  sourceIdentity,
+  agentId = 'remote',
+  busy,
+  onRespond,
+  planReviewTransport,
+}: {
+  request: RemoteHostPendingListDto['requests'][number];
+  revision: number;
+  sourceIdentity: string;
+  agentId?: string;
+  busy: boolean;
+  onRespond: Parameters<typeof RemotePendingRequests>[0]['onRespond'];
+  planReviewTransport?: RemoteSessionSourceView['planReviewTransport'];
+}): JSX.Element {
+  const presentation = remotePendingPresentation(sourceIdentity, revision, request);
+  return remoteMcpPresentationRow(
+    presentation, agentId, busy, onRespond, planReviewTransport,
+  ) ?? remoteProviderPresentationRow(
+    presentation, agentId, busy, onRespond,
+  ) ?? <RemotePendingFallbackRow
+    key={`fallback-${presentation.sourceIdentity}-${presentation.request.id}-${presentation.revision}-${presentation.digest}`}
+    presentation={presentation}
+    busy={busy}
+    onRespond={onRespond}
+  />;
 }
 
 function presentationEvent(
@@ -203,8 +229,8 @@ function remoteMcpPresentationRow(
       ? null
       : planReviewTransport?.(presentation, agentId) ?? null;
     const unavailable = agentId === 'grok-build'
-      ? 'Grok 当前不支持隔离的原生 fork；不会回退使用 Local 会话。'
-      : '此远程 Core 未提供隔离计划审阅能力；不会回退使用 Local 会话。';
+      ? 'Grok 当前暂不支持独立计划审阅。'
+      : '当前远端版本暂不支持独立计划审阅。';
     return <ExitPlanRow
       key={`plan-${presentation.sourceIdentity}-${presentation.request.id}-${presentation.revision}-${presentation.digest}`}
       {...common}
@@ -282,7 +308,7 @@ function remoteProviderPresentationRow(
         : '授权输入未能完整安全展示；仅可拒绝此请求。'
       : command
         ? null
-        : '远程 Core 未提供完整授权上下文；仅可拒绝此请求。';
+        : '授权详情不完整；为保证安全，只能拒绝此请求。';
     const payload: PermissionRequest = {
       type: 'permission-request',
       requestId: request.id,

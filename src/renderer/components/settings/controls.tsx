@@ -85,7 +85,7 @@ export function Toggle({
   disabled?: boolean;
 }): JSX.Element {
   return (
-    <label className={`flex items-center justify-between text-[11px] ${
+    <label data-settings-field={label} className={`flex items-center justify-between text-[11px] ${
       disabled ? 'cursor-not-allowed text-deck-muted/60' : 'cursor-pointer'
     }`}>
       <span>{label}</span>
@@ -110,6 +110,8 @@ export function NumberInput({
    *  Number(draft) 接受小数 1.5 直接进 hookServerPort/summaryEventCount 等是历史 bug。
    *  显式传 integer={false} 才允许浮点。 */
   integer = true,
+  disabled = false,
+  displayValue,
   onChange,
 }: {
   label: string;
@@ -118,12 +120,16 @@ export function NumberInput({
   max?: number;
   hideSteppers?: boolean;
   integer?: boolean;
+  disabled?: boolean;
+  /** Keeps unavailable Remote-only values in the same field slot without inventing a number. */
+  displayValue?: string;
   onChange: (v: number) => void;
 }): JSX.Element {
   // 用本地 string 草稿允许中间态（清空 / 删字符 / 输负号）；blur 或 Enter 时才提交并 clamp。
   // REVIEW_2 修：原本每次按键直接 Number(...) onChange，清空 = 0、负数 / 超大值都立即生效，
   // hookServerPort=0 / activeWindowMs=0 这种"立即生效但语义违法"的值会污染 settings DB。
-  const [draft, setDraft] = useState<string>(String(value));
+  const presentedValue = displayValue ?? String(value);
+  const [draft, setDraft] = useState<string>(presentedValue);
   // 父级 value 变化时同步草稿（恢复默认 / 异地修改回流），但用户正在编辑时不抢
   const [editing, setEditing] = useState(false);
   // REVIEW_4 M12：editing 用 ref 持有避免进 effect 依赖。原版依赖 [value, editing]
@@ -133,10 +139,11 @@ export function NumberInput({
   editingRef.current = editing;
   useEffect(() => {
     if (editingRef.current) return; // 用户编辑中，不抢
-    setDraft(String(value));
-  }, [value]);
+    setDraft(presentedValue);
+  }, [presentedValue]);
 
   const commit = (): void => {
+    if (disabled || displayValue !== undefined) return;
     setEditing(false);
     let n = Number(draft);
     if (!Number.isFinite(n)) {
@@ -152,16 +159,24 @@ export function NumberInput({
   };
 
   return (
-    <label className="flex items-center justify-between gap-2 text-[11px]">
+    <label
+      data-settings-field={label}
+      className={`flex items-center justify-between gap-2 text-[11px] ${
+        disabled ? 'text-deck-muted/60' : ''
+      }`}
+    >
       <span className="flex-1">{label}</span>
       <input
         type={hideSteppers ? 'text' : 'number'}
         inputMode={integer ? 'numeric' : 'decimal'}
         value={draft}
+        disabled={disabled}
         min={min}
         max={max}
         step={integer ? 1 : 'any'}
-        onFocus={() => setEditing(true)}
+        onFocus={() => {
+          if (!disabled && displayValue === undefined) setEditing(true);
+        }}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -173,7 +188,7 @@ export function NumberInput({
             e.currentTarget.blur();
           }
         }}
-        className="w-20 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-right text-[11px] outline-none focus:border-white/20"
+        className="w-20 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-right text-[11px] outline-none focus:border-white/20 disabled:cursor-not-allowed disabled:opacity-60"
       />
     </label>
   );
@@ -187,15 +202,18 @@ export function SoundPicker({
   label,
   kind,
   path,
+  disabled = false,
   onChange,
 }: {
   label: string;
   kind: 'waiting' | 'done';
   path: string | null;
+  disabled?: boolean;
   onChange: (path: string | null) => void;
 }): JSX.Element {
   const fileName = path ? path.split('/').pop() : null;
   const choose = async (): Promise<void> => {
+    if (disabled) return;
     try {
       const r = await window.api.chooseSoundFile(path ?? undefined);
       if (r) onChange(r);
@@ -204,35 +222,39 @@ export function SoundPicker({
     }
   };
   return (
-    <div className="flex flex-col gap-1 text-[11px]">
+    <div data-settings-field={label} className="flex flex-col gap-1 text-[11px]">
       <div className="flex items-center justify-between">
         <span className="flex-1">{label}</span>
         <div className="flex items-center gap-1 no-drag">
           <button
             type="button"
+            disabled={disabled}
             onClick={() => {
+              if (disabled) return;
               void window.api.playTestSound(kind).catch((err: unknown) => {
                 logger.warn('[settings] playing test sound failed', err);
               });
             }}
             title="试听当前提示音"
-            className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
+            className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text disabled:cursor-not-allowed disabled:opacity-50"
           >
             <PlayIcon className="mr-1 inline h-3 w-3" />试听
           </button>
           <button
             type="button"
+            disabled={disabled}
             onClick={() => void choose()}
-            className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20"
+            className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <FolderOpenIcon className="mr-1 inline h-3 w-3" />选择…
           </button>
           {path && (
             <button
               type="button"
+              disabled={disabled}
               onClick={() => onChange(null)}
               title="恢复默认（系统提示音）"
-              className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-status-waiting/80 hover:bg-status-waiting/20"
+              className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-status-waiting/80 hover:bg-status-waiting/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <RefreshIcon className="mr-1 inline h-3 w-3" />重置
             </button>
@@ -255,11 +277,13 @@ export function ExecutablePicker({
   label,
   hint,
   path,
+  disabled = false,
   onChange,
 }: {
   label: string;
   hint: string;
   path: string | null;
+  disabled?: boolean;
   onChange: (path: string | null) => void;
 }): JSX.Element {
   const choose = async (): Promise<void> => {
@@ -271,30 +295,32 @@ export function ExecutablePicker({
     }
   };
   return (
-    <div className="flex flex-col gap-1 text-[11px]">
+    <div data-settings-field={label} className="flex flex-col gap-1 text-[11px]">
       <div className="flex items-center justify-between">
         <span className="flex-1">{label}</span>
         <div className="flex items-center gap-1 no-drag">
           <button
             type="button"
+            disabled={disabled}
             onClick={() => void choose()}
-            className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20"
+            className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <FolderOpenIcon className="mr-1 inline h-3 w-3" />选择…
           </button>
           {path && (
             <button
               type="button"
+              disabled={disabled}
               onClick={() => onChange(null)}
               title="恢复默认（用应用内置可执行文件）"
-              className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-status-waiting/80 hover:bg-status-waiting/20"
+              className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-status-waiting/80 hover:bg-status-waiting/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <RefreshIcon className="mr-1 inline h-3 w-3" />重置
             </button>
           )}
         </div>
       </div>
-      <div className="truncate text-[10px] text-deck-muted/70" title={path ?? '使用应用内置可执行文件'}>
+      <div className="break-all text-[10px] text-deck-muted/70" title={path ?? '使用应用内置可执行文件'}>
         {path ?? '使用应用内置（默认）'}
       </div>
       <div className="text-[10px] text-deck-muted/60 leading-snug">{hint}</div>
@@ -335,9 +361,10 @@ export function SectionGroup({
  * 生产打包是「Agent Deck」。提示文字读 main 返回的 appName 拼接，避免
  * 装好的 .app 让用户去找「Electron」找不到。
  */
-export function NotificationTestRow(): JSX.Element {
+export function NotificationTestRow({ disabled = false }: { disabled?: boolean }): JSX.Element {
   const [result, setResult] = useState<string | null>(null);
   const test = async (): Promise<void> => {
+    if (disabled) return;
     setResult(null);
     try {
       const r = (await window.api.showTestNotification()) as {
@@ -356,13 +383,14 @@ export function NotificationTestRow(): JSX.Element {
     }
   };
   return (
-    <div className="flex flex-col gap-1 text-[11px]">
+    <div data-settings-field="测试系统通知" className="flex flex-col gap-1 text-[11px]">
       <div className="flex items-center justify-between">
         <span className="flex-1">测试系统通知</span>
         <button
           type="button"
+          disabled={disabled}
           onClick={() => void test()}
-          className="no-drag rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20"
+          className="no-drag rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <PlayIcon className="mr-1 inline h-3 w-3" />弹一条
         </button>

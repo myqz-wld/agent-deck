@@ -98,7 +98,7 @@ describe('Remote handoff dialog authority', () => {
         capabilityRevision: null,
       }),
     }));
-    fireEvent.click(screen.getByRole('button', { name: '确认接力' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
     await waitFor(() => expect(current.commitHandOff).toHaveBeenCalledWith(
       expect.objectContaining({ expectedBindingDigest: `sha256:${'b'.repeat(64)}` }),
     ));
@@ -119,17 +119,17 @@ describe('Remote handoff dialog authority', () => {
     />);
 
     await act(() => vi.advanceTimersByTimeAsync(0));
-    expect(document.querySelector('[data-remote-handoff-modal-root="true"]')).toBeTruthy();
+    expect(document.querySelector('[data-session-handoff-frame]')).toBeTruthy();
     expect(screen.queryByRole('dialog', { name: '接力到新会话' })).toBeNull();
 
     await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
-    expect(screen.queryByText('正在读取 Remote 会话配置…')).toBeNull();
+    expect(screen.queryByText('正在读取会话配置…')).toBeNull();
     await act(() => vi.advanceTimersByTimeAsync(1));
-    expect(screen.getByText('正在读取 Remote 会话配置…')).toBeTruthy();
+    expect(screen.getByText('正在读取会话配置…')).toBeTruthy();
 
     await act(async () => pending.resolve(sessionConsoleCapabilitiesFixture('codex-cli', '.')));
     expect(screen.getByRole('button', { name: '生成续接上下文' })).toBeTruthy();
-    expect(screen.queryByText('正在读取 Remote 会话配置…')).toBeNull();
+    expect(screen.queryByText('正在读取会话配置…')).toBeNull();
   });
 
   it('recovers a capability-read failure in place', async () => {
@@ -203,7 +203,7 @@ describe('Remote handoff dialog authority', () => {
     await act(async () => oldPreview.resolve(preview()));
 
     expect(screen.queryByText('remote continuation preview')).toBeNull();
-    expect(screen.getByText('当前远程 Core 未提供会话创建配置。')).toBeTruthy();
+    expect(screen.getByText('当前远端版本暂未提供会话创建设置。')).toBeTruthy();
   });
 
   it('lets a nested runtime selector consume Escape before the modal closes', async () => {
@@ -214,8 +214,7 @@ describe('Remote handoff dialog authority', () => {
       onClose={onClose}
       onCommitted={vi.fn()}
     />);
-    const runtime = (await screen.findByText('Codex CLI')).closest('button');
-    if (!runtime) throw new Error('未找到 Remote 运行时选择器。');
+    const runtime = await screen.findByRole('button', { name: '助手' });
     fireEvent.click(runtime);
     expect(runtime.getAttribute('aria-expanded')).toBe('true');
 
@@ -243,7 +242,7 @@ describe('Remote handoff dialog authority', () => {
     await waitFor(() => expect((prepareButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(prepareButton);
     await screen.findByText('remote continuation preview');
-    fireEvent.click(screen.getByRole('button', { name: '确认接力' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
     await waitFor(() => expect(commitHandOff).toHaveBeenCalledOnce());
 
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });

@@ -33,6 +33,8 @@ export function createServerCoreMcpComposition(input: {
   readonly capabilities: ServerCoreSessionCreateCapabilities;
   readonly mcpEnabled: boolean;
   readonly mcpHttpEnabled: boolean;
+  readonly rawRetentionCeilingTokens: number;
+  readonly refreshContinuation: (sessionId: string) => Promise<void>;
   readonly diagnostics: ServerCoreRuntimeDiagnostics;
   readonly reviewEvents: ServerCorePlanReviewEventPort;
   readonly appendChange: (kind: string, entityId: string, payload: JsonValue) => void;
@@ -63,6 +65,8 @@ export function createServerCoreMcpComposition(input: {
     desktopBroker,
     presentations,
     metadata: input.metadata,
+    rawRetentionCeilingTokens: input.rawRetentionCeilingTokens,
+    refreshContinuation: input.refreshContinuation,
     warn: (message) => {
       try { input.diagnostics.warn(message); } catch {}
     },

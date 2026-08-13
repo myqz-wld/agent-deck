@@ -54,11 +54,13 @@ function ModelInput({
   label,
   value,
   placeholder,
+  disabled,
   onChange,
 }: {
   label: string;
   value: string;
   placeholder: string;
+  disabled: boolean;
   onChange: (value: string) => void;
 }): JSX.Element {
   const [draft, setDraft] = useState(value);
@@ -80,8 +82,10 @@ function ModelInput({
   return (
     <input
       type="text"
-      aria-label={`${label} model`}
+      aria-label={`${label} 模型`}
       value={draft}
+      disabled={disabled}
+      title={disabled ? value || placeholder : undefined}
       placeholder={placeholder}
       onFocus={() => setEditing(true)}
       onChange={(event) => setDraft(event.target.value)}
@@ -95,7 +99,7 @@ function ModelInput({
           event.currentTarget.blur();
         }
       }}
-      className="no-drag min-w-0 flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[11px] outline-none focus:border-white/20"
+      className="no-drag min-w-0 flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[11px] outline-none focus:border-white/20 disabled:cursor-not-allowed disabled:opacity-50"
     />
   );
 }
@@ -109,6 +113,7 @@ export function ProviderModelThinkingFields({
   model,
   thinking,
   modelPlaceholder,
+  disabled = false,
   onAdapterChange,
   onRuntimeProviderChange,
   onModelChange,
@@ -121,6 +126,7 @@ export function ProviderModelThinkingFields({
   model: string;
   thinking: SessionThinkingLevel;
   modelPlaceholder: string;
+  disabled?: boolean;
   onAdapterChange: (value: GeneratorAdapter) => void;
   onRuntimeProviderChange: (value: string) => void;
   onModelChange: (value: string) => void;
@@ -131,6 +137,10 @@ export function ProviderModelThinkingFields({
   >([]);
 
   useEffect(() => {
+    if (disabled) {
+      setProviderOptions([]);
+      return;
+    }
     if (adapter === 'grok-build') {
       setProviderOptions([]);
       return;
@@ -150,22 +160,28 @@ export function ProviderModelThinkingFields({
     return () => {
       cancelled = true;
     };
-  }, [adapter]);
+  }, [adapter, disabled]);
 
   const adapterLabel =
     ADAPTER_OPTIONS.find((candidate) => candidate.value === adapter)?.label ??
     adapter;
 
   return (
-    <div role="group" aria-label={label} className="flex flex-col gap-1 text-[11px]">
+    <div
+      role="group"
+      aria-label={label}
+      data-settings-field={label}
+      className="flex flex-col gap-1 text-[11px]"
+    >
       <div>{label}</div>
-      <div className="flex items-center gap-2">
+      <div className="grid grid-cols-2 items-center gap-2">
         <DeckSelect
           value={adapter}
           onChange={onAdapterChange}
           options={ADAPTER_OPTIONS}
-          ariaLabel={`${label} adapter`}
-          className="shrink-0"
+          ariaLabel={`${label} 助手`}
+          disabled={disabled}
+          className="min-w-0"
           buttonClassName="rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
           menuMinWidth={140}
         />
@@ -174,18 +190,19 @@ export function ProviderModelThinkingFields({
             <ProviderCombobox
               value={runtimeProvider}
               options={providerOptions}
-              ariaLabel={`${label} ${adapter === 'claude-code' ? 'Gateway' : 'provider'}`}
+              ariaLabel={`${label} ${adapter === 'claude-code' ? '模型网关' : '模型来源'}`}
               placeholder={
                 adapter === 'claude-code'
-                  ? 'Gateway（留空使用原生配置）'
-                  : 'Provider（留空跟随 config.toml）'
+                  ? '模型网关（留空使用原生配置）'
+                  : '模型来源（留空跟随 config.toml）'
               }
               emptyMessage={
                 adapter === 'claude-code'
-                  ? '没有匹配的 Gateway，可直接输入或留空'
-                  : '没有匹配的 Provider，可直接输入或留空'
+                  ? '没有匹配的模型网关，可直接输入或留空'
+                  : '没有匹配的模型来源，可直接输入或留空'
               }
               onChange={onRuntimeProviderChange}
+              disabled={disabled}
             />
           </div>
         )}
@@ -193,6 +210,7 @@ export function ProviderModelThinkingFields({
           label={label}
           value={model}
           placeholder={modelPlaceholder}
+          disabled={disabled}
           onChange={onModelChange}
         />
         <DeckSelect
@@ -201,7 +219,8 @@ export function ProviderModelThinkingFields({
           title={`${adapterLabel} 思考程度`}
           ariaLabel={`${label} 思考程度`}
           options={thinkingOptionsForAdapter(adapter)}
-          className="w-20 shrink-0"
+          disabled={disabled}
+          className="min-w-0"
           buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
           menuMinWidth={120}
         />

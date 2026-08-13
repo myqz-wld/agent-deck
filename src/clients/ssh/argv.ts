@@ -1,5 +1,6 @@
 import { isAbsolute } from 'node:path';
 
+import { escapeOpenSshConfigValue } from '../../shared/open-ssh';
 import { SshTransportError } from './errors';
 import { isBoundedSingleLine, SSH_TEXT_LIMITS } from './limits';
 import type { SshHostProfile } from './types';
@@ -25,10 +26,6 @@ function requirePositiveInteger(value: number, field: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new SshTransportError('invalid_profile', `${field} must be a positive integer`);
   }
-}
-
-function sshConfigQuotedPath(value: string): string {
-  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
 }
 
 export function validateSshHostProfile(profile: Readonly<SshHostProfile>): void {
@@ -141,7 +138,7 @@ export function buildOpenSshArgv(profile: Readonly<SshHostProfile>): readonly st
     '-o',
     'StrictHostKeyChecking=yes',
     '-o',
-    `UserKnownHostsFile=${sshConfigQuotedPath(profile.knownHostsFile)}`,
+    `UserKnownHostsFile=${escapeOpenSshConfigValue(profile.knownHostsFile)}`,
     '-o',
     `GlobalKnownHostsFile=${nullConfigFile}`,
     '-o',

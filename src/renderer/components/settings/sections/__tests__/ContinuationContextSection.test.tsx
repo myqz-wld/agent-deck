@@ -66,10 +66,10 @@ describe('ContinuationContextSection', () => {
       ),
     ).not.toBeNull();
     expect(
-      screen.getByText('留空时使用所选 Codex CLI provider 的默认模型。'),
+      screen.getByText('留空时使用所选 Codex 模型来源的默认模型。'),
     ).not.toBeNull();
     expect(
-      (screen.getByRole('textbox', { name: '上下文整理模型 model' }) as HTMLInputElement)
+      (screen.getByRole('textbox', { name: '上下文整理模型 模型' }) as HTMLInputElement)
         .placeholder,
     ).toBe('模型（可留空）');
 
@@ -84,7 +84,7 @@ describe('ContinuationContextSection', () => {
     ]);
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
 
-    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 adapter' }));
+    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 助手' }));
     fireEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
 
     await waitFor(() => {
@@ -93,7 +93,7 @@ describe('ContinuationContextSection', () => {
       ).toContain('MAX');
       expect(
         (screen.getByRole('textbox', {
-          name: '上下文整理模型 model',
+          name: '上下文整理模型 模型',
         }) as HTMLInputElement).placeholder,
       ).toBe('模型（可留空）');
       expect(
@@ -117,7 +117,7 @@ describe('ContinuationContextSection', () => {
     ]);
 
     fireEvent.change(
-      screen.getByRole('combobox', { name: '上下文整理模型 Gateway' }),
+      screen.getByRole('combobox', { name: '上下文整理模型 模型网关' }),
       {
         target: { value: 'deepseek' },
       },
@@ -125,11 +125,11 @@ describe('ContinuationContextSection', () => {
     await waitFor(() => {
       expect(
         (screen.getByRole('textbox', {
-          name: '上下文整理模型 model',
+          name: '上下文整理模型 模型',
         }) as HTMLInputElement).placeholder,
       ).toBe('模型（可留空）');
       expect(
-        screen.getByText('留空时使用 deepseek Gateway 的 Sonnet 路由。'),
+        screen.getByText('留空时使用 deepseek 模型网关的 Sonnet 路由。'),
       ).not.toBeNull();
     });
     expect(onPatch).toHaveBeenCalledWith({
@@ -143,7 +143,7 @@ describe('ContinuationContextSection', () => {
     render(<SettingsHarness initial={DEFAULT_SETTINGS} onPatch={onPatch} />);
     openSection();
 
-    const modelInput = screen.getByRole('textbox', { name: '上下文整理模型 model' });
+    const modelInput = screen.getByRole('textbox', { name: '上下文整理模型 模型' });
     fireEvent.focus(modelInput);
     fireEvent.change(modelInput, { target: { value: '  claude-sonnet-custom  ' } });
     fireEvent.blur(modelInput);
@@ -187,7 +187,7 @@ describe('ContinuationContextSection', () => {
     );
     openSection();
 
-    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 adapter' }));
+    fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 助手' }));
     fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
 
     await waitFor(() => {

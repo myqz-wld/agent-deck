@@ -50,7 +50,7 @@ export function RuntimeMetadataChips({
     <div className="flex min-w-0 flex-wrap items-center gap-1">
       {runtimeProvider && (
         <span className={chipClass} title={runtimeProvider}>
-          {adapterId === 'claude-code' ? 'Gateway' : 'Provider'} {runtimeProvider}
+          {adapterId === 'claude-code' ? '模型网关' : '模型来源'} {runtimeProvider}
         </span>
       )}
       <span className={chipClass} title={model ?? '使用适配器 / 用户配置默认模型'}>

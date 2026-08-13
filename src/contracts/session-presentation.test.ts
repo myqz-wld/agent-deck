@@ -39,6 +39,17 @@ describe('session presentation contract', () => {
     }, 1)).toMatchObject({ sessions: [{ lifecycle: 'active', pinned: true }], revision: 4 });
   });
 
+  it('keeps summary provenance when a current service provides it', () => {
+    const parsed = parseSessionPresentationListResult({
+      sessions: [session({ summaryGenerationSource: 'assistant-fallback' })],
+      nextCursor: null,
+      counts: { total: 1, active: 1, dormant: 0, closed: 0, working: 1, waiting: 0 },
+      contextTruncated: false,
+      revision: 1,
+    }, 1);
+    expect(parsed.sessions[0]?.summaryGenerationSource).toBe('assistant-fallback');
+  });
+
   it('rejects unknown lifecycle/activity values, duplicate teams and extra fields', () => {
     expect(() => parseSessionPresentationListResult({
       sessions: [{ ...session(), lifecycle: 'future' }],

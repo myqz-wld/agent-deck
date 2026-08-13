@@ -149,7 +149,7 @@ describe('NewSessionDialog model options', () => {
     expect(disclosure?.open).toBe(false);
     fireEvent.click(screen.getByText('模型配置'));
     expect(disclosure?.open).toBe(true);
-    fireEvent.change(await screen.findByLabelText('Gateway'), {
+    fireEvent.change(await screen.findByLabelText('模型网关'), {
       target: { value: 'deepseek' },
     });
     fireEvent.change(await screen.findByLabelText('模型'), {

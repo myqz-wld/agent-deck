@@ -13,18 +13,19 @@ import { GrokSandboxPicker } from '@renderer/components/GrokSandboxPicker';
 interface Props {
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => Promise<void>;
+  readOnly?: boolean;
 }
 
 /**
  * Keeps global sandbox defaults together. These values apply to new sessions;
  * Grok Build sessions may also request an idle-time override in SessionDetail.
  */
-export function ExperimentalSection({ settings, update }: Props): JSX.Element {
+export function ExperimentalSection({ settings, update, readOnly = false }: Props): JSX.Element {
   const sandboxNativeAvailable = IS_DARWIN || IS_LINUX;
 
   return (
     <Section title="实验功能" storageKey="experimental" defaultOpen={false}>
-      <div className="flex flex-col gap-1 text-[11px]">
+      <div data-settings-field="Claude Code 沙盒（系统隔离）" className="flex flex-col gap-1 text-[11px]">
         <div>Claude Code 沙盒（系统隔离）</div>
         <DeckSelect
           value={settings.claudeCodeSandbox}
@@ -34,6 +35,7 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
             })
           }
           options={CLAUDE_SANDBOX_MODE_OPTIONS}
+          disabled={readOnly}
           buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
         />
       </div>
@@ -58,7 +60,7 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
           </>
         )}
       </div>
-      <div className="mt-3 flex flex-col gap-1 text-[11px]">
+      <div data-settings-field="Codex CLI 沙盒（系统隔离）" className="mt-3 flex flex-col gap-1 text-[11px]">
         <div>Codex CLI 沙盒（系统隔离）</div>
         <DeckSelect
           value={settings.codexSandbox}
@@ -68,6 +70,7 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
             })
           }
           options={CODEX_SANDBOX_MODE_OPTIONS}
+          disabled={readOnly}
           buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
         />
       </div>
@@ -79,7 +82,7 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
         <br />
         <strong className="text-amber-300/90">⚠️ 仅对新建会话生效</strong>。
       </div>
-      <div className="mt-3 flex flex-col gap-1 text-[11px]">
+      <div data-settings-field="Grok Build 沙盒（请求档位）" className="mt-3 flex flex-col gap-1 text-[11px]">
         <div>Grok Build 沙盒（请求档位）</div>
         <GrokSandboxPicker
           value={settings.grokSandbox}
@@ -87,6 +90,7 @@ export function ExperimentalSection({ settings, update }: Props): JSX.Element {
             void update({ grokSandbox: profile.trim() })
           }
           allowUnset={false}
+          disabled={readOnly}
           profileOptions={GROK_SETTINGS_SANDBOX_MODE_OPTIONS}
         />
       </div>

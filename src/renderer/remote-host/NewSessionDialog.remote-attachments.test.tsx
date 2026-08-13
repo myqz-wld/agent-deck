@@ -161,7 +161,7 @@ describe('Remote New Session attachments', () => {
       (screen.getByRole('button', { name: '创建' }) as HTMLButtonElement).disabled,
     ).toBe(false));
     expect(screen.getByRole('img', { name: 'evidence.png' })).toBeTruthy();
-    expect(screen.getByText('创建目标：Remote · Primary Worker · Workspace')).toBeTruthy();
+    expect(screen.getByText('创建目标：远端 · Primary Worker · 工作区')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
     await waitFor(
@@ -183,7 +183,7 @@ describe('Remote New Session attachments', () => {
     render(<NewSessionDialog open remoteSource={current} onClose={vi.fn()} onCreated={vi.fn()} />);
 
     const selected = await screen.findByTitle(
-      '可读取 Remote Workspace，仅能写入当前会话目录；不能访问 Worker 私有目录或 Workspace 外路径。',
+      '可读取远端工作区，但只能写入当前会话目录。',
     );
     expect(selected.textContent).toContain('工作目录可写');
   });
@@ -202,7 +202,7 @@ describe('Remote New Session attachments', () => {
     expect(options).toEqual([
       expect.objectContaining({ label: '广泛只读', disabled: true, title: reason }),
       expect.objectContaining({ label: '工作目录可写', disabled: true, title: reason }),
-      expect.objectContaining({ label: '⚠️ Workspace 内完全开放', disabled: true, title: reason }),
+      expect.objectContaining({ label: '⚠️ 工作区内完全开放', disabled: true, title: reason }),
     ]);
   });
 
@@ -253,7 +253,7 @@ describe('Remote New Session attachments', () => {
     view.rerender(
       <NewSessionDialog open remoteSource={disconnected} onClose={vi.fn()} onCreated={vi.fn()} />,
     );
-    expect(await screen.findByText('当前远程 Core 未提供会话创建配置。')).toBeTruthy();
+    expect(await screen.findByText('当前远端版本暂未提供会话创建设置。')).toBeTruthy();
 
     const descriptor = sessionConsoleCapabilitiesFixture('codex-cli', '.');
     await act(async () => {
@@ -274,7 +274,7 @@ describe('Remote New Session attachments', () => {
       await pending.promise;
     });
 
-    expect(screen.getByText('当前远程 Core 未提供会话创建配置。')).toBeTruthy();
+    expect(screen.getByText('当前远端版本暂未提供会话创建设置。')).toBeTruthy();
     expect(screen.queryByText('Codex CLI')).toBeNull();
 
     const fresh = deferred<Awaited<ReturnType<typeof current.getSessionCapabilities>>>();
@@ -328,6 +328,6 @@ describe('Remote New Session attachments', () => {
     await act(async () => create.resolve('stale-session'));
 
     expect(onCreated).not.toHaveBeenCalled();
-    expect(screen.getByText('当前远程 Core 未提供会话创建配置。')).toBeTruthy();
+    expect(screen.getByText('当前远端版本暂未提供会话创建设置。')).toBeTruthy();
   });
 });

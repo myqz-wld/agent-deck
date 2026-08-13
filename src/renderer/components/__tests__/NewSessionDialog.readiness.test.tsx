@@ -77,7 +77,7 @@ describe('NewSessionDialog readiness', () => {
 
     expect(screen.getByText(/模型：claude-config-model/)).toBeTruthy();
     expect(screen.queryByText('正在读取会话配置…')).toBeNull();
-    const localTarget = screen.getByText('创建目标：Local · 本机');
+    const localTarget = screen.getByText('创建目标：本机');
     expect(localTarget.className).toContain('bg-black/20');
     expect(localTarget.className).not.toContain('status-working');
   });
@@ -148,7 +148,7 @@ describe('NewSessionDialog readiness', () => {
       target: { value: 'run task' },
     });
     fireEvent.click(screen.getByText('模型配置'));
-    const provider = screen.getByLabelText('Gateway') as HTMLInputElement;
+    const provider = screen.getByLabelText('模型网关') as HTMLInputElement;
     fireEvent.change(provider, { target: { value: 'gateway-a' } });
 
     expect(provider.disabled).toBe(false);

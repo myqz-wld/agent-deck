@@ -11,17 +11,18 @@ import { SummarizerErrorsDiagnostic } from '../SummarizerErrorsDiagnostic';
 interface Props {
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => Promise<void>;
+  readOnly?: boolean;
 }
 
 function buildModelHint(adapter: GeneratorAdapter, runtimeProvider: string): string {
-  if (adapter === 'codex-cli') return '留空时使用所选 Codex CLI provider 的默认模型';
+  if (adapter === 'codex-cli') return '留空时使用所选 Codex 模型来源的默认模型';
   if (adapter === 'grok-build') return '留空时使用 Grok Build 配置中的默认模型';
   return runtimeProvider
-    ? `留空时使用 ${runtimeProvider} Gateway 的 Haiku 路由`
+    ? `留空时使用 ${runtimeProvider} 模型网关的 Haiku 路由`
     : '留空时使用 Claude Code 的 Haiku 模型';
 }
 
-export function SummarySection({ settings, update }: Props): JSX.Element {
+export function SummarySection({ settings, update, readOnly = false }: Props): JSX.Element {
   return (
     <Section title="间歇总结" storageKey="summary" defaultOpen={false}>
       <p className="text-[10px] leading-snug text-deck-muted/70">
@@ -30,6 +31,7 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
       <Toggle
         label="启用周期总结"
         value={settings.summaryEnabled}
+        disabled={readOnly}
         onChange={(enabled) => void update({ summaryEnabled: enabled })}
       />
       <p className="text-[10px] leading-snug text-deck-muted/70">
@@ -39,12 +41,14 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
         label="每隔多少分钟总结"
         value={Math.round(settings.summaryIntervalMs / 60000)}
         min={1}
+        disabled={readOnly}
         onChange={(v) => void update({ summaryIntervalMs: v * 60_000 })}
       />
       <NumberInput
         label="每多少个事件总结"
         value={settings.summaryEventCount}
         min={1}
+        disabled={readOnly}
         onChange={(v) => void update({ summaryEventCount: v })}
       />
       <NumberInput
@@ -52,6 +56,7 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
         value={settings.summaryMaxConcurrent}
         min={1}
         max={10}
+        disabled={readOnly}
         onChange={(v) => void update({ summaryMaxConcurrent: v })}
       />
       <p className="text-[10px] leading-snug text-deck-muted/60">
@@ -70,6 +75,7 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
         model={settings.summaryModel}
         thinking={settings.summaryThinking}
         modelPlaceholder="模型（可留空）"
+        disabled={readOnly}
         onAdapterChange={(v) =>
           void update({
             summaryAdapter: v,
@@ -84,7 +90,18 @@ export function SummarySection({ settings, update }: Props): JSX.Element {
         onModelChange={(v) => void update({ summaryModel: v })}
         onThinkingChange={(v) => void update({ summaryThinking: v })}
       />
-      <SummarizerErrorsDiagnostic />
+      <NumberInput
+        label="单次总结超时（秒，0 = 不超时）"
+        value={Math.round(settings.summaryTimeoutMs / 1_000)}
+        min={0}
+        disabled={readOnly}
+        onChange={(v) => void update({ summaryTimeoutMs: v * 1_000 })}
+      />
+      {readOnly ? (
+        <div className="text-[10px] leading-snug text-deck-muted/70">
+          运行记录由远端环境保管，这里只显示配置。
+        </div>
+      ) : <SummarizerErrorsDiagnostic />}
     </Section>
   );
 }

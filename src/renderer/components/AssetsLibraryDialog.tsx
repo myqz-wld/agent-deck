@@ -332,8 +332,8 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
             </h2>
             <span className="text-[10px] text-deck-muted/70">
               {remoteIdentity === null
-                ? '(Local · Skills / Agents / 应用约定)'
-                : `(Remote · ${remoteLabel ?? '远端'})`}
+                ? '(本机 · Skills / Agents / 应用约定)'
+                : `(远端 · ${remoteLabel ?? '远端'})`}
             </span>
           </div>
           <button

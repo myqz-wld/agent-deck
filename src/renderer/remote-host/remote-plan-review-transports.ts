@@ -39,7 +39,7 @@ function target(entry: Entry): Omit<RemoteHostPlanReviewTargetDto, 'intentId'> {
     !context.capabilities.has('plan-review') || !context.capabilities.has('pending.read') ||
     !context.capabilities.has('events.replay')
   ) {
-    throw new Error('远程 Core 不支持隔离的计划审阅。');
+    throw new Error('当前远端版本暂不支持独立计划审阅。');
   }
   return {
     profileId: context.activeProfileId,

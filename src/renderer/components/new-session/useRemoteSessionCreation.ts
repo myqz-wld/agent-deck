@@ -183,7 +183,7 @@ export function useRemoteSessionCreation({
   const error = !active || !source
     ? null
     : !canRead
-      ? '当前远程 Core 未提供会话创建配置。'
+      ? '当前远端版本暂未提供会话创建设置。'
       : currentFailure?.message ?? null;
 
   useEffect(() => {

@@ -43,16 +43,16 @@ describe('Remote page availability', () => {
   });
 
   it.each([
-    ['connecting', '正在连接 Remote Core'],
-    ['reconnecting', '正在重新连接 Remote Core'],
+    ['connecting', '正在连接远端'],
+    ['reconnecting', '正在重新连接远端'],
   ] as const)('keeps stale capabilities inactive while %s', (status, title) => {
     const availability = remotePageAvailability(source(status, true), 'teams');
     expect(availability).toMatchObject({ kind: 'connecting', title });
   });
 
   it.each([
-    ['offline', false, 'Remote Core 当前不可用'],
-    ['incompatible', false, 'Remote 协议不兼容'],
+    ['offline', false, '远端当前不可用'],
+    ['incompatible', false, '远端版本不兼容'],
   ] as const)('classifies %s as a stable unavailable page', (status, usable, title) => {
     expect(remotePageAvailability(source(status, usable), 'teams')).toMatchObject({
       kind: 'offline',
@@ -63,8 +63,8 @@ describe('Remote page availability', () => {
   it('renders bounded source-specific copy without implying a Local fallback', () => {
     const availability = remotePageAvailability(source('incompatible', false), 'issues');
     render(<RemotePageUnavailable availability={availability} />);
-    expect(screen.getByText('Remote 协议不兼容')).toBeTruthy();
-    expect(screen.getByText(/不会回退读取 Local 数据/u)).toBeTruthy();
+    expect(screen.getByText('远端版本不兼容')).toBeTruthy();
+    expect(screen.getByText('问题当前不可用，请检查连接后重试。')).toBeTruthy();
     expect(screen.getByText('收到冲突的终态响应。')).toBeTruthy();
   });
 
@@ -85,6 +85,6 @@ describe('Remote page availability', () => {
   it('renders a fail-closed state while source authority is unknown', () => {
     render(<RemotePageUnavailable availability={unknownSourceAvailability(null)} />);
     expect(screen.getByText('正在确认数据源')).toBeTruthy();
-    expect(screen.getByText(/不会读取 Local 或 Remote 业务数据/u)).toBeTruthy();
+    expect(screen.getByText('正在确认数据来源，完成后会自动读取。')).toBeTruthy();
   });
 });

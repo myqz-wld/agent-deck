@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
 import type { AgentAdapter, CreateSessionOptions } from '@main/adapters/types';
+import { emptyContinuationCheckpoint } from '@main/session/continuation-context/checkpoint-fold-source';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
-import { closeDb, initDb } from '@main/store/db';
+import { createContinuationCheckpointRepo } from '@main/store/continuation-checkpoint-repo';
+import { closeDb, getDb, initDb } from '@main/store/db';
 import { eventRepo } from '@main/store/event-repo';
 import { bindingAvailable } from '@main/store/__tests__/_binding-probe';
 import { findSessionHandOffSuccessor } from '@main/store/session-handoff-alias-repo';
@@ -54,6 +56,8 @@ interface HarnessOptions {
   readonly acceptance?: readonly ('accepted' | 'context-window-exceeded')[];
   readonly mutateSourceOnCreate?: boolean;
   readonly failMarkClosed?: boolean;
+  readonly rawRetentionCeilingTokens?: number;
+  readonly refreshContinuation?: (sessionId: string) => Promise<void>;
 }
 
 function harness(input: HarnessOptions = {}) {
@@ -180,6 +184,8 @@ function harness(input: HarnessOptions = {}) {
       appendChange,
       currentRevision: () => revision,
     } as unknown as ServerCoreRuntimeMetadataStore,
+    rawRetentionCeilingTokens: input.rawRetentionCeilingTokens ?? 64_000,
+    refreshContinuation: input.refreshContinuation,
     warn: vi.fn(),
   });
   return {
@@ -243,6 +249,60 @@ afterEach(() => {
 });
 
 describe.skipIf(!bindingAvailable)('ServerCoreMcpHandOff', () => {
+  it('refreshes the checkpoint before capture and applies configured raw retention', async () => {
+    const refreshContinuation = vi.fn(async (sessionId: string) => {
+      const db = getDb();
+      const revision = db.prepare(
+        `SELECT revision, rebuild_after_revision AS rebuildAfterRevision
+           FROM session_event_revisions
+          WHERE session_id = ?`,
+      ).get(sessionId) as { revision: number; rebuildAfterRevision: number };
+      const maxEvent = db.prepare(
+        `SELECT MAX(id) AS id FROM events WHERE session_id = ?`,
+      ).get(sessionId) as { id: number | null };
+      const committed = createContinuationCheckpointRepo(db).commit({
+        sessionId,
+        expectedHeadId: null,
+        expectedRebuildAfterRevision: revision.rebuildAfterRevision,
+        sourceEventRevision: revision.revision,
+        sourceMaxEventId: maxEvent.id,
+        checkpoint: emptyContinuationCheckpoint(),
+        generatorAdapter: 'codex-cli',
+        generatorModel: 'gpt-5.6',
+        generatorThinking: 'high',
+        trigger: 'handoff-test',
+      });
+      expect(committed.ok).toBe(true);
+    });
+    const state = harness({
+      rawRetentionCeilingTokens: 8_000,
+      refreshContinuation,
+    });
+    eventRepo.insert({
+      sessionId: state.sourceId,
+      agentId: 'codex-cli',
+      kind: 'message',
+      payload: { role: 'user', text: 'bounded evidence '.repeat(8_000) },
+      ts: 4,
+      source: 'sdk',
+    });
+
+    const preview = await state.handoff.preview(state.sourceId, {
+      prompt: 'Continue from the refreshed checkpoint',
+    });
+
+    expect(refreshContinuation).toHaveBeenCalledOnce();
+    expect(refreshContinuation).toHaveBeenCalledWith(state.sourceId);
+    expect(preview.checkpoint).toMatchObject({
+      id: expect.any(Number),
+      throughRevision: 2,
+      refreshed: true,
+    });
+    expect(preview.metrics.rawRetentionCeilingTokens).toBe(8_000);
+    expect(preview.metrics.rawTailTokens).toBeLessThanOrEqual(8_000);
+    expect(preview.metrics.truncatedBoundaryMessages).toBeGreaterThan(0);
+  });
+
   it('uses the bounded lower candidate, moves ownership, and never exposes private paths', async () => {
     const state = harness({ acceptance: ['context-window-exceeded', 'accepted'] });
     const preview = await state.handoff.preview(state.sourceId, {

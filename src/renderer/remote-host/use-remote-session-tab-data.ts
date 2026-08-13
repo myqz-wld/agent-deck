@@ -6,6 +6,7 @@ import type {
 } from '@shared/remote-host';
 import type { SessionDetailTabId } from '@renderer/components/SessionDetail/SessionDetailShell';
 import type { RemoteSessionSourceView } from './source-types';
+import { useRemoteConnectionScope } from './use-remote-connection-scope';
 
 interface TabValue<T> {
   key: string;
@@ -32,8 +33,9 @@ export function useRemoteSessionTabData(
 ): RemoteSessionTabData {
   const session = source.selectedSession?.id === source.selectedSessionId
     ? source.selectedSession : null;
+  const connectionScope = useRemoteConnectionScope(source.identity, source.usable);
   const baseKey = session && source.profile
-    ? `${source.identity}\0${session.id}` : `${source.identity}\0`;
+    ? `${connectionScope}\0${session.id}` : `${connectionScope}\0`;
   const currentBaseRef = useRef(baseKey);
   currentBaseRef.current = baseKey;
   const flights = useRef(new Map<string, Promise<void>>());
@@ -98,7 +100,7 @@ export function useRemoteSessionTabData(
     }).catch(() => {
       if (currentBaseRef.current !== baseKey) return;
       const message = kind === 'permissions'
-        ? '读取 Worker 生效权限失败，请稍后重试。'
+        ? '读取当前权限失败，请稍后重试。'
         : '读取跨会话消息失败，请稍后重试。';
       update((current) => ({
         ...(current.key === baseKey ? current : empty(baseKey)),

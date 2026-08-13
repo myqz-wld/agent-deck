@@ -57,7 +57,7 @@ describe('SettingsDialog adapter views', () => {
     fireEvent.click(grokTab);
 
     expect(screen.getByText('Grok Build 配置')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'ACP 认证' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Grok Build 认证' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Grok Build 终端 Hook' })).toBeTruthy();
     expect(hookStatus).toHaveBeenCalledWith('user', undefined, 'grok-build');
   });

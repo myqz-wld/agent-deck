@@ -6,7 +6,7 @@ import type {
   SessionHandOffPreparation,
   SessionRecord,
 } from '@shared/types';
-import { CloseIcon, HandOffIcon, RefreshIcon } from './icons';
+import { RefreshIcon } from './icons';
 import {
   thinkingOptionsForAdapter,
   type SessionThinkingChoice,
@@ -25,6 +25,7 @@ import {
   type HandOffAdapterOption,
 } from './hand-off/TargetRuntimeFields';
 import { useModalFocus } from './use-modal-focus';
+import { HandOffDialogFrame } from './hand-off/HandOffDialogFrame';
 
 interface Props {
   open: boolean;
@@ -135,7 +136,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       })
       .catch((caught: unknown) => {
         if (!cancelled) {
-          setError(`加载运行时失败：${caught instanceof Error ? caught.message : String(caught)}`);
+          setError(`加载助手配置失败：${caught instanceof Error ? caught.message : String(caught)}`);
         }
       });
     return () => {
@@ -277,35 +278,18 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
     return label ? [{ key: `${warning.code}:${warning.message}`, label }] : [];
   }) ?? [];
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        className="no-drag flex max-h-[92%] w-[620px] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl"
-      >
-        <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-4 py-3">
-          <h2 id={titleId} className="flex items-center gap-1.5 text-[13px] font-medium">
-            <HandOffIcon className="h-4 w-4 text-status-working" />
-            <span>接力到新会话{preparing ? '（正在整理会话上下文…）' : committing ? '（正在创建…）' : ''}</span>
-          </h2>
-          <button
-            type="button"
-            onClick={close}
-            disabled={committing}
-            aria-label="关闭接力窗口"
-            className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10 disabled:opacity-50"
-            title="取消"
-          >
-            <CloseIcon className="h-3.5 w-3.5" />
-          </button>
-        </header>
-
-        <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4 scrollbar-deck">
+    <HandOffDialogFrame
+      dialogRef={dialogRef}
+      titleId={titleId}
+      statusText={preparing ? '正在整理会话上下文…' : committing ? '正在创建…' : undefined}
+      busy={committing}
+      onClose={close}
+      primaryLabel={committing ? '正在创建续接会话…' : '打开新会话接力'}
+      primaryDisabled={busy || !preparation}
+      onPrimary={() => { void commit(); }}
+    >
           <p className="text-[10px] leading-relaxed text-deck-muted">
-            上下文整理方式由“会话续接上下文”设置控制；下方选项只决定新会话使用的运行时、模型提供方和思考程度。
+            上下文整理方式由“会话续接上下文”设置控制；下方选项只决定新会话使用的助手、模型和思考程度。
           </p>
 
           <TargetRuntimeFields
@@ -414,13 +398,13 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
                 value={preparation.preview}
                 rows={16}
                 monospace
-                excerptNotice="这里仅展示有长度上限的节选；实际发送给模型提供方的内容可能更完整。"
+                excerptNotice="这里仅展示有长度上限的节选；实际发送给模型的内容可能更完整。"
               />
               {(preparation.previewTruncated || visibleWarnings.length > 0) && (
                 <div className="rounded bg-status-waiting/10 px-3 py-2 text-[10px] text-status-waiting">
                   {preparation.previewTruncated && (
                     <div>
-                      节选已截短，未展示全部内容；实际发送给模型提供方的内容可能更完整。
+                      节选已截短，未展示全部内容；实际发送给模型的内容可能更完整。
                     </div>
                   )}
                   {visibleWarnings.map((warning) => (
@@ -460,28 +444,6 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
               ⚠️ {error}
             </div>
           )}
-        </div>
-
-        <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-deck-border px-4 py-3">
-          <button
-            type="button"
-            onClick={close}
-            disabled={committing}
-            className="rounded px-3 py-1 text-[11px] text-deck-muted hover:bg-white/5 disabled:opacity-50"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={() => void commit()}
-            disabled={busy || !preparation}
-            className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
-          >
-            {!committing && <HandOffIcon className="mr-1 inline h-3 w-3" />}
-            {committing ? '正在创建续接会话…' : '打开新会话接力'}
-          </button>
-        </footer>
-      </div>
-    </div>
+    </HandOffDialogFrame>
   );
 }

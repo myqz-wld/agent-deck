@@ -54,8 +54,8 @@ export function remotePageAvailability(
   if (status === 'connecting' || status === 'reconnecting') {
     return {
       kind: 'connecting',
-      title: status === 'connecting' ? '正在连接 Remote Core' : '正在重新连接 Remote Core',
-      detail: `${label}将在连接完成后可用；连接期间不会发起远程业务请求，也不会回退读取 Local 数据。`,
+      title: status === 'connecting' ? '正在连接远端' : '正在重新连接远端',
+      detail: `${label}将在连接恢复后自动可用。`,
       error: null,
     };
   }
@@ -67,19 +67,19 @@ export function remotePageAvailability(
     return {
       kind: 'offline',
       title: status === 'incompatible'
-        ? 'Remote 协议不兼容'
+        ? '远端版本不兼容'
         : source.profile
-          ? 'Remote Core 当前不可用'
-          : '尚未选择 Remote 连接',
-      detail: `${label}当前不可用；不会回退读取 Local 数据。`,
+          ? '远端当前不可用'
+          : '尚未选择远端连接',
+      detail: `${label}当前不可用，请检查连接后重试。`,
       error: source.state?.error?.message ?? null,
     };
   }
   if (requirement.capabilities.some((capability) => !source.capabilities.has(capability))) {
     return {
       kind: 'unsupported',
-      title: `当前 Remote Core 未提供${label}能力`,
-      detail: '不会回退读取 Local 数据；请升级远端部署或切换至支持该能力的连接。',
+      title: `当前远端版本暂不支持${label}`,
+      detail: '请更新远端服务，或切换到支持此功能的连接。',
       error: null,
     };
   }
@@ -96,8 +96,8 @@ export function unknownSourceAvailability(error: string | null): RemotePageAvail
     kind: 'unknown',
     title: error ? '无法确认数据源' : '正在确认数据源',
     detail: error
-      ? '数据源状态读取失败；已停止 Local 与 Remote 业务读取，请稍后重试。'
-      : '确认完成前不会读取 Local 或 Remote 业务数据。',
+      ? '数据来源读取失败，请稍后重试。'
+      : '正在确认数据来源，完成后会自动读取。',
     error,
   };
 }

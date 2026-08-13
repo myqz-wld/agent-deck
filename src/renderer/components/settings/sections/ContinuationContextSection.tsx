@@ -20,17 +20,22 @@ import {
 interface Props {
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => Promise<void>;
+  readOnly?: boolean;
 }
 
 function modelHint(adapter: GeneratorAdapterId, runtimeProvider: string): string {
-  if (adapter === 'codex-cli') return '留空时使用所选 Codex CLI provider 的默认模型';
+  if (adapter === 'codex-cli') return '留空时使用所选 Codex 模型来源的默认模型';
   if (adapter === 'grok-build') return '留空时使用 Grok Build 配置中的默认模型';
   return runtimeProvider
-    ? `留空时使用 ${runtimeProvider} Gateway 的 Sonnet 路由`
+    ? `留空时使用 ${runtimeProvider} 模型网关的 Sonnet 路由`
     : '留空时使用 Claude Code 的 Sonnet 模型';
 }
 
-export function ContinuationContextSection({ settings, update }: Props): JSX.Element {
+export function ContinuationContextSection({
+  settings,
+  update,
+  readOnly = false,
+}: Props): JSX.Element {
   const adapter = settings.continuationCheckpointAdapter;
 
   return (
@@ -45,6 +50,7 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
       <Toggle
         label="自动维护续接检查点"
         value={settings.continuationCheckpointAutoRefreshEnabled}
+        disabled={readOnly}
         onChange={(enabled) =>
           void update({ continuationCheckpointAutoRefreshEnabled: enabled })
         }
@@ -54,6 +60,7 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
         value={settings.continuationCheckpointAutoRefreshIntervalMinutes}
         min={MIN_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES}
         max={MAX_CONTINUATION_CHECKPOINT_AUTO_REFRESH_INTERVAL_MINUTES}
+        disabled={readOnly}
         onChange={(minutes) =>
           void update({ continuationCheckpointAutoRefreshIntervalMinutes: minutes })
         }
@@ -75,6 +82,7 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
         model={settings.continuationCheckpointModel}
         thinking={settings.continuationCheckpointThinking}
         modelPlaceholder="模型（可留空）"
+        disabled={readOnly}
         onAdapterChange={(nextAdapter) =>
           void update({
             continuationCheckpointAdapter: nextAdapter,
@@ -102,6 +110,7 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
         value={settings.continuationCheckpointMaxConcurrent}
         min={MIN_CONTINUATION_CHECKPOINT_MAX_CONCURRENT}
         max={MAX_CONTINUATION_CHECKPOINT_MAX_CONCURRENT}
+        disabled={readOnly}
         onChange={(maxConcurrent) =>
           void update({ continuationCheckpointMaxConcurrent: maxConcurrent })
         }
@@ -114,6 +123,7 @@ export function ContinuationContextSection({ settings, update }: Props): JSX.Ele
         value={settings.continuationRawRetentionTokens}
         min={MIN_CONTINUATION_RAW_RETENTION_TOKENS}
         max={MAX_CONTINUATION_RAW_RETENTION_TOKENS}
+        disabled={readOnly}
         onChange={(tokens) => void update({ continuationRawRetentionTokens: tokens })}
       />
       <p className="text-[10px] leading-snug text-deck-muted/60">

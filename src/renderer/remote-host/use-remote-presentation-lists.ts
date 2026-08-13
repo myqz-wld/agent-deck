@@ -253,7 +253,7 @@ export function useRemotePresentationLists(
           setHistorySessions(page.sessions.map(legacyRemoteSessionPresentation));
           setHistoryCursor(page.nextCursor);
           baseRevisions.current.history = page.revision;
-          setHistoryLoadError(query ? '旧版 Remote Core 只能搜索当前载入的历史摘要。' : null);
+          setHistoryLoadError(query ? '当前远端版本只能搜索已经载入的历史会话。' : null);
         }
       } catch (reason) {
         if (isCurrent()) setHistoryLoadError(message(reason));

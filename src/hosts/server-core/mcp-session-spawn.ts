@@ -23,6 +23,7 @@ import {
   validateServerCoreSpawnFork,
 } from './mcp-spawn-fork';
 import { ServerCoreSpawnGuard } from './mcp-spawn-guard';
+import type { ServerCoreSpawnGuardLimits } from './mcp-spawn-guard';
 import type {
   ServerCoreMcpSpawnPort,
   ServerCoreSpawnSessionArgs,
@@ -61,6 +62,7 @@ export interface ServerCoreMcpSessionSpawnerOptions {
   readonly collaboration: ServerCoreSpawnCollaboration;
   readonly metadata: ServerCoreRuntimeMetadataStore;
   readonly agents?: ServerCoreBundledAgentLookupPort | null;
+  readonly spawnLimits?: ServerCoreSpawnGuardLimits;
   readonly now?: () => number;
 }
 
@@ -123,7 +125,11 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
 
   constructor(private readonly options: ServerCoreMcpSessionSpawnerOptions) {
     this.now = options.now ?? Date.now;
-    this.guard = new ServerCoreSpawnGuard(options.sessions, this.now);
+    this.guard = new ServerCoreSpawnGuard(
+      options.sessions,
+      this.now,
+      options.spawnLimits,
+    );
   }
 
   async spawn(

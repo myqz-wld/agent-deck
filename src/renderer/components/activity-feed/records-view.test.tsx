@@ -96,4 +96,17 @@ describe('ActivityRecordsView source boundaries', () => {
     expect(screen.getByText(/等待你授权 Bash/)).toBeTruthy();
     expect(resolvePermission).not.toHaveBeenCalled();
   });
+
+  it('lets a Remote controller inject the same interactive pending row without Local responders', () => {
+    const event: AgentEvent = {
+      sessionId: 'remote-session', agentId: 'codex-cli', kind: 'waiting-for-user',
+      payload: { type: 'permission-request', requestId: 'request-a', toolName: 'Bash' }, ts: 1,
+    };
+    const renderPendingEvent = vi.fn(() => <li>共用的远端授权卡片</li>);
+    render(<ActivityRecordsView events={[event]} loaded loadError={null}
+      sessionId="remote-session" agentId="codex-cli" isSdk
+      interactivePending={false} renderPendingEvent={renderPendingEvent} />);
+    expect(screen.getByText('共用的远端授权卡片')).toBeTruthy();
+    expect(renderPendingEvent).toHaveBeenCalledWith(event);
+  });
 });

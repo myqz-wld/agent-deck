@@ -1,6 +1,3 @@
-import type { ClaudeCodeAdapter } from './claude-code';
-import type { CodexCliAdapter } from './codex-cli';
-import type { GrokBuildAdapter } from './grok-build';
 import type { CreateSessionOptionsByAdapter } from './options-builder';
 import type { AgentAdapter, AdapterContext } from './types';
 
@@ -23,9 +20,9 @@ export const NOOP_ADAPTER_REGISTRY_DIAGNOSTICS: AdapterRegistryDiagnosticPort = 
 
 /** Compile-time ids map to concrete implementations without runtime adapter imports. */
 export type AdapterIdMap = {
-  'claude-code': ClaudeCodeAdapter;
-  'codex-cli': CodexCliAdapter;
-  'grok-build': GrokBuildAdapter;
+  'claude-code': AgentAdapter;
+  'codex-cli': AgentAdapter;
+  'grok-build': AgentAdapter;
 };
 
 export interface AdapterInitResult {

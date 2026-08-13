@@ -13,6 +13,7 @@ export type SessionPresentationKind = 'history' | 'live';
 export type SessionPresentationSource = 'cli' | 'sdk';
 export type SessionPresentationLifecycle = 'active' | 'closed' | 'dormant';
 export type SessionPresentationActivity = 'finished' | 'idle' | 'waiting' | 'working';
+export type SessionPresentationSummarySource = 'llm' | 'assistant-fallback' | 'stats-fallback';
 
 export interface SessionPresentationTeamDto {
   teamId: string;
@@ -46,6 +47,8 @@ export interface SessionPresentationSummaryDto {
   spawnDepth: number;
   teams: SessionPresentationTeamDto[];
   summary: string | null;
+  /** Optional for compatibility with an older Relay/Full service. */
+  summaryGenerationSource?: SessionPresentationSummarySource | null;
   workspaceLabel: string | null;
   contextOnly: boolean;
 }
@@ -163,11 +166,13 @@ export function parseSessionPresentationSummary(
   value: unknown,
 ): SessionPresentationSummaryDto {
   if (!isJsonObject(value)) fail('session.presentation.session');
-  exact(value, [
+  const keys = [
     'activity', 'adapterId', 'archived', 'context', 'contextOnly', 'createdAt', 'endedAt',
     'id', 'lifecycle', 'model', 'pinned', 'runtimeProvider', 'source', 'spawnDepth',
     'spawnedBy', 'summary', 'teams', 'thinking', 'title', 'updatedAt', 'workspaceLabel',
-  ], 'session.presentation.session');
+  ];
+  if (value.summaryGenerationSource !== undefined) keys.push('summaryGenerationSource');
+  exact(value, keys, 'session.presentation.session');
   if (typeof value.archived !== 'boolean' || typeof value.pinned !== 'boolean' ||
       typeof value.contextOnly !== 'boolean') fail('session.presentation.session.flags');
   if (!Array.isArray(value.teams) || value.teams.length > SESSION_PRESENTATION_MAX_TEAMS) {
@@ -219,6 +224,17 @@ export function parseSessionPresentationSummary(
     spawnDepth,
     teams,
     summary: nullableText(value.summary, 'session.presentation.session.summary'),
+    ...(value.summaryGenerationSource === undefined
+      ? {}
+      : {
+          summaryGenerationSource: value.summaryGenerationSource === null
+            ? null
+            : oneOf(
+                value.summaryGenerationSource,
+                ['llm', 'assistant-fallback', 'stats-fallback'] as const,
+                'session.presentation.session.summaryGenerationSource',
+              ),
+        }),
     workspaceLabel: nullableText(value.workspaceLabel, 'session.presentation.session.workspaceLabel', 512),
     contextOnly: value.contextOnly,
   };

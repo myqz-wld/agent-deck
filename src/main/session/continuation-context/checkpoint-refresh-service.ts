@@ -14,10 +14,9 @@ import {
 import {
   type CheckpointBacklogEstimator,
 } from './checkpoint-backlog-worker-client';
-import { createDesktopCheckpointBacklogEstimator } from './checkpoint-backlog-worker-host';
 import {
   BackgroundCheckpointRefreshIncompleteError,
-  refreshContinuationCheckpoint,
+  type BackgroundCheckpointRefreshResult,
   type ContinuationCheckpointRefreshSnapshot,
 } from './checkpoint-background-refresh';
 import {
@@ -25,12 +24,39 @@ import {
   type CheckpointRefreshRequest,
 } from './checkpoint-refresh-scheduler';
 import { CheckpointRefreshQueue } from './checkpoint-refresh-queue';
-import { CheckpointRefreshDiagnosticCoordinator } from './checkpoint-refresh-diagnostics';
+
+export interface CheckpointRefreshDiagnosticsPort {
+  begin(sessionId: string, trigger: CheckpointRefreshRequest<ContinuationCheckpointRefreshSnapshot>['trigger'], startedAt: number): void;
+  complete(sessionId: string, input: {
+    trigger: CheckpointRefreshRequest<ContinuationCheckpointRefreshSnapshot>['trigger'];
+    partial: boolean;
+    progress?: {
+      previousCheckpointRevision: number;
+      checkpointThroughRevision: number;
+      captureRevision: number;
+    };
+  }): void;
+  fail(sessionId: string, input: {
+    trigger: CheckpointRefreshRequest<ContinuationCheckpointRefreshSnapshot>['trigger'] | 'snapshot';
+    category: unknown;
+    reason: unknown;
+  }): void;
+  forget(sessionId: string): void;
+  reset(): void;
+}
+
+const NOOP_CHECKPOINT_DIAGNOSTICS: CheckpointRefreshDiagnosticsPort = {
+  begin: () => undefined,
+  complete: () => undefined,
+  fail: () => undefined,
+  forget: () => undefined,
+  reset: () => undefined,
+};
 
 const EVENT_EVALUATION_THROTTLE_MS = 5_000;
 const SESSION_PAGE_SIZE = 100;
 
-interface CheckpointRefreshServiceDependencies {
+export interface CheckpointRefreshServiceDependencies {
   bus?: Pick<TypedEventBus, 'on'>;
   now?: () => number;
   setTimer?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
@@ -43,7 +69,13 @@ interface CheckpointRefreshServiceDependencies {
     signal: AbortSignal,
   ) => CheckpointBacklogEstimate | null | Promise<CheckpointBacklogEstimate | null>;
   backlogEstimator?: CheckpointBacklogEstimator;
-  refresh?: typeof refreshContinuationCheckpoint;
+  refresh?: (input: {
+    sessionId: string;
+    trigger: CheckpointRefreshRequest<ContinuationCheckpointRefreshSnapshot>['trigger'];
+    snapshot: Readonly<ContinuationCheckpointRefreshSnapshot>;
+    signal?: AbortSignal;
+  }) => Promise<BackgroundCheckpointRefreshResult>;
+  diagnostics?: CheckpointRefreshDiagnosticsPort;
 }
 
 interface PendingObservation {
@@ -51,7 +83,7 @@ interface PendingObservation {
   observedAt: number;
 }
 
-type CheckpointRefreshSettings = Pick<
+export type CheckpointRefreshSettings = Pick<
   AppSettings,
   'continuationCheckpointAutoRefreshEnabled' |
   'continuationCheckpointAutoRefreshIntervalMinutes'
@@ -89,7 +121,7 @@ export class ContinuationCheckpointRefreshService {
   private readonly foregroundLeases = new Map<string, number>();
   private readonly scheduler: CheckpointRefreshScheduler<ContinuationCheckpointRefreshSnapshot>;
   private readonly refreshQueue: CheckpointRefreshQueue;
-  private readonly diagnostics: CheckpointRefreshDiagnosticCoordinator;
+  private readonly diagnostics: CheckpointRefreshDiagnosticsPort;
   private backlogEstimator: CheckpointBacklogEstimator | null;
   private started = false;
 
@@ -102,7 +134,7 @@ export class ContinuationCheckpointRefreshService {
     this.setTimer = dependencies.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs));
     this.clearTimer = dependencies.clearTimer ?? ((timer) => clearTimeout(timer));
     this.backlogEstimator = dependencies.backlogEstimator ?? null;
-    this.diagnostics = new CheckpointRefreshDiagnosticCoordinator(this.now);
+    this.diagnostics = dependencies.diagnostics ?? NOOP_CHECKPOINT_DIAGNOSTICS;
     this.refreshQueue = new CheckpointRefreshQueue(
       settings.continuationCheckpointMaxConcurrent ??
         DEFAULT_CONTINUATION_CHECKPOINT_MAX_CONCURRENT,
@@ -322,7 +354,9 @@ export class ContinuationCheckpointRefreshService {
   }
 
   private getBacklogEstimator(): CheckpointBacklogEstimator {
-    this.backlogEstimator ??= createDesktopCheckpointBacklogEstimator(getDb().name);
+    if (!this.backlogEstimator) {
+      throw new Error('Checkpoint backlog estimator host is unavailable');
+    }
     return this.backlogEstimator;
   }
 
@@ -334,7 +368,10 @@ export class ContinuationCheckpointRefreshService {
       if (request.signal.aborted || this.foregroundLeases.has(request.sessionId)) {
         throw new Error('Background checkpoint refresh cancelled before execution');
       }
-      const result = await (this.dependencies.refresh ?? refreshContinuationCheckpoint)({
+      if (!this.dependencies.refresh) {
+        throw new Error('Checkpoint refresh host is unavailable');
+      }
+      const result = await this.dependencies.refresh({
         sessionId: request.sessionId,
         trigger: request.trigger,
         snapshot: request.snapshot,
@@ -401,9 +438,10 @@ export class ContinuationCheckpointRefreshService {
 
 let checkpointRefreshService: ContinuationCheckpointRefreshService | null = null;
 
-export function startContinuationCheckpointRefreshService(settings: AppSettings): void {
-  checkpointRefreshService ??= new ContinuationCheckpointRefreshService(settings);
-  checkpointRefreshService.start();
+export function setContinuationCheckpointRefreshService(
+  service: ContinuationCheckpointRefreshService,
+): void {
+  checkpointRefreshService = service;
 }
 
 export function getContinuationCheckpointRefreshService(): ContinuationCheckpointRefreshService | null {

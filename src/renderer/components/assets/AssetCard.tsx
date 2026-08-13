@@ -57,7 +57,7 @@ export function AssetCard({
             <button
               type="button"
               onClick={() => onConfigure(asset)}
-              title="配置内置 Agent 的模型、思考等级和 provider"
+              title="配置内置助手使用的模型、思考程度和模型来源"
               className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
             >
               <PencilIcon className="mr-1 inline h-3 w-3" />配置
@@ -66,12 +66,12 @@ export function AssetCard({
         </div>
       </div>
       {asset.kind === 'agent' && (asset.model || asset.thinking || asset.provider || asset.tools) && (
-        <div className="mt-0.5 flex min-w-0 flex-wrap gap-x-1 text-[10px] text-deck-muted/70">
+        <div className="mt-0.5 flex min-w-0 flex-wrap gap-x-1 text-[10px] text-deck-muted/70 [overflow-wrap:anywhere]">
           {asset.model && <span>模型：<code className="break-all rounded bg-white/5 px-1">{asset.model}</code></span>}
           {asset.thinking && <span>思考程度：<code className="break-all rounded bg-white/5 px-1">{asset.thinking}</code></span>}
           {asset.provider && (
             <span>
-              {asset.adapter === 'claude-code' ? 'gateway' : 'provider'}：
+              {asset.adapter === 'claude-code' ? '模型网关' : '模型来源'}：
               <code className="break-all rounded bg-white/5 px-1">{asset.provider}</code>
             </span>
           )}
@@ -82,8 +82,8 @@ export function AssetCard({
         <div className="mt-1 text-[9px] text-status-working">已修改内建 Agent</div>
       )}
       {asset.origin === 'plugin' && asset.kind === 'agent' && asset.runtimeName && (
-        <div className="mt-1 text-[9px] text-deck-muted/65">
-          启动名：<code className="rounded bg-white/5 px-1">{asset.runtimeName}</code>
+        <div className="mt-1 break-words text-[9px] text-deck-muted/65 [overflow-wrap:anywhere]">
+          启动名：<code className="break-all rounded bg-white/5 px-1">{asset.runtimeName}</code>
         </div>
       )}
       {asset.description && (

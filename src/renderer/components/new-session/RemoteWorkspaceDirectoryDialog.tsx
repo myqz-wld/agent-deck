@@ -49,8 +49,8 @@ export function RemoteWorkspaceDirectoryDialog({
       setLoading(false);
       setPage(null);
       setError(source.usable
-        ? '当前 Remote Core 未提供 Workspace 目录读取能力。'
-        : '当前 Remote Worker 尚未连接，无法读取 Workspace 目录。');
+        ? '当前远端版本暂不支持浏览工作区目录。'
+        : '远端尚未连接，无法读取工作区目录。');
       return () => { stale = true; };
     }
     setLoading(true);
@@ -126,7 +126,7 @@ export function RemoteWorkspaceDirectoryDialog({
           <button
             type="button"
             disabled={!canCreate || loading || creating}
-            title={canCreate ? '在当前目录中新建文件夹' : '当前 Remote Core 未提供新建目录能力'}
+            title={canCreate ? '在当前目录中新建文件夹' : '当前远端版本暂不支持新建目录'}
             onClick={() => {
               setError(null);
               setNewFolderOpen((open) => !open);

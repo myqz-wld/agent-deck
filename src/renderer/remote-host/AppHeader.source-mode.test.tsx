@@ -71,7 +71,7 @@ describe('AppHeader source selection', () => {
     expect(screen.queryByRole('button', { name: '远程' })).toBeNull();
     expect(screen.getByRole('button', { name: '历史' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '数据源' }));
-    fireEvent.click(screen.getByRole('option', { name: 'Remote · 生产 Core' }));
+    fireEvent.click(screen.getByRole('option', { name: '远端 · 生产 Core' }));
     expect(onSourceChange).toHaveBeenCalledWith('remote:remote-a');
   });
 

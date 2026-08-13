@@ -3,7 +3,7 @@ import type { GrokAuthProbeResult } from '@shared/types';
 import { PlayIcon } from '../../icons';
 import { Section } from '../controls';
 
-export function GrokAuthenticationSection(): JSX.Element {
+export function GrokAuthenticationSection({ readOnly = false }: { readOnly?: boolean }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<GrokAuthProbeResult | null>(null);
 
@@ -26,26 +26,29 @@ export function GrokAuthenticationSection(): JSX.Element {
   };
 
   return (
-    <Section title="ACP 认证" storageKey="grok-auth" defaultOpen>
+    <Section title="Grok Build 认证" storageKey="grok-auth" defaultOpen>
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        新建或恢复会话前，Agent Deck 会读取 ACP <code>authMethods</code>，优先使用
-        <code> xai.api_key</code>，其次使用 <code>cached_token</code>，并调用
-        <code> authenticate</code>。不会保存或显示 API Key。
+        新建或恢复会话前，Agent Deck 会检查 Grok Build 是否已登录。不会保存或显示访问凭据。
       </div>
-      <div className="mt-1 flex items-center justify-between gap-2">
+      <div
+        data-settings-field="认证检测"
+        className="mt-1 flex items-center justify-between gap-2"
+      >
         <span className="text-[11px]">认证检测</span>
         <button
           type="button"
-          disabled={busy}
+          disabled={readOnly || busy}
           onClick={() => void probe()}
           className="no-drag rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20 disabled:opacity-50"
         >
           <PlayIcon className="mr-1 inline h-3 w-3" />
-          {busy ? '检测中…' : '检测'}
+          {busy ? '检测中…' : readOnly ? '仅可在远端检查' : '检测'}
         </button>
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        检测只执行 initialize / authenticate，不创建会话，也不发送模型 prompt。
+        {readOnly
+          ? '认证状态由远端环境管理，不会把凭据传到这台电脑。'
+          : '检测只验证登录状态，不会创建会话或发送消息。'}
       </div>
       {result?.ok && (
         <div className="rounded border border-status-working/30 bg-status-working/10 p-2 text-[10px] leading-snug text-status-working">
@@ -55,7 +58,7 @@ export function GrokAuthenticationSection(): JSX.Element {
           </div>
           {result.methods.length > 0 && (
             <div className="mt-1 text-deck-muted/80">
-              ACP 提供：{result.methods.map((method) => method.id).join('、')}
+              可用的登录方式：{result.methods.map((method) => method.id).join('、')}
             </div>
           )}
         </div>

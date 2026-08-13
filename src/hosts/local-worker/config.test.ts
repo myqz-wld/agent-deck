@@ -24,7 +24,7 @@ describe('local Worker outbound SSH boundary', () => {
     const argv = buildLocalWorkerSshArgv(CONFIG);
     expect(argv.slice(0, 2)).toEqual(['-F', '/dev/null']);
     expect(argv).toContain('StrictHostKeyChecking=yes');
-    expect(argv).toContain(`UserKnownHostsFile="${CONFIG.knownHostsFile}"`);
+    expect(argv).toContain(`UserKnownHostsFile=${CONFIG.knownHostsFile}`);
     expect(argv).toContain('GlobalKnownHostsFile=/dev/null');
     expect(argv).toContain('IdentityAgent=none');
     expect(argv).toContain('IdentityFile=none');
@@ -116,7 +116,7 @@ describe('local Worker outbound SSH boundary', () => {
       ...CONFIG,
       knownHostsFile: '/var/lib/agent deck/known_hosts',
     });
-    expect(argv).toContain('UserKnownHostsFile="/var/lib/agent deck/known_hosts"');
+    expect(argv).toContain('UserKnownHostsFile=/var/lib/agent\\ deck/known_hosts');
     expect(() =>
       buildLocalWorkerSshArgv({ ...CONFIG, identityFile: '/worker/%h/id_ed25519' }),
     ).toThrow('OpenSSH expansion tokens');

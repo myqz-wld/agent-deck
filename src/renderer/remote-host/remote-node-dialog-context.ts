@@ -3,7 +3,7 @@ import type { RemoteSessionSourceView } from './source-types';
 function base(source: RemoteSessionSourceView) {
   return {
     identity: source.identity,
-    label: source.profile?.label ?? 'Remote Worker',
+    label: source.profile?.label ?? '远端主机',
     profileId: source.profile?.id ?? null,
     usable: source.usable,
   };

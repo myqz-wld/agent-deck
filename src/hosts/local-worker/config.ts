@@ -1,5 +1,7 @@
 import { isAbsolute } from 'node:path';
 
+import { escapeOpenSshConfigValue } from '../../shared/open-ssh';
+
 export interface LocalWorkerSshConfig {
   sshBinary: string;
   host: string;
@@ -51,10 +53,6 @@ function assertOpenSshPath(value: string, field: string): void {
   }
 }
 
-function quoteOpenSshValue(value: string): string {
-  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
 export function assertLocalWorkerSshConfig(config: LocalWorkerSshConfig): void {
   assertToken(config.sshBinary, 'sshBinary');
   assertPattern(config.host, 'host', HOST_TOKEN);
@@ -97,7 +95,7 @@ export function buildLocalWorkerSshArgv(config: LocalWorkerSshConfig): string[] 
     '-o',
     'StrictHostKeyChecking=yes',
     '-o',
-    `UserKnownHostsFile=${quoteOpenSshValue(config.knownHostsFile)}`,
+    `UserKnownHostsFile=${escapeOpenSshConfigValue(config.knownHostsFile)}`,
     '-o',
     'GlobalKnownHostsFile=/dev/null',
     '-o',

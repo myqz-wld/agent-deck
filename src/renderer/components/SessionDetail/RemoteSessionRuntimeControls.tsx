@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 
-import { SessionModelFields, type SessionThinkingChoice } from '../SessionModelFields';
+import type { SessionThinkingChoice } from '../SessionModelFields';
 import { DeckSelect } from '../DeckSelect';
 import {
   CLAUDE_CODE_SANDBOX_OPTIONS,
@@ -17,17 +17,19 @@ import {
 } from '@renderer/lib/sandbox-options';
 import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
 import type { RemoteHostJsonObject } from '@shared/remote-host';
+import type { SessionConsoleCreateOptionSchema } from '@contracts/index';
 import {
   ADAPTER_SESSION_MODES,
   isSelectablePermissionMode,
 } from '@shared/types';
+import { SessionRuntimeFieldsView } from './composer-sdk/SessionRuntimeFieldsView';
 
 const MODEL_PERSIST_DELAY_MS = 250;
 const CUSTOM_GROK_PROFILE = '__agent_deck_remote_custom_grok_sandbox__';
 const PROVIDER_DEFAULT_RUNTIME_VALUE = '__agent_deck_provider_default__';
 const PROVIDER_DEFAULT_RUNTIME_OPTION = {
   value: PROVIDER_DEFAULT_RUNTIME_VALUE,
-  label: '由提供方默认值决定（未记录权威值）',
+  label: '使用当前默认值',
   disabled: true,
 };
 
@@ -63,6 +65,7 @@ export function RemoteSessionRuntimeControls({
   identity,
   turnActive = false,
   values,
+  optionSchema = null,
   onApply,
 }: {
   adapterId: string;
@@ -71,6 +74,7 @@ export function RemoteSessionRuntimeControls({
   identity: string;
   turnActive?: boolean;
   values: RemoteHostJsonObject | null;
+  optionSchema?: SessionConsoleCreateOptionSchema | null;
   onApply: (patch: RemoteHostJsonObject) => Promise<void>;
 }): JSX.Element {
   const [model, setModel] = useState('');
@@ -258,39 +262,48 @@ export function RemoteSessionRuntimeControls({
   };
   const currentPermission = stringValue(values, 'permissionMode');
   const permissionOptions = currentPermission === 'dontAsk'
-    ? [{ value: 'dontAsk', label: '模型提供方状态：不询问（只读）', disabled: true },
+    ? [{ value: 'dontAsk', label: '当前状态：不询问（只读）', disabled: true },
         ...PERMISSION_MODE_OPTIONS]
     : [PROVIDER_DEFAULT_RUNTIME_OPTION, ...PERMISSION_MODE_OPTIONS];
   const claudeSandbox = stringValue(values, 'claudeCodeSandbox');
   const approvalPolicy = stringValue(values, 'approvalPolicy');
   const codexSandbox = stringValue(values, 'codexSandbox');
   const sessionMode = stringValue(values, 'sessionMode');
+  const providerDescriptor = optionSchema?.provider;
+  const modelDescriptor = optionSchema?.model;
+  const thinkingDescriptor = optionSchema?.thinking;
 
   return (
     <>
-      <details className="mb-2 rounded border border-deck-border/80 bg-white/[0.02] px-2 py-1.5">
-        <summary className="cursor-pointer select-none text-[10px] text-deck-muted">
-          {adapterId === 'codex-cli' ? 'Provider' : adapterId === 'claude-code' ? 'Gateway' : '运行时'}、模型与思考程度
-          <span className="ml-1 text-deck-muted/60">（下一轮生效）</span>
-        </summary>
-        <div className="mt-2 space-y-2">
-          <SessionModelFields
-            adapterId={adapterId}
-            provider={provider}
-            model={model}
-            thinking={thinking}
-            disabled={disabled}
-            providerOptions={[]}
-            onProviderChange={(next) => updateSelection({ provider: next, model: '' }, true)}
-            onModelChange={(next) => updateSelection({ model: next }, false)}
-            onModelBlur={flushSelection}
-            onThinkingChange={(next) => updateSelection({ thinking: next }, true)}
-          />
-          <p className="text-[9px] text-deck-muted/65">
-            这些值直接写入当前 Remote Worker 的会话运行时；不会调用本机会话 IPC。
-          </p>
-        </div>
-      </details>
+      <SessionRuntimeFieldsView
+        fields={{
+          adapterId,
+          provider,
+          model,
+          thinking,
+          disabled,
+          providerClosed: providerDescriptor ? !providerDescriptor.allowCustom : false,
+          providerOptions: providerDescriptor?.allowedValues?.map((id) => ({ id })) ?? [],
+          thinkingOptions: thinkingDescriptor?.allowedValues?.map((value) => ({
+            value: value as SessionThinkingChoice,
+            label: value ? value.toUpperCase() : '使用当前默认值',
+          })),
+          disabledReasons: {
+            provider: providerDescriptor?.disabledReason,
+            model: modelDescriptor?.disabledReason,
+            thinking: thinkingDescriptor?.disabledReason,
+          },
+          onProviderChange: (next) => updateSelection({ provider: next, model: '' }, true),
+          onModelChange: (next) => updateSelection({ model: next }, false),
+          onModelBlur: flushSelection,
+          onThinkingChange: (next) => updateSelection({ thinking: next }, true),
+        }}
+        help={adapterId === 'codex-cli'
+          ? '已加载的 Codex 会话不能直接切换模型来源；模型与思考程度会在下一轮生效。'
+          : '当前回复不会中断，修改会自动保存并在下一轮生效。'}
+        error={null}
+        onDismissError={() => undefined}
+      />
       {adapterId === 'claude-code' && (
         <>
           <SelectRow
@@ -364,7 +377,7 @@ export function RemoteSessionRuntimeControls({
       )}
       {!canWrite && (
         <p className="mb-1.5 text-[9px] text-deck-muted/70">
-          此 Remote Core 未提供会话运行时写入能力；控件只显示权威值。
+          当前只能查看运行设置，不能在这里修改。
         </p>
       )}
       {notice && (
@@ -375,7 +388,7 @@ export function RemoteSessionRuntimeControls({
           {notice}
         </div>
       )}
-      <ErrorBanner message={error} prefix="远端运行时设置失败" onDismiss={() => setError(null)} />
+      <ErrorBanner message={error} prefix="运行设置失败" onDismiss={() => setError(null)} />
     </>
   );
 }
@@ -385,9 +398,9 @@ async function confirmClaudeSandbox(
   apply: (patch: RemoteHostJsonObject) => Promise<boolean>,
 ): Promise<void> {
   if (next === 'off' && !await window.api.confirmDialog({
-    title: '关闭 Remote Claude Code 系统沙盒',
-    message: '需要在 Worker 上重启当前会话',
-    detail: '重启由远端 Core 受控执行，不会重启本机 Agent Deck。继续？',
+    title: '关闭 Claude Code 系统沙盒',
+    message: '需要重启当前 Claude Code 会话',
+    detail: '重启后，Claude Code 不再受系统沙盒约束。失败时会自动恢复当前设置。继续？',
     okLabel: '重启并关闭沙盒', cancelLabel: '取消', destructive: true,
   })) return;
   await apply({ claudeCodeSandbox: next });
@@ -398,10 +411,10 @@ async function confirmCodexSandbox(
   apply: (patch: RemoteHostJsonObject) => Promise<boolean>,
 ): Promise<void> {
   if (next === 'danger-full-access' && !await window.api.confirmDialog({
-    title: '开放 Remote Codex CLI 沙盒',
-    message: '后续轮次将在 Worker 上使用完全开放权限',
-    detail: '此操作仅影响当前远端会话，不会修改本机会话。继续？',
-    okLabel: '完全开放', cancelLabel: '取消', destructive: true,
+    title: '关闭 Codex CLI 沙盒（完全开放）',
+    message: '将从 Codex CLI 的下一轮对话起生效',
+    detail: '关闭后，Codex CLI 可以读写任意文件、执行任意命令。失败时会自动恢复当前设置。继续？',
+    okLabel: '关闭沙盒', cancelLabel: '取消', destructive: true,
   })) return;
   await apply({ codexSandbox: next });
 }
@@ -443,7 +456,7 @@ function RemoteGrokSandbox({
       </div>
       {customActive && (
         <div className="mt-1 flex gap-1">
-          <input value={draft} onChange={(event) => setDraft(event.target.value)} disabled={disabled} maxLength={128} aria-label="Remote Grok 自定义沙盒配置名称" className="min-w-0 flex-1 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px]" />
+          <input value={draft} onChange={(event) => setDraft(event.target.value)} disabled={disabled} maxLength={128} aria-label="自定义沙盒配置名称" className="min-w-0 flex-1 rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-[10px]" />
           <button type="button" disabled={disabled || !draft.trim()} onClick={() => void onApply(draft.trim())} className="rounded bg-white/10 px-2 text-[10px] disabled:opacity-40">应用</button>
         </div>
       )}

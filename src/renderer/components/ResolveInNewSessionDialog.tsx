@@ -192,7 +192,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       ) : undefined}
       pickingDirectory={pickingDirectory}
       prompt={prompt}
-      sourceLabel="Local · 本机"
+      sourceLabel="本机"
       title="新建处理会话"
       workingDirectory={workingDirectory}
       onAdapterChange={(next) => {

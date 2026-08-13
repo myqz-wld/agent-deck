@@ -7,12 +7,30 @@ export const NODE_CONFIGURATION_ADAPTER_IDS = Object.freeze([
 ] as const);
 export type NodeConfigurationAdapterId =
   (typeof NODE_CONFIGURATION_ADAPTER_IDS)[number];
+export const NODE_CONFIGURATION_THINKING_LEVELS = Object.freeze([
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra',
+] as const);
+export type NodeConfigurationThinkingLevel =
+  (typeof NODE_CONFIGURATION_THINKING_LEVELS)[number];
 
 export interface NodeProviderDefaultsDto extends JsonObject {
   claudeCliPath: string | null;
   claudeCodeSandbox: 'off' | 'workspace-write' | 'strict';
   codexCliPath: string | null;
   codexSandbox: 'workspace-write' | 'read-only' | 'danger-full-access';
+  continuationCheckpointAdapter: NodeConfigurationAdapterId;
+  continuationCheckpointAutoRefreshEnabled: boolean;
+  continuationCheckpointAutoRefreshIntervalMinutes: number;
+  continuationCheckpointMaxConcurrent: number;
+  continuationCheckpointModel: string;
+  continuationCheckpointRuntimeProvider: string;
+  continuationCheckpointThinking: NodeConfigurationThinkingLevel;
+  continuationRawRetentionTokens: number;
   enableAgentDeckMcp: boolean;
   grokCliPath: string | null;
   grokSandbox: string;
@@ -26,9 +44,18 @@ export interface NodeProviderDefaultsDto extends JsonObject {
   injectAgentDeckGrokAgentsMd: boolean;
   injectAgentDeckGrokSkills: boolean;
   mcpHttpEnabled: boolean;
+  mcpMaxFanOutPerParent: number;
+  mcpMaxSpawnDepth: number;
+  mcpSpawnRatePerMinute: number;
   permissionTimeoutMs: number;
+  summaryAdapter: NodeConfigurationAdapterId;
+  summaryEnabled: boolean;
+  summaryEventCount: number;
+  summaryIntervalMs: number;
+  summaryMaxConcurrent: number;
   summaryModel: string;
-  summaryThinking: string;
+  summaryRuntimeProvider: string;
+  summaryThinking: NodeConfigurationThinkingLevel;
   summaryTimeoutMs: number;
 }
 
@@ -36,6 +63,9 @@ export interface NodeSessionLifecycleDto extends JsonObject {
   activeWindowMs: number;
   closeAfterMs: number;
   historyRetentionDays: number;
+  issueResolvedRetentionDays: number;
+  issueSoftDeletedRetentionDays: number;
+  messageRetentionDays: number;
 }
 
 export interface NodeConfigurationGetResult {
@@ -117,6 +147,26 @@ function text(value: unknown, field: string, maxBytes = MAX_TEXT_BYTES): string 
 function revision(value: unknown, field: string): number {
   if (!Number.isSafeInteger(value) || Number(value) < 0) fail(field);
   return Number(value);
+}
+
+function integer(value: unknown, field: string, min: number, max: number): number {
+  const parsed = revision(value, field);
+  if (parsed < min || parsed > max) fail(field);
+  return parsed;
+}
+
+function boolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') fail(field);
+  return value;
+}
+
+function enumText<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  field: string,
+): T {
+  if (typeof value !== 'string' || !allowed.includes(value as T)) fail(field);
+  return value as T;
 }
 
 export function parseNodeConfigurationAdapterId(
@@ -218,94 +268,180 @@ export function parseNodeConfigurationGetResult(value: unknown): NodeConfigurati
   const defaults = value.providerDefaults;
   exactKeys(defaults, [
     'claudeCliPath', 'claudeCodeSandbox', 'codexCliPath', 'codexSandbox',
+    'continuationCheckpointAdapter', 'continuationCheckpointAutoRefreshEnabled',
+    'continuationCheckpointAutoRefreshIntervalMinutes',
+    'continuationCheckpointMaxConcurrent', 'continuationCheckpointModel',
+    'continuationCheckpointRuntimeProvider', 'continuationCheckpointThinking',
+    'continuationRawRetentionTokens',
     'enableAgentDeckMcp', 'grokCliPath', 'grokSandbox',
     'injectAgentDeckClaudeAgents', 'injectAgentDeckClaudeMd',
     'injectAgentDeckClaudeSkills', 'injectAgentDeckCodexAgents',
     'injectAgentDeckCodexAgentsMd', 'injectAgentDeckCodexSkills',
     'injectAgentDeckGrokAgents', 'injectAgentDeckGrokAgentsMd',
-    'injectAgentDeckGrokSkills', 'mcpHttpEnabled', 'permissionTimeoutMs',
-    'summaryModel', 'summaryThinking', 'summaryTimeoutMs',
+    'injectAgentDeckGrokSkills', 'mcpHttpEnabled', 'mcpMaxFanOutPerParent',
+    'mcpMaxSpawnDepth', 'mcpSpawnRatePerMinute', 'permissionTimeoutMs',
+    'summaryAdapter', 'summaryEnabled', 'summaryEventCount', 'summaryIntervalMs',
+    'summaryMaxConcurrent', 'summaryModel', 'summaryRuntimeProvider',
+    'summaryThinking', 'summaryTimeoutMs',
   ], 'node.configuration.providerDefaults');
-  if (!['off', 'workspace-write', 'strict'].includes(String(defaults.claudeCodeSandbox))) {
-    fail('node.configuration.providerDefaults.claudeCodeSandbox');
-  }
-  if (!['workspace-write', 'read-only', 'danger-full-access'].includes(String(defaults.codexSandbox))) {
-    fail('node.configuration.providerDefaults.codexSandbox');
-  }
-  if (typeof defaults.enableAgentDeckMcp !== 'boolean') {
-    fail('node.configuration.providerDefaults.enableAgentDeckMcp');
-  }
+  const field = (name: string): string => `node.configuration.providerDefaults.${name}`;
   const booleanKeys = [
+    'continuationCheckpointAutoRefreshEnabled', 'enableAgentDeckMcp',
     'injectAgentDeckClaudeAgents', 'injectAgentDeckClaudeMd',
     'injectAgentDeckClaudeSkills', 'injectAgentDeckCodexAgents',
     'injectAgentDeckCodexAgentsMd', 'injectAgentDeckCodexSkills',
     'injectAgentDeckGrokAgents', 'injectAgentDeckGrokAgentsMd',
-    'injectAgentDeckGrokSkills', 'mcpHttpEnabled',
+    'injectAgentDeckGrokSkills', 'mcpHttpEnabled', 'summaryEnabled',
   ] as const;
   for (const key of booleanKeys) {
-    if (typeof defaults[key] !== 'boolean') {
-      fail(`node.configuration.providerDefaults.${key}`);
-    }
+    boolean(defaults[key], field(key));
   }
   const cliPath = (key: 'claudeCliPath' | 'codexCliPath' | 'grokCliPath'): string | null =>
     defaults[key] === null
       ? null
-      : text(defaults[key], `node.configuration.providerDefaults.${key}`, MAX_PATH_BYTES);
-  const permissionTimeoutMs = revision(
-    defaults.permissionTimeoutMs,
-    'node.configuration.providerDefaults.permissionTimeoutMs',
-  );
-  const summaryTimeoutMs = revision(
-    defaults.summaryTimeoutMs,
-    'node.configuration.providerDefaults.summaryTimeoutMs',
-  );
+      : text(defaults[key], field(key), MAX_PATH_BYTES);
   if (!isJsonObject(value.sessionLifecycle)) fail('node.configuration.sessionLifecycle');
   const lifecycle = value.sessionLifecycle;
   exactKeys(
     lifecycle,
-    ['activeWindowMs', 'closeAfterMs', 'historyRetentionDays'],
+    [
+      'activeWindowMs', 'closeAfterMs', 'historyRetentionDays',
+      'issueResolvedRetentionDays', 'issueSoftDeletedRetentionDays',
+      'messageRetentionDays',
+    ],
     'node.configuration.sessionLifecycle',
   );
-  const activeWindowMs = revision(
-    lifecycle.activeWindowMs,
-    'node.configuration.sessionLifecycle.activeWindowMs',
+  const lifecycleField = (name: string): string => `node.configuration.sessionLifecycle.${name}`;
+  const activeWindowMs = integer(
+    lifecycle.activeWindowMs, lifecycleField('activeWindowMs'), 1, 365 * 86_400_000,
   );
-  const closeAfterMs = revision(
-    lifecycle.closeAfterMs,
-    'node.configuration.sessionLifecycle.closeAfterMs',
+  const closeAfterMs = integer(
+    lifecycle.closeAfterMs, lifecycleField('closeAfterMs'), 1, 365 * 86_400_000,
   );
-  const historyRetentionDays = revision(
-    lifecycle.historyRetentionDays,
-    'node.configuration.sessionLifecycle.historyRetentionDays',
-  );
+  const retention = (key: 'historyRetentionDays' | 'issueResolvedRetentionDays' |
+    'issueSoftDeletedRetentionDays' | 'messageRetentionDays'): number =>
+    integer(lifecycle[key], lifecycleField(key), 0, 3_650);
   if (activeWindowMs === 0 || closeAfterMs <= activeWindowMs) {
     fail('node.configuration.sessionLifecycle.consistency');
   }
   return {
     providerDefaults: {
       claudeCliPath: cliPath('claudeCliPath'),
-      claudeCodeSandbox: defaults.claudeCodeSandbox as NodeProviderDefaultsDto['claudeCodeSandbox'],
+      claudeCodeSandbox: enumText(
+        defaults.claudeCodeSandbox, ['off', 'workspace-write', 'strict'],
+        field('claudeCodeSandbox'),
+      ),
       codexCliPath: cliPath('codexCliPath'),
-      codexSandbox: defaults.codexSandbox as NodeProviderDefaultsDto['codexSandbox'],
-      enableAgentDeckMcp: defaults.enableAgentDeckMcp,
+      codexSandbox: enumText(
+        defaults.codexSandbox, ['workspace-write', 'read-only', 'danger-full-access'],
+        field('codexSandbox'),
+      ),
+      continuationCheckpointAdapter: parseNodeConfigurationAdapterId(
+        defaults.continuationCheckpointAdapter, field('continuationCheckpointAdapter'),
+      ),
+      continuationCheckpointAutoRefreshEnabled: boolean(
+        defaults.continuationCheckpointAutoRefreshEnabled,
+        field('continuationCheckpointAutoRefreshEnabled'),
+      ),
+      continuationCheckpointAutoRefreshIntervalMinutes: integer(
+        defaults.continuationCheckpointAutoRefreshIntervalMinutes,
+        field('continuationCheckpointAutoRefreshIntervalMinutes'), 5, 1_440,
+      ),
+      continuationCheckpointMaxConcurrent: integer(
+        defaults.continuationCheckpointMaxConcurrent,
+        field('continuationCheckpointMaxConcurrent'), 1, 10,
+      ),
+      continuationCheckpointModel: text(
+        defaults.continuationCheckpointModel, field('continuationCheckpointModel'),
+      ),
+      continuationCheckpointRuntimeProvider: text(
+        defaults.continuationCheckpointRuntimeProvider,
+        field('continuationCheckpointRuntimeProvider'),
+      ),
+      continuationCheckpointThinking: enumText(
+        defaults.continuationCheckpointThinking, NODE_CONFIGURATION_THINKING_LEVELS,
+        field('continuationCheckpointThinking'),
+      ),
+      continuationRawRetentionTokens: integer(
+        defaults.continuationRawRetentionTokens,
+        field('continuationRawRetentionTokens'), 8_000, 128_000,
+      ),
+      enableAgentDeckMcp: boolean(defaults.enableAgentDeckMcp, field('enableAgentDeckMcp')),
       grokCliPath: cliPath('grokCliPath'),
-      grokSandbox: text(defaults.grokSandbox, 'node.configuration.providerDefaults.grokSandbox'),
-      injectAgentDeckClaudeAgents: defaults.injectAgentDeckClaudeAgents as boolean,
-      injectAgentDeckClaudeMd: defaults.injectAgentDeckClaudeMd as boolean,
-      injectAgentDeckClaudeSkills: defaults.injectAgentDeckClaudeSkills as boolean,
-      injectAgentDeckCodexAgents: defaults.injectAgentDeckCodexAgents as boolean,
-      injectAgentDeckCodexAgentsMd: defaults.injectAgentDeckCodexAgentsMd as boolean,
-      injectAgentDeckCodexSkills: defaults.injectAgentDeckCodexSkills as boolean,
-      injectAgentDeckGrokAgents: defaults.injectAgentDeckGrokAgents as boolean,
-      injectAgentDeckGrokAgentsMd: defaults.injectAgentDeckGrokAgentsMd as boolean,
-      injectAgentDeckGrokSkills: defaults.injectAgentDeckGrokSkills as boolean,
-      mcpHttpEnabled: defaults.mcpHttpEnabled as boolean,
-      permissionTimeoutMs,
-      summaryModel: text(defaults.summaryModel, 'node.configuration.providerDefaults.summaryModel'),
-      summaryThinking: text(defaults.summaryThinking, 'node.configuration.providerDefaults.summaryThinking'),
-      summaryTimeoutMs,
+      grokSandbox: text(defaults.grokSandbox, field('grokSandbox')),
+      injectAgentDeckClaudeAgents: boolean(
+        defaults.injectAgentDeckClaudeAgents, field('injectAgentDeckClaudeAgents'),
+      ),
+      injectAgentDeckClaudeMd: boolean(
+        defaults.injectAgentDeckClaudeMd, field('injectAgentDeckClaudeMd'),
+      ),
+      injectAgentDeckClaudeSkills: boolean(
+        defaults.injectAgentDeckClaudeSkills, field('injectAgentDeckClaudeSkills'),
+      ),
+      injectAgentDeckCodexAgents: boolean(
+        defaults.injectAgentDeckCodexAgents, field('injectAgentDeckCodexAgents'),
+      ),
+      injectAgentDeckCodexAgentsMd: boolean(
+        defaults.injectAgentDeckCodexAgentsMd, field('injectAgentDeckCodexAgentsMd'),
+      ),
+      injectAgentDeckCodexSkills: boolean(
+        defaults.injectAgentDeckCodexSkills, field('injectAgentDeckCodexSkills'),
+      ),
+      injectAgentDeckGrokAgents: boolean(
+        defaults.injectAgentDeckGrokAgents, field('injectAgentDeckGrokAgents'),
+      ),
+      injectAgentDeckGrokAgentsMd: boolean(
+        defaults.injectAgentDeckGrokAgentsMd, field('injectAgentDeckGrokAgentsMd'),
+      ),
+      injectAgentDeckGrokSkills: boolean(
+        defaults.injectAgentDeckGrokSkills, field('injectAgentDeckGrokSkills'),
+      ),
+      mcpHttpEnabled: boolean(defaults.mcpHttpEnabled, field('mcpHttpEnabled')),
+      mcpMaxFanOutPerParent: integer(
+        defaults.mcpMaxFanOutPerParent, field('mcpMaxFanOutPerParent'), 1, 20,
+      ),
+      mcpMaxSpawnDepth: integer(
+        defaults.mcpMaxSpawnDepth, field('mcpMaxSpawnDepth'), 1, 10,
+      ),
+      mcpSpawnRatePerMinute: integer(
+        defaults.mcpSpawnRatePerMinute, field('mcpSpawnRatePerMinute'), 1, 60,
+      ),
+      permissionTimeoutMs: integer(
+        defaults.permissionTimeoutMs, field('permissionTimeoutMs'), 0, 86_400_000,
+      ),
+      summaryAdapter: parseNodeConfigurationAdapterId(
+        defaults.summaryAdapter, field('summaryAdapter'),
+      ),
+      summaryEnabled: boolean(defaults.summaryEnabled, field('summaryEnabled')),
+      summaryEventCount: integer(
+        defaults.summaryEventCount, field('summaryEventCount'), 1, 1_000_000,
+      ),
+      summaryIntervalMs: integer(
+        defaults.summaryIntervalMs, field('summaryIntervalMs'), 60_000, 86_400_000,
+      ),
+      summaryMaxConcurrent: integer(
+        defaults.summaryMaxConcurrent, field('summaryMaxConcurrent'), 1, 10,
+      ),
+      summaryModel: text(defaults.summaryModel, field('summaryModel')),
+      summaryRuntimeProvider: text(
+        defaults.summaryRuntimeProvider, field('summaryRuntimeProvider'),
+      ),
+      summaryThinking: enumText(
+        defaults.summaryThinking, NODE_CONFIGURATION_THINKING_LEVELS,
+        field('summaryThinking'),
+      ),
+      summaryTimeoutMs: integer(
+        defaults.summaryTimeoutMs, field('summaryTimeoutMs'), 0, 86_400_000,
+      ),
     },
-    sessionLifecycle: { activeWindowMs, closeAfterMs, historyRetentionDays },
+    sessionLifecycle: {
+      activeWindowMs,
+      closeAfterMs,
+      historyRetentionDays: retention('historyRetentionDays'),
+      issueResolvedRetentionDays: retention('issueResolvedRetentionDays'),
+      issueSoftDeletedRetentionDays: retention('issueSoftDeletedRetentionDays'),
+      messageRetentionDays: retention('messageRetentionDays'),
+    },
     revision: revision(value.revision, 'node.configuration.get.revision'),
   };
 }

@@ -401,7 +401,75 @@ describe('useRemoteSessionSource detail and mutation fencing', () => {
       .toBe('remote-b detail'));
     expect(hook.result.current.summaries).toBeNull();
     expect(hook.result.current.summaryLoadError)
-      .toBe('读取 Worker 会话总结失败，请稍后重试。');
+      .toBe('读取会话总结失败，请稍后重试。');
     expect(hook.result.current.error).not.toBe('summary unavailable');
+  });
+
+  it('starts a fresh detail read immediately after a same-identity reconnect', async () => {
+    const staleSummary = deferred<Awaited<ReturnType<
+      typeof window.api.listRemoteHostSummaries
+    >>>();
+    let summaryLoads = 0;
+    vi.mocked(window.api.listRemoteHostSummaries).mockImplementation(() => {
+      summaryLoads += 1;
+      return summaryLoads === 1
+        ? staleSummary.promise
+        : Promise.resolve({
+            summaries: [{
+              id: 2,
+              sessionId: 'same-session',
+              content: 'fresh summary',
+              trigger: 'time',
+              ts: 3,
+              sourceEventRevision: 2,
+              sourceRebuildAfterRevision: 0,
+              generationSource: 'llm',
+            }],
+            revision: 2,
+          });
+    });
+    const withSummaries = (revision: number, status: 'connected' | 'reconnecting') => {
+      const value = hosts('remote-b', revision);
+      value.snapshot!.states = value.snapshot!.states.map((current) =>
+        current.profileId === 'remote-b'
+          ? {
+              ...current,
+              status,
+              capabilities: [...current.capabilities, 'sessions.summaries.read'],
+            }
+          : current);
+      return value;
+    };
+    const hook = renderHook(
+      ({ value }: { value: RemoteHostSnapshotState }) => useRemoteSessionSource(value),
+      { initialProps: { value: withSummaries(1, 'connected') } },
+    );
+    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
+    act(() => hook.result.current.selectSession('same-session'));
+    await waitFor(() => expect(summaryLoads).toBe(1));
+
+    hook.rerender({ value: withSummaries(2, 'reconnecting') });
+    expect(hook.result.current.selectedSession).toBeNull();
+    hook.rerender({ value: withSummaries(3, 'connected') });
+
+    await waitFor(() => expect(summaryLoads).toBe(2));
+    await waitFor(() => expect(hook.result.current.summaries?.summaries[0]?.content)
+      .toBe('fresh summary'));
+
+    staleSummary.resolve({
+      summaries: [{
+        id: 1,
+        sessionId: 'same-session',
+        content: 'stale summary',
+        trigger: 'time',
+        ts: 2,
+        sourceEventRevision: 1,
+        sourceRebuildAfterRevision: 0,
+        generationSource: 'llm',
+      }],
+      revision: 1,
+    });
+    await act(async () => { await staleSummary.promise; });
+    expect(hook.result.current.summaries?.summaries[0]?.content).toBe('fresh summary');
   });
 });

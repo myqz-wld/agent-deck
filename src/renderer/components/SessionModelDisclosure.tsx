@@ -42,7 +42,7 @@ export function SessionModelDisclosure({
   const providerLabel =
     adapterId === 'grok-build'
       ? null
-      : `${adapterId === 'claude-code' ? 'Gateway' : 'Provider'}：${
+      : `${adapterId === 'claude-code' ? '模型网关' : '模型来源'}：${
           disabledReasons?.provider ? '不可用' : provider || '原生'
         }`;
   const modelLabel = disabledReasons?.model ? '不可用' : model || '配置文件';
@@ -50,7 +50,7 @@ export function SessionModelDisclosure({
     ? '不可用'
     : thinking
       ? thinking.toUpperCase()
-      : '跟随运行时默认值';
+      : '跟随当前助手默认值';
   const summary = [
     providerLabel,
     `模型：${modelLabel}`,

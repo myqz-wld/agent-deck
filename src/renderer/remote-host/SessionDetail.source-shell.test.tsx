@@ -34,8 +34,8 @@ describe('SessionDetail source shell', () => {
     expect(screen.getByLabelText('上下文窗口用量').textContent)
       .toContain('34K / 100K');
 
-    fireEvent.click(screen.getByRole('button', { name: '改动' }));
-    expect(screen.getByText(/不会回退读取本地工作区/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '改动' }).getAttribute('title'))
+      .toBe('当前版本暂不支持查看改动。');
     expect(localFileChanges).not.toHaveBeenCalled();
   });
 
@@ -46,7 +46,7 @@ describe('SessionDetail source shell', () => {
       onClose={vi.fn()}
     />);
 
-    expect(screen.getByText('正在读取远程 session…')).toBeTruthy();
+    expect(screen.getByText('正在读取远程会话…')).toBeTruthy();
     expect(screen.queryByText('Remote session')).toBeNull();
     expect(screen.queryByText('remote-only activity')).toBeNull();
     expect(screen.queryByText(/remote-model/)).toBeNull();
@@ -213,9 +213,9 @@ describe('SessionDetail source shell', () => {
       sessionId: 'same-session',
       adapterId: 'codex-cli',
     }));
-    expect(await screen.findByText('Codex CLI 当前生效权限')).toBeTruthy();
+    expect(await screen.findByText('Codex 当前生效配置')).toBeTruthy();
     expect(screen.getByText('工作区可写')).toBeTruthy();
-    expect(screen.getByText('由提供方默认值决定')).toBeTruthy();
+    expect(screen.getByText('使用当前运行设置')).toBeTruthy();
     expect(scanLocalPermissions).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toContain('auth.json');
     expect(document.body.textContent).not.toContain('/Users/');
@@ -240,10 +240,10 @@ describe('SessionDetail source shell', () => {
 
     await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
     expect(screen.getByText('remote-only activity')).toBeTruthy();
-    expect(screen.queryByText('正在读取 Worker 生效权限…')).toBeNull();
+    expect(screen.queryByText('正在读取权限…')).toBeNull();
 
     await act(() => vi.advanceTimersByTimeAsync(1));
-    expect(screen.getByText('正在读取 Worker 生效权限…')).toBeTruthy();
+    expect(screen.getByText('正在读取权限…')).toBeTruthy();
     expect(screen.queryByText('remote-only activity')).toBeNull();
 
     await act(async () => pending.resolve({
@@ -257,7 +257,7 @@ describe('SessionDetail source shell', () => {
       rules: { state: 'unavailable', items: [], omittedCount: 0, truncated: false },
       revision: 12,
     }));
-    expect(screen.getByText('Codex CLI 当前生效权限')).toBeTruthy();
+    expect(screen.getByText('Codex 当前生效配置')).toBeTruthy();
   });
 
   it('loads bounded Remote cross-session messages lazily through the shared presentation', async () => {
@@ -305,9 +305,9 @@ describe('SessionDetail source shell', () => {
     render(<SessionDetail remoteSource={remoteSource()} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: '权限' }));
-    expect(screen.getByText(/未提供无路径、无配置原文的生效权限投影/)).toBeTruthy();
+    expect(screen.getByText('当前版本暂不支持查看权限。')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '跨会话' }));
-    expect(screen.getByText(/不会回退读取本地消息数据库/)).toBeTruthy();
+    expect(screen.getByText('当前版本暂不支持查看跨会话消息。')).toBeTruthy();
     expect(getRemotePermissions).not.toHaveBeenCalled();
     expect(listRemoteMessages).not.toHaveBeenCalled();
     expect(localFallback).not.toHaveBeenCalled();
@@ -362,7 +362,6 @@ describe('SessionDetail source shell', () => {
       await oldResult.promise;
     });
     expect(screen.getByText('工作区可写')).toBeTruthy();
-    expect(screen.queryByText('只读')).toBeNull();
   });
 
   it('does not reuse a permission projection after same-identity reconnect', async () => {
@@ -409,14 +408,20 @@ describe('SessionDetail source shell', () => {
       }}
       onClose={vi.fn()}
     />);
-    await act(async () => oldResult.resolve({ ...fresh, revision: 1 }));
-    expect(screen.queryByText('Codex CLI 当前生效权限')).toBeNull();
+    expect(screen.queryByText('Codex 当前生效配置')).toBeNull();
 
     rendered.rerender(<SessionDetail remoteSource={connected} onClose={vi.fn()} />);
     expect(screen.getByText('remote-only activity')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '权限' }));
-    await screen.findByText('Codex CLI 当前生效权限');
+    await screen.findByText('Codex 当前生效配置');
     expect(getPermissions).toHaveBeenCalledTimes(2);
+
+    await act(async () => oldResult.resolve({
+      ...fresh,
+      effective: { ...fresh.effective, sandbox: 'read-only' },
+      revision: 1,
+    }));
+    expect(screen.getByText('工作区可写')).toBeTruthy();
   });
 
   it('renders a precise reconnecting detail shell with all session actions absent', () => {
@@ -426,8 +431,8 @@ describe('SessionDetail source shell', () => {
     source.state = { ...source.state!, status: 'reconnecting' };
     render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
 
-    expect(screen.getByText('Remote SSH 正在重连')).toBeTruthy();
-    expect(screen.getByText(/重新确认 Core 身份后才能读取此会话/)).toBeTruthy();
+    expect(screen.getByText('正在重新连接')).toBeTruthy();
+    expect(screen.getByText('连接恢复后会自动重新读取当前会话。')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '发送' })).toBeNull();
     expect(screen.queryByRole('button', { name: '接力' })).toBeNull();
   });

@@ -98,9 +98,9 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     const onClose = vi.fn();
     render(<HandOffPreviewDialog open session={source} onClose={onClose} />);
 
-    fireEvent.click(await screen.findByLabelText('目标运行时'));
+    fireEvent.click(await screen.findByLabelText('目标助手'));
     fireEvent.click(screen.getByRole('option', { name: 'Codex' }));
-    fireEvent.change(await screen.findByLabelText('Provider'), {
+    fireEvent.change(await screen.findByLabelText('模型来源'), {
       target: { value: 'openai-custom' },
     });
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'gpt-custom' } });
@@ -150,7 +150,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
 
   it('prepares a Grok Build handoff with its own requested sandbox profile', async () => {
     render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
-    fireEvent.click(await screen.findByLabelText('目标运行时'));
+    fireEvent.click(await screen.findByLabelText('目标助手'));
     fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
     fireEvent.click(screen.getByLabelText('Grok Build 沙盒请求档位'));
     fireEvent.click(screen.getByRole('option', { name: '自定义配置…' }));
@@ -400,7 +400,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     fireEvent.click(await screen.findByRole('button', { name: '生成续接上下文' }));
 
     expect(await screen.findByText(/节选已截短/)).toBeTruthy();
-    expect(screen.getAllByText(/实际发送给模型提供方的内容可能更完整/)).toHaveLength(2);
+    expect(screen.getAllByText(/实际发送给模型的内容可能更完整/)).toHaveLength(2);
     expect(screen.getByText('部分历史内容未包含在本次续接上下文中。')).toBeTruthy();
     expect(screen.getByText('最早保留的一条用户消息只包含末尾部分。')).toBeTruthy();
     expect(screen.getByText('较早的部分消息未包含在本次续接上下文中。')).toBeTruthy();
@@ -413,7 +413,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
 
   it('keeps the full next-step draft across compact and expanded editing', async () => {
     render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
-    await screen.findByLabelText('目标运行时');
+    await screen.findByLabelText('目标助手');
     const longInstruction = `先检查迁移\n${'继续执行并验证。'.repeat(500)}`;
     fireEvent.change(screen.getByLabelText('下一步指令 / 补充与修正'), {
       target: { value: longInstruction },
@@ -459,10 +459,10 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
 
     expect(await screen.findByText('会话续接上下文摘录（只读）')).toBeTruthy();
     expect(screen.getByText(
-      '这里仅展示有长度上限的节选；实际发送给模型提供方的内容可能更完整。',
+      '这里仅展示有长度上限的节选；实际发送给模型的内容可能更完整。',
     )).toBeTruthy();
     expect(screen.getByText(
-      /上下文整理方式由“会话续接上下文”设置控制；下方选项只决定新会话使用的运行时、模型提供方和思考程度/,
+      /上下文整理方式由“会话续接上下文”设置控制；下方选项只决定新会话使用的助手、模型和思考程度/,
     )).toBeTruthy();
     expect(screen.queryByText(/renderer|主进程|prompt/)).toBeNull();
     const excerpt = screen.getByLabelText('续接上下文摘录') as HTMLTextAreaElement;

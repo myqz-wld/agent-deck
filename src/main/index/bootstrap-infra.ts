@@ -61,8 +61,8 @@ import {
 } from '../store/message-lifecycle-scheduler';
 import { TokenUsageLifecycleScheduler } from '../store/token-usage-lifecycle-scheduler';
 import { createDesktopStorageMaintenanceScheduler } from '../store/storage-maintenance';
-import { summarizer } from '../session/summarizer';
-import { startContinuationCheckpointRefreshService } from '../session/continuation-context/checkpoint-refresh-service';
+import { summarizer } from '../session/summarizer/desktop';
+import { startDesktopContinuationCheckpointRefreshService } from '../session/continuation-context/checkpoint-refresh-desktop';
 import { routeEventToNotification } from '../notify/event-router';
 import { bootstrapIpc } from '../ipc';
 import { prefetchProviderUsageSnapshots } from '../ipc/provider-usage';
@@ -331,7 +331,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   state.storageMaintenanceScheduler = createDesktopStorageMaintenanceScheduler();
   state.storageMaintenanceScheduler.start();
   summarizer.start();
-  startContinuationCheckpointRefreshService(settings);
+  startDesktopContinuationCheckpointRefreshService(settings);
 
   // 7.0 app ready 后准备 app-owned skills extraRoot。
   // syncSkills 走 static import(顶部 import 段已说明原因),

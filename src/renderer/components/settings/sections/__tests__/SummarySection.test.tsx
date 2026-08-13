@@ -65,10 +65,10 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
     expect(
-      screen.getByText('留空时使用所选 Codex CLI provider 的默认模型。'),
+      screen.getByText('留空时使用所选 Codex 模型来源的默认模型。'),
     ).toBeTruthy();
     expect(
-      (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement)
+      (screen.getByRole('textbox', { name: '总结模型 模型' }) as HTMLInputElement)
         .placeholder,
     ).toBe('模型（可留空）');
 
@@ -78,7 +78,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     expect(visibleOptionLabels()).toEqual(['LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX', 'ULTRA']);
     fireEvent.click(screen.getByRole('option', { name: 'LOW' }));
 
-    fireEvent.click(screen.getByRole('button', { name: '总结模型 adapter' }));
+    fireEvent.click(screen.getByRole('button', { name: '总结模型 助手' }));
     fireEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
 
     await waitFor(() => {
@@ -89,7 +89,7 @@ describe('SummarySection provider-specific thinking levels', () => {
       expect(reasoningButton.textContent).toContain('LOW');
       expect(reasoningButton.disabled).toBe(false);
       expect(
-        (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement).placeholder,
+        (screen.getByRole('textbox', { name: '总结模型 模型' }) as HTMLInputElement).placeholder,
       ).toBe('模型（可留空）');
     });
     expect(screen.getByText('留空时使用 Claude Code 的 Haiku 模型。')).toBeTruthy();
@@ -121,9 +121,9 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
 
-    fireEvent.click(screen.getByRole('button', { name: '总结模型 adapter' }));
+    fireEvent.click(screen.getByRole('button', { name: '总结模型 助手' }));
     fireEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
-    fireEvent.change(screen.getByRole('combobox', { name: '总结模型 Gateway' }), {
+    fireEvent.change(screen.getByRole('combobox', { name: '总结模型 模型网关' }), {
       target: { value: 'deepseek' },
     });
 
@@ -132,10 +132,10 @@ describe('SummarySection provider-specific thinking levels', () => {
         'XHIGH',
       );
       expect(
-        (screen.getByRole('textbox', { name: '总结模型 model' }) as HTMLInputElement).placeholder,
+        (screen.getByRole('textbox', { name: '总结模型 模型' }) as HTMLInputElement).placeholder,
       ).toBe('模型（可留空）');
     });
-    expect(screen.getByText('留空时使用 deepseek Gateway 的 Haiku 路由。')).toBeTruthy();
+    expect(screen.getByText('留空时使用 deepseek 模型网关的 Haiku 路由。')).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
       summaryRuntimeProvider: 'deepseek',
       summaryModel: '',
@@ -156,7 +156,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
 
-    fireEvent.click(screen.getByRole('button', { name: '总结模型 adapter' }));
+    fireEvent.click(screen.getByRole('button', { name: '总结模型 助手' }));
     fireEvent.click(screen.getByRole('option', { name: 'Codex CLI' }));
 
     await waitFor(() => {
@@ -188,7 +188,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
 
-    fireEvent.click(screen.getByRole('button', { name: '总结模型 adapter' }));
+    fireEvent.click(screen.getByRole('button', { name: '总结模型 助手' }));
     fireEvent.click(screen.getByRole('option', { name: 'Grok Build' }));
 
     await waitFor(() => {
@@ -217,7 +217,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
 
-    const input = screen.getByRole('textbox', { name: '总结模型 model' });
+    const input = screen.getByRole('textbox', { name: '总结模型 模型' });
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: '  gpt-5.6-sol  ' } });
     fireEvent.blur(input);

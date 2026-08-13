@@ -25,12 +25,14 @@ import { RemotePlanReviewTransports } from './remote-plan-review-transports';
 import { useRemoteBusinessRunner } from './use-remote-business-runner';
 import { createRemoteSessionActions } from './remote-session-actions';
 import { useRemotePresentationLists } from './use-remote-presentation-lists';
+import { useRemoteConnectionScope } from './use-remote-connection-scope';
 
 export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSessionSourceView {
   const {
     activeProfileId, capabilities, identity, profile, resourceRevisions,
     recoveringWorker, state, usable,
   } = useRemoteSourceContext(hosts);
+  const connectionScope = useRemoteConnectionScope(identity, usable);
   const detailRevision = resourceRevisions['session-detail'];
   const [selection, setSelection] = useState<{ identity: string; sessionId: string | null }>({
     identity,
@@ -122,7 +124,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       setSummaryLoadError(null);
       return;
     }
-    const loadKey = `${identity}\u0000${selectedSessionId}`;
+    const loadKey = `${connectionScope}\u0000${selectedSessionId}`;
     if (detailLoads.current.has(loadKey)) {
       detailRefreshPending.current.add(loadKey);
       return;
@@ -170,13 +172,13 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       else {
         runtimeRef.current = null;
         setRuntime(null);
-        setRuntimeLoadError('读取 Worker 运行时控制失败，请稍后重试。');
+        setRuntimeLoadError('读取会话运行设置失败，请稍后重试。');
       }
       if (summaryResult.status === 'fulfilled') {
         setSummaries(summaryResult.value);
         setSummaryLoadError(null);
       } else {
-        const message = '读取 Worker 会话总结失败，请稍后重试。';
+        const message = '读取会话总结失败，请稍后重试。';
         setSummaryLoadError(message);
       }
       if (contextResult.status === 'fulfilled') {
@@ -185,7 +187,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       }
       else {
         setContext(null);
-        setContextLoadError('读取 Worker 上下文窗口快照失败，请稍后重试。');
+        setContextLoadError('读取上下文用量失败，请稍后重试。');
       }
       if (inputResult.status === 'fulfilled') {
         setInputCapabilities(inputResult.value);
@@ -193,7 +195,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       }
       else {
         setInputCapabilities(null);
-        setInputLoadError('读取 Worker 活动回合输入能力失败；图片输入已保持禁用。');
+        setInputLoadError('读取当前输入能力失败；图片输入暂时不可用。');
       }
       if (pendingResult.status === 'fulfilled' && pendingResult.value) {
         const nextPending = pendingResult.value;
@@ -214,6 +216,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   }, [
     activeProfileId,
     capabilities,
+    connectionScope,
     detailRevision,
     detailRefreshTick,
     identity,
@@ -258,7 +261,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   const requireCapability = (capability: string): void => {
     if (identityRef.current !== actionIdentity) throw new Error('数据源已切换，请重试。');
     if (!usableRef.current) throw new Error('远程数据源尚未连接。');
-    if (!capabilitiesRef.current.has(capability)) throw new Error('远程 Core 不支持此操作。');
+    if (!capabilitiesRef.current.has(capability)) throw new Error('当前远端版本暂不支持此操作。');
   };
   const detailReaders = createRemoteDetailReaders({
     currentIdentity: () => identityRef.current,

@@ -16,6 +16,26 @@ export interface SessionDetailTabModel {
   unavailableReason?: string;
 }
 
+export const SESSION_DETAIL_TABS = Object.freeze([
+  { id: 'activity', label: '活动' },
+  { id: 'tasks', label: '任务' },
+  { id: 'diff', label: '改动' },
+  { id: 'summary', label: '总结' },
+  { id: 'messages', label: '跨会话' },
+  { id: 'permissions', label: '权限' },
+] satisfies ReadonlyArray<{ id: SessionDetailTabId; label: string }>);
+
+export function createSessionDetailTabs(
+  content: Readonly<Record<SessionDetailTabId, ReactNode>>,
+  unavailable: Partial<Record<SessionDetailTabId, string>> = {},
+): readonly SessionDetailTabModel[] {
+  return SESSION_DETAIL_TABS.map((tab) => ({
+    ...tab,
+    content: content[tab.id],
+    ...(unavailable[tab.id] ? { unavailableReason: unavailable[tab.id] } : {}),
+  }));
+}
+
 export function SessionDetailShell({
   title,
   sourceBadge,

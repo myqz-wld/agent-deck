@@ -9,6 +9,7 @@ import {
 } from '../checkpoint-background-refresh';
 import type { CheckpointBacklogEstimator } from '../checkpoint-backlog-worker-client';
 import type { CheckpointBacklogEstimate } from '../checkpoint-backlog-estimator';
+import { CheckpointRefreshDiagnosticCoordinator } from '../checkpoint-refresh-diagnostics';
 
 function session(id: string, activity: SessionRecord['activity']): SessionRecord {
   return {
@@ -557,6 +558,7 @@ describe('continuation checkpoint refresh service integration', () => {
       },
       {
         bus: new TypedEventBus(),
+        diagnostics: new CheckpointRefreshDiagnosticCoordinator(),
         listSessions: () => [activeSession],
         getSession: () => activeSession,
         checkpointBaseline: () => 0,
@@ -603,6 +605,7 @@ describe('continuation checkpoint refresh service integration', () => {
       },
       {
         bus: new TypedEventBus(),
+        diagnostics: new CheckpointRefreshDiagnosticCoordinator(),
         listSessions: () => [activeSession],
         getSession: () => activeSession,
         checkpointBaseline: () => 0,

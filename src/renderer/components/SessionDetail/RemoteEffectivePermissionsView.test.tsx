@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SessionPermissionsGetResult } from '@contracts/index';
-import { RemoteEffectivePermissionsView } from './RemoteEffectivePermissionsView';
+import { PermissionsViewContent } from '../PermissionsView';
 
 function permissionData(): SessionPermissionsGetResult {
   return {
@@ -27,11 +27,9 @@ afterEach(cleanup);
 describe('RemoteEffectivePermissionsView recovery', () => {
   it('offers retry when the initial projection fails', () => {
     const onRefresh = vi.fn();
-    render(<RemoteEffectivePermissionsView
-      data={null}
-      loading={false}
-      error="读取失败"
-      onRefresh={onRefresh}
+    render(<PermissionsViewContent
+      agentId="codex-cli"
+      remoteState={{ data: null, loading: false, error: '读取失败', refresh: onRefresh }}
     />);
 
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
@@ -39,14 +37,12 @@ describe('RemoteEffectivePermissionsView recovery', () => {
   });
 
   it('retains the last projection when a refresh fails', () => {
-    render(<RemoteEffectivePermissionsView
-      data={permissionData()}
-      loading={false}
-      error="读取失败"
-      onRefresh={vi.fn()}
+    render(<PermissionsViewContent
+      agentId="codex-cli"
+      remoteState={{ data: permissionData(), loading: false, error: '读取失败', refresh: vi.fn() }}
     />);
 
-    expect(screen.getByText('Codex CLI 当前生效权限')).toBeTruthy();
+    expect(screen.getByText('Codex 当前生效配置')).toBeTruthy();
     expect(screen.getByText('读取失败，当前显示上次结果。')).toBeTruthy();
   });
 });

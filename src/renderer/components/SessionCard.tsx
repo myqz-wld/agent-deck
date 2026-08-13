@@ -10,6 +10,7 @@ import { SessionPinButton } from './SessionPinButton';
 import { ArchiveIcon, CrownIcon, RefreshIcon, ShieldIcon, TrashIcon, UsersIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
 import { SessionCardFrame, SessionCardHeader } from './SessionListPrimitives';
+import { sessionSummaryHeadline } from './session-summary-headline';
 import {
   SessionActionsContextMenu,
   type SessionContextMenuPosition,
@@ -89,11 +90,11 @@ export function SessionCard({
   // 卡片展示最多三行去重后的实时活动，并用 useMemo 避免 recent 引用稳定时重复计算。
   // 最后一行展示较稳定的总结，缺失时回退到 cwd。
   const liveLines = useMemo(() => describeLiveActivity(session, recent), [session, recent]);
-  const summaryHeadline = latestSummary?.content?.split('\n')[0]?.trim();
-  const summaryLine = summaryHeadline
-    ? `${latestSummary?.generationSource === 'assistant-fallback' || latestSummary?.generationSource === 'stats-fallback' ? '降级 · ' : ''}${summaryHeadline}`
-    : session.cwd || '无工作目录';
-  const summaryTitle = latestSummary?.content?.trim() || summaryLine;
+  const summaryPresentation = sessionSummaryHeadline(
+    latestSummary?.content,
+    latestSummary?.generationSource,
+    session.cwd || '无工作目录',
+  );
 
   // teams[] 是 universal team backend 的统一投影，首个 membership 提供主团队标签。
   const primaryTeam = session.teams?.[0];
@@ -178,8 +179,8 @@ export function SessionCard({
           ))}
         </div>
       )}
-      <div className="mt-0.5 truncate text-[10px] text-deck-muted/70" title={summaryTitle}>
-        {summaryLine}
+      <div className="mt-0.5 truncate text-[10px] text-deck-muted/70" title={summaryPresentation.title}>
+        {summaryPresentation.line}
       </div>
       {actionError && (
         <div className="mt-1 truncate text-[10px] text-status-waiting" title={actionError}>

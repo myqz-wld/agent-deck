@@ -2,6 +2,8 @@ import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map'
 import type { SessionHandOffPreviewResult } from '@contracts/index';
 import type { HandOffSessionResult } from '@main/agent-deck-mcp/tools/schemas';
 import type { AgentAdapter, CreateSessionOptions, QueuedAgentMessage } from '@main/adapters/types';
+import { createContinuationCheckpointRepo } from '@main/store/continuation-checkpoint-repo';
+import { getDb } from '@main/store/db';
 import { worktreeTransitionRepo } from '@main/store/worktree-transition-repo';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import {
@@ -63,6 +65,8 @@ export interface ServerCoreMcpHandOffOptions {
   readonly desktopBroker: ServerCoreDesktopBrokerPort;
   readonly presentations: ServerCoreMcpPresentationPort;
   readonly metadata: ServerCoreRuntimeMetadataStore;
+  readonly rawRetentionCeilingTokens: number;
+  readonly refreshContinuation?: (sessionId: string) => Promise<void>;
   readonly warn?: (message: string) => void;
 }
 
@@ -105,11 +109,14 @@ export class ServerCoreMcpHandOff implements ServerCoreMcpHandOffPort {
     const cwdLease = serverCoreWorktreeReferenceFence.acquireReference(provisional.cwd);
     let prepared: PreparedServerCoreHandOffContinuation | null = null;
     try {
+      const refreshedCheckpointId = await this.refreshContinuation(source.id);
       prepared = prepareServerCoreHandOffContinuation({
         sourceSessionId: source.id,
         instruction: args.prompt,
         target: provisional.spec,
         workspaceRoot: this.options.workspaceRoot,
+        rawRetentionCeilingTokens: this.options.rawRetentionCeilingTokens,
+        refreshedCheckpointId,
       });
       const current = checkHandOffSourcePrecondition({
         sourceSessionId: source.id,
@@ -150,11 +157,14 @@ export class ServerCoreMcpHandOff implements ServerCoreMcpHandOffPort {
       });
       this.assertWorktreeTarget(source, provisional.cwd);
       cwdLease = serverCoreWorktreeReferenceFence.acquireReference(provisional.cwd);
+      const refreshedCheckpointId = await this.refreshContinuation(source.id);
       prepared = prepareServerCoreHandOffContinuation({
         sourceSessionId: source.id,
         instruction: args.prompt,
         target: provisional.spec,
         workspaceRoot: this.options.workspaceRoot,
+        rawRetentionCeilingTokens: this.options.rawRetentionCeilingTokens,
+        refreshedCheckpointId,
       });
       if (
         expectedPreviewDigest &&
@@ -237,6 +247,18 @@ export class ServerCoreMcpHandOff implements ServerCoreMcpHandOffPort {
       cwdLease?.release();
       lease.release();
     }
+  }
+
+  private async refreshContinuation(sessionId: string): Promise<number | null> {
+    const repo = createContinuationCheckpointRepo(getDb());
+    const before = repo.latest(sessionId)?.id ?? null;
+    try {
+      await this.options.refreshContinuation?.(sessionId);
+    } catch {
+      safeWarn(this.options.warn, 'Continuation checkpoint refresh failed; using durable fallback');
+    }
+    const after = repo.latest(sessionId)?.id ?? null;
+    return after !== before ? after : null;
   }
 
   private assertWorktreeTarget(source: SessionRecord, cwd: string): void {

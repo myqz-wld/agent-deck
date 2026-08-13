@@ -21,6 +21,7 @@ vi.mock('../permissions/ClaudePermissionsPanels', () => ({
     <div>{`claude:${merged.marker ?? 'unknown'}`}</div>
   ),
   LayerPanel: () => null,
+  ManagedLayerPanel: () => null,
 }));
 
 import { PermissionsView } from '../PermissionsView';
@@ -60,7 +61,7 @@ afterEach(() => {
 });
 
 describe('PermissionsView adapter routing', () => {
-  it('renders ACP-native Grok controls without scanning Claude or Codex settings', async () => {
+  it('renders Grok Build controls without scanning Claude or Codex settings', async () => {
     const scanCwdSettings = vi.fn();
     const scanCodexSettings = vi.fn();
     Object.defineProperty(window, 'api', {
@@ -79,9 +80,9 @@ describe('PermissionsView adapter routing', () => {
 
     expect(screen.getByText('Grok Build 当前运行权限')).toBeTruthy();
     expect(screen.getByText('计划模式')).toBeTruthy();
-    expect(screen.getByText(/ACP 运行时请求/)).toBeTruthy();
-    expect(screen.getByText(/提供方原生控制/)).toBeTruthy();
-    expect(screen.getByText(/不读取 Claude Code settings\.json/)).toBeTruthy();
+    expect(screen.getByText('需要时会向你确认')).toBeTruthy();
+    expect(screen.getByText('由 Grok Build 决定')).toBeTruthy();
+    expect(screen.getByText(/这里只显示 Grok Build 实际使用的权限设置/)).toBeTruthy();
     await waitFor(() => {
       expect(scanCwdSettings).not.toHaveBeenCalled();
       expect(scanCodexSettings).not.toHaveBeenCalled();

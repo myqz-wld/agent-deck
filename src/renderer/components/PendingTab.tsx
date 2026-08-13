@@ -89,7 +89,7 @@ function RemotePendingTab({
 }): JSX.Element {
   const buckets = source.pendingBuckets;
   if (!source.capabilities.has('pending.index.read')) {
-    return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">此 Remote Core 版本不支持完整待处理索引，请升级远端部署。</div>;
+    return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">当前远端版本无法列出全部待处理请求，请更新远端服务。</div>;
   }
   if (source.pendingLoading && buckets.length === 0) {
     return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">正在读取远程待处理事项…</div>;

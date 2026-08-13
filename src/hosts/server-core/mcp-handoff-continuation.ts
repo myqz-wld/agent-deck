@@ -1,10 +1,7 @@
 import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import { getDb } from '@main/store/db';
-import {
-  DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS,
-  resolveContinuationBudgets,
-} from '@main/session/continuation-context/budget-policy';
+import { resolveContinuationBudgets } from '@main/session/continuation-context/budget-policy';
 import type { FoldContinuationCheckpointResult } from '@main/session/continuation-context/checkpoint-fold';
 import {
   createTrustedContinuationInitialTurn,
@@ -130,11 +127,14 @@ export function prepareServerCoreHandOffContinuation(input: {
   readonly instruction: string;
   readonly target: ResolvedSuccessorSpec;
   readonly workspaceRoot: string;
+  readonly rawRetentionCeilingTokens: number;
+  /** Checkpoint row created by this handoff's foreground refresh, when one was committed. */
+  readonly refreshedCheckpointId?: number | null;
 }): PreparedServerCoreHandOffContinuation {
   const spool = new ContinuationSourceSpoolStore(getDb());
   const metadata = spool.capture({
     sessionId: input.sourceSessionId,
-    rawRetentionCeilingTokens: DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS,
+    rawRetentionCeilingTokens: input.rawRetentionCeilingTokens,
   });
   try {
     const raw = safeRawInputs(spool.readRawInputs(metadata.spoolId), input.workspaceRoot);
@@ -145,7 +145,9 @@ export function prepareServerCoreHandOffContinuation(input: {
     );
     const fold: FoldContinuationCheckpointResult = {
       checkpoint: metadata.checkpoint,
-      refreshed: false,
+      refreshed:
+        input.refreshedCheckpointId != null &&
+        metadata.checkpoint?.id === input.refreshedCheckpointId,
       foldCalls: 0,
       repairCalls: 0,
       inputTokens: 0,
@@ -163,7 +165,7 @@ export function prepareServerCoreHandOffContinuation(input: {
       target: input.target,
       source: { mode: 'immutable-spool', spoolId: metadata.spoolId },
       limits: {
-        rawRetentionCeilingTokens: DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS,
+        rawRetentionCeilingTokens: input.rawRetentionCeilingTokens,
         deadlineMs: 90_000,
         maxFoldCalls: 0,
         maxRepairCalls: 0,
@@ -178,14 +180,14 @@ export function prepareServerCoreHandOffContinuation(input: {
       rawWarnings: metadata.rawWarnings,
     });
     const primaryBudgets = resolveContinuationBudgets({
-      rawRetentionCeilingTokens: DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS,
+      rawRetentionCeilingTokens: input.rawRetentionCeilingTokens,
       targetCapacity: UNKNOWN_CAPACITY,
       generatorCapacity: UNKNOWN_CAPACITY,
       continuationInstruction: input.instruction,
       fixedWrapperTokens: fixed,
     });
     const retryBudgets = resolveContinuationBudgets({
-      rawRetentionCeilingTokens: DEFAULT_CONTINUATION_RAW_RETENTION_TOKENS,
+      rawRetentionCeilingTokens: input.rawRetentionCeilingTokens,
       targetCapacity: UNKNOWN_CAPACITY,
       generatorCapacity: UNKNOWN_CAPACITY,
       targetVariant: 'lower-budget-retry',

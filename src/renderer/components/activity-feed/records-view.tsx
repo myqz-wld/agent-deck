@@ -38,6 +38,7 @@ export interface ActivityRecordsViewProps {
   resolveAsk?: ResolvePending;
   resolveExitPlan?: ResolvePending;
   resolveDiffReview?: ResolvePending;
+  renderPendingEvent?: (event: AgentEvent) => JSX.Element | null | undefined;
 }
 
 export function ActivityRecordsView({
@@ -55,6 +56,7 @@ export function ActivityRecordsView({
   resolveAsk = IGNORE_RESOLUTION,
   resolveExitPlan = IGNORE_RESOLUTION,
   resolveDiffReview = IGNORE_RESOLUTION,
+  renderPendingEvent,
 }: ActivityRecordsViewProps): JSX.Element {
   const derived = useMemo(() => deriveSources(events, pendingIds), [events, pendingIds]);
   if (loadError && events.length === 0) {
@@ -106,6 +108,7 @@ export function ActivityRecordsView({
               resolveAsk={resolveAsk}
               resolveExitPlan={resolveExitPlan}
               resolveDiffReview={resolveDiffReview}
+              renderPendingEvent={renderPendingEvent}
             />
           );
         })}
@@ -128,6 +131,7 @@ interface RowProps {
   resolveAsk: ResolvePending;
   resolveExitPlan: ResolvePending;
   resolveDiffReview: ResolvePending;
+  renderPendingEvent?: (event: AgentEvent) => JSX.Element | null | undefined;
 }
 
 export const ActivityRow = memo(function ActivityRow({
@@ -144,12 +148,15 @@ export const ActivityRow = memo(function ActivityRow({
   resolveAsk,
   resolveExitPlan,
   resolveDiffReview,
+  renderPendingEvent,
 }: RowProps): JSX.Element | null {
   if (event.kind === 'message') {
     return <MessageBubble event={event} agentId={agentId} showAttachments={allowLocalAssets} />;
   }
   if (event.kind === 'thinking') return <ThinkingBubble event={event} agentId={agentId} />;
   if (event.kind === 'waiting-for-user') {
+    const injected = renderPendingEvent?.(event);
+    if (injected !== undefined) return injected;
     if (!interactivePending) return <SimpleRow event={event} />;
     const payload = (event.payload ?? {}) as Record<string, unknown>;
     const type = (payload.type as string) ?? '';

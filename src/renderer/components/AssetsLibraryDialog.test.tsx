@@ -121,7 +121,7 @@ describe('AssetsLibraryDialog source authority', () => {
       usable: true,
     }} />);
 
-    expect(await screen.findByText('(Remote · aws-relay-on-mac)')).toBeTruthy();
+    expect(await screen.findByText('(远端 · aws-relay-on-mac)')).toBeTruthy();
     expect(await screen.findByText('agent-deck:claude-code:deep-review')).toBeTruthy();
     expect(screen.getByText('远端资产')).toBeTruthy();
     expect(screen.getAllByText('远端资产仅供查看。')).toHaveLength(1);
@@ -250,6 +250,56 @@ describe('AssetsLibraryDialog source authority', () => {
     await Promise.resolve();
     expect(screen.queryByText('# stale Worker content')).toBeNull();
     for (const call of Object.values(local)) expect(call).not.toHaveBeenCalled();
+  });
+
+  it('starts a fresh catalog read immediately after the same remote reconnects', async () => {
+    const { remote } = installApi();
+    const normalSnapshot = await remote.listRemoteHostNodeAssets({ profileId: 'fixture' });
+    remote.listRemoteHostNodeAssets.mockReset();
+
+    let resolveStale!: (value: typeof normalSnapshot) => void;
+    remote.listRemoteHostNodeAssets
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveStale = resolve;
+      }))
+      .mockResolvedValueOnce({
+        ...normalSnapshot,
+        revision: 8,
+        assets: normalSnapshot.assets.map((asset) => ({
+          ...asset,
+          description: 'reconnected catalog',
+        })),
+      });
+
+    const remoteProps = {
+      identity: 'remote-a:core-a:1',
+      label: 'aws-relay-on-mac',
+      profileId: 'remote-a',
+      supportsNodeAssets: true,
+    } as const;
+    const { rerender } = render(
+      <AssetsLibraryDialog open onClose={vi.fn()} remote={{ ...remoteProps, usable: true }} />,
+    );
+    await waitFor(() => expect(remote.listRemoteHostNodeAssets).toHaveBeenCalledTimes(1));
+
+    rerender(
+      <AssetsLibraryDialog open onClose={vi.fn()} remote={{ ...remoteProps, usable: false }} />,
+    );
+    await screen.findByText('当前远端环境尚未连接，暂时无法读取资产。');
+
+    rerender(
+      <AssetsLibraryDialog open onClose={vi.fn()} remote={{ ...remoteProps, usable: true }} />,
+    );
+    await waitFor(() => expect(remote.listRemoteHostNodeAssets).toHaveBeenCalledTimes(2));
+    expect(await screen.findAllByText('reconnected catalog')).toHaveLength(1);
+
+    resolveStale({
+      ...normalSnapshot,
+      assets: normalSnapshot.assets.map((asset) => ({ ...asset, description: 'stale catalog' })),
+    });
+    await Promise.resolve();
+    expect(screen.queryByText('stale catalog')).toBeNull();
+    expect(screen.getAllByText('reconnected catalog')).toHaveLength(1);
   });
 
   it('never renders content from a newer same-Worker catalog snapshot', async () => {

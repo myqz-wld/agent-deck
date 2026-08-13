@@ -8,6 +8,7 @@ import { EyeIcon, FolderOpenIcon, TrashIcon } from '../../icons';
 interface Props {
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => Promise<void>;
+  readOnly?: boolean;
 }
 
 type LogLevel = AppSettings['logLevel'];
@@ -25,7 +26,7 @@ const LEVEL_OPTIONS: { value: LogLevel; label: string; description: string }[] =
  * 日志设置：文件级别、日志目录、当天日志查看与清空。
  * 所有日志 IPC 都在本组件边界收敛 transport rejection，避免事件处理器产生未处理 Promise。
  */
-export function LogsSection({ settings, update }: Props): JSX.Element {
+export function LogsSection({ settings, update, readOnly = false }: Props): JSX.Element {
   const [toast, setToast] = useState<{ msg: string; kind: 'info' | 'error' } | null>(null);
   const [logOpen, setLogOpen] = useState(false);
 
@@ -68,12 +69,13 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
 
   return (
     <Section title="日志" storageKey="logs" defaultOpen={false}>
-      <div className="flex flex-col gap-1 text-[11px]">
+      <div data-settings-field="日志详细程度" className="flex flex-col gap-1 text-[11px]">
         <div>日志详细程度（仅影响写入文件的日志）</div>
         <DeckSelect
           value={settings.logLevel}
           onChange={(next) => void handleLevelChange(next)}
           options={LEVEL_OPTIONS}
+          disabled={readOnly}
           buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
         />
       </div>
@@ -82,23 +84,26 @@ export function LogsSection({ settings, update }: Props): JSX.Element {
         <div className="flex gap-1.5 no-drag">
           <button
             type="button"
+            disabled={readOnly}
             onClick={() => void handleOpenDirectory()}
-            className="flex-1 rounded bg-white/10 px-2 py-1 text-[11px] text-deck-text hover:bg-white/20"
+            className="flex-1 rounded bg-white/10 px-2 py-1 text-[11px] text-deck-text hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <FolderOpenIcon className="mr-1 inline h-3 w-3" />打开日志目录
           </button>
           <button
             type="button"
+            disabled={readOnly}
             onClick={() => setLogOpen(true)}
-            className="flex-1 rounded bg-white/10 px-2 py-1 text-[11px] text-deck-text hover:bg-white/20"
+            className="flex-1 rounded bg-white/10 px-2 py-1 text-[11px] text-deck-text hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <EyeIcon className="mr-1 inline h-3 w-3" />查看日志
           </button>
         </div>
         <button
           type="button"
+          disabled={readOnly}
           onClick={() => void handleTruncateToday()}
-          className="no-drag self-start rounded bg-status-waiting/15 px-2 py-1 text-[11px] text-status-waiting hover:bg-status-waiting/25"
+          className="no-drag self-start rounded bg-status-waiting/15 px-2 py-1 text-[11px] text-status-waiting hover:bg-status-waiting/25 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <TrashIcon className="mr-1 inline h-3 w-3" />清空今天日志
         </button>

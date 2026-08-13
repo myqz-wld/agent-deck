@@ -185,6 +185,7 @@ function projectSession(
     summary: summaries[record.id]
       ? safeOptionalLabel(summaries[record.id]!.content, SESSION_PRESENTATION_MAX_TEXT_BYTES)
       : null,
+    summaryGenerationSource: summaries[record.id]?.generationSource ?? null,
     workspaceLabel: workspaceLabel(record, projects, workspaceRoot),
     contextOnly,
   };
