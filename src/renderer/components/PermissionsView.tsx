@@ -155,17 +155,35 @@ export function PermissionsViewContent({
   if (!state.initialized || (state.loading && !state.data)) {
     return <div className="text-[11px] text-deck-muted">扫描中…</div>;
   }
-  if (state.error) {
-    return <div className="rounded border border-red-500/40 bg-red-500/10 p-2 text-[11px] text-red-200">扫描失败：{state.error}</div>;
+  if (state.error && !state.data) {
+    return (
+      <div role="alert" className="flex items-center justify-between gap-2 rounded border border-red-500/40 bg-red-500/10 p-2 text-[11px] text-red-200">
+        <span>扫描失败：{state.error}</span>
+        <button
+          type="button"
+          onClick={state.refresh}
+          className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-deck-text hover:bg-white/15"
+        >
+          重试
+        </button>
+      </div>
+    );
   }
   if (!state.data) return <div className="text-[11px] text-deck-muted">无数据</div>;
   if (state.data.adapter === 'codex') {
     return (
-      <CodexPermissionsPanel
-        data={state.data.value}
-        loading={state.loading}
-        onRefresh={state.refresh}
-      />
+      <div className="flex flex-col gap-2">
+        {state.error && (
+          <div role="status" className="text-[10px] text-status-waiting/80">
+            扫描失败：{state.error}，当前显示上次结果。
+          </div>
+        )}
+        <CodexPermissionsPanel
+          data={state.data.value}
+          loading={state.loading}
+          onRefresh={state.refresh}
+        />
+      </div>
     );
   }
 
@@ -174,6 +192,11 @@ export function PermissionsViewContent({
   const localIsUserLocal = scan.local.path === scan.userLocal.path;
   return (
     <div className="flex flex-col gap-3">
+      {state.error && (
+        <div role="status" className="text-[10px] text-status-waiting/80">
+          扫描失败：{state.error}，当前显示上次结果。
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 text-[10px] text-deck-muted">
         <div className="truncate">当前目录：<span className="font-mono text-deck-text/80">{scan.cwdResolved}</span></div>
         <button

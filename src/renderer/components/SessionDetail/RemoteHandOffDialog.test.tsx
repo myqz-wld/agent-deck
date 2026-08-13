@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -8,12 +8,20 @@ import {
 } from '@contracts/session-console-capabilities.fixture';
 import type { SessionHandOffPreviewResult } from '@contracts/index';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
+import { FAST_ASYNC_FALLBACK_GRACE_MS } from '@renderer/hooks/useDelayedAsyncFallback';
 import { RemoteHandOffDialog } from './RemoteHandOffDialog';
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 function preview(): SessionHandOffPreviewResult {
   return {
@@ -75,7 +83,7 @@ describe('Remote handoff dialog authority', () => {
       onCommitted={onCommitted}
     />);
 
-    expect(screen.getByRole('heading', { name: '接力到新会话' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: '接力到新会话' })).toBeTruthy();
     expect(screen.getByRole('dialog', { name: '接力到新会话' })).toBeTruthy();
     expect(screen.getByRole('dialog').getAttribute('aria-modal')).toBe('true');
     const prepare = await screen.findByRole('button', { name: '生成续接上下文' });
@@ -97,6 +105,49 @@ describe('Remote handoff dialog authority', () => {
     await waitFor(() => expect(onCommitted).toHaveBeenCalledWith(
       expect.objectContaining({ successorSessionId: 'session-successor' }),
     ));
+  });
+
+  it('keeps the modal boundary immediate and reveals loading only after the grace', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<ReturnType<typeof sessionConsoleCapabilitiesFixture>>();
+    const current = source({ getSessionCapabilities: vi.fn(() => pending.promise) });
+    render(<RemoteHandOffDialog
+      source={current}
+      sessionId="session-a"
+      onClose={vi.fn()}
+      onCommitted={vi.fn()}
+    />);
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(document.querySelector('[data-remote-handoff-modal-root="true"]')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: '接力到新会话' })).toBeNull();
+
+    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
+    expect(screen.queryByText('正在读取 Remote 会话配置…')).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByText('正在读取 Remote 会话配置…')).toBeTruthy();
+
+    await act(async () => pending.resolve(sessionConsoleCapabilitiesFixture('codex-cli', '.')));
+    expect(screen.getByRole('button', { name: '生成续接上下文' })).toBeTruthy();
+    expect(screen.queryByText('正在读取 Remote 会话配置…')).toBeNull();
+  });
+
+  it('recovers a capability-read failure in place', async () => {
+    const getSessionCapabilities = vi.fn()
+      .mockRejectedValueOnce(new Error('temporary capability failure'))
+      .mockResolvedValueOnce(sessionConsoleCapabilitiesFixture('codex-cli', '.'));
+    render(<RemoteHandOffDialog
+      source={source({ getSessionCapabilities })}
+      sessionId="session-a"
+      onClose={vi.fn()}
+      onCommitted={vi.fn()}
+    />);
+
+    expect(await screen.findByText('temporary capability failure')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重试读取配置' }));
+    const prepare = await screen.findByRole('button', { name: '生成续接上下文' });
+    await waitFor(() => expect((prepare as HTMLButtonElement).disabled).toBe(false));
+    expect(getSessionCapabilities).toHaveBeenCalledTimes(2);
   });
 
   it('does not apply an old preview after the session identity changes', async () => {
@@ -127,6 +178,32 @@ describe('Remote handoff dialog authority', () => {
     await Promise.resolve();
 
     expect(screen.queryByText('remote continuation preview')).toBeNull();
+  });
+
+  it('does not apply an old preview after a same-identity disconnect', async () => {
+    const oldPreview = deferred<SessionHandOffPreviewResult>();
+    const current = source({ previewHandOff: vi.fn(() => oldPreview.promise) });
+    const view = render(<RemoteHandOffDialog
+      source={current}
+      sessionId="session-a"
+      onClose={vi.fn()}
+      onCommitted={vi.fn()}
+    />);
+    const prepare = await screen.findByRole('button', { name: '生成续接上下文' });
+    await waitFor(() => expect((prepare as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(prepare);
+    await waitFor(() => expect(current.previewHandOff).toHaveBeenCalledOnce());
+
+    view.rerender(<RemoteHandOffDialog
+      source={{ ...current, usable: false }}
+      sessionId="session-a"
+      onClose={vi.fn()}
+      onCommitted={vi.fn()}
+    />);
+    await act(async () => oldPreview.resolve(preview()));
+
+    expect(screen.queryByText('remote continuation preview')).toBeNull();
+    expect(screen.getByText('当前远程 Core 未提供会话创建配置。')).toBeTruthy();
   });
 
   it('lets a nested runtime selector consume Escape before the modal closes', async () => {

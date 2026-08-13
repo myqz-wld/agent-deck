@@ -29,15 +29,14 @@ import { decodeBlob, groupFileChanges } from './helpers';
 import { useFileChanges } from './use-file-changes';
 import { useFileChangeSelection } from './use-file-change-selection';
 import { useFileChangePayload } from './use-file-change-payload';
-import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 import { useSessionGitBranch } from '@renderer/hooks/use-session-git-branches';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { RemoteSessionDetail } from './RemoteSessionDetail';
 import {
   SessionDetailShell,
-  type SessionDetailTabId,
   type SessionDetailTabModel,
 } from './SessionDetailShell';
+import { useDelayedTabSelection } from './use-delayed-tab-selection';
 
 type DiffMode = 'single' | 'final';
 const EMPTY_EVENTS_FOR_TOAST: AgentEvent[] = [];
@@ -54,14 +53,20 @@ interface RemoteProps {
 
 export function SessionDetail(props: LocalProps | RemoteProps): JSX.Element {
   if ('remoteSource' in props) {
-    return <RemoteSessionDetail source={props.remoteSource} onClose={props.onClose} />;
+    return (
+      <RemoteSessionDetail
+        key={`${props.remoteSource.identity}:${props.remoteSource.selectedSessionId ?? 'none'}:${
+          props.remoteSource.usable ? 'usable' : 'unavailable'
+        }`}
+        source={props.remoteSource}
+        onClose={props.onClose}
+      />
+    );
   }
-  return <LocalSessionDetail {...props} />;
+  return <LocalSessionDetail key={props.session.id} {...props} />;
 }
 
 function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
-  const [tab, setTab] = useState<SessionDetailTabId>('activity');
-  const [pendingTab, setPendingTab] = useState<SessionDetailTabId | null>(null);
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
@@ -72,10 +77,15 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
     agentId: session.agentId,
     sessionMode: session.sessionMode,
   });
-  const showPendingPermissions = useDelayedAsyncFallback(
-    pendingTab === 'permissions' && !permissions.initialized,
-    `${session.id}:permissions`,
-  );
+  const {
+    activeTab: tab,
+    selectTab: changeTab,
+  } = useDelayedTabSelection({
+    canDefer: true,
+    deferredTab: 'permissions',
+    identity: `${session.id}\u0000${session.agentId}\u0000${session.cwd}`,
+    ready: permissions.initialized,
+  });
   const fileChanges = useFileChanges({
     sessionId: session.id,
     enabled: tab === 'diff',
@@ -151,8 +161,6 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
   }, [recent]);
 
   useEffect(() => {
-    setPendingTab(null);
-    setTab('activity');
     setDiffMode('single');
     setFinalDiff(null);
     setFinalDiffLoading(false);
@@ -161,13 +169,6 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
     for (const tm of toastTimersRef.current.values()) clearTimeout(tm);
     toastTimersRef.current.clear();
   }, [session.id]);
-
-  useEffect(() => {
-    if (pendingTab !== 'permissions') return;
-    if (!permissions.initialized && !showPendingPermissions) return;
-    setPendingTab(null);
-    setTab('permissions');
-  }, [pendingTab, permissions.initialized, showPendingPermissions]);
 
   useEffect(() => {
     setDiffMode('single');
@@ -256,14 +257,6 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
   const canPin =
     session.archivedAt === null &&
     (session.lifecycle === 'active' || session.lifecycle === 'dormant');
-  const changeTab = (next: SessionDetailTabId): void => {
-    if (next === 'permissions' && !permissions.initialized) {
-      setPendingTab(next);
-      return;
-    }
-    setPendingTab(null);
-    setTab(next);
-  };
   const selectFileGroup = (group: NonNullable<typeof selectedGroup>): void => {
     selection.selectFile(group.filePath, group.items[group.items.length - 1].id);
     setFinalDiff(null);

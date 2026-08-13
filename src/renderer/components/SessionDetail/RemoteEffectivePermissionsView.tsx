@@ -41,8 +41,15 @@ export function RemoteEffectivePermissionsView({
   }
   if (error && !data) {
     return (
-      <div role="alert" className="rounded border border-red-500/40 bg-red-500/10 p-2 text-[11px] text-red-200">
-        {error}
+      <div role="alert" className="flex items-center justify-between gap-2 rounded border border-red-500/40 bg-red-500/10 p-2 text-[11px] text-red-200">
+        <span>{error}</span>
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-deck-text hover:bg-white/15"
+        >
+          重试
+        </button>
       </div>
     );
   }

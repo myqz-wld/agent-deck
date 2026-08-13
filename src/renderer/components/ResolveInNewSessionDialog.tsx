@@ -37,7 +37,11 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
   const inFlightRef = useRef(false);
   const authoringId = useId();
   const images = useImageAttachments();
-  const options = useSessionCreationOptions({ adapterId, cwd: workingDirectory });
+  const options = useSessionCreationOptions({
+    adapterId,
+    cwd: workingDirectory,
+    scopeKey: `issue-resolution:${issue.id}`,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -167,15 +171,16 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       directoryPlaceholder="留空则沿用问题目录或主目录"
       error={error}
       images={images}
-      initializing={!adaptersSettled || options.defaultsLoading}
-      loading={false}
-      modelLoading={options.defaultsLoading}
+      initializing={!adaptersSettled || (adapters.length > 0 && options.configurationLoading)}
+      configurationPending={options.configurationLoading}
+      configurationSubmissionBlocked={options.configurationLoading}
       model={{
         adapterId,
         provider: options.provider,
         model: options.model,
         thinking: options.thinking as SessionThinkingChoice,
         providerClosed: false,
+        providerOptions: options.providerOptions,
         onProviderChange: options.setProvider,
         onModelChange: options.setModel,
         onThinkingChange: options.setThinking,
