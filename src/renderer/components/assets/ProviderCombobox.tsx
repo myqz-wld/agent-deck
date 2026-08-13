@@ -10,6 +10,8 @@ interface Props {
   value: string;
   options: readonly ProviderOption[];
   disabled?: boolean;
+  allowCustom?: boolean;
+  defaultOptionLabel?: string;
   ariaLabel?: string;
   placeholder?: string;
   emptyMessage?: string;
@@ -17,16 +19,16 @@ interface Props {
 }
 
 /**
- * App-styled free-text combobox for Claude Gateway and Codex model_provider ids.
- *
- * DeckSelect intentionally accepts only a closed value set. Provider ids are user-defined in
- * the provider's config, so this keeps free-text input while replacing the browser-native
- * datalist popup.
+ * App-styled combobox for Claude Gateway and Codex model_provider ids.
+ * Local callers keep free-text entry; Remote callers use the same presentation with a Core-owned
+ * closed option set so an unadvertised provider can never become a mutation value.
  */
 export function ProviderCombobox({
   value,
   options,
   disabled = false,
+  allowCustom = true,
+  defaultOptionLabel = '跟随 adapter 原生配置',
   ariaLabel = 'provider',
   placeholder = '留空则跟随 adapter 原生配置',
   emptyMessage = '没有匹配项，可直接输入自定义 provider',
@@ -35,8 +37,12 @@ export function ProviderCombobox({
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const normalizedQuery = value.trim().toLocaleLowerCase();
-  const filtered = options.filter((option) => {
+  const [closedQuery, setClosedQuery] = useState('');
+  const closedOptions = allowCustom
+    ? options
+    : [{ id: '', name: defaultOptionLabel }, ...options];
+  const normalizedQuery = (allowCustom ? value : closedQuery).trim().toLocaleLowerCase();
+  const filtered = closedOptions.filter((option) => {
     if (!normalizedQuery) return true;
     return (
       option.id.toLocaleLowerCase().includes(normalizedQuery) ||
@@ -48,7 +54,10 @@ export function ProviderCombobox({
     if (!open) return;
     const closeOutside = (event: MouseEvent): void => {
       const target = event.target;
-      if (target instanceof Node && !rootRef.current?.contains(target)) setOpen(false);
+      if (target instanceof Node && !rootRef.current?.contains(target)) {
+        setOpen(false);
+        setClosedQuery('');
+      }
     };
     document.addEventListener('mousedown', closeOutside);
     return () => document.removeEventListener('mousedown', closeOutside);
@@ -57,6 +66,21 @@ export function ProviderCombobox({
   const choose = (option: ProviderOption): void => {
     onChange(option.id);
     setOpen(false);
+    setClosedQuery('');
+  };
+
+  const selected = closedOptions.find((option) => option.id === value);
+  const selectedIndex = Math.max(0, closedOptions.findIndex((option) => option.id === value));
+  const displayedValue = allowCustom
+    ? value
+    : open
+      ? closedQuery
+      : selected?.name ?? selected?.id ?? value;
+
+  const toggleOpen = (): void => {
+    setActiveIndex(allowCustom ? 0 : selectedIndex);
+    setClosedQuery('');
+    setOpen((current) => !current);
   };
 
   return (
@@ -66,13 +90,15 @@ export function ProviderCombobox({
         aria-label={ariaLabel}
         aria-autocomplete="list"
         aria-expanded={open}
-        value={value}
+        value={displayedValue}
         onFocus={() => {
-          setActiveIndex(0);
+          setActiveIndex(allowCustom ? 0 : selectedIndex);
+          if (!allowCustom) setClosedQuery('');
           setOpen(true);
         }}
         onChange={(event) => {
-          onChange(event.target.value);
+          if (allowCustom) onChange(event.target.value);
+          else setClosedQuery(event.target.value);
           setActiveIndex(0);
           setOpen(true);
         }}
@@ -89,6 +115,7 @@ export function ProviderCombobox({
             choose(filtered[activeIndex]);
           } else if (event.key === 'Escape') {
             setOpen(false);
+            setClosedQuery('');
           }
         }}
         disabled={disabled}
@@ -101,7 +128,7 @@ export function ProviderCombobox({
         tabIndex={-1}
         disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleOpen}
         className="absolute right-0 top-0 flex h-full w-7 items-center justify-center text-deck-muted/70 hover:text-deck-text disabled:opacity-50"
       >
         <ChevronDownIcon
@@ -134,7 +161,7 @@ export function ProviderCombobox({
                 }`}
               >
                 <span className="block truncate">{option.name ?? option.id}</span>
-                {option.name && (
+                {option.name && option.id && (
                   <code className="block truncate text-[9px] text-deck-muted/60">
                     {option.id}
                   </code>

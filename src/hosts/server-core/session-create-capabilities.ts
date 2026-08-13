@@ -161,9 +161,10 @@ function optionSchema(
       permissionMode: enabledOption(defaults.permissionMode, {
         allowedValues: profile.runtimeControls.permissionModes,
       }),
-      provider: providers.length === 0
-        ? disabledOption('Worker 未配置可选 Gateway；当前会话将跟随提供方默认值。')
-        : enabledOption(defaults.provider, { allowedValues: providers, allowEmpty: true }),
+      provider: enabledOption(defaults.provider, {
+        allowedValues: providers,
+        allowEmpty: true,
+      }),
       sessionMode: disabledOption(),
     });
   }
@@ -179,9 +180,10 @@ function optionSchema(
       grokSandbox: disabledOption(),
       ...common,
       permissionMode: disabledOption(),
-      provider: providers.length === 0
-        ? disabledOption('Worker 未配置可选 Provider；当前会话将跟随提供方默认值。')
-        : enabledOption(defaults.provider, { allowedValues: providers, allowEmpty: true }),
+      provider: enabledOption(defaults.provider, {
+        allowedValues: providers,
+        allowEmpty: true,
+      }),
       sessionMode: disabledOption(),
     });
   }

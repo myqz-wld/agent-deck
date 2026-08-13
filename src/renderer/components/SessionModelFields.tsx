@@ -112,15 +112,6 @@ export function SessionModelFields({
 
   const providerOptions = providedProviderOptions ?? discoveredProviderOptions;
 
-  const providerSelectOptions: readonly DeckSelectOption<string>[] = [
-    { value: '', label: adapterId === 'claude-code' ? '原生 settings.json' : '原生 config.toml' },
-    ...providerOptions.map((option) => ({
-      value: option.id,
-      label: option.name ?? option.id,
-      description: option.name ? option.id : undefined,
-    })),
-  ];
-
   return (
     <div className="grid grid-cols-1 gap-3">
       {providerEnabled && onProviderChange && (
@@ -130,20 +121,15 @@ export function SessionModelFields({
           </label>
           {disabledReasons.provider ? (
             <UnavailableField reason={disabledReasons.provider} />
-          ) : providerClosed ? (
-            <DeckSelect
-              value={provider}
-              options={providerSelectOptions}
-              onChange={onProviderChange}
-              disabled={disabled}
-              ariaLabel={adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
-              buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
-            />
           ) : (
             <ProviderCombobox
               value={provider}
               options={providerOptions}
               disabled={disabled}
+              allowCustom={!providerClosed}
+              defaultOptionLabel={
+                adapterId === 'claude-code' ? '原生 settings.json' : '原生 config.toml'
+              }
               ariaLabel={adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
               placeholder={
                 adapterId === 'claude-code'
