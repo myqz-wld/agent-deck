@@ -45,8 +45,13 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/gu;
 
 export interface ServerCoreSessionPresentationRepositoryPort {
   listLive(limit: number, offset: number, maximumContextRows: number): SessionPresentationPage;
-  listHistory(query: string | undefined, limit: number, offset: number): SessionPresentationPage;
-  counts(kind: SessionPresentationKind, query?: string): {
+  listHistory(
+    query: string | undefined,
+    archivedOnly: boolean,
+    limit: number,
+    offset: number,
+  ): SessionPresentationPage;
+  counts(kind: SessionPresentationKind, query?: string, archivedOnly?: boolean): {
     total: number;
     active: number;
     dormant: number;
@@ -232,8 +237,17 @@ export class ServerCoreSessionPresentationRuntime implements DaemonCoreRuntime {
           offset,
           SESSION_PRESENTATION_MAX_CONTEXT_ROWS,
         )
-      : this.options.repository.listHistory(params.query, params.limit, offset);
-    const counts = this.options.repository.counts(params.kind, params.query);
+      : this.options.repository.listHistory(
+          params.query,
+          params.archivedOnly ?? false,
+          params.limit,
+          offset,
+        );
+    const counts = this.options.repository.counts(
+      params.kind,
+      params.query,
+      params.archivedOnly ?? false,
+    );
     const primaryCount = page.records.filter((row) => !row.contextOnly).length;
     const nextOffset = offset + primaryCount;
     const sessions = this.project(page.records);

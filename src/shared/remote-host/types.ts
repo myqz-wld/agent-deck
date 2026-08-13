@@ -24,6 +24,7 @@ import type {
   UsageProviderResult,
   UsageTokenResult,
   WorkspaceDirectoryListResult,
+  WorkspaceDirectoryCreateResult,
   NodeConfigurationGetResult,
   NodeConfigurationAdapterId,
   NodeHookProjectionResult,
@@ -157,6 +158,7 @@ export interface RemoteHostSessionPageDto {
 export interface RemoteHostSessionPresentationRequestDto {
   profileId: string;
   kind: SessionPresentationKind;
+  archivedOnly?: boolean;
   cursor?: string;
   limit: number;
   query?: string;
@@ -214,6 +216,14 @@ export interface RemoteHostWorkspaceDirectoryRequestDto {
 }
 
 export type RemoteHostWorkspaceDirectoryListDto = WorkspaceDirectoryListResult;
+
+export interface RemoteHostWorkspaceDirectoryCreateDto extends RemoteHostMutationIntentDto {
+  profileId: string;
+  parentDirectory: string;
+  name: string;
+}
+
+export type RemoteHostWorkspaceDirectoryCreateResultDto = WorkspaceDirectoryCreateResult;
 
 export interface RemoteHostCreateSessionDto extends RemoteHostMutationIntentDto {
   profileId: string;

@@ -10,6 +10,8 @@ export * from './input-validation-session-detail';
 export * from './input-validation-session-handoff';
 export * from './input-validation-session-presentation';
 export * from './input-validation-session-metadata';
+export * from './input-validation-session-history';
+export * from './input-validation-workspace-directory';
 export * from './input-validation-teams-usage';
 export * from './input-validation-issues';
 export * from './input-validation-node-configuration';

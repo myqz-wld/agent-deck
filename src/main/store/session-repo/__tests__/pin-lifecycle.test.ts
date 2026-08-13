@@ -241,7 +241,7 @@ describe.skipIf(!bindingAvailable)('session pinning and lifecycle guards', () =>
     insertSession(db, 'older-match', 'closed', 10);
     insertSession(db, 'newer-other', 'closed', 20);
     db.prepare(`UPDATE sessions SET title = 'remote searchable title' WHERE id = 'older-match'`).run();
-    const page = sessionRepo.listHistoryPresentation('searchable', 10, 0);
+    const page = sessionRepo.listHistoryPresentation('searchable', false, 10, 0);
     expect(page.records.map((row) => row.record.id)).toEqual(['older-match']);
     expect(sessionRepo.sessionPresentationCounts('history', 'searchable').total).toBe(1);
   });

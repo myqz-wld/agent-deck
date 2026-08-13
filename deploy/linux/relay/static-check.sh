@@ -264,13 +264,9 @@ grep -Fq '"providerContainer"' "$relay_dir/local-worker.config.example.json" || 
   echo 'relay static check: Local Worker does not opt into readiness-gated Provider containers' >&2
   exit 1
 }
-grep -Fq '"sessionCreationCatalog"' "$relay_dir/local-worker.config.example.json" || {
-  echo 'relay static check: Local Worker safe session catalog example is missing' >&2
-  exit 1
-}
-for required in '--session-catalog' 'remote-session-catalog.example.json'; do
+for required in 'There is no separately maintained session catalog' 'agent-deck-worker start'; do
   grep -Fq -- "$required" "$relay_dir/README.snippet.md" || {
-    echo "relay static check: safe session catalog documentation lost $required" >&2
+    echo "relay static check: automatic provider projection documentation lost $required" >&2
     exit 1
   }
 done

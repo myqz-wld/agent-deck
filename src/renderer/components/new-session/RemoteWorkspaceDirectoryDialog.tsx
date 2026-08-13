@@ -35,8 +35,12 @@ export function RemoteWorkspaceDirectoryDialog({
   const [directory, setDirectory] = useState(initialDirectory.trim() || '.');
   const [page, setPage] = useState<WorkspaceDirectoryListResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const canRead = source.usable && source.capabilities.has('session-console.read');
+  const canCreate = source.usable && source.capabilities.has('workspace.directory.write');
   useModalFocus({ dialogRef, onClose });
 
   useEffect(() => {
@@ -64,6 +68,26 @@ export function RemoteWorkspaceDirectoryDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canRead, directory, source.identity]);
 
+  const createFolder = async (): Promise<void> => {
+    const name = newFolderName.trim();
+    if (!name) {
+      setError('请输入文件夹名称。');
+      return;
+    }
+    setCreating(true);
+    setError(null);
+    try {
+      const created = await source.createWorkspaceDirectory(directory, name);
+      setNewFolderName('');
+      setNewFolderOpen(false);
+      setDirectory(created);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm">
       <div
@@ -75,10 +99,7 @@ export function RemoteWorkspaceDirectoryDialog({
         className="no-drag flex max-h-[72%] w-[min(24rem,92vw)] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl"
       >
         <header className="flex items-center justify-between border-b border-deck-border px-4 py-3">
-          <div>
-            <h3 id={titleId} className="text-[13px] font-medium">选择 Workspace 目录</h3>
-            <p className="mt-0.5 text-[10px] text-deck-muted">只显示 Remote Workspace 内的目录</p>
-          </div>
+          <h3 id={titleId} className="text-[13px] font-medium">选择 Workspace 目录</h3>
           <button
             type="button"
             onClick={onClose}
@@ -102,7 +123,54 @@ export function RemoteWorkspaceDirectoryDialog({
           <div className="min-w-0 truncate rounded bg-white/[0.04] px-2 py-1 text-[11px] text-deck-fg">
             {visiblePath(directory)}
           </div>
+          <button
+            type="button"
+            disabled={!canCreate || loading || creating}
+            title={canCreate ? '在当前目录中新建文件夹' : '当前 Remote Core 未提供新建目录能力'}
+            onClick={() => {
+              setError(null);
+              setNewFolderOpen((open) => !open);
+            }}
+            className="ml-auto shrink-0 rounded px-2 py-1 text-[10px] text-status-working hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            新建文件夹
+          </button>
         </div>
+
+        {newFolderOpen && (
+          <div className="flex items-center gap-2 border-b border-deck-border px-3 py-2">
+            <input
+              autoFocus
+              aria-label="新文件夹名称"
+              value={newFolderName}
+              maxLength={255}
+              disabled={creating}
+              onChange={(event) => setNewFolderName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void createFolder();
+                if (event.key === 'Escape') setNewFolderOpen(false);
+              }}
+              placeholder="文件夹名称"
+              className="min-w-0 flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
+            />
+            <button
+              type="button"
+              disabled={creating}
+              onClick={() => setNewFolderOpen(false)}
+              className="rounded px-2 py-1 text-[10px] text-deck-muted hover:bg-white/[0.05] disabled:opacity-40"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              disabled={creating || !newFolderName.trim()}
+              onClick={() => void createFolder()}
+              className="rounded bg-status-working/25 px-2 py-1 text-[10px] text-status-working hover:bg-status-working/35 disabled:opacity-40"
+            >
+              {creating ? '创建中…' : '创建'}
+            </button>
+          </div>
+        )}
 
         <div className="min-h-[170px] flex-1 overflow-y-auto p-2 scrollbar-deck">
           {loading && <div className="px-2 py-3 text-[11px] text-deck-muted">正在读取目录…</div>}
@@ -132,8 +200,7 @@ export function RemoteWorkspaceDirectoryDialog({
           )}
         </div>
 
-        <footer className="flex items-center justify-between border-t border-deck-border px-4 py-3">
-          <span className="text-[10px] text-deck-muted">不会向客户端暴露服务器绝对路径</span>
+        <footer className="flex items-center justify-end border-t border-deck-border px-4 py-3">
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="rounded px-3 py-1 text-[11px] text-deck-muted hover:bg-white/5">
               取消

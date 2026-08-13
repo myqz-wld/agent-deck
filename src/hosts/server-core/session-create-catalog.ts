@@ -1,4 +1,9 @@
 import { isJsonObject, SESSION_CONSOLE_MAX_OPTION_VALUES, type JsonObject } from '@contracts/index';
+import {
+  canonicalProviderDirectory,
+  readOptionalProviderFile,
+} from '@hosts/provider-state/provider-home-files';
+import { PROVIDER_SESSION_CATALOG_FILE } from '@hosts/provider-state/provider-session-projection';
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import {
   isAdapterSessionMode,
@@ -17,19 +22,30 @@ const ADAPTER_IDS = Object.freeze([
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/u;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 const MAX_TEXT_BYTES = 512;
+const MAX_CATALOG_BYTES = 64 * 1024;
+
+interface ServerCoreSessionCreateProviderProfile {
+  readonly id: string;
+  readonly model: string;
+  readonly thinking: SessionCreationDefaults['thinking'];
+}
 
 export interface ServerCoreSessionCreateCatalogEntry {
   readonly adapterId: SessionAdapterId;
   readonly defaults: SessionCreationDefaults;
   readonly providers: readonly string[];
+  readonly providerProfiles: readonly ServerCoreSessionCreateProviderProfile[];
 }
 
 export interface ServerCoreSessionCreateCatalog {
-  get(adapterId: SessionAdapterId): ServerCoreSessionCreateCatalogEntry;
+  get(
+    adapterId: SessionAdapterId,
+    provider?: string | null,
+  ): ServerCoreSessionCreateCatalogEntry;
 }
 
 function fail(field: string): never {
-  throw new Error(`runtimeOptions.sessionCreationCatalog.${field} is invalid`);
+  throw new Error(`Worker provider session projection ${field} is invalid`);
 }
 
 function exact(value: JsonObject, keys: readonly string[], field: string): void {
@@ -80,6 +96,27 @@ function defaultEntry(
       ...(adapterId === 'grok-build' ? { model: 'grok-4.5' } : {}),
     }),
     providers: Object.freeze([]),
+    providerProfiles: Object.freeze([]),
+  });
+}
+
+function parseProfile(
+  value: unknown,
+  adapterId: SessionAdapterId,
+  field: string,
+): ServerCoreSessionCreateProviderProfile {
+  if (!isJsonObject(value)) fail(field);
+  exact(value, ['id', 'model', 'thinking'], field);
+  const id = safeProvider(value.id, `${field}.id`);
+  const model = safeText(value.model, `${field}.model`, true);
+  const thinking = safeText(value.thinking, `${field}.thinking`);
+  if (!getAdapterRuntimeProfile(adapterId).model.thinkingLevels.includes(thinking)) {
+    fail(`${field}.thinking`);
+  }
+  return Object.freeze({
+    id,
+    model,
+    thinking: thinking as SessionCreationDefaults['thinking'],
   });
 }
 
@@ -97,23 +134,18 @@ function parseEntry(
     ? ['adapterId', 'model', 'permissionMode', 'provider', 'providers', 'thinking']
     : id === 'codex-cli'
       ? ['adapterId', 'approvalPolicy', 'model', 'provider', 'providers', 'thinking']
-      : ['adapterId', 'model', 'sessionMode', 'thinking'];
+      : ['adapterId', 'model', 'provider', 'providers', 'sessionMode', 'thinking'];
   exact(value, adapterKeys, field);
-  const providers = id === 'grok-build'
-    ? []
-    : (() => {
-        if (!Array.isArray(value.providers) ||
-            value.providers.length > SESSION_CONSOLE_MAX_OPTION_VALUES) {
-          fail(`${field}.providers`);
-        }
-        const parsed = value.providers.map((item, providerIndex) =>
-          safeProvider(item, `${field}.providers[${providerIndex}]`));
-        if (new Set(parsed).size !== parsed.length) fail(`${field}.providers`);
-        return parsed;
-      })();
-  const provider = id === 'grok-build'
-    ? ''
-    : safeText(value.provider, `${field}.provider`, true);
+  if (!Array.isArray(value.providers) ||
+      value.providers.length > SESSION_CONSOLE_MAX_OPTION_VALUES) {
+    fail(`${field}.providers`);
+  }
+  const profiles = value.providers.map((item, providerIndex) =>
+    parseProfile(item, id, `${field}.providers[${providerIndex}]`));
+  const providers = profiles.map((profile) => profile.id);
+  if (new Set(providers).size !== providers.length) fail(`${field}.providers`);
+  if (id === 'grok-build' && providers.length > 0) fail(`${field}.providers`);
+  const provider = safeText(value.provider, `${field}.provider`, true);
   if (provider && !providers.includes(provider)) fail(`${field}.provider`);
   const model = safeText(value.model, `${field}.model`, true);
   const thinking = safeText(value.thinking, `${field}.thinking`);
@@ -138,20 +170,45 @@ function parseEntry(
     adapterId: id,
     defaults: Object.freeze(defaults),
     providers: Object.freeze(providers),
+    providerProfiles: Object.freeze(profiles),
   });
 }
 
-/** Parses an explicit non-secret catalog. No provider Home or provider config file is consulted. */
+function readProjection(providerHomeRoot: string): JsonObject | null {
+  const root = canonicalProviderDirectory(
+    providerHomeRoot,
+    'provider session projection home',
+    true,
+  );
+  const bytes = readOptionalProviderFile(root, PROVIDER_SESSION_CATALOG_FILE, {
+    maxBytes: MAX_CATALOG_BYTES,
+    private: true,
+  });
+  if (!bytes) return null;
+  try {
+    const parsed = JSON.parse(bytes.toString('utf8')) as unknown;
+    if (!isJsonObject(parsed)) fail('root');
+    return parsed;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Worker provider session projection')) {
+      throw error;
+    }
+    return fail('root');
+  } finally {
+    bytes.fill(0);
+  }
+}
+
+/** Reads one trusted, derived snapshot; Remote requests never open raw provider configuration. */
 export function resolveServerCoreSessionCreateCatalog(
-  runtimeOptions: JsonObject,
+  providerHomeRoot: string,
   settings: ServerCoreProviderSettings,
 ): ServerCoreSessionCreateCatalog {
-  const raw = runtimeOptions.sessionCreationCatalog;
+  const raw = readProjection(providerHomeRoot);
   const entries = new Map<SessionAdapterId, ServerCoreSessionCreateCatalogEntry>();
-  if (raw !== undefined) {
-    if (!isJsonObject(raw)) fail('root');
+  if (raw !== null) {
     exact(raw, ['adapters', 'schemaVersion'], 'root');
-    if (raw.schemaVersion !== 1) fail('schemaVersion');
+    if (raw.schemaVersion !== 2) fail('schemaVersion');
     if (!Array.isArray(raw.adapters) || raw.adapters.length > ADAPTER_IDS.length) {
       fail('adapters');
     }
@@ -165,8 +222,21 @@ export function resolveServerCoreSessionCreateCatalog(
     if (!entries.has(adapterId)) entries.set(adapterId, defaultEntry(adapterId, settings));
   }
   return Object.freeze({
-    get(adapterId: SessionAdapterId): ServerCoreSessionCreateCatalogEntry {
-      return entries.get(adapterId)!;
+    get(adapterId, provider): ServerCoreSessionCreateCatalogEntry {
+      const entry = entries.get(adapterId)!;
+      const requested = provider?.trim();
+      if (!requested) return entry;
+      const profile = entry.providerProfiles.find((candidate) => candidate.id === requested);
+      if (!profile) return entry;
+      return Object.freeze({
+        ...entry,
+        defaults: Object.freeze({
+          ...entry.defaults,
+          provider: profile.id,
+          model: profile.model,
+          thinking: profile.thinking,
+        }),
+      });
     },
   });
 }

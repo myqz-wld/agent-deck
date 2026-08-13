@@ -7,8 +7,8 @@ import {
 } from './version';
 
 describe('protocol version negotiation', () => {
-  it('advertises the safe Remote Hook projection as protocol 2.4', () => {
-    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 4 });
+  it('advertises Remote history/directory mutations as protocol 2.5', () => {
+    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 5 });
   });
   it('selects the lower additive minor version for the same major', () => {
     expect(negotiateProtocolVersion({ major: 1, minor: 2 }, { major: 1, minor: 5 })).toEqual({

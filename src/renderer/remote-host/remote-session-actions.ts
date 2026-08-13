@@ -17,8 +17,11 @@ import {
 import { pendingPresentationBindingDigest } from './remote-pending-presentation';
 
 type SessionActions = Pick<RemoteSessionSourceView,
+  | 'archiveHistorySession'
   | 'commitHandOff'
   | 'createSession'
+  | 'createWorkspaceDirectory'
+  | 'deleteHistorySession'
   | 'getSessionCapabilities'
   | 'interrupt'
   | 'listWorkspaceDirectories'
@@ -28,7 +31,8 @@ type SessionActions = Pick<RemoteSessionSourceView,
   | 'removeOutgoing'
   | 'send'
   | 'steer'
-  | 'updateRuntime'>;
+  | 'updateRuntime'
+  | 'unarchiveHistorySession'>;
 
 interface RemoteSessionActionOptions {
   activeProfileId: string | null;
@@ -81,6 +85,15 @@ export function createRemoteSessionActions(
   };
 
   return {
+    archiveHistorySession: (session) => runBusiness(async () => {
+      requireCapability('sessions.history.write');
+      const request = mutationRequest({
+        profileId: requireProfile(), sessionId: session.id,
+        expectedArchived: session.archived, expectedUpdatedAt: session.updatedAt,
+      });
+      await intents.run(sourceIdentity, 'history-archive', request, (intentId) =>
+        window.api.archiveRemoteHostSession({ ...request, intentId }));
+    }),
     createSession: async (input) => {
       const created = await runBusiness(async () => {
         requireCapability('session-console.create');
@@ -95,6 +108,26 @@ export function createRemoteSessionActions(
       selectSession(created.sessionId);
       return created.sessionId;
     },
+    createWorkspaceDirectory: (parentDirectory, name) => runBusiness(async () => {
+      requireCapability('workspace.directory.write');
+      const request = mutationRequest({ profileId: requireProfile(), parentDirectory, name });
+      const result = await intents.run(
+        sourceIdentity,
+        'workspace-directory-create',
+        request,
+        (intentId) => window.api.createRemoteHostWorkspaceDirectory({ ...request, intentId }),
+      );
+      return result.directory;
+    }),
+    deleteHistorySession: (session) => runBusiness(async () => {
+      requireCapability('sessions.history.write');
+      const request = mutationRequest({
+        profileId: requireProfile(), sessionId: session.id,
+        expectedArchived: session.archived, expectedUpdatedAt: session.updatedAt,
+      });
+      await intents.run(sourceIdentity, 'history-delete', request, (intentId) =>
+        window.api.deleteRemoteHostSession({ ...request, intentId }));
+    }),
     getSessionCapabilities: async (request) => {
       requireCapability('session-console.read');
       const profileId = requireProfile();
@@ -207,5 +240,14 @@ export function createRemoteSessionActions(
         setRuntime(result.controls);
       }
     },
+    unarchiveHistorySession: (session) => runBusiness(async () => {
+      requireCapability('sessions.history.write');
+      const request = mutationRequest({
+        profileId: requireProfile(), sessionId: session.id,
+        expectedArchived: session.archived, expectedUpdatedAt: session.updatedAt,
+      });
+      await intents.run(sourceIdentity, 'history-unarchive', request, (intentId) =>
+        window.api.unarchiveRemoteHostSession({ ...request, intentId }));
+    }),
   };
 }

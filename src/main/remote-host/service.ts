@@ -68,6 +68,10 @@ import { RemoteHostSessionHandOffController } from './service-session-handoff';
 import { RemoteHostSessionStateController } from './service-session-state';
 import { RemoteHostSessionPresentationController } from './service-session-presentation';
 import { RemoteHostSessionMetadataController } from './service-session-metadata';
+import {
+  RemoteHostSessionHistoryMutationController,
+  RemoteHostWorkspaceDirectoryMutationController,
+} from './service-history-directory-mutations';
 import { requestRemoteHistory } from './service-session-detail';
 import { RemoteHostScopeEpochs } from './service-scope';
 import { RemoteHostRequestAuthority } from './service-request-authority';
@@ -93,6 +97,8 @@ export class RemoteHostService {
   readonly nodeConfiguration: RemoteHostNodeConfigurationController;
   readonly nodeAssets: RemoteHostNodeAssetController;
   readonly handoff: RemoteHostSessionHandOffController;
+  readonly historyMutations: RemoteHostSessionHistoryMutationController;
+  readonly workspaceDirectories: RemoteHostWorkspaceDirectoryMutationController;
   private readonly sessionState: RemoteHostSessionStateController;
   private readonly sessionPresentation: RemoteHostSessionPresentationController;
   private readonly sessionMetadata: RemoteHostSessionMetadataController;
@@ -152,6 +158,11 @@ export class RemoteHostService {
     );
     this.sessionPresentation = new RemoteHostSessionPresentationController(requestScoped);
     this.sessionMetadata = new RemoteHostSessionMetadataController(requestScoped, mutationId);
+    this.historyMutations = new RemoteHostSessionHistoryMutationController(requestScoped, mutationId);
+    this.workspaceDirectories = new RemoteHostWorkspaceDirectoryMutationController(
+      requestScoped,
+      mutationId,
+    );
     this.handoff = new RemoteHostSessionHandOffController(
       requestScoped,
       this.requestAuthority.requestTerminal,

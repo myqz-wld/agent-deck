@@ -223,6 +223,8 @@ function RemoteHistoryPanel({
   onSelect: (id: string) => void;
 }): JSX.Element {
   const [keyword, setKeyword] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const canMutate = source.usable && source.capabilities.has('sessions.history.write');
   useEffect(() => {
     setKeyword('');
   }, [source.identity]);
@@ -230,20 +232,70 @@ function RemoteHistoryPanel({
     const timer = setTimeout(() => source.setHistoryQuery(keyword.trim()), KEYWORD_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [keyword, source.setHistoryQuery]);
+  const run = async (
+    label: string,
+    action: () => Promise<void>,
+  ): Promise<void> => {
+    setActionError(null);
+    try {
+      await action();
+      source.refresh();
+    } catch (reason) {
+      setActionError(`${label}失败：${errorMessage(reason)}`);
+    }
+  };
+  const remove = async (session: RemoteSessionSourceView['historySessions'][number]): Promise<void> => {
+    setActionError(null);
+    try {
+      const ok = await window.api.confirmDialog({
+        title: '删除会话',
+        message: '确定要删除该会话吗？',
+        detail: '此操作无法撤销，相关事件、文件改动和总结也会删除。',
+        okLabel: '删除',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+      if (!ok) return;
+      await run('删除', () => source.deleteHistorySession(session));
+    } catch (reason) {
+      setActionError(`删除失败：${errorMessage(reason)}`);
+    }
+  };
   const rows = source.historySessions;
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-col gap-1 border-b border-deck-border px-3 py-2">
-        <input
-          type="text"
-          value={keyword}
-          onChange={(event) => setKeyword(event.target.value)}
-          placeholder="搜索标题、工作区、事件或总结…"
-          className="no-drag w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
-        />
+        <div className="flex gap-1.5">
+          <input
+            type="text"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+            placeholder="搜索标题、工作区、事件或总结…"
+            title="长工具输出仅搜索开头和结尾各 2,048 个字符"
+            className="no-drag flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20"
+          />
+          <button
+            type="button"
+            disabled={!canMutate}
+            title={canMutate ? '仅显示已归档会话' : '当前 Remote Core 未提供历史会话写入能力'}
+            onClick={() => source.setHistoryArchivedOnly(!source.historyArchivedOnly)}
+            className={`no-drag rounded px-2 py-1 text-[10px] ${
+              source.historyArchivedOnly
+                ? 'bg-white/15 text-deck-text'
+                : 'bg-white/[0.03] text-deck-muted hover:bg-white/[0.06]'
+            } disabled:cursor-not-allowed disabled:opacity-40`}
+          >
+            <ArchiveIcon className="mr-1 inline h-3 w-3" />仅归档
+          </button>
+        </div>
         <p className="mt-0.5 text-[9px] text-deck-muted/70">
-          由 Remote Core 在完整历史索引中查询；归档和删除尚未开放。
+          长工具输出仅搜索开头和结尾各 2,048 个字符。
         </p>
+        {actionError && (
+          <div role="alert" className="rounded bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
+            {actionError}
+          </div>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
         {source.historyLoadError && source.historySessions.length === 0 ? (
@@ -263,6 +315,14 @@ function RemoteHistoryPanel({
                 <RemoteSessionSummaryCard
                   session={session}
                   onSelect={() => onSelect(session.id)}
+                  {...(canMutate ? {
+                    onArchive: () => run('归档', () => source.archiveHistorySession(session)),
+                    onUnarchive: () => run(
+                      '取消归档',
+                      () => source.unarchiveHistorySession(session),
+                    ),
+                    onDelete: () => remove(session),
+                  } : {})}
                 />
               </li>
             ))}

@@ -50,4 +50,52 @@ describe('Remote session mutation authority', () => {
     await expect(pending).rejects.toThrow('数据源已切换');
     expect(sendRemoteHostMessage).not.toHaveBeenCalled();
   });
+
+  it('binds history and Workspace mutations to the current Core generation', async () => {
+    const archiveRemoteHostSession = vi.fn(async () => ({
+      sessionId: 'session-a', state: 'archived' as const, revision: 3,
+    }));
+    const createRemoteHostWorkspaceDirectory = vi.fn(async () => ({
+      directory: 'repo/new-folder', revision: 4,
+    }));
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { archiveRemoteHostSession, createRemoteHostWorkspaceDirectory },
+    });
+    const identityRef = { current: 'profile-a|core-a|1' };
+    const actions = createRemoteSessionActions({
+      activeProfileId: 'profile-a',
+      expectedAuthority: { authoritativeCoreId: 'core-a', workerGeneration: 1 },
+      identityRef,
+      intents: new RemoteUserIntentLedger(() => 'intent-a'),
+      requireCapability: vi.fn(),
+      runBusiness: (operation) => operation(),
+      runTerminalBusiness: (operation) => operation(),
+      runtimeRef: { current: null as RemoteHostRuntimeControlsDto | null },
+      selectSession: vi.fn(),
+      setRuntime: vi.fn(),
+      sourceIdentity: identityRef.current,
+      target: () => ({ profileId: 'profile-a', sessionId: 'session-a' }),
+    });
+
+    await actions.archiveHistorySession({
+      id: 'session-a', adapterId: 'codex-cli', title: 'History', source: 'sdk',
+      lifecycle: 'closed', activity: 'finished', archived: false, pinned: false,
+      createdAt: 1, updatedAt: 2, endedAt: 2, model: null, thinking: null,
+      runtimeProvider: null, context: null, spawnedBy: null, spawnDepth: 0,
+      teams: [], summary: null, workspaceLabel: 'Workspace', contextOnly: false,
+    });
+    await expect(actions.createWorkspaceDirectory('repo', 'new-folder'))
+      .resolves.toBe('repo/new-folder');
+    expect(archiveRemoteHostSession).toHaveBeenCalledWith(expect.objectContaining({
+      expectedAuthority: { authoritativeCoreId: 'core-a', workerGeneration: 1 },
+      expectedArchived: false,
+      expectedUpdatedAt: 2,
+    }));
+    expect(createRemoteHostWorkspaceDirectory).toHaveBeenCalledWith(expect.objectContaining({
+      expectedAuthority: { authoritativeCoreId: 'core-a', workerGeneration: 1 },
+      parentDirectory: 'repo',
+      name: 'new-folder',
+    }));
+  });
 });

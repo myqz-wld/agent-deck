@@ -61,6 +61,7 @@ export interface SessionPresentationCountsDto {
 
 export interface SessionPresentationListParams {
   kind: SessionPresentationKind;
+  archivedOnly?: boolean;
   cursor?: string;
   limit: number;
   query?: string;
@@ -128,10 +129,17 @@ export function parseSessionPresentationListParams(
 ): SessionPresentationListParams {
   if (!isJsonObject(value)) fail('session.presentation.list.params');
   const keys = ['kind', 'limit'];
+  if (value.archivedOnly !== undefined) keys.push('archivedOnly');
   if (value.cursor !== undefined) keys.push('cursor');
   if (value.query !== undefined) keys.push('query');
   exact(value, keys, 'session.presentation.list.params');
   const kind = oneOf(value.kind, ['history', 'live'], 'session.presentation.list.kind');
+  if (value.archivedOnly !== undefined && typeof value.archivedOnly !== 'boolean') {
+    fail('session.presentation.list.archivedOnly');
+  }
+  if (kind === 'live' && value.archivedOnly !== undefined) {
+    fail('session.presentation.list.archivedOnly');
+  }
   const limit = integer(value.limit, 'session.presentation.list.limit');
   if (limit < 1 || limit > SESSION_PRESENTATION_MAX_PAGE_SIZE) {
     fail('session.presentation.list.limit');
@@ -143,6 +151,7 @@ export function parseSessionPresentationListParams(
   return {
     kind,
     limit,
+    ...(value.archivedOnly === undefined ? {} : { archivedOnly: value.archivedOnly }),
     ...(value.cursor === undefined
       ? {}
       : { cursor: token(value.cursor, 'session.presentation.list.cursor', 512) }),

@@ -61,9 +61,6 @@ export function workerConfigureArgs(config) {
     'configure',
     '--credential', config.credentialFile,
     '--workspace', config.workspace,
-    ...(config.sessionCatalogFile === null
-      ? []
-      : ['--session-catalog', config.sessionCatalogFile]),
   ];
 }
 
@@ -79,9 +76,7 @@ export async function runWorkerDeployment(config, action) {
         '验证签名 Worker runtime 与 Node SQLite ABI',
         '确保隔离 Workspace 不位于 Agent Deck 仓库中',
         '从 Worker connection credential 配置或重启 LaunchAgent/systemd-user service',
-        ...(config.sessionCatalogFile === null ? [] : [
-          '导入仅含 provider/model 标识的 Remote 新会话安全目录',
-        ]),
+        '从本机 Provider 配置自动投影 Remote Gateway、Provider 与模型摘要',
         ...(config.providerSupervisor === null ? [] : [
           '验证 Grok 凭证、Provider supervisor 配置与 Worker identity',
           '原子投射凭证、安装 LaunchAgent、等待就绪并受控重启 Worker',

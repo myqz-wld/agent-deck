@@ -116,10 +116,14 @@ export class ServerCoreRepositoryHost implements LifecycleComponent {
     this.sessionPresentationRepository = Object.freeze({
       listLive: (limit: number, offset: number, maximumContextRows: number) =>
         this.sessions.listLivePresentation(limit, offset, maximumContextRows),
-      listHistory: (query: string | undefined, limit: number, offset: number) =>
-        this.sessions.listHistoryPresentation(query, limit, offset),
-      counts: (kind: 'history' | 'live', query?: string) =>
-        this.sessions.sessionPresentationCounts(kind, query),
+      listHistory: (
+        query: string | undefined,
+        archivedOnly: boolean,
+        limit: number,
+        offset: number,
+      ) => this.sessions.listHistoryPresentation(query, archivedOnly, limit, offset),
+      counts: (kind: 'history' | 'live', query?: string, archivedOnly?: boolean) =>
+        this.sessions.sessionPresentationCounts(kind, query, archivedOnly),
       listPendingCandidates: (limit: number) => this.sessions.listActiveAndDormant(limit, 0),
       memberships: (sessionIds: string[]) =>
         agentDeckTeamRepo.findActiveMembershipsBySessionIds(sessionIds),

@@ -119,10 +119,12 @@ function harness() {
   };
   const registry = { get: (id: string) => id === 'claude-code' ? adapter : undefined };
   const settings = resolveServerCoreProviderSettings({});
+  const providerHome = join(paths.root, '..', 'provider-home');
+  mkdirSync(providerHome, { mode: 0o700 });
   const createCapabilities = new ServerCoreSessionCreateCapabilities({
     metadata,
     projects: [project],
-    catalog: resolveServerCoreSessionCreateCatalog({}, settings),
+    catalog: resolveServerCoreSessionCreateCatalog(realpathSync(providerHome), settings),
     registry,
     settings,
     workspaceRoot: paths.root,

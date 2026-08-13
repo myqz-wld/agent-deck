@@ -23,6 +23,7 @@ describe('daemon framed connection', () => {
         'node.assets.catalog.list',
         'session.context.get', 'session.input.capabilities', 'session.handoff.preview',
         'node.hook.projection.get', 'node.hook.projection.install',
+        'workspace.directory.create', 'session.archive',
       ],
     });
     const host = createHost(runtime);
@@ -81,6 +82,24 @@ describe('daemon framed connection', () => {
           'teams', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
           'sessions.context.read', 'sessions.input.read', 'sessions.handoff',
           'node.hooks.read', 'node.hooks.write',
+        ],
+      },
+    });
+    const historyMutations = new TestDuplex();
+    host.accept({ stream: historyMutations, createAccessContext: sshAccess });
+    historyMutations.feed(hello('desktop-v2-5', 'server-core', { major: 2, minor: 5 }));
+    await waitFor(
+      () => Boolean(findMessage(historyMutations, 'hello-result')),
+      'history-mutations hello-result',
+    );
+    expect(findMessage(historyMutations, 'hello-result')).toMatchObject({
+      hello: {
+        protocolVersion: { major: 2, minor: 5 },
+        capabilities: [
+          'teams', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
+          'sessions.context.read', 'sessions.input.read', 'sessions.handoff',
+          'node.hooks.read', 'node.hooks.write',
+          'workspace.directory.write', 'sessions.history.write',
         ],
       },
     });

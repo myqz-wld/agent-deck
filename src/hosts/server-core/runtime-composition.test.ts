@@ -177,7 +177,7 @@ describe('concrete Server Core runtime composition', () => {
     })).toThrow('runtimeOptions.typoCredentialFile is unsupported');
   });
 
-  it('projects only fixed provider auth files from the Full secrets volume seam', async () => {
+  it('projects auth plus sanitized provider session inputs from the Full secrets volume seam', async () => {
     const base = root();
     const workspace = join(base, 'workspace');
     mkdirSync(workspace, { mode: 0o700 });
@@ -209,9 +209,16 @@ describe('concrete Server Core runtime composition', () => {
         .toBe('{"token":"test"}\n');
       expect(() => readFileSync(join(providerHome, '.grok', 'auth.json'))).toThrow();
       expect(() => readFileSync(join(providerHome, '.grok', 'sandbox.toml'))).toThrow();
-      expect(() => readFileSync(join(providerHome, '.codex', 'config.toml'))).toThrow();
+      expect(readFileSync(join(providerHome, '.codex', 'config.toml'), 'utf8'))
+        .toBe('model="unsafe"\n');
       expect(() => readFileSync(join(providerHome, '.grok', 'config.toml'))).toThrow();
       expect(() => readFileSync(join(providerHome, '.ssh', 'id_ed25519'))).toThrow();
+      const catalog = readFileSync(
+        join(providerHome, '.agent-deck', 'session-create-catalog.json'),
+        'utf8',
+      );
+      expect(catalog).toContain('"model": "unsafe"');
+      expect(catalog).not.toContain('api_key');
     } finally {
       await bootstrap.runtime.stop('test');
     }

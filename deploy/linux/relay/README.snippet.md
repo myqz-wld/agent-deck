@@ -100,8 +100,7 @@ to the `bridge --surface desktop-full` forced command:
 ```bash
 agent-deck-worker configure \
   --credential /secure-transfer/production-relay-worker.agentdeck-connection \
-  --workspace /srv/workspaces/production \
-  --session-catalog /secure-transfer/remote-session-catalog.json
+  --workspace /srv/workspaces/production
 ```
 
 `configure` copies the Worker identity into its own mode-0700 private directory, installs one
@@ -109,13 +108,21 @@ systemd-user service on Linux or one LaunchAgent on macOS, and starts it. It doe
 to the Agent Deck page. Later lifecycle operations remain terminal-only and do not change the
 desktop Local/Remote selection:
 
-The optional session catalog is the only source for Remote Gateway/Provider choices. Start from
-`deploy/examples/remote-session-catalog.example.json` and replace its placeholder identifiers.
-It may contain only allowlisted provider/model identifiers and defaults—never endpoints,
-environment values, tokens, auth material, private keys, or provider configuration. The Worker
-validates this bounded projection and never opens Claude, Codex, or Grok configuration to discover
-the choices. Omit `--session-catalog` to follow each provider's default without advertising a
-Gateway/Provider override.
+Worker configuration and every explicit `agent-deck-worker start` refresh an automatic provider
+projection from the terminal user's Home. Claude Gateway ids and model defaults are derived from
+`~/.claude/settings.json` plus regular files below `~/.claude/gateways`; Codex Provider ids and
+defaults are derived from `~/.codex/config.toml`; Grok's default model is derived from
+`~/.grok/config.toml`. There is no separately maintained session catalog.
+
+Only the isolated Worker copy receives the provider runtime inputs it needs: Claude Gateway files
+are reduced to their model/effort and non-path environment fields, and Codex config is reduced to
+top-level model/provider/effort/approval plus `[model_providers.*]` definitions. Hooks, MCP
+definitions, plugins, global instructions, arbitrary paths, and the original settings files are
+not copied. Remote capability requests read a bounded non-secret snapshot generated during this
+trusted refresh; they never open the original provider configuration or return endpoints,
+environment values, tokens, auth material, private keys, or paths. After changing provider
+configuration, run `agent-deck-worker start` to atomically refresh the projection and restart that
+Worker.
 
 ```bash
 agent-deck-worker status

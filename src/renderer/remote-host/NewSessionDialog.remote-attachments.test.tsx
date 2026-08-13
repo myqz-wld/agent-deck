@@ -63,6 +63,7 @@ function source(
     error: null,
     eventLoadError: null,
     events: null,
+    historyArchivedOnly: false,
     historyQuery: '',
     historySessions: [],
     hasMoreHistorySessions: false,
@@ -97,7 +98,10 @@ function source(
     state: null,
     usable: true,
     clearError: vi.fn(),
+    archiveHistorySession: vi.fn(),
     createSession: vi.fn(async () => 'remote-session'),
+    createWorkspaceDirectory: vi.fn(),
+    deleteHistorySession: vi.fn(),
     getSessionCapabilities: vi.fn(async () => ({
       ...descriptor,
       create: {
@@ -131,9 +135,11 @@ function source(
     removeOutgoing: vi.fn(async () => true),
     selectSession: vi.fn(),
     setHistoryQuery: vi.fn(),
+    setHistoryArchivedOnly: vi.fn(),
     send: vi.fn(),
     steer: vi.fn(),
     updateRuntime: vi.fn(),
+    unarchiveHistorySession: vi.fn(),
   };
 }
 

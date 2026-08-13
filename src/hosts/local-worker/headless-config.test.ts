@@ -56,6 +56,20 @@ describe('LocalWorkerHeadlessConfig workspace sandbox', () => {
     expect(parsed.runtimeOptions).toEqual({});
   });
 
+  it('drops the retired manual session catalog from an upgraded private config', () => {
+    const parsed = parseLocalWorkerHeadlessConfig({
+      ...config(),
+      runtimeOptions: {
+        providerContainer: { schemaVersion: 1 },
+        sessionCreationCatalog: { schemaVersion: 1, adapters: [] },
+      },
+    });
+
+    expect(parsed.runtimeOptions).toEqual({
+      providerContainer: { schemaVersion: 1 },
+    });
+  });
+
   it('rejects paths or identities that escape the Worker configuration', () => {
     expect(() => parseLocalWorkerHeadlessConfig({
       ...config(),

@@ -25,6 +25,7 @@ export * from './session-outgoing';
 export * from './session-permissions';
 export * from './session-presentation';
 export * from './session-handoff';
+export * from './session-history-mutations';
 export * from './session-events';
 export * from './issues';
 export * from './session-tasks';
