@@ -20,6 +20,15 @@ function session(overrides: Partial<SessionPresentationSummaryDto> = {}): Sessio
 }
 
 describe('session presentation contract', () => {
+  it('permits archived-only filtering only for history pages', () => {
+    expect(parseSessionPresentationListParams({
+      kind: 'history', archivedOnly: true, limit: 40,
+    })).toEqual({ kind: 'history', archivedOnly: true, limit: 40 });
+    expect(() => parseSessionPresentationListParams({
+      kind: 'live', archivedOnly: true, limit: 40,
+    })).toThrow(/archivedOnly/);
+  });
+
   it('parses an exact typed page and authoritative counts', () => {
     expect(parseSessionPresentationListResult({
       sessions: [session()],

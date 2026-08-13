@@ -15,13 +15,13 @@ export interface SessionPresentationPage {
   contextTruncated: boolean;
 }
 
-function historyWhere(query: string | undefined): {
+function historyWhere(query: string | undefined, archivedOnly = false): {
   sql: string;
   params: Record<string, unknown>;
 } {
   const conditions = [
     'hidden_from_history = 0',
-    `(lifecycle = 'closed' OR archived_at IS NOT NULL)`,
+    archivedOnly ? 'archived_at IS NOT NULL' : `(lifecycle = 'closed' OR archived_at IS NOT NULL)`,
   ];
   const params: Record<string, unknown> = {};
   const normalized = query?.trim();
@@ -95,10 +95,11 @@ export function listLivePresentation(
 
 export function listHistoryPresentation(
   query: string | undefined,
+  archivedOnly: boolean,
   limit: number,
   offset: number,
 ): SessionPresentationPage {
-  const where = historyWhere(query);
+  const where = historyWhere(query, archivedOnly);
   const rows = getDb().prepare(
     `SELECT * FROM sessions
       WHERE ${where.sql}
@@ -114,10 +115,11 @@ export function listHistoryPresentation(
 export function sessionPresentationCounts(
   kind: SessionPresentationKind,
   query?: string,
+  archivedOnly = false,
 ): SessionPresentationCountsDto {
   const where = kind === 'live'
     ? { sql: `archived_at IS NULL AND lifecycle IN ('active', 'dormant')`, params: {} }
-    : historyWhere(query);
+    : historyWhere(query, archivedOnly);
   const row = getDb().prepare(
     `SELECT
        COUNT(*) AS total,

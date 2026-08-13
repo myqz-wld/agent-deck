@@ -57,6 +57,12 @@ describe('fixed Core transport surfaces', () => {
       AccessSurface.FeishuSessionConsole,
       'session.handoff.commit',
     )).toBe(false);
+    expect(isCoreMethodAllowed(
+      AccessSurface.FeishuSessionConsole,
+      'workspace.directory.create',
+    )).toBe(false);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.archive')).toBe(false);
+    expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.delete')).toBe(false);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.console.list')).toBe(true);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'session.console.get')).toBe(true);
     expect(isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, 'project.resolve')).toBe(true);

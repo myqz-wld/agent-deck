@@ -192,7 +192,6 @@ export async function loadWorkerConfig(path, repoRoot) {
   const config = object(loaded.value, 'Worker 部署配置');
   exactKeys(config, [
     'schemaVersion', 'name', 'wrapper', 'credentialFile', 'workspace',
-    ...(Object.hasOwn(config, 'sessionCatalogFile') ? ['sessionCatalogFile'] : []),
     ...(Object.hasOwn(config, 'providerSupervisor') ? ['providerSupervisor'] : []),
   ], 'Worker 部署配置');
   if (config.schemaVersion !== 1) fail('Worker 部署配置 schemaVersion 不受支持。');
@@ -224,10 +223,6 @@ export async function loadWorkerConfig(path, repoRoot) {
       ? null
       : absolutePath(config.credentialFile, 'credentialFile'),
     workspace: absolutePath(config.workspace, 'workspace'),
-    sessionCatalogFile: !Object.hasOwn(config, 'sessionCatalogFile') ||
-      config.sessionCatalogFile === null
-      ? null
-      : absolutePath(config.sessionCatalogFile, 'sessionCatalogFile'),
     providerSupervisor,
     repoRoot,
     configPath: loaded.path,
@@ -237,9 +232,6 @@ export async function loadWorkerConfig(path, repoRoot) {
     ...(parsed.credentialFile === null
       ? []
       : [requireTrustedFile(parsed.credentialFile, 'credentialFile', { private: true })]),
-    ...(parsed.sessionCatalogFile === null
-      ? []
-      : [requireTrustedFile(parsed.sessionCatalogFile, 'sessionCatalogFile')]),
     ...(parsed.providerSupervisor === null ? [] : [
       requireExecutable(parsed.providerSupervisor.command, 'providerSupervisor.command'),
       requireTrustedFile(

@@ -227,6 +227,49 @@ describe('terminal-only Local Worker service lifecycle', () => {
     await expect(manager.stop()).resolves.toMatchObject({ state: 'stopped' });
   });
 
+  it('refreshes provider choices from the terminal Home before every Worker start', async () => {
+    const paths = fixture();
+    const sourceHome = join(paths.workspaceRoot, '..', 'provider-source');
+    mkdirSync(join(sourceHome, '.codex'), { recursive: true, mode: 0o700 });
+    const configPath = join(sourceHome, '.codex', 'config.toml');
+    writeFileSync(configPath, [
+      'model = "gpt-first"',
+      'model_provider = "team"',
+      '[model_providers.team]',
+      'name = "Team"',
+    ].join('\n'), { mode: 0o600 });
+    const worker = await installed(paths);
+    const manager = new LocalWorkerTerminalServiceManager({
+      platform: 'linux',
+      serviceRoot: paths.serviceRoot,
+      stateRoot: paths.stateRoot,
+      wrapperPath: paths.wrapperPath,
+      uid: CURRENT_UID,
+      commands: new FakeServiceCommands(),
+      providerRuntimeRoot: () => paths.providerRuntimeRoot,
+      providerSourceHome: realpathSync(sourceHome),
+    });
+
+    await manager.start(worker.workerConfigId);
+    const providerHome = worker.config.workspaceSandbox!.environment.providerHomeRoot;
+    expect(readFileSync(join(providerHome, '.codex', 'config.toml'), 'utf8'))
+      .toContain('gpt-first');
+
+    writeFileSync(configPath, [
+      'model = "gpt-second"',
+      'model_provider = "team"',
+      '[model_providers.team]',
+      'name = "Team"',
+    ].join('\n'), { mode: 0o600 });
+    await manager.start(worker.workerConfigId);
+    expect(readFileSync(join(providerHome, '.codex', 'config.toml'), 'utf8'))
+      .toContain('gpt-second');
+    expect(readFileSync(
+      join(providerHome, '.agent-deck', 'session-create-catalog.json'),
+      'utf8',
+    )).toContain('gpt-second');
+  });
+
   it('projects one validated Grok credential into the selected Worker private root', async () => {
     const paths = fixture();
     const worker = await installed(paths, 'darwin');

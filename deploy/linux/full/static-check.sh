@@ -59,8 +59,9 @@ done
 grep -Fq '"runtimeModule": "/opt/agent-deck/linux-headless/server-core-runtime/index.mjs"' \
   "$full_dir/server-core.config.example.json" ||
   fail 'Server Core config does not bind the packaged concrete runtime'
-grep -Fq '"sessionCreationCatalog"' "$full_dir/server-core.config.example.json" ||
-  fail 'Server Core config does not provision the safe Remote session catalog'
+if grep -Fq '"sessionCreationCatalog"' "$full_dir/server-core.config.example.json"; then
+  fail 'Server Core config still contains the retired manual session catalog'
+fi
 for required in \
   '"surface": "desktop-full"' \
   '"surface": "feishu-session-console"' \
@@ -75,7 +76,7 @@ for required in \
   '.claude/.credentials.json' \
   '.codex/auth.json' \
   'Remote Grok is published as available only' \
-  'Settings, hooks, MCP definitions'; do
+  'Hooks, MCP definitions'; do
   grep -Fq -- "$required" "$full_dir/README.snippet.md" ||
     fail "provider auth projection documentation lost: $required"
 done

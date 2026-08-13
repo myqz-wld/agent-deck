@@ -7,12 +7,9 @@ runtime config, credential authority, and optional provider-auth files outside t
 Full has no separate Worker deployment: Server Core, repositories, providers, session state, and
 Browser data all live in the appliance.
 
-The runtime config must also carry `runtimeOptions.sessionCreationCatalog`, as shown in
-`server-core.config.example.json`. This bounded allowlist is the only source for Remote
-Gateway/Provider choices. It may contain provider/model identifiers and defaults only—never
-endpoints, environment values, tokens, auth material, private keys, or raw provider configuration.
-Core validates the projection and does not inspect Claude, Codex, or Grok configuration to build
-the New Session form.
+No hand-maintained Remote session catalog is used. At Server Core startup, the trusted provider
+source projection derives one bounded, non-secret Gateway/Provider/model snapshot. Remote
+capability requests consume only that snapshot and never open raw provider configuration.
 
 ```bash
 pnpm deploy:full-server -- --config /absolute/path/full-server.json --check
@@ -95,14 +92,18 @@ Updates must be atomically published into the instance-namespaced secrets volume
 operator. They are not accepted from SSH input, provider payloads, environment variables, or the
 renderer.
 
-Provider authentication uses exact projections within that same read-only secrets volume. The
-optional source root `/run/secrets/agent-deck/provider-home` may contain only
-`.claude/.credentials.json` and `.codex/auth.json`. The separate Core-only broker root
+Provider authentication and session configuration use exact projections within that same
+read-only secrets volume. The optional source root `/run/secrets/agent-deck/provider-home` may
+contain `.claude/.credentials.json`, `.claude/settings.json`, regular
+`.claude/gateways/*.json` profiles, `.codex/auth.json`, `.codex/config.toml`, and
+`.grok/config.toml`. The separate Core-only broker root
 `/run/secrets/agent-deck/provider-inference` may contain only its mode-0600 `grok-auth.json` input.
 The source roots and provider subdirectories must be service-owned mode 0700; files must be mode
-0600. At Server Core startup the Claude and Codex files are atomically refreshed into the
-instance-private provider home, and an allowlisted destination whose source was removed is deleted.
-A retired provider-home `.grok/auth.json` destination is also deleted and is never projected.
+0600. At Server Core startup credentials, sanitized Claude Gateway runtime files, sanitized Codex
+provider definitions, and the derived non-secret capability snapshot are atomically refreshed into
+the instance-private provider home. Original Claude/Grok settings are used only to derive safe
+defaults and are not copied. An allowlisted destination whose source was removed is deleted; a
+retired provider-home `.grok/auth.json` destination is also deleted and is never projected.
 
 Remote Grok is published as available only when the exact `providerContainer` opt-in, the external
 host-owned Provider supervisor, its digest-pinned Grok image, and the Core inference credential are
@@ -110,8 +111,8 @@ all ready. The Provider container gets no engine socket or credential: Full maps
 instance-namespaced socket and Workspace volumes to the independently managed supervisor, while
 Core injects the credential only into the fixed trusted upstream request. If any readiness check
 fails, only the Grok choices fail closed with a Core-owned reason; Claude and Codex remain usable.
-Settings, hooks, MCP definitions, plugins, global instructions, SSH files, and the rest of an
-operator home are never projected. Restart the instance after publishing provider-auth changes.
+Hooks, MCP definitions, plugins, global instructions, SSH files, and the rest of an operator home
+are never projected. Restart the instance after publishing provider auth or configuration changes.
 Provider processes receive the exact private HOME, while model-facing sandbox roots deny that
 provider home and the whole state volume.
 

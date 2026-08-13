@@ -81,6 +81,9 @@ function capabilities(
               capability === AgentDeckCapability.SessionInputRead ||
               capability === AgentDeckCapability.SessionHandOff
             ? 3
+          : capability === AgentDeckCapability.SessionHistoryWrite ||
+              capability === AgentDeckCapability.WorkspaceDirectoryWrite
+            ? 5
           : capability === AgentDeckCapability.NodeHooksRead ||
               capability === AgentDeckCapability.NodeHooksWrite ||
               capability === AgentDeckCapability.NodeAssetsBound ||

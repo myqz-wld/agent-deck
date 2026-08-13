@@ -1,9 +1,12 @@
-import type { JSX } from 'react';
+import { useState, type JSX, type MouseEvent } from 'react';
 
 import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
 import { CrownIcon, PushpinIcon, ShieldIcon, UsersIcon } from './icons';
+import { lifecycleLabel } from './TeamDetail/helpers';
+import { HistorySessionActionsMenu } from './HistorySessionActionsMenu';
 import { RuntimeMetadataChips } from './SessionMetadataChips';
 import { SessionCardFrame, SessionCardHeader } from './SessionListPrimitives';
+import type { SessionContextMenuPosition } from './SessionActionsContextMenu';
 
 const ACTIVITY_LABELS = {
   idle: '空闲',
@@ -42,31 +45,54 @@ export function RemoteSessionSummaryCard({
   session,
   selected = false,
   onSelect,
+  onArchive,
+  onDelete,
+  onUnarchive,
   teamRole,
 }: {
   session: RemoteHostSessionPresentationDto;
   selected?: boolean;
   onSelect: () => void;
+  onArchive?: () => Promise<void>;
+  onDelete?: () => Promise<void>;
+  onUnarchive?: () => Promise<void>;
   teamRole?: 'lead' | 'teammate';
 }): JSX.Element {
+  const [menuPosition, setMenuPosition] = useState<SessionContextMenuPosition | null>(null);
   const primaryTeam = session.teams[0];
   const teamCount = session.teams.length;
   const teamTitle = teamCount > 0
     ? `所在团队（${teamCount}）：\n${session.teams.map((team) =>
         `· ${team.teamName}［${team.role === 'lead' ? '负责人' : '协作者'}］`).join('\n')}`
     : '';
-  const summaryLine = session.summary ?? session.workspaceLabel ?? '暂无会话摘要';
-  const activityLine = session.activity === 'waiting'
+  const historyActions = onArchive && onDelete && onUnarchive
+    ? { onArchive, onDelete, onUnarchive }
+    : null;
+  const summaryLine = historyActions
+    ? session.workspaceLabel ?? 'Workspace'
+    : session.summary ?? session.workspaceLabel ?? '暂无会话摘要';
+  const activityLine = historyActions
+    ? `${new Date(session.updatedAt).toLocaleString('zh-CN', { hour12: false })} · ${
+        session.archived
+          ? `已归档（${lifecycleLabel(session.lifecycle)}）`
+          : lifecycleLabel(session.lifecycle)
+      }`
+    : session.activity === 'waiting'
     ? '⚠️ 等待你的输入'
     : session.activity === 'finished'
       ? '✅ 一轮完成'
       : ACTIVITY_LABELS[session.activity];
   return (
     <SessionCardFrame
-      element="button"
+      element={historyActions ? 'div' : 'button'}
       sessionId={session.id}
       selected={selected}
       onSelect={onSelect}
+      onContextMenu={historyActions ? (event: MouseEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setMenuPosition({ x: event.clientX, y: event.clientY });
+      } : undefined}
       emphasis={teamRole === 'lead' ? 'lead' : 'default'}
       label={`打开会话 ${session.title}`}
     >
@@ -127,6 +153,14 @@ export function RemoteSessionSummaryCard({
       </div>
       <div className="mt-1 truncate text-[10px] text-deck-text/85" title={activityLine}>{activityLine}</div>
       <div className="mt-0.5 truncate text-[10px] text-deck-muted/70" title={summaryLine}>{summaryLine}</div>
+      {historyActions && menuPosition && (
+        <HistorySessionActionsMenu
+          archived={session.archived}
+          position={menuPosition}
+          onClose={() => setMenuPosition(null)}
+          {...historyActions}
+        />
+      )}
     </SessionCardFrame>
   );
 }

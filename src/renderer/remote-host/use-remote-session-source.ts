@@ -283,6 +283,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     historyPaginationBusy: lists.historyPaginationBusy,
     historyLoadError: lists.historyLoadError,
     historyQuery: lists.historyQuery,
+    historyArchivedOnly: lists.historyArchivedOnly,
     hasMoreHistorySessions: lists.hasMoreHistorySessions,
     hasMoreSessions: lists.hasMoreSessions,
     identity,
@@ -331,6 +332,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     loadMoreSessions: lists.loadMoreSessions,
     loadMorePending: lists.loadMorePending,
     setHistoryQuery: lists.setHistoryQuery,
+    setHistoryArchivedOnly: lists.setHistoryArchivedOnly,
     refresh: () => setLocalRevision((current) => current + 1),
     selectSession,
   };

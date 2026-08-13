@@ -54,6 +54,8 @@ import type {
   RemoteHostSessionPresentationPageDto,
   RemoteHostSessionPresentationRequestDto,
   RemoteHostSessionTargetDto,
+  RemoteHostSessionHistoryMutationDto,
+  RemoteHostSessionHistoryMutationResultDto,
   RemoteHostSessionContextDto,
   RemoteHostSessionInputCapabilitiesDto,
   RemoteHostSessionMessagesDto,
@@ -100,6 +102,8 @@ import type {
   RemoteHostNodeAssetConventionRequestDto,
   RemoteHostWorkspaceDirectoryListDto,
   RemoteHostWorkspaceDirectoryRequestDto,
+  RemoteHostWorkspaceDirectoryCreateDto,
+  RemoteHostWorkspaceDirectoryCreateResultDto,
 } from '@shared/remote-host';
 
 import { subscribe } from './_helpers';
@@ -147,6 +151,10 @@ export const remoteHostApi = {
     request: RemoteHostWorkspaceDirectoryRequestDto,
   ): Promise<RemoteHostWorkspaceDirectoryListDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.WorkspaceDirectoriesList, request),
+  createRemoteHostWorkspaceDirectory: (
+    request: RemoteHostWorkspaceDirectoryCreateDto,
+  ): Promise<RemoteHostWorkspaceDirectoryCreateResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.WorkspaceDirectoryCreate, request),
   listRemoteHostProjects: (
     request: RemoteHostPageRequestDto,
   ): Promise<RemoteHostProjectPageDto> =>
@@ -155,6 +163,18 @@ export const remoteHostApi = {
     request: RemoteHostCreateSessionDto,
   ): Promise<{ sessionId: string; revision: number }> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.SessionCreate, request),
+  archiveRemoteHostSession: (
+    request: RemoteHostSessionHistoryMutationDto,
+  ): Promise<RemoteHostSessionHistoryMutationResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionArchive, request),
+  unarchiveRemoteHostSession: (
+    request: RemoteHostSessionHistoryMutationDto,
+  ): Promise<RemoteHostSessionHistoryMutationResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionUnarchive, request),
+  deleteRemoteHostSession: (
+    request: RemoteHostSessionHistoryMutationDto,
+  ): Promise<RemoteHostSessionHistoryMutationResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionDelete, request),
   listRemoteHostHistory: (
     request: RemoteHostHistoryRequestDto,
   ): Promise<RemoteHostHistoryPageDto> =>

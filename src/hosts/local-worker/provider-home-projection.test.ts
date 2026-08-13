@@ -23,7 +23,7 @@ function fixture() {
 }
 
 describe('Local Worker provider home projection', () => {
-  it('copies only allowlisted files into private provider roots', () => {
+  it('copies auth plus sanitized provider runtime inputs into private provider roots', () => {
     const { destination, source } = fixture();
     mkdirSync(join(source, '.codex'), { mode: 0o700 });
     mkdirSync(join(source, '.ssh'), { mode: 0o700 });
@@ -32,11 +32,16 @@ describe('Local Worker provider home projection', () => {
     writeFileSync(join(source, '.codex', 'AGENTS.md'), 'host-only instructions\n', { mode: 0o600 });
     writeFileSync(join(source, '.ssh', 'id_ed25519'), 'never-copy\n', { mode: 0o600 });
 
-    expect(projectLocalWorkerProviderHome(source, destination)).toEqual(['.codex/auth.json']);
+    expect(projectLocalWorkerProviderHome(source, destination)).toEqual([
+      '.codex/auth.json',
+      '.codex/config.toml',
+      '.agent-deck/session-create-catalog.json',
+    ]);
     expect(readFileSync(join(destination, '.codex', 'auth.json'), 'utf8'))
       .toBe('{"token":"test"}\n');
     expect(() => readFileSync(join(destination, '.codex', 'AGENTS.md'))).toThrow();
-    expect(() => readFileSync(join(destination, '.codex', 'config.toml'))).toThrow();
+    expect(readFileSync(join(destination, '.codex', 'config.toml'), 'utf8'))
+      .toBe('model = "test"\n');
     expect(() => readFileSync(join(destination, '.ssh', 'id_ed25519'))).toThrow();
   });
 
@@ -61,6 +66,7 @@ describe('Local Worker provider home projection', () => {
 
     expect(projectLocalWorkerProviderHome(source, destination)).toEqual([
       '.claude/.credentials.json',
+      '.agent-deck/session-create-catalog.json',
     ]);
     expect(() => readFileSync(join(destination, '.claude', 'settings.json'))).toThrow();
     expect(() => readFileSync(join(destination, '.codex', 'config.toml'))).toThrow();

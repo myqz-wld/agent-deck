@@ -63,6 +63,7 @@ export interface RemoteSessionSourceView {
   historyLoadError?: string | null;
   historyLoading?: boolean;
   historyPaginationBusy?: boolean;
+  historyArchivedOnly: boolean;
   historyQuery: string;
   historySessions: readonly RemoteHostSessionPresentationDto[];
   hasMoreHistorySessions: boolean;
@@ -99,7 +100,10 @@ export interface RemoteSessionSourceView {
   state: RemoteHostStateDto | null;
   usable: boolean;
   clearError(): void;
+  archiveHistorySession(session: RemoteHostSessionPresentationDto): Promise<void>;
   createSession(input: RemoteSessionCreateInput): Promise<string>;
+  createWorkspaceDirectory(parentDirectory: string, name: string): Promise<string>;
+  deleteHistorySession(session: RemoteHostSessionPresentationDto): Promise<void>;
   getSessionCapabilities(
     request: SessionConsoleCapabilitiesParams,
   ): Promise<SessionConsoleCapabilitiesResult>;
@@ -136,7 +140,9 @@ export interface RemoteSessionSourceView {
   removeOutgoing(messageId: string): Promise<boolean>;
   selectSession(sessionId: string | null): void;
   setHistoryQuery(query: string): void;
+  setHistoryArchivedOnly(archivedOnly: boolean): void;
   send(text: string, attachments?: SessionConsoleAttachmentInput[]): Promise<void>;
   steer(text: string, attachments?: SessionConsoleAttachmentInput[]): Promise<void>;
   updateRuntime(patch: RemoteHostJsonObject): Promise<void>;
+  unarchiveHistorySession(session: RemoteHostSessionPresentationDto): Promise<void>;
 }

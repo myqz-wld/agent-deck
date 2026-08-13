@@ -10,6 +10,10 @@ import { SessionPinButton } from './SessionPinButton';
 import { ArchiveIcon, CrownIcon, RefreshIcon, ShieldIcon, TrashIcon, UsersIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
 import { SessionCardFrame, SessionCardHeader } from './SessionListPrimitives';
+import {
+  SessionActionsContextMenu,
+  type SessionContextMenuPosition,
+} from './SessionActionsContextMenu';
 
 interface Props {
   session: SessionRecord;
@@ -34,15 +38,16 @@ export function SessionCard({
 }: Props): JSX.Element {
   const recent = useSessionStore((s) => s.recentEventsBySession.get(session.id) ?? EMPTY_EVENTS);
   const latestSummary = useSessionStore((s) => s.latestSummaryBySession.get(session.id));
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<SessionContextMenuPosition | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const onContextMenu = (e: React.MouseEvent): void => {
     e.preventDefault();
-    setMenuOpen(true);
+    e.stopPropagation();
+    setMenuPosition({ x: e.clientX, y: e.clientY });
   };
 
-  const close = (): void => setMenuOpen(false);
+  const close = (): void => setMenuPosition(null);
 
   const archive = async (): Promise<void> => {
     setActionError(null);
@@ -108,6 +113,7 @@ export function SessionCard({
       onSelect={onSelect}
       onContextMenu={onContextMenu}
       emphasis={teamRole === 'lead' ? 'lead' : 'default'}
+      label={`打开会话 ${session.title}`}
     >
       <SessionCardHeader
         activity={session.activity}
@@ -180,52 +186,29 @@ export function SessionCard({
           {actionError}
         </div>
       )}
-      {menuOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-20"
-            onClick={(e) => {
-              e.stopPropagation();
-              close();
-            }}
-          />
-          <div className="absolute right-2 top-2 z-30 w-32 overflow-hidden rounded-md border border-white/10 bg-deck-bg-strong shadow-lg">
-            {session.archivedAt === null && (
-              <button
-                type="button"
-                className="block w-full px-3 py-1.5 text-left text-[11px] hover:bg-white/10"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void archive();
-                }}
-              >
-                <ArchiveIcon className="mr-1 inline h-3 w-3" />归档
-              </button>
-            )}
-            {(session.lifecycle === 'closed' || session.lifecycle === 'dormant') && session.archivedAt === null && (
-              <button
-                type="button"
-                className="block w-full px-3 py-1.5 text-left text-[11px] hover:bg-white/10"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void reactivate();
-                }}
-              >
-                <RefreshIcon className="mr-1 inline h-3 w-3" />重新激活
-              </button>
-            )}
-            <button
-              type="button"
-              className="block w-full px-3 py-1.5 text-left text-[11px] text-status-waiting hover:bg-white/10"
-              onClick={(e) => {
-                e.stopPropagation();
-                void remove();
-              }}
-            >
-              <TrashIcon className="mr-1 inline h-3 w-3" />删除
-            </button>
-          </div>
-        </>
+      {menuPosition && (
+        <SessionActionsContextMenu
+          position={menuPosition}
+          onClose={close}
+          actions={[
+            ...(session.archivedAt === null ? [{
+              icon: <ArchiveIcon className="mr-1 inline h-3 w-3" />,
+              label: '归档',
+              run: archive,
+            }] : []),
+            ...((session.lifecycle === 'closed' || session.lifecycle === 'dormant') && session.archivedAt === null ? [{
+              icon: <RefreshIcon className="mr-1 inline h-3 w-3" />,
+              label: '重新激活',
+              run: reactivate,
+            }] : []),
+            {
+              danger: true,
+              icon: <TrashIcon className="mr-1 inline h-3 w-3" />,
+              label: '删除',
+              run: remove,
+            },
+          ]}
+        />
       )}
     </SessionCardFrame>
   );

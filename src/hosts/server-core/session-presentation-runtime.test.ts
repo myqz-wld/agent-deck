@@ -79,13 +79,16 @@ function harness(options: {
     currentRevision: () => revision,
     execute: vi.fn(async () => ({ result: { ok: true }, revision })),
   };
+  const listHistory = vi.fn((_query: string | undefined, _archivedOnly: boolean, limit: number, offset: number) =>
+    page([dormant], limit, offset));
+  const counts = vi.fn((kind: 'history' | 'live') => kind === 'live'
+    ? { total: 3, active: 2, dormant: 1, closed: 0, working: 1, waiting: 1 }
+    : { total: 1, active: 0, dormant: 1, closed: 0, working: 0, waiting: 0 });
   const runtime = new ServerCoreSessionPresentationRuntime(base, {
     repository: {
       listLive: (limit, offset) => page(all, limit, offset),
-      listHistory: (_query, limit, offset) => page([dormant], limit, offset),
-      counts: (kind) => kind === 'live'
-        ? { total: 3, active: 2, dormant: 1, closed: 0, working: 1, waiting: 1 }
-        : { total: 1, active: 0, dormant: 1, closed: 0, working: 0, waiting: 0 },
+      listHistory,
+      counts,
       listPendingCandidates: () => all,
       memberships: (ids) => new Map(ids.flatMap((id) =>
         memberships.has(id) ? [[id, memberships.get(id)!] as const] : [])),
@@ -98,10 +101,19 @@ function harness(options: {
     workspaceRoot: '/workspaces',
     currentRevision: () => revision,
   });
-  return { runtime, setRevision: (next: number) => { revision = next; } };
+  return { counts, listHistory, runtime, setRevision: (next: number) => { revision = next; } };
 }
 
 describe('ServerCoreSessionPresentationRuntime', () => {
+  it('forwards the archived-only history filter into rows and authoritative counts', async () => {
+    const { counts, listHistory, runtime } = harness();
+    await runtime.execute(request('session.presentation.list', {
+      kind: 'history', archivedOnly: true, limit: 20,
+    }));
+    expect(listHistory).toHaveBeenCalledWith(undefined, true, 20, 0);
+    expect(counts).toHaveBeenCalledWith('history', undefined, true);
+  });
+
   it('returns typed rich rows, authoritative counts and no private cwd/secret text', async () => {
     const { runtime } = harness();
     const response = await runtime.execute(request('session.presentation.list', {

@@ -35,6 +35,7 @@ export interface RemotePresentationLists {
   error: string | null;
   historyLoading: boolean;
   historyLoadError: string | null;
+  historyArchivedOnly: boolean;
   historyQuery: string;
   hasMoreSessions: boolean;
   hasMoreHistorySessions: boolean;
@@ -54,6 +55,7 @@ export interface RemotePresentationLists {
   clearErrors(): void;
   mergePending(sessionId: string, pending: RemoteHostPendingListDto | null): void;
   setHistoryQuery(query: string): void;
+  setHistoryArchivedOnly(archivedOnly: boolean): void;
 }
 
 function message(reason: unknown): string {
@@ -113,6 +115,7 @@ export function useRemotePresentationLists(
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
   const [historyQuery, setHistoryQueryState] = useState('');
+  const [historyArchivedOnly, setHistoryArchivedOnlyState] = useState(false);
   const [sessionCursor, setSessionCursor] = useState<string | null>(null);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [pendingCursor, setPendingCursor] = useState<string | null>(null);
@@ -131,6 +134,8 @@ export function useRemotePresentationLists(
   identityRef.current = identity;
   const historyQueryRef = useRef(historyQuery);
   historyQueryRef.current = historyQuery;
+  const historyArchivedOnlyRef = useRef(historyArchivedOnly);
+  historyArchivedOnlyRef.current = historyArchivedOnly;
   const cursorRefs = useRef({ live: sessionCursor, history: historyCursor, pending: pendingCursor });
   cursorRefs.current = { live: sessionCursor, history: historyCursor, pending: pendingCursor };
   const baseRevisions = useRef({ live: 0, history: 0, pending: 0 });
@@ -138,9 +143,10 @@ export function useRemotePresentationLists(
   const canRich = usable && capabilities.has('sessions.presentation.read');
   const canLegacy = usable && capabilities.has('session-console.read');
   const canHistory = canRich || (canLegacy && capabilities.has('sessions.history'));
+  const canHistoryParity = canRich && capabilities.has('sessions.history.write');
   const canPending = usable && capabilities.has('pending.index.read');
   const liveTrigger = `${resourceRevisions['session-list']}:${localRevision}:${reloads.live}`;
-  const historyTrigger = `${resourceRevisions['session-list']}:${localRevision}:${reloads.history}:${historyQuery}`;
+  const historyTrigger = `${resourceRevisions['session-list']}:${localRevision}:${reloads.history}:${historyQuery}:${historyArchivedOnly}`;
   const pendingTrigger = `${resourceRevisions.pending}:${localRevision}:${reloads.pending}`;
   const triggerRefs = useRef({ live: liveTrigger, history: historyTrigger, pending: pendingTrigger });
   triggerRefs.current = { live: liveTrigger, history: historyTrigger, pending: pendingTrigger };
@@ -178,6 +184,10 @@ export function useRemotePresentationLists(
     setPendingScanTruncated(false);
     baseRevisions.current = { live: 0, history: 0, pending: 0 };
   }, [identity, usable]);
+
+  useEffect(() => {
+    setHistoryArchivedOnlyState(false);
+  }, [identity]);
 
   useRemoteRefreshLane({
     enabled: Boolean(activeProfileId && (canRich || canLegacy)), identity, trigger: liveTrigger,
@@ -228,6 +238,7 @@ export function useRemotePresentationLists(
           const page = await window.api.listRemoteHostSessionPresentations({
             profileId: activeProfileId, kind: 'history', limit: REMOTE_HOST_PAGE_LIMIT,
             ...(query ? { query } : {}),
+            ...(canHistoryParity && historyArchivedOnly ? { archivedOnly: true } : {}),
           });
           if (!isCurrent()) return;
           setHistorySessions(page.sessions);
@@ -304,6 +315,7 @@ export function useRemotePresentationLists(
     const expectedTrigger = triggerRefs.current[kind];
     const expectedRevision = baseRevisions.current[kind];
     const expectedQuery = historyQueryRef.current.trim();
+    const expectedArchivedOnly = historyArchivedOnlyRef.current;
     const current = (): boolean => identityRef.current === expectedIdentity &&
       generation === paginationGeneration.current[kind] &&
       triggerRefs.current[kind] === expectedTrigger &&
@@ -339,6 +351,9 @@ export function useRemotePresentationLists(
         const rich = await window.api.listRemoteHostSessionPresentations({
           profileId: activeProfileId, kind, cursor, limit: REMOTE_HOST_PAGE_LIMIT,
           ...(isHistory && expectedQuery ? { query: expectedQuery } : {}),
+          ...(isHistory && canHistoryParity && expectedArchivedOnly
+            ? { archivedOnly: true }
+            : {}),
         });
         page = { ...rich, total: rich.counts.total };
       } else {
@@ -352,7 +367,11 @@ export function useRemotePresentationLists(
           revision: legacy.revision, total: legacy.total,
         };
       }
-      if (!current() || (isHistory && historyQueryRef.current.trim() !== expectedQuery)) return;
+      if (
+        !current() ||
+        (isHistory && historyQueryRef.current.trim() !== expectedQuery) ||
+        (isHistory && historyArchivedOnlyRef.current !== expectedArchivedOnly)
+      ) return;
       if (page.revision !== expectedRevision) {
         setReloads((value) => ({ ...value, [kind]: value[kind] + 1 }));
         return;
@@ -376,14 +395,14 @@ export function useRemotePresentationLists(
     } finally {
       if (current()) setPaginationBusy((value) => ({ ...value, [kind]: false }));
     }
-  }, [activeProfileId, canPending, canRich, usable]);
+  }, [activeProfileId, canHistoryParity, canPending, canRich, usable]);
 
   return {
     sessions: usable ? sessions : [], historySessions: usable ? historySessions : [],
     counts: usable ? counts : null, total: usable ? sessionTotal : null,
     loading: usable && loading,
     error: usable ? error : null, historyLoading: usable && historyLoading,
-    historyLoadError: usable ? historyLoadError : null, historyQuery,
+    historyLoadError: usable ? historyLoadError : null, historyQuery, historyArchivedOnly,
     hasMoreSessions: usable && sessionCursor !== null,
     hasMoreHistorySessions: usable && historyCursor !== null,
     pendingBuckets: usable ? pendingBuckets : [],
@@ -402,5 +421,8 @@ export function useRemotePresentationLists(
     clearErrors: () => { setError(null); setHistoryLoadError(null); setPendingLoadError(null); },
     mergePending,
     setHistoryQuery: (query) => setHistoryQueryState(query.slice(0, 512)),
+    setHistoryArchivedOnly: (archivedOnly) => {
+      setHistoryArchivedOnlyState(canHistoryParity && archivedOnly);
+    },
   };
 }

@@ -269,7 +269,7 @@ export class ServerCoreSessionCreateCapabilities {
       );
     }
     this.resolveWorkspace(params.workingDirectory);
-    const catalog = this.options.catalog.get(requested);
+    const catalog = this.options.catalog.get(requested, params.provider);
     const providers = catalog.providers;
     assertCatalogBounded(providers, requested);
     if (params.provider && !providers.includes(params.provider)) {

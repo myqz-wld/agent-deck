@@ -3,6 +3,7 @@ import type {
   SessionContextGetResult,
   SessionHandOffCommitResult,
   SessionHandOffPreviewResult,
+  SessionHistoryMutationResult,
   SessionHandOffTargetInputDto,
   SessionInputCapabilitiesResult,
   SessionMessagesListResult,
@@ -64,6 +65,14 @@ export type RemoteHostHandOffCommitDto = SessionHandOffCommitResult;
 
 export interface RemoteHostMutationTargetDto
   extends RemoteHostSessionTargetDto, RemoteHostMutationIntentDto {}
+
+export interface RemoteHostSessionHistoryMutationDto
+  extends RemoteHostSessionTargetDto, RemoteHostMutationIntentDto {
+  expectedArchived: boolean;
+  expectedUpdatedAt: number;
+}
+
+export type RemoteHostSessionHistoryMutationResultDto = SessionHistoryMutationResult;
 
 export interface RemoteHostSendDto
   extends RemoteHostSessionTargetDto, RemoteHostMutationIntentDto {

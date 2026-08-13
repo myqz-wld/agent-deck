@@ -1,11 +1,29 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  parseWorkspaceDirectoryCreateParams,
+  parseWorkspaceDirectoryCreateResult,
   parseWorkspaceDirectoryListParams,
   parseWorkspaceDirectoryListResult,
 } from './session-console-directories';
 
 describe('Workspace directory list contract', () => {
+  it('accepts an exact bounded child-directory creation', () => {
+    const params = parseWorkspaceDirectoryCreateParams({
+      parentDirectory: 'repo', name: 'new-folder',
+    });
+    expect(params).toEqual({ parentDirectory: 'repo', name: 'new-folder' });
+    expect(parseWorkspaceDirectoryCreateResult({
+      directory: 'repo/new-folder', revision: 4,
+    }, params)).toEqual({ directory: 'repo/new-folder', revision: 4 });
+  });
+
+  it('rejects escaping and separator-bearing directory names', () => {
+    for (const name of ['', '.', '..', '../secret', 'nested/child', 'nested\\child']) {
+      expect(() => parseWorkspaceDirectoryCreateParams({ parentDirectory: '.', name })).toThrow();
+    }
+  });
+
   it('accepts exact Workspace-relative requests and sorted direct children', () => {
     expect(parseWorkspaceDirectoryListParams({ directory: '.' })).toEqual({ directory: '.' });
     expect(parseWorkspaceDirectoryListResult({

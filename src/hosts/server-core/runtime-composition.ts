@@ -15,7 +15,7 @@ import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import type { JsonObject } from '@contracts/index';
 import type { WorkspaceSandboxSpec } from '@contracts/workspace-sandbox';
-import { syncProviderHomeAuthFiles } from '@hosts/provider-state/provider-home-projection';
+import { syncProviderHomeFiles } from '@hosts/provider-state/provider-home-projection';
 import type { ServerCoreRuntimeBootstrap, ServerCoreRuntimeFactoryInput } from './root';
 import { ServerCoreCredentialFile } from './credential-file';
 import { createServerCoreClaudeHost } from './provider-claude-host';
@@ -68,8 +68,11 @@ import { ServerCoreNodeAssetCatalog } from './node-asset-catalog';
 import { ServerCoreSessionLifecycle } from './session-lifecycle';
 import { ServerCoreSessionPresentationRuntime } from './session-presentation-runtime';
 import { ServerCoreSessionMetadataRuntime } from './session-metadata-runtime';
+import { ServerCoreSessionHistoryMutationRuntime } from './session-history-mutation-runtime';
+import { ServerCoreWorkspaceDirectoryMutationRuntime } from './workspace-directory-mutation-runtime';
 import { resolveServerCoreSessionLifecycleSettings } from './session-lifecycle-options';
 import { createServerCoreProviderRetirement } from './runtime-provider-retirement';
+import { createServerCoreSessionRollback } from './runtime-session-rollback';
 import {
   resolveServerCoreProviderGrokContainer,
   resolveServerCoreProviderContainerRuntimePaths,
@@ -81,8 +84,7 @@ import {
 export const SERVER_CORE_CREDENTIAL_FILE = '/run/secrets/agent-deck/credentials.json';
 export const SERVER_CORE_PROVIDER_AUTH_SOURCE = '/run/secrets/agent-deck/provider-home';
 const RUNTIME_OPTION_KEYS = new Set([
-  'projects', 'providerContainer', 'providerSettings', 'sessionCreationCatalog',
-  'sessionLifecycle',
+  'projects', 'providerContainer', 'providerSettings', 'sessionLifecycle',
 ]);
 
 export interface ServerCoreRuntimeCompositionOverrides {
@@ -136,7 +138,7 @@ export function createServerCoreRuntimeWithOverrides(
       lstatSync(configuredSource, { throwIfNoEntry: false })
       ? configuredSource
       : null;
-    syncProviderHomeAuthFiles(source, workspaceBoundary.providerHomeRoot);
+    syncProviderHomeFiles(source, workspaceBoundary.providerHomeRoot);
   }
   const runtimeDiagnostics = overrides.diagnostics ?? diagnostics();
   const grokContainer = overrides.grokContainer ?? resolveServerCoreProviderGrokContainer(
@@ -196,7 +198,7 @@ export function createServerCoreRuntimeWithOverrides(
   });
   const providerSettings = resolveServerCoreProviderSettings(input.runtimeOptions);
   const sessionCreateCatalog = resolveServerCoreSessionCreateCatalog(
-    input.runtimeOptions,
+    workspaceBoundary.providerHomeRoot,
     providerSettings,
   );
   const nodeAssets = ServerCoreNodeAssetCatalog.create({
@@ -221,21 +223,7 @@ export function createServerCoreRuntimeWithOverrides(
   const attachmentStore = new ServerCoreSessionAttachmentStore({
     rootDirectory: join(input.paths.stateDirectory, 'session-attachments'),
   });
-  const rollbackCreatedSession = async (adapterId: string, sessionId: string): Promise<void> => {
-    const record = repositories.sessions.get(sessionId);
-    if (record && record.agentId !== adapterId) {
-      throw new Error('Created session rollback adapter identity changed');
-    }
-    const adapter = registry.get(adapterId);
-    if (!adapter?.closeSessionForRollback) {
-      throw new Error('Adapter does not provide strict session rollback');
-    }
-    await adapter.closeSessionForRollback(sessionId);
-    repositories.sessionManager.discardAfterProviderRollback(sessionId);
-    if (repositories.sessions.get(sessionId)) {
-      throw new Error('Created session rollback durable cleanup did not complete');
-    }
-  };
+  const rollbackCreatedSession = createServerCoreSessionRollback(repositories, registry);
   const sessionConsoleAuthority = new ServerCoreSessionConsoleAuthority({
     projects,
     workspaceRoot,
@@ -418,7 +406,17 @@ export function createServerCoreRuntimeWithOverrides(
     messages: repositories.messages,
     currentRevision: () => metadata.currentRevision(),
   });
-  const detailRuntime = new ServerCoreSessionDetailRuntime(metadataRuntime, {
+  const historyMutationRuntime = new ServerCoreSessionHistoryMutationRuntime(metadataRuntime, {
+    sessions: repositories.sessions,
+    manager: repositories.sessionManager,
+    teams: agentDeckTeamRepo,
+    metadata,
+  });
+  const workspaceDirectoryMutationRuntime = new ServerCoreWorkspaceDirectoryMutationRuntime(
+    historyMutationRuntime,
+    { workspaceRoot, metadata },
+  );
+  const detailRuntime = new ServerCoreSessionDetailRuntime(workspaceDirectoryMutationRuntime, {
     workspaceRoot,
     sessions: repositories.sessions,
     events: repositories.events,

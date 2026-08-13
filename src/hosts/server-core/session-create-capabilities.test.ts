@@ -19,6 +19,7 @@ import {
 } from '@contracts/index';
 import type { AgentAdapter } from '@main/adapters/types';
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
+import { projectProviderSessionFiles } from '@hosts/provider-state/provider-session-projection';
 import type { SessionAdapterId } from '@shared/types';
 import { resolveServerCoreProviderSettings } from './provider-settings';
 import { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
@@ -54,16 +55,17 @@ ready: readonly SessionAdapterId[] = enabled): CapabilityHarness {
   roots.push(root);
   const workspaceRoot = join(root, 'workspace');
   const providerHome = join(root, 'provider-home');
+  const providerSourceHome = join(root, 'provider-source-home');
   mkdirSync(join(workspaceRoot, 'repo', 'nested'), { recursive: true });
   mkdirSync(providerHome, { mode: 0o700 });
-  mkdirSync(join(providerHome, '.claude', 'gateways'), { recursive: true, mode: 0o700 });
-  mkdirSync(join(providerHome, '.codex'), { recursive: true, mode: 0o700 });
-  mkdirSync(join(providerHome, '.grok'), { recursive: true, mode: 0o700 });
-  writeFileSync(join(providerHome, '.claude', 'gateways', 'deepseek.json'), JSON.stringify({
+  mkdirSync(join(providerSourceHome, '.claude', 'gateways'), { recursive: true, mode: 0o700 });
+  mkdirSync(join(providerSourceHome, '.codex'), { recursive: true, mode: 0o700 });
+  mkdirSync(join(providerSourceHome, '.grok'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(providerSourceHome, '.claude', 'gateways', 'deepseek.json'), JSON.stringify({
     env: { ANTHROPIC_MODEL: 'gateway-sonnet', ANTHROPIC_AUTH_TOKEN: 'must-not-leak' },
   }));
-  writeFileSync(join(providerHome, '.codex', 'config.toml'), [
-    'model = "gpt-remote"',
+  writeFileSync(join(providerSourceHome, '.codex', 'config.toml'), [
+    `model = "${codexModel}"`,
     'model_provider = "team"',
     'model_reasoning_effort = "xhigh"',
     '[model_providers.team]',
@@ -71,38 +73,12 @@ ready: readonly SessionAdapterId[] = enabled): CapabilityHarness {
     '[model_providers.openai]',
     'name = "OpenAI"',
   ].join('\n'));
-  writeFileSync(join(providerHome, '.grok', 'config.toml'), 'model = "grok-remote"\n');
+  writeFileSync(join(providerSourceHome, '.grok', 'config.toml'), 'model = "grok-remote"\n');
+  projectProviderSessionFiles(providerSourceHome, providerHome);
   const adapters = new Map(enabled.map((id) => [id, adapter(id)]));
   let revision = 7;
   const runtimeOptions: JsonObject = {
     ...(grokSandbox === undefined ? {} : { providerSettings: { grokSandbox } }),
-    sessionCreationCatalog: {
-      schemaVersion: 1,
-      adapters: [
-        {
-          adapterId: 'claude-code',
-          providers: ['deepseek'],
-          provider: 'deepseek',
-          model: 'gateway-sonnet',
-          thinking: 'high',
-          permissionMode: 'bypassPermissions',
-        },
-        {
-          adapterId: 'codex-cli',
-          providers: ['team', 'openai'],
-          provider: 'team',
-          model: codexModel,
-          thinking: 'xhigh',
-          approvalPolicy: 'never',
-        },
-        {
-          adapterId: 'grok-build',
-          model: 'grok-remote',
-          thinking: 'high',
-          sessionMode: 'default',
-        },
-      ],
-    },
   };
   const settings = resolveServerCoreProviderSettings(runtimeOptions);
   const subject = new ServerCoreSessionCreateCapabilities({
@@ -111,7 +87,7 @@ ready: readonly SessionAdapterId[] = enabled): CapabilityHarness {
     } : {}),
     metadata: { currentRevision: () => revision },
     projects: [],
-    catalog: resolveServerCoreSessionCreateCatalog(runtimeOptions, settings),
+    catalog: resolveServerCoreSessionCreateCatalog(providerHome, settings),
     registry: {
       get: (id) => adapters.get(id as SessionAdapterId),
       isReady: (id) => ready.includes(id as SessionAdapterId),
@@ -162,12 +138,14 @@ describe('ServerCoreSessionCreateCapabilities', () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-create-empty-catalog-')));
     roots.push(root);
     const workspaceRoot = join(root, 'workspace');
+    const providerHome = join(root, 'provider-home');
     mkdirSync(workspaceRoot, { recursive: true });
+    mkdirSync(providerHome, { mode: 0o700 });
     const settings = resolveServerCoreProviderSettings({});
     const subject = new ServerCoreSessionCreateCapabilities({
       metadata: { currentRevision: () => 1 },
       projects: [],
-      catalog: resolveServerCoreSessionCreateCatalog({}, settings),
+      catalog: resolveServerCoreSessionCreateCatalog(providerHome, settings),
       registry: { get: (id) => id === 'codex-cli' ? adapter('codex-cli') : undefined },
       settings,
       workspaceRoot: realpathSync(workspaceRoot),
@@ -236,6 +214,7 @@ describe('ServerCoreSessionCreateCapabilities', () => {
     const state = harness();
     const request = { adapterId: 'grok-build' as const, provider: '', workingDirectory: 'repo' };
     const unavailable = await state.subject.describe(request);
+    mkdirSync(join(state.providerHome, '.grok'), { mode: 0o700 });
     writeFileSync(join(state.providerHome, '.grok', 'auth.json'), '{"scope":{"key":"private"}}\n', {
       mode: 0o600,
     });

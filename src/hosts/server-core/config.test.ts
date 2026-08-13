@@ -14,6 +14,20 @@ function config(instanceId: string) {
 }
 
 describe('Server Core instance config', () => {
+  it('drops the retired manual session catalog from an upgraded private config', () => {
+    const parsed = parseServerCoreConfig({
+      ...config('instance-a'),
+      runtimeOptions: {
+        providerContainer: { schemaVersion: 1 },
+        sessionCreationCatalog: { schemaVersion: 1, adapters: [] },
+      },
+    });
+
+    expect(parsed.runtimeOptions).toEqual({
+      providerContainer: { schemaVersion: 1 },
+    });
+  });
+
   it.each(['Instance-a', '实例-a', 'a'.repeat(64), '-instance', 'instance-'])(
     'rejects non-exact Linux instance %s',
     (instanceId) => {

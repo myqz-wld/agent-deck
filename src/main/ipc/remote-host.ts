@@ -53,6 +53,8 @@ import {
   parseRemoteHostHandOffPreview,
   parseRemoteHostHandOffCommit,
   parseRemoteHostWorkspaceDirectoryRequest,
+  parseRemoteHostWorkspaceDirectoryCreate,
+  parseRemoteHostSessionHistoryMutation,
   publicRemoteHostError,
 } from '@main/remote-host';
 import { IpcEvent, RemoteHostIpcInvoke } from '@shared/ipc-channels';
@@ -134,10 +136,26 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().listWorkspaceDirectories(
       parseRemoteHostWorkspaceDirectoryRequest(request),
     )));
+  on(RemoteHostIpcInvoke.WorkspaceDirectoryCreate, (_event, request) => safely(() =>
+    getRemoteHostService().workspaceDirectories.create(
+      parseRemoteHostWorkspaceDirectoryCreate(request),
+    )));
   on(RemoteHostIpcInvoke.ProjectsList, (_event, request) => safely(() =>
     getRemoteHostService().listProjects(parseRemoteHostPageRequest(request))));
   on(RemoteHostIpcInvoke.SessionCreate, (_event, request) => safely(() =>
     getRemoteHostService().createSession(parseRemoteHostCreateSession(request))));
+  on(RemoteHostIpcInvoke.SessionArchive, (_event, request) => safely(() =>
+    getRemoteHostService().historyMutations.archive(
+      parseRemoteHostSessionHistoryMutation(request),
+    )));
+  on(RemoteHostIpcInvoke.SessionUnarchive, (_event, request) => safely(() =>
+    getRemoteHostService().historyMutations.unarchive(
+      parseRemoteHostSessionHistoryMutation(request),
+    )));
+  on(RemoteHostIpcInvoke.SessionDelete, (_event, request) => safely(() =>
+    getRemoteHostService().historyMutations.delete(
+      parseRemoteHostSessionHistoryMutation(request),
+    )));
   on(RemoteHostIpcInvoke.HistoryList, (_event, request) => safely(() =>
     getRemoteHostService().listHistory(parseRemoteHostHistoryRequest(request))));
   on(RemoteHostIpcInvoke.EventsList, (_event, request) => safely(() =>

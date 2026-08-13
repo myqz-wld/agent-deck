@@ -51,8 +51,30 @@ export function SessionCardFrame({
     <div
       data-session-card-frame="true"
       data-session-id={sessionId}
+      {...(onContextMenu ? {
+        role: 'button',
+        tabIndex: 0,
+        'aria-label': label,
+        'aria-pressed': selected,
+      } : {})}
       onClick={onSelect}
       onContextMenu={onContextMenu}
+      onKeyDown={onContextMenu ? (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect();
+          return;
+        }
+        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+        event.preventDefault();
+        const bounds = event.currentTarget.getBoundingClientRect();
+        event.currentTarget.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: bounds.left + Math.min(24, bounds.width / 2),
+          clientY: bounds.top + Math.min(24, bounds.height / 2),
+        }));
+      } : undefined}
       className={className}
     >
       {children}

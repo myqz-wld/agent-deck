@@ -23,6 +23,16 @@ export interface WorkspaceDirectoryListResult {
   revision: number;
 }
 
+export interface WorkspaceDirectoryCreateParams {
+  parentDirectory: string;
+  name: string;
+}
+
+export interface WorkspaceDirectoryCreateResult {
+  directory: string;
+  revision: number;
+}
+
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
 function compareDirectoryNames(left: string, right: string): number {
@@ -41,13 +51,49 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[], 
   }
 }
 
-function directoryName(value: unknown, field: string): string {
+export function parseWorkspaceDirectoryName(
+  value: unknown,
+  field = 'workspace.directory.name',
+): string {
   if (
     typeof value !== 'string' || !value || value === '.' || value === '..' ||
     value.includes('/') || value.includes('\\') || CONTROL.test(value) ||
     new TextEncoder().encode(value).byteLength > SESSION_CONSOLE_MAX_DIRECTORY_NAME_BYTES
   ) fail(field);
   return value;
+}
+
+export function parseWorkspaceDirectoryCreateParams(
+  value: unknown,
+): WorkspaceDirectoryCreateParams {
+  if (!isJsonObject(value)) fail('workspace.directory.create.params');
+  exactKeys(value, ['name', 'parentDirectory'], 'workspace.directory.create.params');
+  return {
+    parentDirectory: parseWorkspaceDirectoryRef(
+      value.parentDirectory,
+      'workspace.directory.create.parentDirectory',
+    ),
+    name: parseWorkspaceDirectoryName(value.name, 'workspace.directory.create.name'),
+  };
+}
+
+export function parseWorkspaceDirectoryCreateResult(
+  value: unknown,
+  params?: WorkspaceDirectoryCreateParams,
+): WorkspaceDirectoryCreateResult {
+  if (!isJsonObject(value)) fail('workspace.directory.create.result');
+  exactKeys(value, ['directory', 'revision'], 'workspace.directory.create.result');
+  const directory = parseWorkspaceDirectoryRef(
+    value.directory,
+    'workspace.directory.create.directory',
+  );
+  if (params) {
+    const expected = params.parentDirectory === '.'
+      ? params.name
+      : `${params.parentDirectory}/${params.name}`;
+    if (directory !== expected) fail('workspace.directory.create.directory');
+  }
+  return { directory, revision: revision(value.revision) };
 }
 
 function revision(value: unknown): number {
@@ -89,7 +135,7 @@ export function parseWorkspaceDirectoryListResult(
     const field = `workspace.directory.list.directories[${index}]`;
     if (!isJsonObject(entry)) fail(field);
     exactKeys(entry, ['directory', 'name'], field);
-    const name = directoryName(entry.name, `${field}.name`);
+    const name = parseWorkspaceDirectoryName(entry.name, `${field}.name`);
     const child = parseWorkspaceDirectoryRef(entry.directory, `${field}.directory`);
     const expected = directory === '.' ? name : `${directory}/${name}`;
     if (child !== expected) fail(`${field}.directory`);

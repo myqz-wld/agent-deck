@@ -91,6 +91,7 @@ function pending(
 
 const capabilities = new Set([
   'sessions.presentation.read', 'pending.index.read', 'sessions.history',
+  'sessions.history.write',
 ]);
 
 function renderLists(resourceRevisions = revisions()) {
@@ -101,6 +102,26 @@ function renderLists(resourceRevisions = revisions()) {
 }
 
 describe('useRemotePresentationLists', () => {
+  it('requests an archived-only history page only after the explicit filter changes', async () => {
+    const list = vi.fn((request: { kind: 'history' | 'live'; archivedOnly?: boolean }) =>
+      Promise.resolve(page(request.kind)));
+    window.api = {
+      listRemoteHostSessionPresentations: list,
+      listRemoteHostPendingIndex: vi.fn(async () => pending()),
+    } as unknown as typeof window.api;
+    const hook = renderLists();
+    await waitFor(() => expect(list).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'history',
+    })));
+    expect(list.mock.calls.some(([request]) => request.archivedOnly === true)).toBe(false);
+
+    act(() => hook.result.current.setHistoryArchivedOnly(true));
+    await waitFor(() => expect(list).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'history', archivedOnly: true,
+    })));
+    expect(hook.result.current.historyArchivedOnly).toBe(true);
+  });
+
   it('coalesces a session-list burst without refreshing Pending', async () => {
     const live = deferred<RemoteHostSessionPresentationPageDto>();
     const history = deferred<RemoteHostSessionPresentationPageDto>();

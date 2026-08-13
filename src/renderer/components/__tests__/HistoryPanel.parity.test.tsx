@@ -63,7 +63,7 @@ describe('Local and Remote History presentation parity', () => {
     expect(screen.getByText('上下文 暂无数据')).toBeTruthy();
   });
 
-  it('keeps Local-only archive actions in the card menu', () => {
+  it('opens history actions by right click at the pointer position', () => {
     const archive = vi.fn(async () => undefined);
     render(<LocalHistorySummaryCard
       session={localSession}
@@ -73,8 +73,12 @@ describe('Local and Remote History presentation parity', () => {
       onDelete={vi.fn(async () => undefined)}
     />);
 
-    fireEvent.click(screen.getByRole('button', { name: '历史会话操作' }));
-    fireEvent.click(screen.getByRole('button', { name: '归档' }));
+    expect(screen.queryByRole('button', { name: '历史会话操作' })).toBeNull();
+    fireEvent.contextMenu(screen.getByText('History row'), { clientX: 120, clientY: 80 });
+    const menu = screen.getByRole('menu', { name: '会话操作' });
+    expect(menu.style.left).toBe('120px');
+    expect(menu.style.top).toBe('80px');
+    fireEvent.click(screen.getByRole('menuitem', { name: '归档' }));
     expect(archive).toHaveBeenCalledOnce();
   });
 });

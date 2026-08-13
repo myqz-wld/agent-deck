@@ -28,6 +28,7 @@ export function parseRemoteHostSessionPresentationRequest(
 ): RemoteHostSessionPresentationRequestDto {
   const raw = object(value, 'sessionPresentation');
   const keys = ['kind', 'limit', 'profileId'];
+  if (raw.archivedOnly !== undefined) keys.push('archivedOnly');
   if (raw.cursor !== undefined) keys.push('cursor');
   if (raw.query !== undefined) keys.push('query');
   exact(raw, keys, 'sessionPresentation');
@@ -35,6 +36,7 @@ export function parseRemoteHostSessionPresentationRequest(
     const params = parseSessionPresentationListParams({
       kind: raw.kind,
       limit: raw.limit,
+      ...(raw.archivedOnly === undefined ? {} : { archivedOnly: raw.archivedOnly }),
       ...(raw.cursor === undefined ? {} : { cursor: raw.cursor }),
       ...(raw.query === undefined ? {} : { query: raw.query }),
     });

@@ -28,12 +28,14 @@ function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
 }
 
 let setSessionPinned: ReturnType<typeof vi.fn>;
+let archiveSession: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   setSessionPinned = vi.fn().mockResolvedValue(makeSession({ pinnedAt: 1 }));
+  archiveSession = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(window, 'api', {
     configurable: true,
-    value: { setSessionPinned },
+    value: { archiveSession, setSessionPinned },
   });
 });
 
@@ -69,6 +71,30 @@ describe('SessionPinButton', () => {
 
     expect(setSessionPinned).toHaveBeenCalledTimes(1);
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('实时卡片在鼠标右键位置打开统一操作菜单', async () => {
+    const view = render(
+      <SessionCard session={makeSession()} selected={false} onSelect={vi.fn()} />,
+    );
+    fireEvent.contextMenu(view.container.querySelector('[data-session-card-frame="true"]')!, {
+      clientX: 180,
+      clientY: 120,
+    });
+    const menu = screen.getByRole('menu', { name: '会话操作' });
+    expect(menu.style.left).toBe('180px');
+    expect(menu.style.top).toBe('120px');
+    fireEvent.click(screen.getByRole('menuitem', { name: '归档' }));
+    expect(archiveSession).toHaveBeenCalledWith('session-1');
+  });
+
+  it('为统一右键菜单保留键盘入口', () => {
+    const view = render(
+      <SessionCard session={makeSession()} selected={false} onSelect={vi.fn()} />,
+    );
+    const card = view.container.querySelector('[data-session-card-frame="true"]')!;
+    fireEvent.keyDown(card, { key: 'F10', shiftKey: true });
+    expect(screen.getByRole('menu', { name: '会话操作' })).toBeTruthy();
   });
 
   it('请求未完成时同步去重，且失败后保持服务端记录状态并恢复可点击', async () => {

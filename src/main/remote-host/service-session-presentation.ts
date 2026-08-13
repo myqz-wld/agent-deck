@@ -28,6 +28,7 @@ export class RemoteHostSessionPresentationController {
         {
           kind: request.kind,
           limit: request.limit,
+          ...(request.archivedOnly === undefined ? {} : { archivedOnly: request.archivedOnly }),
           ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
           ...(request.query === undefined ? {} : { query: request.query }),
         },

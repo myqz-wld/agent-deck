@@ -31,9 +31,15 @@ import type {
   IssueUpdateParams,
 } from './issues';
 import type {
+  WorkspaceDirectoryCreateParams,
+  WorkspaceDirectoryCreateResult,
   WorkspaceDirectoryListParams,
   WorkspaceDirectoryListResult,
 } from './session-console-directories';
+import type {
+  SessionHistoryMutationParams,
+  SessionHistoryMutationResult,
+} from './session-history-mutations';
 import type {
   ProjectListParams,
   ProjectListResult,
@@ -186,6 +192,22 @@ export type CoreMethodMap = {
   'workspace.directory.list': {
     params: WorkspaceDirectoryListParams;
     result: WorkspaceDirectoryListResult;
+  };
+  'workspace.directory.create': {
+    params: WorkspaceDirectoryCreateParams;
+    result: WorkspaceDirectoryCreateResult;
+  };
+  'session.archive': {
+    params: SessionHistoryMutationParams;
+    result: SessionHistoryMutationResult;
+  };
+  'session.unarchive': {
+    params: SessionHistoryMutationParams;
+    result: SessionHistoryMutationResult;
+  };
+  'session.delete': {
+    params: SessionHistoryMutationParams;
+    result: SessionHistoryMutationResult;
   };
   'session.history': {
     params: { sessionId: string; cursor?: string; limit?: number };
@@ -382,6 +404,14 @@ export const CORE_METHOD_METADATA = {
   'session.console.get': readMethod(AgentDeckCapability.SessionConsoleRead),
   'session.console.capabilities': readMethod(AgentDeckCapability.SessionConsoleRead),
   'workspace.directory.list': readMethod(AgentDeckCapability.SessionConsoleRead, 'none'),
+  'workspace.directory.create': mutationMethod(
+    AgentDeckCapability.WorkspaceDirectoryWrite,
+    'none',
+    'none',
+  ),
+  'session.archive': mutationMethod(AgentDeckCapability.SessionHistoryWrite, 'none', 'none'),
+  'session.unarchive': mutationMethod(AgentDeckCapability.SessionHistoryWrite, 'none', 'none'),
+  'session.delete': mutationMethod(AgentDeckCapability.SessionHistoryWrite, 'none', 'none'),
   'project.list': readMethod(AgentDeckCapability.ProjectsRead),
   'project.resolve': readMethod(AgentDeckCapability.ProjectsRead),
   'session.console.create': mutationMethod(AgentDeckCapability.SessionConsoleCreate),
