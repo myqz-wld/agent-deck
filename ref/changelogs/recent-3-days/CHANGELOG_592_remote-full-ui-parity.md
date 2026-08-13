@@ -73,6 +73,8 @@ mutation to a replacement Core generation.
 - Earlier package-boundary validation also passed macOS Worker sandbox and bundled-runtime checks.
   No live desktop, Worker, credential, provider-private, or deployment state was mutated.
 - Full review details are recorded in `REVIEW_233_remote-full-ui-parity.md`.
+- The grouped audit and paired-review manifest are archived under `ref/evidence/` and indexed in
+  `ref/evidence/INDEX.md`.
 
 ## Do Not Split Protection
 
@@ -84,6 +86,6 @@ focused authority, validation, refresh-lane, and presentation modules.
 
 - “Disabled-field summary” means the collapsed summary text for a Core-disabled option says
   “unavailable”; it does not disable the summary/disclosure control.
-- Live deployment was intentionally not performed. The exact clean commit must be pushed before
-  any official deployment mutation, and installed acceptance waits for the user to install the
-  macOS package.
+- The complete corrected line is delivered on `main` at `dc4943bb`; the exact macOS package was
+  built and passed its packaged Worker boundary check. Installed acceptance still waits for that
+  exact package to replace the older installed build.

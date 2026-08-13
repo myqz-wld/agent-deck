@@ -1,14 +1,17 @@
 ---
 title: Remote full UI parity and safe file presentation
-status: implementation-complete-awaiting-installed-acceptance
+status: delivery-complete-awaiting-installed-acceptance
 created_at: 2026-08-11
 updated_at: 2026-08-12
 completed_at: 2026-08-12
 related_changelog: CHANGELOG_592
 related_review: REVIEW_233
 base_commit: 3ec408aff18c85bdbd4ebb839d4e63a9dbf056e4
-branch: codex/remote-full-ui-parity
-worktree: /Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/agent-deck-019ff1bc-4e3-mspjqqkq
+delivery_branch: main
+delivery_commit: dc4943bb0d620d2ec7dd6013a33c62a32e6ec12a
+evidence:
+  - ref/evidence/remote-full-ui-parity-audit.md
+  - ref/evidence/remote-full-ui-parity-deep-review-manifest.md
 ---
 
 # PLAN_36_remote-full-ui-parity: Remote Full UI Parity and Safe File Presentation
@@ -173,7 +176,8 @@ Audit receipt state:
 
 ### T2 — Durable audit matrix and design
 
-- [x] Write `.ref/reviews/remote-full-ui-parity-audit.md` with the complete page/sub-flow matrix.
+- [x] Write and archive the complete page/sub-flow matrix as
+  `ref/evidence/remote-full-ui-parity-audit.md`.
 - [x] Record the sensitive-file allow/deny contract and bounded Remote Permissions DTO design.
 - [x] Convert every accepted difference into a work package, acceptance check, and write boundary.
 - [x] Update this plan before implementation.
@@ -232,37 +236,35 @@ Implementation package order:
 
 ### T9 — Delivery and installed acceptance
 
-- [ ] Commit/push, verify clean `origin/main` alignment, and mutate deployment only through official
+- [x] Commit/push, verify clean `origin/main` alignment, and mutate deployment only through official
   scripts if changed artifacts require it.
-- [ ] Build the exact macOS package; user installs it.
+- [x] Build the exact macOS package from delivery commit `dc4943bb`.
+- [ ] User installs that exact package.
 - [ ] Non-invasively accept connection/reconnect, all page groups, sensitive-file exclusions,
   Active/Dormant lifecycle, and real Claude/Codex sessions.
 
 ## Execution State
 
-- **Current stage:** T9 delivery and installed acceptance. T8 is closed with paired P1/P2/P3/I1
-  convergence and no open material review finding.
-- **Last completed meaningful action:** The same reviewer-claude/reviewer-codex pair completed the
-  bounded I1 final-correction review. Both mutation-authority and legacy-pagination findings are
-  closed; both reviewers found no new admissible finding and recommended convergence. Final review
-  and changelog records are archived as REVIEW_233 and CHANGELOG_592.
+- **Current stage:** T9 installed acceptance. Source delivery and exact-package construction are
+  complete; T8 is closed with paired P1/P2/P3/I1 convergence and no open material finding.
+- **Last completed meaningful action:** Delivery commit `dc4943bb` was fast-forwarded to `main`,
+  pushed to `origin/main`, and packaged. The obsolete feature branch was removed locally and
+  remotely. Final review, changelog, audit, and review-manifest evidence are archived.
 - **Last validation:** the full Electron-as-Node suite passes 943 files / 6,043 tests with three
   explicitly conditional live/environment tests skipped. Final reviewers independently passed 22
   files / 117 tests and 26 files / 154 tests. Direct Node and Web TypeScript, architecture,
   Core/Node boundaries, production build, Linux headless verification, deployment automation,
   Relay and Full static checks, diff hygiene, touched-file size gates, and review expiry pass.
-- **Next action:** commit and push the exact reviewed release, verify upstream alignment, then build
-  the exact macOS package for user installation. Do not perform installed acceptance before the user
-  installs it.
-- **Open blockers:** none for source delivery. Live Remote installed acceptance is intentionally
-  suspended until the clean pushed commit is packaged and the user installs that exact desktop.
+- **Next action:** the user installs the exact `dc4943bb` package; then run non-invasive Remote
+  History and provider-quota acceptance against that installed desktop and Worker.
+- **Open blockers:** none for source delivery or packaging. Installed acceptance waits only for the
+  exact delivered package to replace the older installed build.
 - **Operational note:** do not click Connect repeatedly while diagnosis is active; overlapping manual
   attempts obscure the reconnect state and can amplify SSH 255 churn.
 
 ## Archive status
 
-Implementation, validation, and the user-confirmed heterogeneous paired deep review are complete.
-The plan is archived while T9 installed acceptance remains intentionally pending: first commit and
-push the exact reviewed release, then build the clean-commit macOS package, let the user install it,
-and run non-invasive acceptance against that installed version. No live deployment or process state
-was mutated during implementation or review.
+Implementation, validation, heterogeneous paired review, source delivery, and exact-package build
+are complete. The plan is archived while the final installed acceptance remains pending. Durable
+audit and paired-review evidence live under `ref/evidence/`; the former `.ref/` workspace copies
+have been removed.

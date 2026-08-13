@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-08-12 | `CHANGELOG_597_remote-provider-readiness-and-history-parity.md` | Restore Remote quotas and align Local/Remote History |
 | 2026-08-12 | `CHANGELOG_596_remote-source-flat-styling.md` | Simplify Remote source styling with flat neutral surfaces |
 | 2026-08-12 | `CHANGELOG_595_remote-source-visual-refresh.md` | Refresh Remote source cards with glass styling |
 | 2026-08-12 | `CHANGELOG_594_initial-readiness-and-permission-preload.md` | Delay fast async loading fallbacks until needed |
