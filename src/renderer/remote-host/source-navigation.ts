@@ -11,6 +11,5 @@ export function clearDetailForSourceView(
     if (nextView !== 'live' || currentView === 'history') clearRemote();
     return;
   }
-  if (nextView === 'pending' || nextView === 'teams' ||
-      nextView === 'issues' || nextView === 'data') clearLocal();
+  if (nextView === 'pending' || nextView === 'issues' || nextView === 'data') clearLocal();
 }

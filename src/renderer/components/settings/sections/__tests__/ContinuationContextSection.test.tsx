@@ -8,9 +8,11 @@ import { ContinuationContextSection } from '../ContinuationContextSection';
 function SettingsHarness({
   initial,
   onPatch,
+  readOnly = false,
 }: {
   initial: AppSettings;
   onPatch: (patch: Partial<AppSettings>) => void;
+  readOnly?: boolean;
 }): JSX.Element {
   const [settings, setSettings] = useState(initial);
   const update = async (patch: Partial<AppSettings>): Promise<void> => {
@@ -18,7 +20,7 @@ function SettingsHarness({
     setSettings((current) => ({ ...current, ...patch }));
   };
 
-  return <ContinuationContextSection settings={settings} update={update} />;
+  return <ContinuationContextSection settings={settings} update={update} readOnly={readOnly} />;
 }
 
 function openSection(): void {
@@ -71,7 +73,7 @@ describe('ContinuationContextSection', () => {
     expect(
       (screen.getByRole('textbox', { name: '上下文整理模型 模型' }) as HTMLInputElement)
         .placeholder,
-    ).toBe('模型（可留空）');
+    ).toBe('留空使用默认模型');
 
     fireEvent.click(screen.getByRole('button', { name: '上下文整理模型 思考程度' }));
     expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
@@ -95,7 +97,7 @@ describe('ContinuationContextSection', () => {
         (screen.getByRole('textbox', {
           name: '上下文整理模型 模型',
         }) as HTMLInputElement).placeholder,
-      ).toBe('模型（可留空）');
+      ).toBe('留空使用默认模型');
       expect(
         screen.getByText('留空时使用 Claude Code 的 Sonnet 模型。'),
       ).not.toBeNull();
@@ -127,7 +129,7 @@ describe('ContinuationContextSection', () => {
         (screen.getByRole('textbox', {
           name: '上下文整理模型 模型',
         }) as HTMLInputElement).placeholder,
-      ).toBe('模型（可留空）');
+      ).toBe('留空使用默认模型');
       expect(
         screen.getByText('留空时使用 deepseek 模型网关的 Sonnet 路由。'),
       ).not.toBeNull();
@@ -261,5 +263,33 @@ describe('ContinuationContextSection', () => {
     fireEvent.change(concurrency, { target: { value: '11' } });
     fireEvent.blur(concurrency);
     expect(onPatch).toHaveBeenCalledWith({ continuationCheckpointMaxConcurrent: 10 });
+  });
+
+  it('keeps all four Remote generator fields in the same disabled layout', () => {
+    render(
+      <SettingsHarness
+        initial={{ ...DEFAULT_SETTINGS, continuationCheckpointAdapter: 'codex-cli' }}
+        onPatch={vi.fn()}
+        readOnly
+      />,
+    );
+    openSection();
+
+    const group = screen.getByRole('group', { name: '上下文整理模型' });
+    expect(Array.from(group.querySelectorAll<HTMLElement>('[data-generator-field]'))
+      .map((field) => field.dataset.generatorField))
+      .toEqual(['adapter', 'provider', 'model', 'thinking']);
+    expect((screen.getByRole('button', {
+      name: '上下文整理模型 助手',
+    }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('combobox', {
+      name: '上下文整理模型 模型来源',
+    }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole('textbox', {
+      name: '上下文整理模型 模型',
+    }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole('button', {
+      name: '上下文整理模型 思考程度',
+    }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

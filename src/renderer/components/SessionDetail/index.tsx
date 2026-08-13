@@ -7,10 +7,6 @@ import type {
 } from '@shared/types';
 import { ActivityFeed } from '../activity-feed';
 import { SummaryView } from '../SummaryView';
-import {
-  PermissionsViewContent,
-  usePermissionsViewState,
-} from '../PermissionsView';
 import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
 import { MessagesPanel } from './MessagesPanel';
 import { SessionMetadataChips } from '../SessionMetadataChips';
@@ -35,8 +31,8 @@ import { RemoteSessionDetail } from './RemoteSessionDetail';
 import {
   createSessionDetailTabs,
   SessionDetailShell,
+  type SessionDetailTabId,
 } from './SessionDetailShell';
-import { useDelayedTabSelection } from './use-delayed-tab-selection';
 
 type DiffMode = 'single' | 'final';
 const EMPTY_EVENTS_FOR_TOAST: AgentEvent[] = [];
@@ -67,25 +63,11 @@ export function SessionDetail(props: LocalProps | RemoteProps): JSX.Element {
 }
 
 function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
+  const [tab, changeTab] = useState<SessionDetailTabId>('activity');
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
   const gitBranch = useSessionGitBranch(session);
-  const permissions = usePermissionsViewState({
-    cwd: session.cwd,
-    sessionId: session.id,
-    agentId: session.agentId,
-    sessionMode: session.sessionMode,
-  });
-  const {
-    activeTab: tab,
-    selectTab: changeTab,
-  } = useDelayedTabSelection({
-    canDefer: true,
-    deferredTab: 'permissions',
-    identity: `${session.id}\u0000${session.agentId}\u0000${session.cwd}`,
-    ready: permissions.initialized,
-  });
   const fileChanges = useFileChanges({
     sessionId: session.id,
     enabled: tab === 'diff',
@@ -295,15 +277,6 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
       ),
     summary: <SummaryView sessionId={session.id} />,
     messages: <MessagesPanel sessionId={session.id} />,
-    permissions: (
-        <PermissionsViewContent
-          cwd={session.cwd}
-          agentId={session.agentId}
-          sessionMode={session.sessionMode}
-          state={permissions}
-          workspaceAccess={localWorkspaceAccess(session)}
-        />
-      ),
   });
   const notice = cancelToasts.length > 0
     ? (
@@ -337,19 +310,4 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
       onClose={onClose}
     />
   );
-}
-
-function localWorkspaceAccess(session: SessionRecord) {
-  const read = 'allowed' as const;
-  const write = session.agentId === 'codex-cli' && session.codexSandbox === 'read-only'
-    ? 'denied' as const
-    : session.agentId === 'grok-build'
-      ? 'provider-default' as const
-      : 'allowed' as const;
-  const network = session.networkAccessEnabled === true
-    ? 'allowed' as const
-    : session.networkAccessEnabled === false
-      ? 'denied' as const
-      : 'provider-default' as const;
-  return { read, write, network };
 }

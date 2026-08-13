@@ -17,10 +17,8 @@ import {
   SessionDetailShell,
   type SessionDetailTabId,
 } from './SessionDetailShell';
-import { useDelayedTabSelection } from './use-delayed-tab-selection';
 import { RemoteSessionComposer } from './RemoteSessionComposer';
 import { RemoteHandOffDialog } from './RemoteHandOffDialog';
-import { PermissionsViewContent } from '../PermissionsView';
 import { SessionMessagesView } from './MessagesPanel';
 import { SourceBadge } from './SourceBadge';
 import { SessionPinControl } from '../SessionPinButton';
@@ -69,21 +67,9 @@ export function RemoteSessionDetail({
   const canReadFileChanges = source.capabilities.has('sessions.file-changes.read');
   const canReadTasks = source.capabilities.has('tasks');
   const canReadMessages = source.capabilities.has('sessions.messages.read');
-  const canReadPermissions = source.capabilities.has('sessions.permissions.read');
-  const permissionsReady = tabData.permissions.value !== null || tabData.permissions.error !== null;
-  const {
-    activeTab: tab,
-    selectTab,
-  } = useDelayedTabSelection({
-    canDefer: canReadPermissions && source.usable,
-    deferredTab: 'permissions',
-    identity: detailIdentity,
-    ready: permissionsReady,
-  });
 
   const changeTab = (next: SessionDetailTabId): void => {
     setRequestedTabState({ identity: detailIdentity, tab: next });
-    selectTab(next);
   };
   const tabs = useMemo(() => createSessionDetailTabs({
     activity: (
@@ -143,27 +129,15 @@ export function RemoteSessionDetail({
           truncated={tabData.messages.value?.truncated ?? false}
         />
       ),
-    permissions: (
-        <PermissionsViewContent
-          agentId={session?.adapterId ?? 'remote'}
-          remoteState={{
-            data: tabData.permissions.value,
-            loading: tabData.permissions.loading,
-            error: tabData.permissions.error,
-            refresh: tabData.refreshPermissions,
-          }}
-        />
-      ),
   }, {
     ...(!canReadEvents ? { activity: '当前版本暂不支持查看活动。' } : {}),
     ...(!canReadTasks ? { tasks: '当前版本暂不支持查看任务。' } : {}),
     ...(!canReadFileChanges ? { diff: '当前版本暂不支持查看改动。' } : {}),
     ...(!canReadSummaries ? { summary: '当前版本暂不支持查看总结。' } : {}),
     ...(!canReadMessages ? { messages: '当前版本暂不支持查看跨会话消息。' } : {}),
-    ...(!canReadPermissions ? { permissions: '当前版本暂不支持查看权限。' } : {}),
   }), [
     canReadEvents, canReadFileChanges,
-    canReadMessages, canReadPermissions, canReadSummaries, canReadTasks,
+    canReadMessages, canReadSummaries, canReadTasks,
     session?.id, source, tabData,
   ]);
 
@@ -195,7 +169,7 @@ export function RemoteSessionDetail({
       headerActions={<SessionPinControl pinned={presentation?.pinned ?? false} disabled disabledReason="远程会话暂不支持修改置顶状态" />}
       banner={banner}
       tabs={tabs}
-      activeTab={tab}
+      activeTab={requestedTab}
       onTabChange={changeTab}
       alert={alert}
       composer={(
@@ -305,7 +279,6 @@ function RemoteDetailLoading({
     diff: placeholder,
     summary: placeholder,
     messages: placeholder,
-    permissions: placeholder,
   });
   return (
     <SessionDetailShell

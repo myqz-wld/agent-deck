@@ -13,7 +13,7 @@ import {
 function source(
   status: RemoteHostConnectionStatus | null,
   usable: boolean,
-  capabilities: string[] = ['teams'],
+  capabilities: string[] = ['issues'],
 ): RemoteSessionSourceView {
   return {
     capabilities: new Set(capabilities),
@@ -36,9 +36,9 @@ function source(
 
 describe('Remote page availability', () => {
   it('admits only a connected, usable source with the requested capability', () => {
-    expect(remotePageAvailability(source('connected', true), 'teams').kind).toBe('available');
-    expect(remotePageAvailability(source('connected', false), 'teams').kind).toBe('offline');
-    expect(remotePageAvailability(source('connected', true, []), 'teams').kind)
+    expect(remotePageAvailability(source('connected', true), 'issues').kind).toBe('available');
+    expect(remotePageAvailability(source('connected', false), 'issues').kind).toBe('offline');
+    expect(remotePageAvailability(source('connected', true, []), 'issues').kind)
       .toBe('unsupported');
   });
 
@@ -46,7 +46,7 @@ describe('Remote page availability', () => {
     ['connecting', '正在连接远端'],
     ['reconnecting', '正在重新连接远端'],
   ] as const)('keeps stale capabilities inactive while %s', (status, title) => {
-    const availability = remotePageAvailability(source(status, true), 'teams');
+    const availability = remotePageAvailability(source(status, true), 'issues');
     expect(availability).toMatchObject({ kind: 'connecting', title });
   });
 
@@ -54,7 +54,7 @@ describe('Remote page availability', () => {
     ['offline', false, '远端当前不可用'],
     ['incompatible', false, '远端版本不兼容'],
   ] as const)('classifies %s as a stable unavailable page', (status, usable, title) => {
-    expect(remotePageAvailability(source(status, usable), 'teams')).toMatchObject({
+    expect(remotePageAvailability(source(status, usable), 'issues')).toMatchObject({
       kind: 'offline',
       title,
     });
@@ -72,7 +72,6 @@ describe('Remote page availability', () => {
     ['live', ['session-console.read']],
     ['history', ['session-console.read', 'sessions.history']],
     ['pending', ['pending.index.read']],
-    ['teams', ['teams']],
     ['issues', ['issues']],
     ['data', ['usage']],
   ] as const)('requires the complete %s surface capability set', (surface, capabilities) => {

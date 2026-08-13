@@ -7,8 +7,7 @@ export type RemotePageSurface =
   | 'history'
   | 'issues'
   | 'live'
-  | 'pending'
-  | 'teams';
+  | 'pending';
 export type RemotePageAvailabilityKind =
   | 'available'
   | 'connecting'
@@ -38,7 +37,6 @@ const PAGE_REQUIREMENTS: Record<
     label: '待处理',
     capabilities: ['pending.index.read'],
   },
-  teams: { label: '团队', capabilities: ['teams'] },
 };
 
 export function remotePageAvailability(

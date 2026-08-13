@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { clearDetailForSourceView } from './source-navigation';
 
 describe('source navigation detail ownership', () => {
-  it.each(['pending', 'history', 'teams', 'issues', 'data'] as const)(
+  it.each(['pending', 'history', 'issues', 'data'] as const)(
     'clears the Remote detail before opening %s',
     (view) => {
       const clearLocal = vi.fn();
@@ -20,7 +20,7 @@ describe('source navigation detail ownership', () => {
     expect(clearRemote).not.toHaveBeenCalled();
   });
 
-  it.each(['pending', 'teams', 'issues', 'data'] as const)(
+  it.each(['pending', 'issues', 'data'] as const)(
     'preserves the Local detail-priority rule for %s',
     (view) => {
       const clearLocal = vi.fn();

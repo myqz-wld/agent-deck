@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-13 | `REVIEW_242_simplified-session-and-team-navigation.md` | Session and navigation simplification | 0 CRITICAL / 0 HIGH / 3 MEDIUM fixed |
 | 2026-08-13 | `REVIEW_241_remote-ui-runtime-convergence.md` | Remote UI and runtime convergence | 0 CRITICAL / 3 HIGH fixed / 4 MEDIUM fixed / 2 LOW fixed |
 | 2026-08-13 | `REVIEW_240_macos-worker-launchagent-replacement.md` | macOS Worker LaunchAgent replacement | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed |
 | 2026-08-13 | `REVIEW_239_codex-cache-write-usage-wiring.md` | Codex cache-write usage wiring | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 INFO confirmed |

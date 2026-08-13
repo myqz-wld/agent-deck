@@ -15,7 +15,7 @@ import { appViewLabel, availableAppViews } from '../app-view-catalog';
 import type { RemoteUsageSourceView } from '../remote-host/use-remote-usage-source';
 import type { AppSourceAuthority } from '../source-authority';
 
-export type AppView = 'live' | 'history' | 'pending' | 'teams' | 'issues' | 'data';
+export type AppView = 'live' | 'history' | 'pending' | 'issues' | 'data';
 
 interface AppHeaderProps {
   view: AppView;

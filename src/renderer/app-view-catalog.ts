@@ -14,7 +14,6 @@ export const APP_VIEW_CATALOG: readonly AppViewDescriptor[] = Object.freeze([
   { view: 'live', label: '实时', remoteCapability: AgentDeckCapability.SessionConsoleRead },
   { view: 'pending', label: '待处理', remoteCapability: AgentDeckCapability.PendingIndexRead },
   { view: 'history', label: '历史', remoteCapability: AgentDeckCapability.SessionHistory },
-  { view: 'teams', label: '团队', remoteCapability: AgentDeckCapability.Teams },
   { view: 'issues', label: '问题', remoteCapability: AgentDeckCapability.Issues },
   { view: 'data', label: '数据', remoteCapability: AgentDeckCapability.Usage },
 ]);

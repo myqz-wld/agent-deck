@@ -86,7 +86,6 @@ describe('AppHeader source selection', () => {
 
   it('hides pages that the Remote Core does not advertise', () => {
     renderHeader('remote');
-    expect(screen.queryByRole('button', { name: '团队' })).toBeNull();
     expect(screen.queryByRole('button', { name: '问题' })).toBeNull();
     expect(screen.queryByRole('button', { name: '数据' })).toBeNull();
     expect(screen.queryByRole('button', { name: '实时' })).toBeNull();
@@ -97,11 +96,10 @@ describe('AppHeader source selection', () => {
   it('shows the shared Issues entry when the Remote Core advertises it', () => {
     renderHeader('remote', 1, new Set(['issues']));
     expect(screen.getByRole('button', { name: '问题' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '团队' })).toBeNull();
     expect(screen.queryByRole('button', { name: '数据' })).toBeNull();
   });
 
-  it('uses the same primary page catalog when Remote advertises Teams, Issues, and Usage', () => {
+  it('uses the same primary page catalog when Remote advertises all visible pages', () => {
     renderHeader('remote', 1, new Set([
       'session-console.read', 'pending.index.read', 'sessions.history',
       'teams', 'issues', 'usage',
@@ -109,7 +107,7 @@ describe('AppHeader source selection', () => {
     expect(screen.getByRole('button', { name: '实时' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '待处理' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '历史' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '团队' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '团队' })).toBeNull();
     expect(screen.getByRole('button', { name: '问题' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '数据' })).toBeTruthy();
   });
@@ -149,7 +147,7 @@ describe('AppHeader source selection', () => {
       'teams', 'issues', 'usage',
     ]), null, false);
     expect((screen.getByRole('button', { name: '实时' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: '团队' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: '团队' })).toBeNull();
     expect((screen.getByRole('button', { name: '新建会话' }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: '数据源' }) as HTMLButtonElement).disabled).toBe(false);
   });

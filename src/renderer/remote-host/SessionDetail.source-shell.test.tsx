@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { SessionDetail } from '@renderer/components/SessionDetail';
 import { registerBuiltinDiffRenderers } from '@renderer/components/diff/install';
-import { FAST_ASYNC_FALLBACK_GRACE_MS } from '@renderer/hooks/useDelayedAsyncFallback';
 import { remoteSource } from './session-detail-source-shell-test-fixture';
 
 afterEach(() => {
@@ -12,12 +11,6 @@ afterEach(() => {
   cleanup();
 });
 beforeAll(registerBuiltinDiffRenderers);
-
-function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
-}
 
 describe('SessionDetail source shell', () => {
   it('renders Remote through the shared shell and never falls back to local-only APIs', () => {
@@ -181,83 +174,17 @@ describe('SessionDetail source shell', () => {
     expect(screen.getByText('正在验证远程任务')).toBeTruthy();
   });
 
-  it('loads only the path-free Remote Permissions projection when its tab is opened', async () => {
-    const getRemotePermissions = vi.fn().mockResolvedValue({
-      sessionId: 'same-session',
-      adapterId: 'codex-cli',
-      effective: {
-        adapterId: 'codex-cli',
-        approvalPolicy: 'on-request',
-        approvalPolicySource: 'session',
-        sandbox: 'workspace-write',
-        sandboxSource: 'session',
-      },
-      workspace: { read: 'allowed', write: 'allowed', network: 'provider-default' },
-      rules: { state: 'unavailable', items: [], omittedCount: 0, truncated: false },
-      revision: 12,
-    });
-    const scanLocalPermissions = vi.fn();
+  it('does not expose or request the removed permissions page', () => {
+    const getRemotePermissions = vi.fn();
     window.api = {
       getRemoteHostSessionPermissions: getRemotePermissions,
-      scanPermissions: scanLocalPermissions,
-      scanCodexPermissions: scanLocalPermissions,
     } as unknown as typeof window.api;
     const source = remoteSource();
     source.capabilities = new Set([...source.capabilities, 'sessions.permissions.read']);
     render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
 
+    expect(screen.queryByRole('button', { name: '权限' })).toBeNull();
     expect(getRemotePermissions).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: '权限' }));
-    await waitFor(() => expect(getRemotePermissions).toHaveBeenCalledWith({
-      profileId: 'remote-a',
-      sessionId: 'same-session',
-      adapterId: 'codex-cli',
-    }));
-    expect(await screen.findByText('Codex 当前生效配置')).toBeTruthy();
-    expect(screen.getByText('工作区可写')).toBeTruthy();
-    expect(screen.getByText('使用当前运行设置')).toBeTruthy();
-    expect(scanLocalPermissions).not.toHaveBeenCalled();
-    expect(document.body.textContent).not.toContain('auth.json');
-    expect(document.body.textContent).not.toContain('/Users/');
-  });
-
-  it('keeps the current Remote tab during the grace period, then shows permission loading', async () => {
-    vi.useFakeTimers();
-    const pending = deferred<Awaited<ReturnType<
-      typeof window.api.getRemoteHostSessionPermissions
-    >>>();
-    const getRemotePermissions = vi.fn(() => pending.promise);
-    window.api = {
-      getRemoteHostSessionPermissions: getRemotePermissions,
-    } as unknown as typeof window.api;
-    const source = remoteSource();
-    source.capabilities = new Set([...source.capabilities, 'sessions.permissions.read']);
-    render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
-
-    fireEvent.click(screen.getByRole('button', { name: '权限' }));
-    await act(async () => Promise.resolve());
-    expect(getRemotePermissions).toHaveBeenCalledOnce();
-
-    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
-    expect(screen.getByText('remote-only activity')).toBeTruthy();
-    expect(screen.queryByText('正在读取权限…')).toBeNull();
-
-    await act(() => vi.advanceTimersByTimeAsync(1));
-    expect(screen.getByText('正在读取权限…')).toBeTruthy();
-    expect(screen.queryByText('remote-only activity')).toBeNull();
-
-    await act(async () => pending.resolve({
-      sessionId: 'same-session',
-      adapterId: 'codex-cli',
-      effective: {
-        adapterId: 'codex-cli', approvalPolicy: 'on-request',
-        approvalPolicySource: 'session', sandbox: 'workspace-write', sandboxSource: 'session',
-      },
-      workspace: { read: 'allowed', write: 'allowed', network: 'provider-default' },
-      rules: { state: 'unavailable', items: [], omittedCount: 0, truncated: false },
-      revision: 12,
-    }));
-    expect(screen.getByText('Codex 当前生效配置')).toBeTruthy();
   });
 
   it('loads bounded Remote cross-session messages lazily through the shared presentation', async () => {
@@ -267,7 +194,7 @@ describe('SessionDetail source shell', () => {
         id: 'message-1', teamId: null,
         fromSessionId: 'peer-session', fromTitle: '远程协作者',
         toSessionId: 'same-session', toTitle: 'Remote session',
-        body: '远程投影消息', status: 'delivered', statusReason: null,
+        body: '远程消息', status: 'delivered', statusReason: null,
         sentAt: 10, deliveredAt: 11, replyToMessageId: null,
       }],
       truncated: false,
@@ -284,7 +211,7 @@ describe('SessionDetail source shell', () => {
 
     expect(listRemoteMessages).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '跨会话' }));
-    await screen.findByText('远程投影消息');
+    await screen.findByText('远程消息');
     expect(listRemoteMessages).toHaveBeenCalledWith({
       profileId: 'remote-a', sessionId: 'same-session', limit: 100,
     });
@@ -292,136 +219,19 @@ describe('SessionDetail source shell', () => {
     expect(listLocalMessages).not.toHaveBeenCalled();
   });
 
-  it('keeps old-Core metadata tabs explicit and makes no Remote or Local fallback request', () => {
-    const getRemotePermissions = vi.fn();
+  it('keeps unsupported cross-session data explicit without local fallback', () => {
     const listRemoteMessages = vi.fn();
     const localFallback = vi.fn();
     window.api = {
-      getRemoteHostSessionPermissions: getRemotePermissions,
       listRemoteHostSessionMessages: listRemoteMessages,
-      scanPermissions: localFallback,
       listAgentDeckMessagesBySession: localFallback,
     } as unknown as typeof window.api;
     render(<SessionDetail remoteSource={remoteSource()} onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: '权限' }));
-    expect(screen.getByText('当前版本暂不支持查看权限。')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '跨会话' }));
     expect(screen.getByText('当前版本暂不支持查看跨会话消息。')).toBeTruthy();
-    expect(getRemotePermissions).not.toHaveBeenCalled();
     expect(listRemoteMessages).not.toHaveBeenCalled();
     expect(localFallback).not.toHaveBeenCalled();
-  });
-
-  it('drops a late Permissions projection after the Remote identity changes', async () => {
-    const oldResult = deferred<Awaited<ReturnType<
-      typeof window.api.getRemoteHostSessionPermissions
-    >>>();
-    const result = (profileId: string, sandbox: 'read-only' | 'workspace-write') => ({
-      sessionId: 'same-session',
-      adapterId: 'codex-cli' as const,
-      effective: {
-        adapterId: 'codex-cli' as const,
-        approvalPolicy: 'on-request' as const,
-        approvalPolicySource: 'session' as const,
-        sandbox,
-        sandboxSource: 'session' as const,
-      },
-      workspace: { read: 'allowed' as const, write: 'allowed' as const, network: 'denied' as const },
-      rules: { state: 'unavailable' as const, items: [], omittedCount: 0, truncated: false },
-      revision: profileId === 'remote-a' ? 1 : 2,
-    });
-    const getPermissions = vi.fn((request: { profileId: string }) =>
-      request.profileId === 'remote-a'
-        ? oldResult.promise
-        : Promise.resolve(result('remote-b', 'workspace-write')));
-    window.api = {
-      getRemoteHostSessionPermissions: getPermissions,
-    } as unknown as typeof window.api;
-    const sourceA = remoteSource();
-    sourceA.capabilities = new Set([...sourceA.capabilities, 'sessions.permissions.read']);
-    const rendered = render(<SessionDetail remoteSource={sourceA} onClose={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: '权限' }));
-    await waitFor(() => expect(getPermissions).toHaveBeenCalledTimes(1));
-
-    const sourceB = remoteSource();
-    sourceB.identity = 'remote-b:core-b:2';
-    sourceB.profile = { ...sourceB.profile!, id: 'remote-b', label: 'Backup Core' };
-    sourceB.state = {
-      ...sourceB.state!, profileId: 'remote-b', authoritativeCoreId: 'authoritative-b',
-    };
-    sourceB.selectedSession = { ...sourceB.selectedSession!, title: 'Remote B session' };
-    sourceB.capabilities = new Set([...sourceB.capabilities, 'sessions.permissions.read']);
-    rendered.rerender(<SessionDetail remoteSource={sourceB} onClose={vi.fn()} />);
-    await screen.findByText('Remote B session');
-    fireEvent.click(screen.getByRole('button', { name: '权限' }));
-    await screen.findByText('工作区可写');
-
-    await act(async () => {
-      oldResult.resolve(result('remote-a', 'read-only'));
-      await oldResult.promise;
-    });
-    expect(screen.getByText('工作区可写')).toBeTruthy();
-  });
-
-  it('does not reuse a permission projection after same-identity reconnect', async () => {
-    const oldResult = deferred<Awaited<ReturnType<
-      typeof window.api.getRemoteHostSessionPermissions
-    >>>();
-    const fresh = {
-      sessionId: 'same-session',
-      adapterId: 'codex-cli' as const,
-      effective: {
-        adapterId: 'codex-cli' as const,
-        approvalPolicy: 'on-request' as const,
-        approvalPolicySource: 'session' as const,
-        sandbox: 'workspace-write' as const,
-        sandboxSource: 'session' as const,
-      },
-      workspace: { read: 'allowed' as const, write: 'allowed' as const,
-        network: 'provider-default' as const },
-      rules: { state: 'unavailable' as const, items: [], omittedCount: 0,
-        truncated: false },
-      revision: 2,
-    };
-    const getPermissions = vi.fn()
-      .mockReturnValueOnce(oldResult.promise)
-      .mockResolvedValueOnce(fresh);
-    window.api = {
-      getRemoteHostSessionPermissions: getPermissions,
-    } as unknown as typeof window.api;
-    const connected = remoteSource();
-    connected.capabilities = new Set([
-      ...connected.capabilities,
-      'sessions.permissions.read',
-    ]);
-    const rendered = render(<SessionDetail remoteSource={connected} onClose={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: '权限' }));
-    await waitFor(() => expect(getPermissions).toHaveBeenCalledOnce());
-
-    rendered.rerender(<SessionDetail
-      remoteSource={{
-        ...connected,
-        usable: false,
-        selectedSession: null,
-        state: { ...connected.state!, status: 'reconnecting' },
-      }}
-      onClose={vi.fn()}
-    />);
-    expect(screen.queryByText('Codex 当前生效配置')).toBeNull();
-
-    rendered.rerender(<SessionDetail remoteSource={connected} onClose={vi.fn()} />);
-    expect(screen.getByText('remote-only activity')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '权限' }));
-    await screen.findByText('Codex 当前生效配置');
-    expect(getPermissions).toHaveBeenCalledTimes(2);
-
-    await act(async () => oldResult.resolve({
-      ...fresh,
-      effective: { ...fresh.effective, sandbox: 'read-only' },
-      revision: 1,
-    }));
-    expect(screen.getByText('工作区可写')).toBeTruthy();
   });
 
   it('renders a precise reconnecting detail shell with all session actions absent', () => {

@@ -81,7 +81,7 @@ export function ContinuationContextSection({
         runtimeProvider={settings.continuationCheckpointRuntimeProvider}
         model={settings.continuationCheckpointModel}
         thinking={settings.continuationCheckpointThinking}
-        modelPlaceholder="模型（可留空）"
+        modelPlaceholder="留空使用默认模型"
         disabled={readOnly}
         onAdapterChange={(nextAdapter) =>
           void update({

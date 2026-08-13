@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
 import type { AppSettings } from '@shared/types';
 import {
   CLAUDE_THINKING_LEVELS,
@@ -99,8 +99,28 @@ function ModelInput({
           event.currentTarget.blur();
         }
       }}
-      className="no-drag min-w-0 flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 text-[11px] outline-none focus:border-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+      className="no-drag w-full min-w-0 rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] text-deck-text outline-none focus:border-white/20 disabled:cursor-not-allowed disabled:text-deck-muted disabled:opacity-50"
     />
+  );
+}
+
+function GeneratorField({
+  field,
+  label,
+  children,
+}: {
+  field: 'adapter' | 'provider' | 'model' | 'thinking';
+  label: string;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <div
+      data-generator-field={field}
+      className="flex min-w-0 flex-col gap-1"
+    >
+      <span className="text-[10px] leading-none text-deck-muted/70">{label}</span>
+      {children}
+    </div>
   );
 }
 
@@ -165,36 +185,44 @@ export function ProviderModelThinkingFields({
   const adapterLabel =
     ADAPTER_OPTIONS.find((candidate) => candidate.value === adapter)?.label ??
     adapter;
+  const providerLabel = adapter === 'claude-code' ? '模型网关' : '模型来源';
+  const disabledControlClass =
+    'disabled:cursor-not-allowed disabled:text-deck-muted disabled:opacity-50';
 
   return (
     <div
       role="group"
       aria-label={label}
       data-settings-field={label}
-      className="flex flex-col gap-1 text-[11px]"
+      className="flex flex-col gap-1.5 text-[11px]"
     >
-      <div>{label}</div>
-      <div className="grid grid-cols-2 items-center gap-2">
-        <DeckSelect
-          value={adapter}
-          onChange={onAdapterChange}
-          options={ADAPTER_OPTIONS}
-          ariaLabel={`${label} 助手`}
-          disabled={disabled}
-          className="min-w-0"
-          buttonClassName="rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
-          menuMinWidth={140}
-        />
-        {adapter !== 'grok-build' && (
-          <div className="min-w-0 flex-1">
+      <div className="font-medium text-deck-text/90">{label}</div>
+      <div
+        data-generator-fields
+        className="grid grid-cols-1 gap-x-3 gap-y-2 rounded-md border border-white/[0.06] bg-black/10 p-2 min-[420px]:grid-cols-2"
+      >
+        <GeneratorField field="adapter" label="助手">
+          <DeckSelect
+            value={adapter}
+            onChange={onAdapterChange}
+            options={ADAPTER_OPTIONS}
+            ariaLabel={`${label} 助手`}
+            disabled={disabled}
+            className="w-full min-w-0"
+            buttonClassName={`w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] text-deck-text outline-none focus:border-white/20 ${disabledControlClass}`}
+            menuMinWidth={160}
+          />
+        </GeneratorField>
+        <GeneratorField field="provider" label={providerLabel}>
+          {adapter !== 'grok-build' ? (
             <ProviderCombobox
               value={runtimeProvider}
               options={providerOptions}
-              ariaLabel={`${label} ${adapter === 'claude-code' ? '模型网关' : '模型来源'}`}
+              ariaLabel={`${label} ${providerLabel}`}
               placeholder={
                 adapter === 'claude-code'
-                  ? '模型网关（留空使用原生配置）'
-                  : '模型来源（留空跟随 config.toml）'
+                  ? '留空使用 Claude Code 设置'
+                  : '留空使用 Codex 设置'
               }
               emptyMessage={
                 adapter === 'claude-code'
@@ -204,28 +232,41 @@ export function ProviderModelThinkingFields({
               onChange={onRuntimeProviderChange}
               disabled={disabled}
             />
-          </div>
-        )}
-        <ModelInput
-          label={label}
-          value={model}
-          placeholder={modelPlaceholder}
-          disabled={disabled}
-          onChange={onModelChange}
-        />
-        <DeckSelect
-          value={thinking}
-          onChange={onThinkingChange}
-          title={`${adapterLabel} 思考程度`}
-          ariaLabel={`${label} 思考程度`}
-          options={thinkingOptionsForAdapter(adapter)}
-          disabled={disabled}
-          className="min-w-0"
-          buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[11px] outline-none focus:border-white/20"
-          menuMinWidth={120}
-        />
+          ) : (
+            <div
+              title="模型来源跟随 Grok Build 设置"
+              className="min-w-0 truncate rounded border border-deck-border bg-white/[0.025] px-2 py-1 text-[11px] text-deck-muted/65"
+            >
+              跟随 Grok Build 设置
+            </div>
+          )}
+        </GeneratorField>
+        <GeneratorField field="model" label="模型">
+          <ModelInput
+            label={label}
+            value={model}
+            placeholder={modelPlaceholder}
+            disabled={disabled}
+            onChange={onModelChange}
+          />
+        </GeneratorField>
+        <GeneratorField field="thinking" label="思考程度">
+          <DeckSelect
+            value={thinking}
+            onChange={onThinkingChange}
+            title={`${adapterLabel} 思考程度`}
+            ariaLabel={`${label} 思考程度`}
+            options={thinkingOptionsForAdapter(adapter)}
+            disabled={disabled}
+            className="w-full min-w-0"
+            buttonClassName={`w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] text-deck-text outline-none focus:border-white/20 ${disabledControlClass}`}
+            menuMinWidth={140}
+          />
+        </GeneratorField>
+        <div className="border-t border-white/[0.05] pt-1.5 text-[10px] leading-snug text-deck-muted/60 min-[420px]:col-span-2">
+          {hint}
+        </div>
       </div>
-      <div className="text-[10px] leading-snug text-deck-muted/60">{hint}</div>
     </div>
   );
 }
