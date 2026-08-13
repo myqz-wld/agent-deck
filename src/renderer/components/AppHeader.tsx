@@ -70,12 +70,12 @@ export function AppHeader({
   const sourceOptions = authority === 'unknown' ? [
     { value: 'unknown', label: '正在确认数据源', disabled: true },
   ] : [
-    { value: 'local', label: 'Local · 本机' },
+    { value: 'local', label: '本机' },
     ...remoteProfiles
       .filter((profile) => profile.scope === 'remote')
       .map((profile) => ({
         value: `remote:${profile.id}`,
-        label: `Remote · ${profile.label}`,
+        label: `远端 · ${profile.label}`,
       })),
   ];
   const remote = authority === 'remote';
@@ -154,7 +154,7 @@ export function AppHeader({
           value={sourceValue}
           options={sourceOptions}
           onChange={onSourceChange}
-          title="切换 Local / Remote 数据源"
+          title="切换本机 / 远端数据"
           ariaLabel="数据源"
           className="w-28"
           buttonClassName="flex h-5 w-full items-center rounded px-2 text-left text-[10px] text-deck-muted outline-none transition hover:bg-white/8 hover:text-deck-text focus:bg-white/10 focus:text-deck-text"

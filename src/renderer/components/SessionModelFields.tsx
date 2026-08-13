@@ -33,7 +33,7 @@ interface Props {
 
 const DEFAULT_THINKING_OPTION: DeckSelectOption<SessionThinkingChoice> = {
   value: '',
-  label: '跟随运行时默认值',
+  label: '跟随助手默认值',
 };
 
 function thinkingLevelsForAdapter(adapterId: string): readonly SessionThinkingLevel[] {
@@ -117,7 +117,7 @@ export function SessionModelFields({
       {providerEnabled && onProviderChange && (
         <div className="flex min-w-0 flex-col gap-1">
           <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-            {adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
+            {adapterId === 'claude-code' ? '模型网关' : '模型来源'}
           </label>
           {disabledReasons.provider ? (
             <UnavailableField reason={disabledReasons.provider} />
@@ -127,7 +127,7 @@ export function SessionModelFields({
               options={providerOptions}
               disabled={disabled}
               allowCustom={!providerClosed}
-              ariaLabel={adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
+              ariaLabel={adapterId === 'claude-code' ? '模型网关' : '模型来源'}
               placeholder={
                 adapterId === 'claude-code'
                   ? '留空使用 settings.json'
@@ -135,8 +135,8 @@ export function SessionModelFields({
               }
               emptyMessage={
                 adapterId === 'claude-code'
-                  ? '没有匹配的 Gateway，可直接输入或留空'
-                  : '没有匹配的 Provider，可直接输入或留空'
+                  ? '没有匹配的模型网关，可直接输入或留空'
+                  : '没有匹配的模型来源，可直接输入或留空'
               }
               onChange={onProviderChange}
             />

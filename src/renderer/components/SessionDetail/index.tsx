@@ -33,8 +33,8 @@ import { useSessionGitBranch } from '@renderer/hooks/use-session-git-branches';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { RemoteSessionDetail } from './RemoteSessionDetail';
 import {
+  createSessionDetailTabs,
   SessionDetailShell,
-  type SessionDetailTabModel,
 } from './SessionDetailShell';
 import { useDelayedTabSelection } from './use-delayed-tab-selection';
 
@@ -261,13 +261,10 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
     selection.selectFile(group.filePath, group.items[group.items.length - 1].id);
     setFinalDiff(null);
   };
-  const tabs: readonly SessionDetailTabModel[] = [
-    { id: 'activity', label: '活动', content: <ActivityFeed sessionId={session.id} agentId={session.agentId} isSdk={isSdk} /> },
-    { id: 'tasks', label: '任务', content: <TasksPanel sessionId={session.id} /> },
-    {
-      id: 'diff',
-      label: '改动',
-      content: (
+  const tabs = createSessionDetailTabs({
+    activity: <ActivityFeed sessionId={session.id} agentId={session.agentId} isSdk={isSdk} />,
+    tasks: <TasksPanel sessionId={session.id} />,
+    diff: (
         <DiffTab
           sessionId={session.id}
           changes={changes}
@@ -296,22 +293,18 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
           onRetry={() => void fileChanges.retry()}
         />
       ),
-    },
-    { id: 'summary', label: '总结', content: <SummaryView sessionId={session.id} /> },
-    { id: 'messages', label: '跨会话', content: <MessagesPanel sessionId={session.id} /> },
-    {
-      id: 'permissions',
-      label: '权限',
-      content: (
+    summary: <SummaryView sessionId={session.id} />,
+    messages: <MessagesPanel sessionId={session.id} />,
+    permissions: (
         <PermissionsViewContent
           cwd={session.cwd}
           agentId={session.agentId}
           sessionMode={session.sessionMode}
           state={permissions}
+          workspaceAccess={localWorkspaceAccess(session)}
         />
       ),
-    },
-  ];
+  });
   const notice = cancelToasts.length > 0
     ? (
         <div className="shrink-0 border-b border-deck-border/40 bg-white/[0.03] px-3 py-1.5">
@@ -344,4 +337,19 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
       onClose={onClose}
     />
   );
+}
+
+function localWorkspaceAccess(session: SessionRecord) {
+  const read = 'allowed' as const;
+  const write = session.agentId === 'codex-cli' && session.codexSandbox === 'read-only'
+    ? 'denied' as const
+    : session.agentId === 'grok-build'
+      ? 'provider-default' as const
+      : 'allowed' as const;
+  const network = session.networkAccessEnabled === true
+    ? 'allowed' as const
+    : session.networkAccessEnabled === false
+      ? 'denied' as const
+      : 'provider-default' as const;
+  return { read, write, network };
 }

@@ -63,6 +63,12 @@ function buildProjection(settings: JsonObject): JsonObject {
       closeAfterMs: settings.closeAfterMs ?? DEFAULT_SETTINGS.closeAfterMs,
       historyRetentionDays:
         settings.historyRetentionDays ?? DEFAULT_SETTINGS.historyRetentionDays,
+      issueResolvedRetentionDays:
+        settings.issueResolvedRetentionDays ?? DEFAULT_SETTINGS.issueResolvedRetentionDays,
+      issueSoftDeletedRetentionDays:
+        settings.issueSoftDeletedRetentionDays ?? DEFAULT_SETTINGS.issueSoftDeletedRetentionDays,
+      messageRetentionDays:
+        settings.messageRetentionDays ?? DEFAULT_SETTINGS.messageRetentionDays,
     },
   });
   return {

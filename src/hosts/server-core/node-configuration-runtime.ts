@@ -105,6 +105,22 @@ export class ServerCoreNodeConfigurationRuntime implements DaemonCoreRuntime {
         claudeCodeSandbox: this.options.settings.claudeCodeSandbox,
         codexCliPath: this.options.settings.codexCliPath,
         codexSandbox: this.options.settings.codexSandbox,
+        continuationCheckpointAdapter:
+          this.options.settings.continuationCheckpointAdapter,
+        continuationCheckpointAutoRefreshEnabled:
+          this.options.settings.continuationCheckpointAutoRefreshEnabled,
+        continuationCheckpointAutoRefreshIntervalMinutes:
+          this.options.settings.continuationCheckpointAutoRefreshIntervalMinutes,
+        continuationCheckpointMaxConcurrent:
+          this.options.settings.continuationCheckpointMaxConcurrent,
+        continuationCheckpointModel:
+          this.options.settings.continuationCheckpointModel,
+        continuationCheckpointRuntimeProvider:
+          this.options.settings.continuationCheckpointRuntimeProvider,
+        continuationCheckpointThinking:
+          this.options.settings.continuationCheckpointThinking,
+        continuationRawRetentionTokens:
+          this.options.settings.continuationRawRetentionTokens,
         enableAgentDeckMcp: this.options.settings.enableAgentDeckMcp,
         grokCliPath: this.options.settings.grokCliPath,
         grokSandbox: this.options.settings.grokSandbox,
@@ -118,8 +134,17 @@ export class ServerCoreNodeConfigurationRuntime implements DaemonCoreRuntime {
         injectAgentDeckGrokAgentsMd: this.options.settings.injectAgentDeckGrokAgentsMd,
         injectAgentDeckGrokSkills: this.options.settings.injectAgentDeckGrokSkills,
         mcpHttpEnabled: this.options.settings.mcpHttpEnabled,
+        mcpMaxFanOutPerParent: this.options.settings.mcpMaxFanOutPerParent,
+        mcpMaxSpawnDepth: this.options.settings.mcpMaxSpawnDepth,
+        mcpSpawnRatePerMinute: this.options.settings.mcpSpawnRatePerMinute,
         permissionTimeoutMs: this.options.settings.permissionTimeoutMs,
+        summaryAdapter: this.options.settings.summaryAdapter,
+        summaryEnabled: this.options.settings.summaryEnabled,
+        summaryEventCount: this.options.settings.summaryEventCount,
+        summaryIntervalMs: this.options.settings.summaryIntervalMs,
+        summaryMaxConcurrent: this.options.settings.summaryMaxConcurrent,
         summaryModel: this.options.settings.summaryModel,
+        summaryRuntimeProvider: this.options.settings.summaryRuntimeProvider,
         summaryThinking: this.options.settings.summaryThinking,
         summaryTimeoutMs: this.options.settings.summaryTimeoutMs,
       },

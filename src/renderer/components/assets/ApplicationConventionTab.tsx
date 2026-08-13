@@ -84,7 +84,7 @@ export function ApplicationConventionTab({
       </ConventionPane>
       <ConventionPane adapter={adapter} value="grok-build">
         <div className="text-[10px] leading-snug text-deck-muted/70">
-          Agent Deck 的 GROK_AGENTS.md 会通过 ACP 注入新建的 Grok Build 会话，不会改写用户维护的文件。
+          Agent Deck 的 GROK_AGENTS.md 会随新建的 Grok Build 会话加载，不会改写用户维护的文件。
         </div>
         <GrokAgentsMdEditor key={resetKeys['grok-build']} onDirtyChange={onGrokDirty} />
       </ConventionPane>

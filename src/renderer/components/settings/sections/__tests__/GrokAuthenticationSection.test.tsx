@@ -30,7 +30,7 @@ describe('GrokAuthenticationSection', () => {
 
     expect(await screen.findByText(/认证可用/)).toBeTruthy();
     expect(screen.getAllByText(/xai\.api_key/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/ACP 提供：xai\.api_key、cached_token/)).toBeTruthy();
-    expect(screen.getByText(/不会保存或显示 API Key/)).toBeTruthy();
+    expect(screen.getByText(/可用的登录方式：xai\.api_key、cached_token/)).toBeTruthy();
+    expect(screen.getByText(/不会保存或显示访问凭据/)).toBeTruthy();
   });
 });

@@ -37,6 +37,7 @@ describe('Server Core provider settings', () => {
         enableAgentDeckMcp: false,
         grokSandbox: ' project-locked ',
         permissionTimeoutMs: 0,
+        summaryAdapter: 'codex-cli',
         summaryModel: ' model-a ',
         summaryThinking: 'ultra',
       },

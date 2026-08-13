@@ -36,7 +36,9 @@ vi.mock('@main/store/session-repo', () => ({
 vi.mock('@main/session/manager', () => ({ sessionManager: {} }));
 vi.mock('@main/store/event-repo', () => ({ eventRepo: {} }));
 vi.mock('@main/event-bus', () => ({ eventBus: { emit: vi.fn() } }));
-vi.mock('@main/session/summarizer', () => ({ summarizer: { getLastErrors: vi.fn() } }));
+vi.mock('@main/session/summarizer/desktop', () => ({
+  summarizer: { getLastErrors: vi.fn() },
+}));
 vi.mock('@main/teams/universal-message-watcher', () => ({
   enqueueAgentDeckMessage: (input: Record<string, unknown>) => {
     state.enqueued.push(input);

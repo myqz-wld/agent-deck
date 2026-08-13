@@ -28,6 +28,18 @@ function configuration(
       claudeCodeSandbox: DEFAULT_SETTINGS.claudeCodeSandbox,
       codexCliPath: '/Applications/Agent Deck/codex',
       codexSandbox: DEFAULT_SETTINGS.codexSandbox,
+      continuationCheckpointAdapter: DEFAULT_SETTINGS.continuationCheckpointAdapter,
+      continuationCheckpointAutoRefreshEnabled:
+        DEFAULT_SETTINGS.continuationCheckpointAutoRefreshEnabled,
+      continuationCheckpointAutoRefreshIntervalMinutes:
+        DEFAULT_SETTINGS.continuationCheckpointAutoRefreshIntervalMinutes,
+      continuationCheckpointMaxConcurrent:
+        DEFAULT_SETTINGS.continuationCheckpointMaxConcurrent,
+      continuationCheckpointModel: DEFAULT_SETTINGS.continuationCheckpointModel,
+      continuationCheckpointRuntimeProvider:
+        DEFAULT_SETTINGS.continuationCheckpointRuntimeProvider,
+      continuationCheckpointThinking: DEFAULT_SETTINGS.continuationCheckpointThinking,
+      continuationRawRetentionTokens: DEFAULT_SETTINGS.continuationRawRetentionTokens,
       enableAgentDeckMcp: DEFAULT_SETTINGS.enableAgentDeckMcp,
       grokCliPath: '/Applications/Agent Deck/grok',
       grokSandbox: DEFAULT_SETTINGS.grokSandbox,
@@ -41,8 +53,17 @@ function configuration(
       injectAgentDeckGrokAgentsMd: DEFAULT_SETTINGS.injectAgentDeckGrokAgentsMd,
       injectAgentDeckGrokSkills: DEFAULT_SETTINGS.injectAgentDeckGrokSkills,
       mcpHttpEnabled: DEFAULT_SETTINGS.mcpHttpEnabled,
+      mcpMaxFanOutPerParent: DEFAULT_SETTINGS.mcpMaxFanOutPerParent,
+      mcpMaxSpawnDepth: DEFAULT_SETTINGS.mcpMaxSpawnDepth,
+      mcpSpawnRatePerMinute: DEFAULT_SETTINGS.mcpSpawnRatePerMinute,
       permissionTimeoutMs: DEFAULT_SETTINGS.permissionTimeoutMs,
+      summaryAdapter: DEFAULT_SETTINGS.summaryAdapter,
+      summaryEnabled: DEFAULT_SETTINGS.summaryEnabled,
+      summaryEventCount: DEFAULT_SETTINGS.summaryEventCount,
+      summaryIntervalMs: DEFAULT_SETTINGS.summaryIntervalMs,
+      summaryMaxConcurrent: DEFAULT_SETTINGS.summaryMaxConcurrent,
       summaryModel: DEFAULT_SETTINGS.summaryModel,
+      summaryRuntimeProvider: DEFAULT_SETTINGS.summaryRuntimeProvider,
       summaryThinking: DEFAULT_SETTINGS.summaryThinking,
       summaryTimeoutMs: DEFAULT_SETTINGS.summaryTimeoutMs,
       ...overrides,
@@ -51,6 +72,9 @@ function configuration(
       activeWindowMs: DEFAULT_SETTINGS.activeWindowMs,
       closeAfterMs: DEFAULT_SETTINGS.closeAfterMs,
       historyRetentionDays: DEFAULT_SETTINGS.historyRetentionDays,
+      issueResolvedRetentionDays: DEFAULT_SETTINGS.issueResolvedRetentionDays,
+      issueSoftDeletedRetentionDays: DEFAULT_SETTINGS.issueSoftDeletedRetentionDays,
+      messageRetentionDays: DEFAULT_SETTINGS.messageRetentionDays,
     },
     revision,
   };
@@ -74,6 +98,22 @@ function settingsStructure(container: HTMLElement): Array<[string, string[]]> {
       .flatMap((child) => child.dataset.settingsSection ? [child.dataset.settingsSection] : []);
     return [group.dataset.settingsGroup ?? '', sections];
   });
+}
+
+function expandAllSettingsSections(container: HTMLElement): void {
+  for (const button of container.querySelectorAll<HTMLButtonElement>(
+    '[data-settings-section] > button[aria-expanded="false"]',
+  )) {
+    fireEvent.click(button);
+  }
+}
+
+function settingsFieldStructure(container: HTMLElement): Array<[string, string[]]> {
+  return [...container.querySelectorAll<HTMLElement>('[data-settings-section]')].map((section) => [
+    section.dataset.settingsSection ?? '',
+    [...section.querySelectorAll<HTMLElement>('[data-settings-field]')]
+      .map((field) => field.dataset.settingsField ?? ''),
+  ]);
 }
 
 const GENERAL_STRUCTURE: Array<[string, string[]]> = [
@@ -106,7 +146,7 @@ describe('SettingsDialog adapter views', () => {
             codexSandbox: 'read-only',
             enableAgentDeckMcp: true,
             grokSandbox: 'off',
-            permissionTimeoutMs: 30_000,
+            permissionTimeoutMs: 30 * 60_000,
             summaryModel: 'summary-model',
             summaryThinking: 'low',
             summaryTimeoutMs: 60_000,
@@ -124,26 +164,27 @@ describe('SettingsDialog adapter views', () => {
       usable: true,
     }} />);
 
-    expect(await screen.findByText('Remote 设置 · aws-relay-on-mac')).toBeTruthy();
-    expect(screen.getByRole('dialog', { name: 'Remote 设置 · aws-relay-on-mac' })).toBeTruthy();
+    expect(await screen.findByText('远端设置 · aws-relay-on-mac')).toBeTruthy();
+    expect(screen.getByRole('dialog', { name: '远端设置 · aws-relay-on-mac' })).toBeTruthy();
     fireEvent.click(await screen.findByRole('button', { name: '实验功能' }));
-    expect((screen.getByRole('textbox', {
-      name: 'Claude Code 沙盒（系统隔离）',
-    }) as HTMLInputElement).value).toBe('完全只读');
+    expect((screen.getAllByRole('button', { name: '完全只读' })[0] as HTMLButtonElement).disabled)
+      .toBe(true);
     fireEvent.click(screen.getByRole('button', { name: '外部工具' }));
-    expect(screen.getByDisplayValue('/Applications/Agent Deck/claude')).toBeTruthy();
+    expect(screen.getByText('/Applications/Agent Deck/claude')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Agent Deck MCP' }));
-    expect((screen.getByRole('checkbox', { name: '允许会话使用协作功能' }) as HTMLInputElement).disabled)
+    expect((screen.getByRole('checkbox', { name: '启用 Agent Deck MCP' }) as HTMLInputElement).disabled)
       .toBe(true);
     expect((screen.getByRole('checkbox', {
       name: '允许 Codex CLI 和 Grok Build 连接',
     }) as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('tab', { name: 'Claude Code' }));
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code 终端 Hook' }));
-    expect((screen.getByRole('button', { name: '安装 Hook' }) as HTMLButtonElement).disabled)
+    expect((screen.getByRole('button', {
+      name: '安装到 ~/.claude/settings.json',
+    }) as HTMLButtonElement).disabled)
       .toBe(true);
     expect(screen.getAllByText(
-      '远端运行设置仅供查看。通用页中的提醒、窗口、快捷键和日志仍使用这台电脑的设置。',
+      '远端配置仅供查看，不能在这里修改。提醒、窗口、快捷键和日志属于这台电脑。',
     )).toHaveLength(1);
     expect(localHookStatus).not.toHaveBeenCalled();
     expect(remoteHookStatus).toHaveBeenCalledTimes(3);
@@ -165,9 +206,12 @@ describe('SettingsDialog adapter views', () => {
       value: {
         getSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
         hookStatus,
+        listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+        listCodexModelProviders: vi.fn().mockResolvedValue([]),
+        summarizerLastErrors: vi.fn().mockResolvedValue({}),
         getRemoteHostNodeConfiguration: vi.fn().mockResolvedValue(configuration({
             claudeCodeSandbox: 'strict', codexSandbox: 'read-only',
-            enableAgentDeckMcp: true, grokSandbox: 'off', permissionTimeoutMs: 30_000,
+            enableAgentDeckMcp: true, grokSandbox: 'off', permissionTimeoutMs: 30 * 60_000,
             summaryModel: 'summary-model', summaryThinking: 'low', summaryTimeoutMs: 60_000,
           })),
         getRemoteHostNodeHookStatus: remoteHookStatus,
@@ -177,6 +221,8 @@ describe('SettingsDialog adapter views', () => {
     const localView = render(<SettingsDialog open onClose={vi.fn()} />);
     await screen.findByRole('textbox', { name: '空闲多久后休眠（分钟）' });
     const localStructure = settingsStructure(localView.container);
+    expandAllSettingsSections(localView.container);
+    const localFields = settingsFieldStructure(localView.container);
     expect(localStructure).toEqual(GENERAL_STRUCTURE);
     localView.unmount();
     window.localStorage.clear();
@@ -189,10 +235,24 @@ describe('SettingsDialog adapter views', () => {
       supportsNodeHooksRead: true,
       usable: true,
     }} />);
-    await screen.findByRole('textbox', { name: '待处理请求超时' });
+    await screen.findByRole('textbox', { name: '待处理请求超时（分钟，0 = 不超时）' });
     const remoteStructure = settingsStructure(remoteView.container);
+    expandAllSettingsSections(remoteView.container);
+    const remoteFields = settingsFieldStructure(remoteView.container);
     expect(remoteStructure).toEqual(localStructure);
     expect(remoteStructure).toEqual(GENERAL_STRUCTURE);
+    expect(remoteFields).toEqual(localFields);
+    for (const control of remoteView.container.querySelectorAll<
+      HTMLInputElement | HTMLButtonElement | HTMLSelectElement
+    >('[data-settings-section] input, [data-settings-section] select, [data-settings-section] button')) {
+      if (control instanceof HTMLButtonElement && control.parentElement?.dataset.settingsSection) {
+        continue;
+      }
+      expect(
+        control.disabled || (control instanceof HTMLInputElement && control.readOnly),
+        control.outerHTML,
+      ).toBe(true);
+    }
     expect(remoteView.container.textContent).not.toContain('Worker 配置');
     expect(remoteView.container.textContent).not.toContain('Remote Core');
   });
@@ -227,7 +287,7 @@ describe('SettingsDialog adapter views', () => {
     const remoteConfiguration = vi.fn().mockResolvedValue(configuration({
         claudeCodeSandbox: 'strict', codexSandbox: 'read-only',
         enableAgentDeckMcp: true, grokSandbox: 'off', permissionTimeoutMs: 30_000,
-        summaryModel: '', summaryThinking: '', summaryTimeoutMs: 60_000,
+        summaryModel: '', summaryThinking: 'low', summaryTimeoutMs: 60_000,
       }, 8));
     const remoteHookStatus = vi.fn().mockResolvedValue({
       adapterId: 'claude-code', revision: 8, status: REMOTE_HOOK_STATUS,
@@ -253,8 +313,8 @@ describe('SettingsDialog adapter views', () => {
 
     view.rerender(<SettingsDialog open onClose={vi.fn()} remote={{ ...base, usable: true }} />);
     expect((await screen.findByRole('textbox', {
-      name: '待处理请求超时',
-    }) as HTMLInputElement).value).toBe('30 秒');
+      name: '待处理请求超时（分钟，0 = 不超时）',
+    }) as HTMLInputElement).value).toBe('1');
     expect(remoteConfiguration).toHaveBeenCalledWith({ profileId: 'remote-a' });
     expect(remoteHookStatus).toHaveBeenCalledTimes(3);
   });

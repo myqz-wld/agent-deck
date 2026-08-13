@@ -350,7 +350,7 @@ describe('RemoteIssuesPanel', () => {
     const listRemoteHostIssues = vi.fn();
     window.api = { listRemoteHostIssues } as unknown as typeof window.api;
     render(<RemoteIssuesPanel source={source('remote-a', new Set())} />);
-    expect(screen.getByText(/不会回退读取 Local 数据/u)).toBeTruthy();
+    expect(screen.getByText('当前远端版本暂不支持问题管理，请更新远端服务。')).toBeTruthy();
     expect(listRemoteHostIssues).not.toHaveBeenCalled();
   });
 

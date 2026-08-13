@@ -277,7 +277,7 @@ function RemoteHistoryPanel({
           <button
             type="button"
             disabled={!canMutate}
-            title={canMutate ? '仅显示已归档会话' : '当前 Remote Core 未提供历史会话写入能力'}
+            title={canMutate ? '仅显示已归档会话' : '当前远端版本暂不支持修改历史会话'}
             onClick={() => source.setHistoryArchivedOnly(!source.historyArchivedOnly)}
             className={`no-drag rounded px-2 py-1 text-[10px] ${
               source.historyArchivedOnly

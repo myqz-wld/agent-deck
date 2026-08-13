@@ -169,12 +169,13 @@ describe('B18 permission viewers', () => {
     expect(screen.getByRole('button', { name: '打开全局设置' }).className).toContain('h-7');
   });
 
-  it('uses canonical adapter names while keeping protocol identifiers intact', () => {
+  it('uses product names and plain-language permission descriptions', () => {
     render(<GrokPermissionsPanel sessionMode="ask" />);
     expect(screen.getByText('Grok Build 当前运行权限')).toBeTruthy();
-    expect(screen.getByText(/Grok Build 会话不读取 Claude Code settings\.json/)).toBeTruthy();
-    expect(screen.getByText(/Codex CLI sandbox\/approval policy/)).toBeTruthy();
-    expect(screen.getByText(/ask · ACP session mode/)).toBeTruthy();
+    expect(screen.getByText('问答模式')).toBeTruthy();
+    expect(screen.getByText('需要时会向你确认')).toBeTruthy();
+    expect(screen.getByText(/这里只显示 Grok Build 实际使用的权限设置/)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/ACP|runtime|provider|Worker|Core|投影/iu);
   });
 
   it('redacts Claude Code parse and open errors from UI and logs', async () => {

@@ -6,21 +6,28 @@ import { CopyIcon } from '../../icons';
 interface Props {
   settings: AppSettings;
   update: (patch: Partial<AppSettings>) => Promise<void>;
+  readOnly?: boolean;
 }
 
 /**
  * Configures the Agent Deck MCP master switch, connection summary, recursion
- * limits, and read-only server token. Transport-specific fields remain persisted
- * but intentionally stay outside this section.
+ * limits, and read-only server token.
  */
-export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
+export function AgentDeckMcpSection({ settings, update, readOnly = false }: Props): JSX.Element {
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
   return (
     <Section title="Agent Deck MCP" storageKey="agent-deck-mcp" defaultOpen={false}>
       <Toggle
         label="启用 Agent Deck MCP"
         value={settings.enableAgentDeckMcp}
+        disabled={readOnly}
         onChange={(v) => void update({ enableAgentDeckMcp: v })}
+      />
+      <Toggle
+        label="允许 Codex CLI 和 Grok Build 连接"
+        value={settings.mcpHttpEnabled}
+        disabled={readOnly}
+        onChange={(v) => void update({ mcpHttpEnabled: v })}
       />
       <div className="text-[10px] leading-snug text-deck-muted/70">
         让 Claude Code、Codex CLI、Grok Build 等 MCP 客户端跨会话协作、展示计划和 diff，并管理任务与 Issue。
@@ -117,6 +124,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             value={settings.mcpMaxSpawnDepth}
             min={1}
             max={10}
+            disabled={readOnly}
             onChange={(v) => void update({ mcpMaxSpawnDepth: v })}
           />
           <NumberInput
@@ -124,6 +132,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             value={settings.mcpSpawnRatePerMinute}
             min={1}
             max={60}
+            disabled={readOnly}
             onChange={(v) => void update({ mcpSpawnRatePerMinute: v })}
           />
           <NumberInput
@@ -131,6 +140,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
             value={settings.mcpMaxFanOutPerParent}
             min={1}
             max={20}
+            disabled={readOnly}
             onChange={(v) => void update({ mcpMaxFanOutPerParent: v })}
           />
         </div>
@@ -143,13 +153,18 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
         </div>
       </div>
 
-      <div className="mt-3 border-t border-deck-border/50 pt-3">
+      <div
+        data-settings-field="访问 Token"
+        className="mt-3 border-t border-deck-border/50 pt-3"
+      >
         <div className="text-[11px] font-medium text-deck-text/85">访问 Token</div>
         <div className="mt-1.5 flex items-center gap-1.5">
           <input
             type="text"
             readOnly
-            value={settings.mcpServerToken ?? '（未生成，请重启应用）'}
+            value={readOnly
+              ? '由远端安全管理'
+              : settings.mcpServerToken ?? '（未生成，请重启应用）'}
             className="no-drag min-w-0 flex-1 rounded border border-deck-border bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] text-deck-muted/80 outline-none"
           />
           <button
@@ -163,7 +178,7 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
                   .catch(() => setCopyStatus('failed'));
               }
             }}
-            disabled={!settings.mcpServerToken}
+            disabled={readOnly || !settings.mcpServerToken}
             className="no-drag shrink-0 rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20 disabled:opacity-40"
           >
             <CopyIcon className="mr-1 inline h-3 w-3" />
@@ -174,14 +189,20 @@ export function AgentDeckMcpSection({ settings, update }: Props): JSX.Element {
           <div className="mt-1 text-[10px] text-status-waiting">复制失败，请手动选择 Token。</div>
         )}
         <div className="mt-1 text-[10px] leading-snug text-deck-muted/70">
-          首次启动时自动生成并保存。Codex CLI 会读取环境变量
-          <code className="rounded bg-white/5 px-1">AGENT_DECK_MCP_TOKEN</code>；
-          Grok Build 通过 ACP 会话 metadata 接收独立的会话 Token；
-          外部 HTTP 客户端将此值用作 Bearer Token。
-          <br />
-          如 Token 泄漏，请删除应用配置目录中
-          <code className="rounded bg-white/5 px-1">agent-deck-settings.json</code>
-          的 <code className="rounded bg-white/5 px-1">mcpServerToken</code>，再重启应用。
+          {readOnly ? (
+            <>出于安全考虑，远端访问凭据不会传到这台电脑，也不能在这里复制或修改。</>
+          ) : (
+            <>
+              首次启动时自动生成并保存。Codex CLI 会读取环境变量
+              <code className="rounded bg-white/5 px-1">AGENT_DECK_MCP_TOKEN</code>；
+              Grok Build 会为每个会话接收独立令牌；
+              外部连接将此值用作访问令牌。
+              <br />
+              如 Token 泄漏，请删除应用配置目录中
+              <code className="rounded bg-white/5 px-1">agent-deck-settings.json</code>
+              的 <code className="rounded bg-white/5 px-1">mcpServerToken</code>，再重启应用。
+            </>
+          )}
         </div>
       </div>
     </Section>

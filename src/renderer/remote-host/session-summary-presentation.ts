@@ -22,7 +22,7 @@ export function remoteSessionStatus(status: string): RemoteSessionStatusPresenta
   const activityToken = separator < 0 ? status : status.slice(separator + 1);
   if (!LIFECYCLES.includes(lifecycleToken as LifecycleState) ||
       !ACTIVITIES.includes(activityToken as ActivityState)) {
-    throw new Error('远程 Core 返回了不兼容的会话状态。');
+    throw new Error('远端返回了无法识别的会话状态。');
   }
   const lifecycle = lifecycleToken as LifecycleState;
   const activity = activityToken as ActivityState;

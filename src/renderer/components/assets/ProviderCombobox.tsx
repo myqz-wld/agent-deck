@@ -27,9 +27,9 @@ export function ProviderCombobox({
   options,
   disabled = false,
   allowCustom = true,
-  ariaLabel = 'provider',
-  placeholder = '留空则跟随 adapter 原生配置',
-  emptyMessage = '没有匹配项，可直接输入自定义 provider',
+  ariaLabel = '模型来源',
+  placeholder = '留空则跟随助手原生配置',
+  emptyMessage = '没有匹配项，可直接输入自定义模型来源',
   onChange,
 }: Props): JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -109,6 +109,7 @@ export function ProviderCombobox({
           }
         }}
         disabled={disabled}
+        title={disabled ? value || placeholder : undefined}
         placeholder={placeholder}
         className="no-drag w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 pr-7 text-[11px] text-deck-text outline-none focus:border-white/20 disabled:opacity-50"
       />

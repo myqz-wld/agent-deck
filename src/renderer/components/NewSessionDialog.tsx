@@ -303,7 +303,7 @@ export function NewSessionDialog({
         )}
         controls={controls}
         directoryHelp={remoteMode
-          ? <>目录始终相对于 Remote Workspace；`.` 表示根目录，绝对路径和 `..` 会被拒绝。</>
+          ? <>目录始终相对于远端工作区；`.` 表示根目录，不能使用绝对路径或 `..`。</>
           : null}
         directoryPlaceholder={remoteMode ? '. 或 repo/subdir' : '留空则使用主目录（~）'}
         error={combinedError}
@@ -350,8 +350,8 @@ export function NewSessionDialog({
         pickingDirectory={pickingDirectory}
         prompt={prompt}
         sourceLabel={remoteMode
-          ? `Remote · ${remoteSource?.profile?.label ?? 'Worker'} · Workspace`
-          : 'Local · 本机'}
+          ? `远端 · ${remoteSource?.profile?.label ?? '远端主机'} · 工作区`
+          : '本机'}
         workingDirectory={workingDirectory}
         onAdapterChange={(value) => {
           if (remoteMode) remote.setAdapterId(value);

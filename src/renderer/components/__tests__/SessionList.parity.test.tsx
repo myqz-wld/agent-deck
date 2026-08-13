@@ -220,7 +220,7 @@ describe('Local and Remote session-list parity', () => {
     const pinned = { ...remoteSession('Pinned', 'active-idle'), pinned: true };
     render(<SessionList remoteSource={remoteSource([pinned])} />);
 
-    expect(screen.getByRole('img', { name: '已置顶会话（Remote 只读）' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: '此会话已置顶' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /置顶会话/ })).toBeNull();
   });
 

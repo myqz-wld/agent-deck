@@ -17,7 +17,7 @@ import { syncLoginItemSetting } from '@main/login-item';
 import { getLifecycleScheduler } from '@main/session/lifecycle-scheduler';
 import { getIssueLifecycleScheduler } from '@main/store/issue-lifecycle-scheduler';
 import { getMessageLifecycleScheduler } from '@main/store/message-lifecycle-scheduler';
-import { summarizer } from '@main/session/summarizer';
+import { summarizer } from '@main/session/summarizer/desktop';
 import { getContinuationCheckpointRefreshService } from '@main/session/continuation-context/checkpoint-refresh-service';
 import {
   getActiveAgentDeckClaudeMd,

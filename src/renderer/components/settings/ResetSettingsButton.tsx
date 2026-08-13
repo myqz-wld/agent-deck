@@ -14,9 +14,11 @@ export function buildDefaultSettingsPatch(): Partial<AppSettings> {
 
 export function ResetSettingsButton({
   busy,
+  disabled = false,
   update,
 }: {
   busy: boolean;
+  disabled?: boolean;
   update: (patch: Partial<AppSettings>) => Promise<void>;
 }): JSX.Element {
   const reset = async (): Promise<void> => {
@@ -36,7 +38,7 @@ export function ResetSettingsButton({
     <div className="mt-2 border-t border-deck-border pt-3">
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={() => void reset()}
         className="no-drag w-full rounded border border-deck-border bg-black/20 px-3 py-1.5 text-[11px] text-deck-muted transition-colors hover:bg-white/[0.06] hover:text-deck-text disabled:opacity-50"
       >

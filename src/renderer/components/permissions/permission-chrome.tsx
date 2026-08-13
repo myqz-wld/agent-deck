@@ -1,5 +1,6 @@
 import { useMemo, type JSX, type ReactNode } from 'react';
 import type { SettingsSource } from '@shared/types';
+import { RefreshIcon } from '../icons';
 
 export const SOURCE_LABEL: Record<SettingsSource, string> = {
   user: '全局设置',
@@ -30,6 +31,65 @@ export function SourceBadge({ source }: { source: SettingsSource }): JSX.Element
     >
       {SOURCE_BADGE[source]}
     </span>
+  );
+}
+
+export function PermissionField({
+  field,
+  label,
+  value,
+  detail,
+}: {
+  field: string;
+  label: string;
+  value: ReactNode;
+  detail?: ReactNode;
+}): JSX.Element {
+  return (
+    <div
+      className="grid grid-cols-[92px_minmax(0,1fr)] gap-2"
+      data-permission-field={field}
+    >
+      <span className="text-deck-muted">{label}</span>
+      <span className="min-w-0 break-words">
+        <span className="font-mono text-deck-text/90">{value}</span>
+        {detail && <span className="ml-1 text-[10px] text-deck-muted">{detail}</span>}
+      </span>
+    </div>
+  );
+}
+
+export function PermissionRefreshField({
+  field,
+  label,
+  value,
+  loading,
+  onRefresh,
+}: {
+  field: string;
+  label: string;
+  value: ReactNode;
+  loading: boolean;
+  onRefresh?: () => void;
+}): JSX.Element {
+  return (
+    <div
+      className="flex items-center justify-between gap-2 text-[10px] text-deck-muted"
+      data-permission-field={field}
+    >
+      <div className="min-w-0 truncate">
+        {label}：<span className="font-mono text-deck-text/80">{value}</span>
+      </div>
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={loading || !onRefresh}
+        className="inline-flex shrink-0 items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-deck-text hover:bg-white/15 disabled:opacity-50"
+      >
+        {!loading && <RefreshIcon className="h-3 w-3" />}
+        {loading ? '刷新中…' : '刷新'}
+      </button>
+    </div>
   );
 }
 

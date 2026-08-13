@@ -22,9 +22,9 @@ describe('Remote session summary presentation', () => {
       .toEqual({ lifecycle: 'active', activity: 'working' });
     expect(remoteSessionStatus('dormant-idle'))
       .toEqual({ lifecycle: 'dormant', activity: 'idle' });
-    expect(() => remoteSessionStatus('closed')).toThrow(/不兼容/);
-    expect(() => remoteSessionStatus('waiting')).toThrow(/不兼容/);
-    expect(() => remoteSessionStatus('future-idle')).toThrow(/不兼容/);
+    expect(() => remoteSessionStatus('closed')).toThrow(/无法识别/);
+    expect(() => remoteSessionStatus('waiting')).toThrow(/无法识别/);
+    expect(() => remoteSessionStatus('future-idle')).toThrow(/无法识别/);
   });
 
   it('drives Remote sections and header counts from the same status decoder', () => {

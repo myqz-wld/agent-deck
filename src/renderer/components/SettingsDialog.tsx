@@ -21,8 +21,8 @@ import { LogsSection } from './settings/sections/LogsSection';
 import { AdapterConfigHelp } from './settings/AdapterConfigHelp';
 import { ResetSettingsButton } from './settings/ResetSettingsButton';
 import { useModalFocus } from './use-modal-focus';
-import { RemoteNodeConfigurationSection } from './settings/sections/RemoteNodeConfigurationSection';
 import type { NodeConfigurationGetResult } from '@contracts/index';
+import { presentRemoteSettings } from './settings/remote-settings-presentation';
 import {
   presentLocalHookStatus,
   presentRemoteHookStatus,
@@ -249,6 +249,10 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
       if (seq === updateSeqRef.current && remoteAuthorityRef.current === authority) setBusy(false);
     }
   };
+  const visibleSettings: AppSettings = settings && remote && nodeConfiguration
+    ? presentRemoteSettings(settings, nodeConfiguration)
+    : settings ?? DEFAULT_SETTINGS;
+  const remoteSettingsReady = !remote || nodeConfiguration !== null;
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -262,7 +266,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
       >
         <header className="mb-3 flex items-center justify-between">
           <h2 id={titleId} className="text-[13px] font-medium">
-            {remote ? `Remote 设置 · ${remote.label}` : '设置'}
+            {remote ? `远端设置 · ${remote.label}` : '设置'}
           </h2>
           <button
             type="button"
@@ -323,7 +327,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
 
             {remote && (
               <div className="mb-3 rounded border border-deck-border/70 bg-white/[0.025] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted/75">
-                远端运行设置仅供查看。通用页中的提醒、窗口、快捷键和日志仍使用这台电脑的设置。
+                远端配置仅供查看，不能在这里修改。提醒、窗口、快捷键和日志属于这台电脑。
               </div>
             )}
 
@@ -336,54 +340,68 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                 )}
 
                 <SectionGroup title="会话">
-                  {remote ? (
-                    <RemoteNodeConfigurationSection
-                      configuration={nodeConfiguration}
-                      group="session"
-                    />
-                  ) : (
+                  {remoteSettingsReady && (
                     <>
-                      <LifecycleSection settings={settings} update={update} />
-                      <ContinuationContextSection settings={settings} update={update} />
-                      <SummarySection settings={settings} update={update} />
+                      <LifecycleSection
+                        settings={visibleSettings}
+                        update={update}
+                        readOnly={Boolean(remote)}
+                      />
+                      <ContinuationContextSection
+                        settings={visibleSettings}
+                        update={update}
+                        readOnly={Boolean(remote)}
+                      />
+                      <SummarySection
+                        settings={visibleSettings}
+                        update={update}
+                        readOnly={Boolean(remote)}
+                      />
                     </>
                   )}
                 </SectionGroup>
 
                 <SectionGroup title="提醒与外观">
-                  <NotifySection settings={settings} update={update} />
-                  <WindowSection settings={settings} update={update} />
+                  <NotifySection settings={settings} update={update} readOnly={Boolean(remote)} />
+                  <WindowSection settings={settings} update={update} readOnly={Boolean(remote)} />
                   <KeyboardShortcutsSection />
                 </SectionGroup>
 
                 <SectionGroup title="集成与运行环境">
-                  {remote ? (
-                    <RemoteNodeConfigurationSection
-                      configuration={nodeConfiguration}
-                      group="runtime"
-                    />
-                  ) : (
+                  {remoteSettingsReady && (
                     <>
-                      <HookServerSection settings={settings} update={update} />
-                      <ExternalToolsSection settings={settings} update={update} />
-                      <ExperimentalSection settings={settings} update={update} />
+                      <HookServerSection
+                        settings={visibleSettings}
+                        update={update}
+                        readOnly={Boolean(remote)}
+                        remoteManaged={Boolean(remote)}
+                      />
+                      <ExternalToolsSection
+                        settings={visibleSettings}
+                        update={update}
+                        readOnly={Boolean(remote)}
+                      />
+                      <ExperimentalSection
+                        settings={visibleSettings}
+                        update={update}
+                        readOnly={Boolean(remote)}
+                      />
                     </>
                   )}
-                  <LogsSection settings={settings} update={update} />
+                  <LogsSection settings={settings} update={update} readOnly={Boolean(remote)} />
                 </SectionGroup>
 
                 <SectionGroup title="跨工具协作（MCP）">
-                  {remote ? (
-                    <RemoteNodeConfigurationSection
-                      configuration={nodeConfiguration}
-                      group="mcp"
+                  {remoteSettingsReady && (
+                    <AgentDeckMcpSection
+                      settings={visibleSettings}
+                      update={update}
+                      readOnly={Boolean(remote)}
                     />
-                  ) : (
-                    <AgentDeckMcpSection settings={settings} update={update} />
                   )}
                 </SectionGroup>
 
-                {!remote && <ResetSettingsButton busy={busy} update={update} />}
+                <ResetSettingsButton busy={busy} disabled={Boolean(remote)} update={update} />
               </>
             )}
 
@@ -392,14 +410,14 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                 <HookSection
                   title="Claude Code 终端 Hook"
                   storageKey="hook-claude"
-                  installLabel={remote ? '安装 Hook' : '安装到 ~/.claude/settings.json'}
+                  installLabel="安装到 ~/.claude/settings.json"
                   hookStatus={claudeHookStatus}
                   busy={busy}
                   installHook={() => installHook('claude-code')}
                   uninstallHook={() => uninstallHook('claude-code')}
                   unavailableReason={remote ? remoteHookUnavailableReason(remote) : null}
                 />
-                {!remote && <AdapterConfigHelp adapter="claude" />}
+                <AdapterConfigHelp adapter="claude" />
               </SectionGroup>
             )}
 
@@ -408,14 +426,14 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                 <HookSection
                   title="Codex CLI 终端 Hook"
                   storageKey="hook-codex"
-                  installLabel={remote ? '安装 Hook' : '安装到 ~/.codex/hooks.json'}
+                  installLabel="安装到 ~/.codex/hooks.json"
                   hookStatus={codexHookStatus}
                   busy={busy}
                   installHook={() => installHook('codex-cli')}
                   uninstallHook={() => uninstallHook('codex-cli')}
                   unavailableReason={remote ? remoteHookUnavailableReason(remote) : null}
                 />
-                {!remote && <AdapterConfigHelp adapter="codex" />}
+                <AdapterConfigHelp adapter="codex" />
               </SectionGroup>
             )}
 
@@ -424,15 +442,15 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                 <HookSection
                   title="Grok Build 终端 Hook"
                   storageKey="hook-grok"
-                  installLabel={remote ? '安装 Hook' : '安装到 ~/.grok/hooks/agent-deck.json'}
+                  installLabel="安装到 ~/.grok/hooks/agent-deck.json"
                   hookStatus={grokHookStatus}
                   busy={busy}
                   installHook={() => installHook('grok-build')}
                   uninstallHook={() => uninstallHook('grok-build')}
                   unavailableReason={remote ? remoteHookUnavailableReason(remote) : null}
                 />
-                {!remote && <GrokAuthenticationSection />}
-                {!remote && <AdapterConfigHelp adapter="grok" />}
+                <GrokAuthenticationSection readOnly={Boolean(remote)} />
+                <AdapterConfigHelp adapter="grok" />
               </SectionGroup>
             )}
           </>

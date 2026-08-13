@@ -1,12 +1,15 @@
 import { useState, type JSX, type MouseEvent } from 'react';
 
 import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
-import { CrownIcon, PushpinIcon, ShieldIcon, UsersIcon } from './icons';
+import { CrownIcon, ShieldIcon, UsersIcon } from './icons';
 import { lifecycleLabel } from './TeamDetail/helpers';
 import { HistorySessionActionsMenu } from './HistorySessionActionsMenu';
 import { RuntimeMetadataChips } from './SessionMetadataChips';
 import { SessionCardFrame, SessionCardHeader } from './SessionListPrimitives';
 import type { SessionContextMenuPosition } from './SessionActionsContextMenu';
+import { SessionContextSnapshotChip } from './SessionContextUsageChip';
+import { SessionPinControl } from './SessionPinButton';
+import { sessionSummaryHeadline } from './session-summary-headline';
 
 const ACTIVITY_LABELS = {
   idle: '空闲',
@@ -14,32 +17,6 @@ const ACTIVITY_LABELS = {
   waiting: '等待输入',
   finished: '一轮完成',
 } as const;
-
-function compactTokens(value: number): string {
-  if (value < 1_000) return String(value);
-  if (value < 1_000_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1).replace(/\.0$/u, '')}K`;
-  return `${(value / 1_000_000).toFixed(value >= 100_000_000 ? 0 : 1).replace(/\.0$/u, '')}M`;
-}
-
-function ContextChip({ session }: { session: RemoteHostSessionPresentationDto }): JSX.Element {
-  const { context } = session;
-  const label = context
-    ? `上下文 ${context.usedTokens === null ? '更新中' : compactTokens(context.usedTokens)} / ${
-        context.windowTokens === null ? '未知' : compactTokens(context.windowTokens)
-      }`
-    : '上下文 暂无数据';
-  return (
-    <span
-      aria-label="上下文窗口用量"
-      className={`whitespace-nowrap rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] ${
-        context ? 'text-deck-muted/80' : 'text-deck-muted/65'
-      }`}
-      title="Worker 权威上下文快照"
-    >
-      {label}
-    </span>
-  );
-}
 
 export function RemoteSessionSummaryCard({
   session,
@@ -72,9 +49,11 @@ export function RemoteSessionSummaryCard({
   const historyActions = onArchive && onDelete && onUnarchive
     ? { onArchive, onDelete, ...(onReactivate ? { onReactivate } : {}), onUnarchive }
     : null;
-  const summaryLine = history
-    ? session.workspaceLabel ?? 'Workspace'
-    : session.summary ?? session.workspaceLabel ?? '暂无会话摘要';
+  const summaryPresentation = sessionSummaryHeadline(
+    history ? null : session.summary,
+    session.summaryGenerationSource,
+    session.workspaceLabel ?? (history ? 'Workspace' : '暂无会话摘要'),
+  );
   const activityLine = history
     ? `${new Date(session.updatedAt).toLocaleString('zh-CN', { hour12: false })} · ${
         session.archived
@@ -113,21 +92,16 @@ export function RemoteSessionSummaryCard({
               ? 'bg-status-working/20 text-status-working'
               : 'bg-white/8 text-deck-muted'
           }`}
-          title={session.source === 'sdk' ? 'Remote 应用内创建的会话' : 'Remote 终端启动的会话'}
+          title={session.source === 'sdk' ? '应用内创建的远端会话' : '终端启动的远端会话'}
         >
           {session.source === 'sdk' ? '内' : '外'}
         </span>
-        <span className="rounded bg-blue-500/15 px-1 py-0.5 text-[8px] text-blue-200" title="远程 Core 会话">远</span>
-        {session.pinned && (
-          <span
-            role="img"
-            aria-label="已置顶会话（Remote 只读）"
-            title="已置顶（Remote 只读）"
-            className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-amber-400/15 text-amber-300"
-          >
-            <PushpinIcon filled className="h-3 w-3" />
-          </span>
-        )}
+        <span className="rounded bg-blue-500/15 px-1 py-0.5 text-[8px] text-blue-200" title="远端会话">远</span>
+        <SessionPinControl
+          pinned={session.pinned}
+          disabled
+          disabledReason={session.pinned ? '此会话已置顶' : '远端会话暂不支持修改置顶状态'}
+        />
         {primaryTeam && (
           <span className="max-w-[6rem] truncate rounded bg-purple-500/20 px-1 py-0.5 text-[9px] text-purple-300" title={teamTitle}>
             <ShieldIcon className="mr-0.5 inline h-3 w-3" />{primaryTeam.teamName}
@@ -153,10 +127,12 @@ export function RemoteSessionSummaryCard({
           thinking={session.thinking}
           compact
         />
-        <ContextChip session={session} />
+        <SessionContextSnapshotChip context={session.context} />
       </div>
       <div className="mt-1 truncate text-[10px] text-deck-text/85" title={activityLine}>{activityLine}</div>
-      <div className="mt-0.5 truncate text-[10px] text-deck-muted/70" title={summaryLine}>{summaryLine}</div>
+      <div className="mt-0.5 truncate text-[10px] text-deck-muted/70" title={summaryPresentation.title}>
+        {summaryPresentation.line}
+      </div>
       {historyActions && menuPosition && (
         <HistorySessionActionsMenu
           archived={session.archived}

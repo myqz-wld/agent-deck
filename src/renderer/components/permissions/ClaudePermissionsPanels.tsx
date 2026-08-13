@@ -1,6 +1,6 @@
 import { useCallback, useState, type JSX } from 'react';
 import log from '@renderer/utils/logger';
-import type { MergedPermissions, SettingsLayer } from '@shared/types';
+import type { MergedPermissions, SettingsLayer, SettingsSource } from '@shared/types';
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -8,7 +8,12 @@ import {
   ExternalLinkIcon,
   InfoIcon,
 } from '../icons';
-import { RawJsonBlock, SOURCE_LABEL, SourceBadge } from './permission-chrome';
+import {
+  PermissionField,
+  RawJsonBlock,
+  SOURCE_LABEL,
+  SourceBadge,
+} from './permission-chrome';
 
 const logger = log.scope('renderer-claude-permissions');
 
@@ -20,49 +25,122 @@ function safeErrorKind(reason: unknown): 'function' | 'null' | 'object' | 'primi
   return 'primitive';
 }
 
-export function MergedPanel({ merged }: { merged: MergedPermissions }): JSX.Element {
-  const empty =
-    merged.allow.length === 0 &&
-    merged.deny.length === 0 &&
-    merged.ask.length === 0 &&
-    merged.additionalDirectories.length === 0 &&
-    !merged.defaultMode;
+const MODE_LABELS: Record<string, string> = {
+  acceptEdits: '自动接受编辑',
+  auto: '自动模式',
+  bypassPermissions: '绕过权限检查',
+  default: '默认',
+  dontAsk: '不询问',
+  plan: '计划模式',
+};
+
+const SANDBOX_LABELS: Record<string, string> = {
+  off: '关闭',
+  'provider-default': '由 Claude Code 决定',
+  strict: '严格',
+  'workspace-write': '工作区可写',
+};
+
+const SETTINGS_SOURCES = new Set<SettingsSource>(['user', 'user-local', 'project', 'local']);
+
+function mergedRules(value: unknown): MergedPermissions['allow'] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return [];
+    const raw = candidate as { rule?: unknown; sources?: unknown };
+    if (typeof raw.rule !== 'string') return [];
+    const sources = Array.isArray(raw.sources)
+      ? raw.sources.filter((source): source is SettingsSource => SETTINGS_SOURCES.has(source as SettingsSource))
+      : [];
+    return [{ rule: raw.rule, sources }];
+  });
+}
+
+function mergedDirectories(value: unknown): MergedPermissions['additionalDirectories'] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== 'object') return [];
+    const raw = candidate as { dir?: unknown; sources?: unknown };
+    if (typeof raw.dir !== 'string') return [];
+    const sources = Array.isArray(raw.sources)
+      ? raw.sources.filter((source): source is SettingsSource => SETTINGS_SOURCES.has(source as SettingsSource))
+      : [];
+    return [{ dir: raw.dir, sources }];
+  });
+}
+
+function normalizedMerged(merged: MergedPermissions | null | undefined): MergedPermissions {
+  const candidate = merged as Partial<MergedPermissions> | null | undefined;
+  const defaultMode = candidate?.defaultMode;
+  return {
+    allow: mergedRules(candidate?.allow),
+    deny: mergedRules(candidate?.deny),
+    ask: mergedRules(candidate?.ask),
+    additionalDirectories: mergedDirectories(candidate?.additionalDirectories),
+    defaultMode: defaultMode && typeof defaultMode.value === 'string' &&
+      SETTINGS_SOURCES.has(defaultMode.source)
+      ? defaultMode
+      : null,
+    truncated: candidate?.truncated === true,
+  };
+}
+
+export function MergedPanel({
+  merged,
+  sandbox = null,
+  sandboxDetail = null,
+}: {
+  merged: MergedPermissions | null | undefined;
+  sandbox?: string | null;
+  sandboxDetail?: string | null;
+}): JSX.Element {
+  const value = normalizedMerged(merged);
+  const mode = value.defaultMode;
 
   return (
-    <section className="rounded-md border border-deck-border/60 bg-white/[0.03] p-2">
-      <header className="mb-1.5 flex items-center justify-between text-[10px] uppercase tracking-wider text-deck-muted">
-        <span>Claude Code 当前生效规则（按全局 → 本机 → 项目 → 当前目录的顺序合并）</span>
-        {merged.defaultMode && (
-          <span className="text-deck-text/80">
-            默认权限模式：<span className="font-mono text-status-working">{merged.defaultMode.value}</span>{' '}
-            <SourceBadge source={merged.defaultMode.source} />
-          </span>
-        )}
+    <section
+      className="rounded-md border border-deck-border/60 bg-white/[0.03] p-2"
+      data-permission-section="claude-effective"
+    >
+      <header className="mb-1.5 text-[10px] uppercase tracking-wider text-deck-muted">
+        Claude Code 当前生效规则
       </header>
-      {empty ? (
-        <div className="text-[11px] text-deck-muted">尚未配置任何权限规则</div>
-      ) : (
-        <div className="grid gap-1.5">
-          {merged.truncated && (
-            <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200">
-              规则数量超过显示上限；每类仅显示前 500 条。
-            </div>
-          )}
-          <RuleRow label="允许" tone="allow" rules={merged.allow} />
-          <RuleRow label="拒绝" tone="deny" rules={merged.deny} />
-          <RuleRow label="每次询问" tone="ask" rules={merged.ask} />
-          {merged.additionalDirectories.length > 0 && <DirRow dirs={merged.additionalDirectories} />}
-        </div>
-      )}
+      <div className="grid gap-1.5 text-[11px]">
+        <PermissionField
+          field="claude.default-mode"
+          label="默认权限模式"
+          value={mode ? MODE_LABELS[mode.value] ?? mode.value : '未单独设置'}
+          detail={mode
+            ? <><span>{mode.value}</span>{' '}<SourceBadge source={mode.source} /></>
+            : '使用 Claude Code 当前设置'}
+        />
+        <PermissionField
+          field="claude.sandbox"
+          label="系统沙盒"
+          value={sandbox ? SANDBOX_LABELS[sandbox] ?? sandbox : '暂未提供'}
+          detail={sandboxDetail ?? (sandbox ? undefined : '当前页面没有这项信息')}
+        />
+        <RuleRow field="claude.allow" label="允许" tone="allow" rules={value.allow} />
+        <RuleRow field="claude.deny" label="拒绝" tone="deny" rules={value.deny} />
+        <RuleRow field="claude.ask" label="每次询问" tone="ask" rules={value.ask} />
+        <DirRow dirs={value.additionalDirectories} />
+        {value.truncated && (
+          <div className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200">
+            规则数量超过显示上限；每类仅显示前 500 条。
+          </div>
+        )}
+      </div>
     </section>
   );
 }
 
 function RuleRow({
+  field,
   label,
   tone,
   rules,
 }: {
+  field: string;
   label: string;
   tone: 'allow' | 'deny' | 'ask';
   rules: MergedPermissions['allow'];
@@ -73,10 +151,10 @@ function RuleRow({
       ? 'text-status-waiting'
       : 'text-deck-text/80';
   return (
-    <div className="text-[11px]">
+    <div className="text-[11px]" data-permission-field={field}>
       <div className="mb-0.5 text-[10px] text-deck-muted"><span className={toneClass}>{label}</span> ({rules.length})</div>
       {rules.length === 0 ? (
-        <div className="pl-2 text-[10px] text-deck-muted/60">—</div>
+        <div className="pl-2 text-[10px] text-deck-muted/60">暂无规则</div>
       ) : (
         <ul className="flex flex-col gap-0.5 pl-2">
           {rules.map((rule) => (
@@ -95,18 +173,22 @@ function RuleRow({
 
 function DirRow({ dirs }: { dirs: MergedPermissions['additionalDirectories'] }): JSX.Element {
   return (
-    <div className="text-[11px]">
+    <div className="text-[11px]" data-permission-field="claude.additional-directories">
       <div className="mb-0.5 text-[10px] text-deck-muted">额外可访问目录（{dirs.length}）</div>
-      <ul className="flex flex-col gap-0.5 pl-2">
-        {dirs.map((dir) => (
-          <li key={dir.dir} className="flex items-center gap-1.5">
-            <span className="break-all font-mono text-deck-text/90">{dir.dir}</span>
-            <span className="ml-auto flex shrink-0 gap-0.5">
-              {dir.sources.map((source) => <SourceBadge key={source} source={source} />)}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {dirs.length === 0
+        ? <div className="pl-2 text-[10px] text-deck-muted/60">暂无额外目录</div>
+        : (
+            <ul className="flex flex-col gap-0.5 pl-2">
+              {dirs.map((dir) => (
+                <li key={dir.dir} className="flex items-center gap-1.5">
+                  <span className="break-all font-mono text-deck-text/90">{dir.dir}</span>
+                  <span className="ml-auto flex shrink-0 gap-0.5">
+                    {dir.sources.map((source) => <SourceBadge key={source} source={source} />)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
     </div>
   );
 }
@@ -147,7 +229,10 @@ export function LayerPanel({
   }, [cwd, layer.path, layer.source]);
 
   return (
-    <section className="rounded-md border border-deck-border/60 bg-white/[0.02]">
+    <section
+      className="rounded-md border border-deck-border/60 bg-white/[0.02]"
+      data-permission-field={`claude.layer.${layer.source}`}
+    >
       <header className="flex min-w-0 flex-wrap items-center gap-1.5 px-2 py-1">
         <button
           type="button"
@@ -213,6 +298,51 @@ export function LayerPanel({
               contentId={layer.path}
             />
           )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Same settings-layer slot for a remote session, without exposing device paths or full config. */
+export function ManagedLayerPanel({ source }: { source: SettingsSource }): JSX.Element {
+  const [collapsed, setCollapsed] = useState(false);
+  return (
+    <section
+      className="rounded-md border border-deck-border/60 bg-white/[0.02]"
+      data-permission-field={`claude.layer.${source}`}
+    >
+      <header className="flex min-w-0 flex-wrap items-center gap-1.5 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => setCollapsed((value) => !value)}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
+          title={collapsed ? '展开' : '折叠'}
+          aria-label={`${collapsed ? '展开' : '折叠'}${SOURCE_LABEL[source]}`}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? <ChevronRightIcon className="h-3 w-3" /> : <ChevronDownIcon className="h-3 w-3" />}
+        </button>
+        <span className="text-[11px] font-medium text-deck-text">{SOURCE_LABEL[source]}</span>
+        <span className="min-w-0 flex-1 truncate text-[10px] text-deck-muted">
+          配置文件保存在远程设备上
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+          <span className="text-[10px] text-deck-muted">只读</span>
+          <button
+            type="button"
+            disabled
+            aria-label={`打开${SOURCE_LABEL[source]}`}
+            className="inline-flex h-7 items-center gap-1 rounded bg-white/10 px-2 text-[10px] text-deck-text disabled:cursor-not-allowed disabled:opacity-50"
+            title="远程配置文件不能在此电脑打开"
+          >
+            <ExternalLinkIcon className="h-3 w-3" />打开
+          </button>
+        </span>
+      </header>
+      {!collapsed && (
+        <div className="border-t border-deck-border/40 px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted">
+          此设备未收到配置文件位置和完整内容；上方仍会显示当前已知的生效规则。
         </div>
       )}
     </section>

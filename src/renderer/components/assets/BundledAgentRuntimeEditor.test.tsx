@@ -98,7 +98,7 @@ describe('BundledAgentRuntimeEditor', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '思考等级' }));
     fireEvent.click(screen.getByRole('option', { name: 'high' }));
-    fireEvent.change(screen.getByLabelText('Provider'), {
+    fireEvent.change(screen.getByLabelText('模型来源'), {
       target: { value: 'fable' },
     });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
@@ -112,7 +112,7 @@ describe('BundledAgentRuntimeEditor', () => {
     );
     expect(onSaved).toHaveBeenCalledTimes(1);
     expect(
-      screen.queryByText(/不会修改 packaged 资产、用户 Agent 或原生配置。/),
+      screen.queryByText(/不会修改内建资产、用户 Agent 或原生配置。/),
     ).toBeTruthy();
   });
 
@@ -179,12 +179,12 @@ describe('BundledAgentRuntimeEditor', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('Provider'), {
+    fireEvent.change(screen.getByLabelText('模型来源'), {
       target: { value: '' },
     });
 
     expect(
-      screen.getByText('内建默认 Provider 不能为空；如需撤销自定义值，请恢复默认'),
+      screen.getByText('内建默认 模型来源 不能为空；如需撤销自定义值，请恢复默认'),
     ).toBeTruthy();
     expect(
       (screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled,

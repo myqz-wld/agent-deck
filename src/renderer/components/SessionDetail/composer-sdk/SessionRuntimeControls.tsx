@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
 import {
-  SessionModelFields,
   thinkingOptionsForAdapter,
   type SessionThinkingChoice,
 } from '@renderer/components/SessionModelFields';
-import { ErrorBanner } from './ErrorBanner';
+import { SessionRuntimeFieldsView } from './SessionRuntimeFieldsView';
 
 function normalizeThinking(session: SessionRecord): SessionThinkingChoice {
   const value = session.thinking ?? '';
@@ -186,34 +185,21 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
   }, []);
 
   return (
-    <details className="mb-2 rounded border border-deck-border/80 bg-white/[0.02] px-2 py-1.5">
-      <summary className="cursor-pointer select-none text-[10px] text-deck-muted">
-        {session.agentId === 'codex-cli'
-          ? 'Provider'
-          : session.agentId === 'claude-code'
-            ? 'Gateway'
-            : '运行时'}、模型与思考程度
-        <span className="ml-1 text-deck-muted/60">（下一轮生效）</span>
-      </summary>
-      <div className="mt-2 space-y-2">
-        <SessionModelFields
-          adapterId={session.agentId}
-          provider={provider}
-          model={model}
-          thinking={thinking}
-          onProviderChange={(next) =>
-            updateSelection({ provider: next, model: '' }, true)
-          }
-          onModelChange={(next) => updateSelection({ model: next }, false)}
-          onThinkingChange={(next) => updateSelection({ thinking: next }, true)}
-        />
-        <p className="text-[9px] text-deck-muted/65">
-          {session.agentId === 'codex-cli'
-            ? '已加载的 Codex 会话不能热切 Provider；请新建会话或待会话休眠后再切换。模型与思考程度会在下一轮生效。'
-            : '当前回复不会中断，修改会自动保存并在下一轮生效；模型和思考档位以模型提供商的校验为准。'}
-        </p>
-        <ErrorBanner message={error} prefix="运行时设置失败" onDismiss={() => setError(null)} />
-      </div>
-    </details>
+    <SessionRuntimeFieldsView
+      fields={{
+        adapterId: session.agentId,
+        provider,
+        model,
+        thinking,
+        onProviderChange: (next) => updateSelection({ provider: next, model: '' }, true),
+        onModelChange: (next) => updateSelection({ model: next }, false),
+        onThinkingChange: (next) => updateSelection({ thinking: next }, true),
+      }}
+      help={session.agentId === 'codex-cli'
+        ? '已加载的 Codex 会话不能直接切换模型来源；模型与思考程度会在下一轮生效。'
+        : '当前回复不会中断，修改会自动保存并在下一轮生效。'}
+      error={error}
+      onDismissError={() => setError(null)}
+    />
   );
 }

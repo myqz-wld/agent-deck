@@ -141,7 +141,7 @@ export function DataPanelView(props: DataPanelViewProps): JSX.Element {
         <div className="mt-1.5 text-[10px] leading-4 text-deck-muted/60">
           <span className="text-deck-muted/80">统计规则：</span>
           输入总量已包含缓存读/写，输出总量已包含推理；标记为“其中”的分项不要再次相加。
-          provider 没有单独提供的字段显示为“—”，不会按 0 计入。
+          模型服务没有单独提供的字段显示为“—”，不会按 0 计入。
         </div>
       </section>
 

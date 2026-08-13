@@ -32,7 +32,7 @@ export function presentRemoteHookStatus(
 ): HookStatusPresentation {
   return {
     state: status.state,
-    locationLabel: null,
+    locationLabel: status.supported ? '由远端环境管理' : null,
     writeAllowed: false,
     disabledReason: status.disabledReason
       ? REMOTE_HOOK_DISABLED_COPY[status.disabledReason]

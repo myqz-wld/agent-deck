@@ -154,11 +154,11 @@ vi.mock('../../store/storage-maintenance', () => ({
     return new Scheduler();
   }),
 }));
-vi.mock('../../session/summarizer', () => ({
+vi.mock('../../session/summarizer/desktop', () => ({
   summarizer: { start: vi.fn(() => mocks.calls.push('summarizer.start')) },
 }));
-vi.mock('../../session/continuation-context/checkpoint-refresh-service', () => ({
-  startContinuationCheckpointRefreshService: mocks.checkpointStart,
+vi.mock('../../session/continuation-context/checkpoint-refresh-desktop', () => ({
+  startDesktopContinuationCheckpointRefreshService: mocks.checkpointStart,
 }));
 vi.mock('../../notify/event-router', () => ({ routeEventToNotification: vi.fn() }));
 vi.mock('../../ipc', () => ({ bootstrapIpc: vi.fn() }));

@@ -72,6 +72,16 @@ const mocks = vi.hoisted(() => {
     calls.push('remote.stop.end');
     return Promise.resolve();
   });
+  const summaryState: { resolve: (() => void) | null } = { resolve: null };
+  const summaryStop = vi.fn(() => {
+    calls.push('summary.stop.begin');
+    return new Promise<void>((resolve) => {
+      summaryState.resolve = () => {
+        calls.push('summary.stop.end');
+        resolve();
+      };
+    });
+  });
   return {
     calls,
     handlers,
@@ -81,6 +91,8 @@ const mocks = vi.hoisted(() => {
     watcherStop,
     remoteHostState,
     remoteHostStop,
+    summaryState,
+    summaryStop,
   };
 });
 
@@ -109,7 +121,9 @@ vi.mock('../../adapters/registry', () => ({
 vi.mock('../../session/lifecycle-scheduler', () => ({ setLifecycleScheduler: vi.fn() }));
 vi.mock('../../store/issue-lifecycle-scheduler', () => ({ setIssueLifecycleScheduler: vi.fn() }));
 vi.mock('../../store/message-lifecycle-scheduler', () => ({ setMessageLifecycleScheduler: vi.fn() }));
-vi.mock('../../session/summarizer', () => ({ summarizer: { stop: vi.fn() } }));
+vi.mock('../../session/summarizer/desktop', () => ({
+  summarizer: { stop: mocks.summaryStop },
+}));
 vi.mock('../../session/continuation-context/checkpoint-refresh-service', () => ({
   stopContinuationCheckpointRefreshService: mocks.checkpointStop,
 }));
@@ -160,6 +174,7 @@ describe('checkpoint refresh shutdown entry', () => {
     mocks.watcherState.resolve = null;
     mocks.remoteHostState.mode = 'resolve';
     mocks.remoteHostState.resolve = null;
+    mocks.summaryState.resolve = null;
     resetAppShutdownForTests();
     vi.clearAllMocks();
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code) => {
@@ -185,6 +200,7 @@ describe('checkpoint refresh shutdown entry', () => {
     expect(closeDb).not.toHaveBeenCalled();
 
     mocks.checkpointState.resolve?.();
+    mocks.summaryState.resolve?.();
     await vi.advanceTimersByTimeAsync(0);
     await flushMicrotasks();
 
@@ -195,7 +211,9 @@ describe('checkpoint refresh shutdown entry', () => {
       'checkpoint.stop.begin',
       'remote.stop.begin',
       'remote.stop.end',
+      'summary.stop.begin',
       'checkpoint.stop.end',
+      'summary.stop.end',
       'handoff-spool.cleanup',
       'adapters.shutdown',
       'db.close',
@@ -207,6 +225,7 @@ describe('checkpoint refresh shutdown entry', () => {
   it('on the bounded timeout, preserves the spool instead of deleting a source still owned by refresh', async () => {
     mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
 
+    mocks.summaryState.resolve?.();
     await vi.advanceTimersByTimeAsync(9_999);
     expect(cleanupSessionHandOffPreparations).not.toHaveBeenCalled();
     expect(closeDb).not.toHaveBeenCalled();
@@ -228,6 +247,7 @@ describe('checkpoint refresh shutdown entry', () => {
 
     mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
     mocks.checkpointState.resolve?.();
+    mocks.summaryState.resolve?.();
     await vi.advanceTimersByTimeAsync(0);
     await flushMicrotasks();
 
@@ -244,6 +264,7 @@ describe('checkpoint refresh shutdown entry', () => {
     mocks.watcherState.mode = 'pending';
     mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
     mocks.checkpointState.resolve?.();
+    mocks.summaryState.resolve?.();
     await vi.advanceTimersByTimeAsync(0);
     await flushMicrotasks();
 
@@ -267,6 +288,7 @@ describe('checkpoint refresh shutdown entry', () => {
     mocks.remoteHostState.mode = 'pending';
     mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
     mocks.checkpointState.resolve?.();
+    mocks.summaryState.resolve?.();
     await vi.advanceTimersByTimeAsync(0);
     await flushMicrotasks();
 
@@ -295,6 +317,7 @@ describe('checkpoint refresh shutdown entry', () => {
     handler?.(firstEvent);
     handler?.(secondEvent);
     mocks.checkpointState.resolve?.();
+    mocks.summaryState.resolve?.();
     await vi.advanceTimersByTimeAsync(0);
     await flushMicrotasks();
 
@@ -317,6 +340,7 @@ describe('checkpoint refresh shutdown entry', () => {
     mocks.remoteHostState.mode = 'reject';
     mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
     mocks.checkpointState.resolve?.();
+    mocks.summaryState.resolve?.();
     await vi.advanceTimersByTimeAsync(0);
     await flushMicrotasks();
 
@@ -331,6 +355,7 @@ describe('checkpoint refresh shutdown entry', () => {
       mocks.watcherState.mode = mode;
       mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
       mocks.checkpointState.resolve?.();
+      mocks.summaryState.resolve?.();
       await vi.advanceTimersByTimeAsync(0);
       await flushMicrotasks();
 
@@ -343,6 +368,7 @@ describe('checkpoint refresh shutdown entry', () => {
     mocks.watcherState.mode = 'pending';
     mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
     mocks.checkpointState.resolve?.();
+    mocks.summaryState.resolve?.();
     await vi.advanceTimersByTimeAsync(9_999);
     await flushMicrotasks();
 
@@ -365,6 +391,7 @@ describe('checkpoint refresh shutdown entry', () => {
 
     mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
     mocks.checkpointState.resolve?.();
+    mocks.summaryState.resolve?.();
     await vi.advanceTimersByTimeAsync(0);
     await flushMicrotasks();
 

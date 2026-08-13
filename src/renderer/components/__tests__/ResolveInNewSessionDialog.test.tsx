@@ -94,7 +94,7 @@ describe('ResolveInNewSessionDialog model options', () => {
     expect(disclosure?.open).toBe(false);
     fireEvent.click(screen.getByText('模型配置'));
     expect(disclosure?.open).toBe(true);
-    fireEvent.change(await screen.findByLabelText('Provider'), {
+    fireEvent.change(await screen.findByLabelText('模型来源'), {
       target: { value: 'openai-custom' },
     });
     fireEvent.change(await screen.findByLabelText('模型'), {

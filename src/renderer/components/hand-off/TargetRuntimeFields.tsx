@@ -53,11 +53,11 @@ export function TargetRuntimeFields({
     <div className="space-y-3 rounded border border-deck-border/80 bg-white/[0.02] p-3">
       <div className="flex flex-col gap-1">
         <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-          目标运行时
+          目标助手
         </label>
         <DeckSelect
           value={targetAdapter}
-          ariaLabel="目标运行时"
+          ariaLabel="目标助手"
           options={[...adapters]}
           disabled={busy || adapters.length === 0}
           onChange={onAdapterChange}
@@ -100,7 +100,7 @@ export function TargetRuntimeFields({
             onChange={onGrokSandboxChange}
             disabled={busy}
             ariaLabel="Grok Build 沙盒请求档位"
-            followLabel="按同运行时继承 / Grok Build 全局设置"
+            followLabel="沿用当前会话 / Grok Build 全局设置"
           />
         </div>
       ) : null}

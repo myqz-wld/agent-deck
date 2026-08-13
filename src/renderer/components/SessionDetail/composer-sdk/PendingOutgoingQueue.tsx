@@ -197,7 +197,7 @@ export function PendingOutgoingQueueView({
               onClick={() => onRemove(message.id)}
               className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-status-error disabled:opacity-40"
               aria-label="删除等待消息"
-              title={removeDisabled ? '此 Remote Core 未提供等待队列删除能力' : '从等待队列删除'}
+              title={removeDisabled ? '当前远端版本暂不支持删除等待消息' : '从等待队列删除'}
             >
               <CloseIcon className="h-3 w-3" />
             </button>

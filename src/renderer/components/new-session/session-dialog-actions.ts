@@ -54,7 +54,7 @@ export function remoteControls(
     if (!schema.enabled || value === null || !schema.allowedValues) {
       result.push({
         label: sessionOptionLabel(key), value: '', options: [],
-        disabledReason: schema.disabledReason ?? '当前 Remote Worker 未提供此选项。',
+        disabledReason: schema.disabledReason ?? '当前远端版本暂不提供此选项。',
         onChange: () => undefined,
       });
       return;
@@ -78,7 +78,7 @@ export function remoteControls(
       onChange: (next) => setOption(key, next),
     } : {
       label: sessionOptionLabel(key), value: '', options: [],
-      disabledReason: schema.disabledReason ?? '当前 Remote Worker 未提供此沙盒选项。',
+      disabledReason: schema.disabledReason ?? '当前远端版本暂不提供此安全选项。',
       onChange: () => undefined,
     });
   }
@@ -154,7 +154,7 @@ export function buildRemoteSessionCreateInput(
       item.bytes > policy.maxBytesEach || !policy.mimeTypes.includes(item.mime)) ||
     totalBytes > policy.maxBytesTotal
   ) {
-    throw new Error('图片超过当前 Remote Core 协商的传输限制；图片仍保留，可移除后重试。');
+    throw new Error('图片超过当前远端连接允许的大小；图片仍保留，可移除后重试。');
   }
   return {
     adapterId: remote.adapterId,

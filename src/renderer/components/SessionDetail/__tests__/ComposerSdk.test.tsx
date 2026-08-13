@@ -489,7 +489,7 @@ describe('ComposerSdk unified input routing', () => {
   it('automatically applies a free-form model and dropdown thinking level to the next round', async () => {
     render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
 
-    fireEvent.click(screen.getByText('Provider、模型与思考程度'));
+    fireEvent.click(screen.getByText('模型来源、模型与思考程度'));
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'gpt-custom' } });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
@@ -507,7 +507,7 @@ describe('ComposerSdk unified input routing', () => {
   it('automatically persists a free-form model without another control change', async () => {
     render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
 
-    fireEvent.click(screen.getByText('Provider、模型与思考程度'));
+    fireEvent.click(screen.getByText('模型来源、模型与思考程度'));
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'gpt-custom' } });
 
     await waitFor(() => {
@@ -530,8 +530,8 @@ describe('ComposerSdk unified input routing', () => {
       />,
     );
 
-    fireEvent.click(screen.getByText('Provider、模型与思考程度'));
-    const provider = screen.getByLabelText('Provider') as HTMLInputElement;
+    fireEvent.click(screen.getByText('模型来源、模型与思考程度'));
+    const provider = screen.getByLabelText('模型来源') as HTMLInputElement;
     expect(provider.value).toBe('openai');
     expect((screen.getByLabelText('模型') as HTMLInputElement).value).toBe('gpt-old');
     fireEvent.change(provider, { target: { value: 'openai-custom' } });
@@ -557,7 +557,7 @@ describe('ComposerSdk unified input routing', () => {
       .mockResolvedValueOnce(undefined);
     render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
 
-    fireEvent.click(screen.getByText('Provider、模型与思考程度'));
+    fireEvent.click(screen.getByText('模型来源、模型与思考程度'));
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'first-model' } });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'HIGH' }));
@@ -598,7 +598,7 @@ describe('ComposerSdk unified input routing', () => {
       .mockResolvedValueOnce(undefined);
     const view = render(<ComposerSdk session={makeSession({ model: 'gpt-old', thinking: 'low' })} />);
 
-    fireEvent.click(screen.getByText('Provider、模型与思考程度'));
+    fireEvent.click(screen.getByText('模型来源、模型与思考程度'));
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'old-session-model' } });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'HIGH' }));
@@ -704,10 +704,10 @@ describe('ComposerSdk unified input routing', () => {
     );
 
     const permission = await screen.findByLabelText('权限');
-    expect(permission.textContent).toContain('模型提供方状态：不询问（只读）');
+    expect(permission.textContent).toContain('当前状态：不询问（只读）');
     fireEvent.click(permission);
     const restored = screen.getByRole('option', {
-      name: '模型提供方状态：不询问（只读）',
+      name: '当前状态：不询问（只读）',
     }) as HTMLButtonElement;
     expect(restored.disabled).toBe(true);
     expect(screen.getAllByRole('option')).toHaveLength(6);

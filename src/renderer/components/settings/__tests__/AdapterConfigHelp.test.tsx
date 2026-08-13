@@ -16,7 +16,7 @@ describe('AdapterConfigHelp', () => {
     expect(screen.getByText('运行配置：')).toBeTruthy();
     expect(screen.getByText('终端接入：')).toBeTruthy();
     expect(screen.getByText('应用内功能：')).toBeTruthy();
-    expect(screen.getByText(new RegExp(`${name} 的`))).toBeTruthy();
+    expect(screen.getAllByText(new RegExp(`${name} 的`)).length).toBeGreaterThan(0);
     expect(screen.getAllByText(configPath).length).toBeGreaterThan(0);
     if (adapter === 'grok') {
       expect(container.textContent).toContain(

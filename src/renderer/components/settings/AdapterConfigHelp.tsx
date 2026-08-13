@@ -47,13 +47,13 @@ const CONFIGS: Record<'claude' | 'codex' | 'grok', AdapterHelpConfig> = {
     terminalIntegration: (
       <>
         安装上方 Hook 后，外部终端会话通过{' '}
-        <InlineCode>~/.grok/hooks/agent-deck.json</InlineCode> 上报到 Agent Deck；应用内会话仍通过官方 ACP 连接。
+        <InlineCode>~/.grok/hooks/agent-deck.json</InlineCode> 上报到 Agent Deck；应用内会话由 Grok Build 直接连接。
       </>
     ),
     inAppFeatures: (
       <>
-        应用内会话通过 ACP 注入 Agent Deck 应用约定、内置 skills / Agents 和按 adapter
-        过滤的 MCP 工具；Grok Build 原生配置与登录状态仍由 Grok Build CLI 管理。
+        应用内会话会加载 Agent Deck 应用约定、内置 Skills / Agents 和适用于 Grok Build
+        的 MCP 工具；Grok Build 原生配置与登录状态仍由 Grok Build CLI 管理。
       </>
     ),
   },

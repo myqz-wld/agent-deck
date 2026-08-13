@@ -425,4 +425,45 @@ describe('Summarizer persisted revision cursor', () => {
       generationSource: 'llm',
     });
   });
+
+  it('drains scheduled and manual work before stop completes', async () => {
+    const summarizer = new Summarizer();
+    summarizer.start();
+
+    await summarizer.scanAll();
+    const manual = summarizer.summarizeNow('manual-drain');
+    expect(harness.summariseEvents).toHaveBeenCalledTimes(2);
+
+    let stopped = false;
+    const firstStop = summarizer.stop();
+    expect(summarizer.stop()).toBe(firstStop);
+    const stop = firstStop.then(() => {
+      stopped = true;
+    });
+    await flush();
+    expect(stopped).toBe(false);
+    await expect(summarizer.summarizeNow('blocked-during-stop')).resolves.toBeNull();
+    expect(harness.summariseEvents).toHaveBeenCalledTimes(2);
+
+    harness.pending.shift()!('scheduled drained');
+    await flush();
+    expect(stopped).toBe(false);
+
+    harness.pending.shift()!('manual drained');
+    await expect(manual).resolves.toMatchObject({ content: 'manual drained' });
+    await stop;
+
+    expect(stopped).toBe(true);
+    expect(harness.insert).toHaveBeenCalledTimes(2);
+    await expect(summarizer.summarizeNow('blocked-after-stop')).resolves.toBeNull();
+    expect(harness.summariseEvents).toHaveBeenCalledTimes(2);
+    expect(harness.eventOff).toHaveBeenCalledWith(
+      'session-removed',
+      expect.any(Function),
+    );
+    expect(harness.eventOff).toHaveBeenCalledWith(
+      'session-renamed',
+      expect.any(Function),
+    );
+  });
 });

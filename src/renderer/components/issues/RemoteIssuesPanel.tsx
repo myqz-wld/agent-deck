@@ -251,7 +251,7 @@ export function RemoteIssuesPanel({
 
   const requireReadTarget = (): { profileId: string; identity: string } => {
     if (!source.usable || !source.profile || !source.capabilities.has('issues')) {
-      throw new Error('远程 Core 不支持问题管理。');
+      throw new Error('当前远端版本暂不支持问题管理。');
     }
     if (identityRef.current !== source.identity) {
       throw new Error('问题数据源已切换，请重试。');
@@ -402,7 +402,7 @@ export function RemoteIssuesPanel({
   if (!source.capabilities.has('issues')) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">
-        当前远程 Core 未提供问题管理能力，不会回退读取 Local 数据。
+        当前远端版本暂不支持问题管理，请更新远端服务。
       </div>
     );
   }

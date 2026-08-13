@@ -63,8 +63,8 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
       />,
     );
 
-    expect(screen.getByLabelText('审批').textContent).toContain('由提供方默认值决定');
-    expect(screen.getByLabelText('沙盒').textContent).toContain('由提供方默认值决定');
+    expect(screen.getByLabelText('审批').textContent).toContain('使用当前默认值');
+    expect(screen.getByLabelText('沙盒').textContent).toContain('使用当前默认值');
   });
 
   it('preserves an explicit on-request policy', () => {

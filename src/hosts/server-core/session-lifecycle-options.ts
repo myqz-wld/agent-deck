@@ -5,6 +5,9 @@ export interface ServerCoreSessionLifecycleSettings {
   activeWindowMs: number;
   closeAfterMs: number;
   historyRetentionDays: number;
+  issueResolvedRetentionDays: number;
+  issueSoftDeletedRetentionDays: number;
+  messageRetentionDays: number;
 }
 
 const MAX_WINDOW_MS = 365 * 24 * 60 * 60 * 1_000;
@@ -17,9 +20,9 @@ function positiveInteger(value: unknown, field: string, max: number): number {
   return Number(value);
 }
 
-function retentionDays(value: unknown): number {
+function retentionDays(value: unknown, field: string): number {
   if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > MAX_RETENTION_DAYS) {
-    throw new Error('runtimeOptions.sessionLifecycle.historyRetentionDays is invalid');
+    throw new Error(`runtimeOptions.sessionLifecycle.${field} is invalid`);
   }
   return Number(value);
 }
@@ -33,6 +36,9 @@ export function resolveServerCoreSessionLifecycleSettings(
       activeWindowMs: DEFAULT_SETTINGS.activeWindowMs,
       closeAfterMs: DEFAULT_SETTINGS.closeAfterMs,
       historyRetentionDays: DEFAULT_SETTINGS.historyRetentionDays,
+      issueResolvedRetentionDays: DEFAULT_SETTINGS.issueResolvedRetentionDays,
+      issueSoftDeletedRetentionDays: DEFAULT_SETTINGS.issueSoftDeletedRetentionDays,
+      messageRetentionDays: DEFAULT_SETTINGS.messageRetentionDays,
     });
   }
   if (!isJsonObject(value)) {
@@ -43,6 +49,9 @@ export function resolveServerCoreSessionLifecycleSettings(
     'activeWindowMs',
     'closeAfterMs',
     'historyRetentionDays',
+    'issueResolvedRetentionDays',
+    'issueSoftDeletedRetentionDays',
+    'messageRetentionDays',
     'schemaVersion',
   ].sort();
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
@@ -54,7 +63,16 @@ export function resolveServerCoreSessionLifecycleSettings(
   const settings = {
     activeWindowMs: positiveInteger(value.activeWindowMs, 'activeWindowMs', MAX_WINDOW_MS),
     closeAfterMs: positiveInteger(value.closeAfterMs, 'closeAfterMs', MAX_WINDOW_MS),
-    historyRetentionDays: retentionDays(value.historyRetentionDays),
+    historyRetentionDays: retentionDays(value.historyRetentionDays, 'historyRetentionDays'),
+    issueResolvedRetentionDays: retentionDays(
+      value.issueResolvedRetentionDays,
+      'issueResolvedRetentionDays',
+    ),
+    issueSoftDeletedRetentionDays: retentionDays(
+      value.issueSoftDeletedRetentionDays,
+      'issueSoftDeletedRetentionDays',
+    ),
+    messageRetentionDays: retentionDays(value.messageRetentionDays, 'messageRetentionDays'),
   };
   if (settings.closeAfterMs <= settings.activeWindowMs) {
     throw new Error('runtimeOptions.sessionLifecycle.closeAfterMs must exceed activeWindowMs');

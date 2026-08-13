@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useEffect, useState, type JSX } from 'react';
 import {
   isSelectablePermissionMode,
   type AdapterSessionMode,
@@ -7,9 +7,6 @@ import {
   type SessionRecord,
 } from '@shared/types';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
-import { PendingImageAttachments } from '@renderer/components/PendingImageAttachments';
-import { HandOffIcon, ImageIcon, SendIcon, StopIcon } from '../icons';
-import { ComposerInput } from './composer-sdk/ComposerInput';
 import { ErrorBanner } from './composer-sdk/ErrorBanner';
 import { PendingOutgoingQueue } from './composer-sdk/PendingOutgoingQueue';
 import { SessionRuntimeControls } from './composer-sdk/SessionRuntimeControls';
@@ -22,6 +19,7 @@ import {
   SelectRow,
   PERMISSION_MODE_OPTIONS,
 } from './composer-sdk/SandboxSelects';
+import { SessionComposerView } from './SessionComposerView';
 
 /** SDK 会话输入区及其按逻辑会话隔离的异步操作。 */
 export function ComposerSdk({
@@ -55,7 +53,6 @@ export function ComposerSdk({
   const busy = composer.requests.send.busy;
   const sendError = composer.sendError;
   const [interrupting, setInterrupting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const imgs = useImageAttachments(sessionId);
   const adapterRuntime = useAdapterRuntimeInfo(agentId);
   const canAcceptAttachments = adapterRuntime.canAcceptAttachments;
@@ -75,7 +72,7 @@ export function ComposerSdk({
       ? [
           {
             value: 'dontAsk',
-            label: '模型提供方状态：不询问（只读）',
+            label: '当前状态：不询问（只读）',
             title:
               'Claude Code 恢复了 dontAsk 状态；Agent Deck 不提供该模式作为新选择，但会准确保留当前状态',
             disabled: true,
@@ -272,144 +269,95 @@ export function ComposerSdk({
   };
 
   return (
-    <div className="shrink-0 border-t border-deck-border px-2.5 py-2">
-      <SessionRuntimeControls session={session} />
-      {supportsPermissionMode && (
-        <SelectRow
-          label="权限"
-          value={permissionMode}
-          options={permissionModeOptions}
-          disabled={pmBusy}
-          onChange={(next) => void changeMode(next)}
+    <SessionComposerView
+      controls={<>
+        <SessionRuntimeControls session={session} />
+        {supportsPermissionMode && (
+          <SelectRow
+            label="权限"
+            value={permissionMode}
+            options={permissionModeOptions}
+            disabled={pmBusy}
+            onChange={(next) => void changeMode(next)}
+          />
+        )}
+        {supportsSessionMode && (
+          <SelectRow
+            label="模式"
+            value={sessionMode}
+            options={adapterSessionModeOptions(adapterRuntime.sessionModes)}
+            disabled={sessionModeBusy}
+            onChange={(next) => void changeSessionMode(next)}
+          />
+        )}
+        <SessionSandboxControls session={session} turnBusy={turnBusy} />
+      </>}
+      feedback={<>
+        <ErrorBanner
+          message={pmError}
+          prefix="权限模式切换失败"
+          onDismiss={() => updateComposer(sessionId, (current) => ({ ...current, permissionModeError: null }))}
         />
-      )}
-      {supportsSessionMode && (
-        <SelectRow
-          label="模式"
-          value={sessionMode}
-          options={adapterSessionModeOptions(adapterRuntime.sessionModes)}
-          disabled={sessionModeBusy}
-          onChange={(next) => void changeSessionMode(next)}
+        <ErrorBanner
+          message={sessionModeError}
+          prefix="模式切换失败"
+          onDismiss={() => updateComposer(sessionId, (current) => ({ ...current, sessionModeError: null }))}
         />
-      )}
-      <SessionSandboxControls session={session} turnBusy={turnBusy} />
-      <ErrorBanner
-        message={pmError}
-        prefix="权限模式切换失败"
-        onDismiss={() => updateComposer(
-          sessionId,
-          (current) => ({ ...current, permissionModeError: null }),
-        )}
-      />
-      <ErrorBanner
-        message={sessionModeError}
-        prefix="模式切换失败"
-        onDismiss={() => updateComposer(
-          sessionId,
-          (current) => ({ ...current, sessionModeError: null }),
-        )}
-      />
-      <ErrorBanner
-        message={sendError}
-        onDismiss={() => updateComposer(
-          sessionId,
-          (current) => ({ ...current, sendError: null }),
-        )}
-      />
-      <ErrorBanner message={imgs.error} onDismiss={imgs.dismissError} />
-      <PendingOutgoingQueue
+        <ErrorBanner
+          message={sendError}
+          onDismiss={() => updateComposer(sessionId, (current) => ({ ...current, sendError: null }))}
+        />
+        <ErrorBanner message={imgs.error} onDismiss={imgs.dismissError} />
+      </>}
+      queue={<PendingOutgoingQueue
         agentId={agentId}
         sessionId={sessionId}
         refreshVersion={composer.queueRefreshVersion}
-      />
-      <ComposerInput
-        text={text}
-        onTextChange={setText}
-        submitLabel={isSteerMode ? steerActionLabel : '发送'}
-        busy={busy}
-        canSubmit={canSubmit}
-        attachments={imgs.attachments}
-        getAttachmentPreviewDataUrl={imgs.getPreviewDataUrl}
-        onRemoveAttachment={imgs.remove}
-        onSubmit={send}
-        onPaste={canUseAttachments ? imgs.onPaste : undefined}
-        onDrop={canUseAttachments ? imgs.onDrop : undefined}
-        onDragOver={canUseAttachments ? imgs.onDragOver : undefined}
-        placeholder={inputPlaceholder}
-      />
-      <div className="mt-1.5 flex items-center gap-1.5">
-        {canUseAttachments && (
-          <>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                void imgs.add(e.target.files);
-                // 重置 input.value 让用户可重选同名文件
-                if (fileInputRef.current) fileInputRef.current.value = '';
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
-              title="上传图片（也可粘贴 / 拖放）"
-              aria-label="上传图片"
-            >
-              <ImageIcon className="h-4 w-4" />
-            </button>
-          </>
-        )}
-        {imgs.attachments.length > 0 && (
-          <PendingImageAttachments
-            attachments={imgs.attachments}
-            getPreviewDataUrl={imgs.getPreviewDataUrl}
-            onRemove={imgs.remove}
-          />
-        )}
-        <div className="flex-1" />
-        {onHandOff && (
-          <button
-            type="button"
-            onClick={onHandOff}
-            disabled={turnBusy || session.activity === 'waiting'}
-            className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
-            title={
-              turnBusy || session.activity === 'waiting'
-                ? '当前任务完成或中断后可接力'
-                : '接力到新会话：生成会话续接上下文，然后按所选目标运行时打开新会话继续'
-            }
-          >
-            <HandOffIcon className="mr-1 inline h-3 w-3" />接力
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => void interrupt()}
-          disabled={!turnBusy || interrupting}
-          className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
-          title={
-            !turnBusy
-              ? '当前没有运行中的任务'
-              : interrupting
-                ? '正在中断当前任务'
-                : '中断当前任务'
-          }
-        >
-          <StopIcon className="mr-1 inline h-3 w-3" />{interrupting ? '中断中…' : '中断'}
-        </button>
-        <button
-          type="button"
-          onClick={() => void send()}
-          disabled={!canSubmit}
-          className="h-7 shrink-0 rounded bg-status-working/30 px-3 text-[10px] font-medium text-status-working hover:bg-status-working/40 disabled:opacity-40"
-        >
-          {!busy && <SendIcon className="mr-1 inline h-3 w-3" />}{submitLabel}
-        </button>
-      </div>
-    </div>
+      />}
+      input={{
+        text,
+        onTextChange: setText,
+        submitLabel: isSteerMode ? steerActionLabel : '发送',
+        busy,
+        canSubmit,
+        attachments: imgs.attachments,
+        getAttachmentPreviewDataUrl: imgs.getPreviewDataUrl,
+        onRemoveAttachment: imgs.remove,
+        onSubmit: send,
+        onPaste: canUseAttachments ? imgs.onPaste : undefined,
+        onDrop: canUseAttachments ? imgs.onDrop : undefined,
+        onDragOver: canUseAttachments ? imgs.onDragOver : undefined,
+        placeholder: inputPlaceholder,
+      }}
+      attachment={{
+        enabled: canUseAttachments,
+        accept: 'image/png,image/jpeg,image/gif,image/webp',
+        attachments: imgs.attachments,
+        getPreviewDataUrl: imgs.getPreviewDataUrl,
+        onRemove: imgs.remove,
+        onAdd: (files) => { void imgs.add(files); },
+      }}
+      handOff={onHandOff ? {
+        disabled: turnBusy || session.activity === 'waiting',
+        label: '接力',
+        title: turnBusy || session.activity === 'waiting'
+          ? '当前任务完成或中断后可接力'
+          : '接力到新会话继续',
+        onClick: onHandOff,
+      } : undefined}
+      interrupt={{
+        disabled: !turnBusy || interrupting,
+        label: interrupting ? '中断中…' : '中断',
+        title: !turnBusy ? '当前没有运行中的任务' : interrupting ? '正在中断当前任务' : '中断当前任务',
+        onClick: () => { void interrupt(); },
+      }}
+      submit={{
+        disabled: !canSubmit,
+        label: submitLabel,
+        title: submitLabel,
+        busy,
+        onClick: () => { void send(); },
+      }}
+    />
   );
 }

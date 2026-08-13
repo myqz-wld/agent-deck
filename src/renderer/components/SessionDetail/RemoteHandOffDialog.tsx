@@ -13,12 +13,13 @@ import { remoteControls } from '@renderer/components/NewSessionDialog';
 import { useModalFocus } from '@renderer/components/use-modal-focus';
 import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
-import { CloseIcon, HandOffIcon, RefreshIcon } from '../icons';
+import { RefreshIcon } from '../icons';
 import {
   ExpandableAuthoringField,
   ExpandableTextViewer,
 } from '../hand-off/ExpandableTextSurface';
 import { qualityLabel, warningLabel } from '../hand-off/labels';
+import { HandOffDialogFrame } from '../hand-off/HandOffDialogFrame';
 
 const CONTINUATION_INSTRUCTION = '请基于以上会话续接上下文继续完成当前工作。';
 const SELECT_CLASS =
@@ -88,7 +89,7 @@ export function RemoteHandOffDialog({
     change();
   };
   const input = (): Omit<SessionHandOffPreviewParams, 'sessionId'> => {
-    if (!remote.descriptor) throw new Error('远程运行时配置尚未就绪。');
+    if (!remote.descriptor) throw new Error('远端会话设置尚未就绪。');
     return {
       continuationInstruction: instruction,
       target: {
@@ -151,49 +152,42 @@ export function RemoteHandOffDialog({
     blocked: committing,
     dialogRef: modalRootRef,
     onClose: close,
+    open: presentation !== 'deferred',
   });
   const warnings = prepared?.result.warnings.flatMap((warning) => {
     const label = warningLabel(warning.code);
     return label ? [{ key: `${warning.code}:${warning.message}`, label }] : [];
   }) ?? [];
 
+  if (presentation === 'deferred') {
+    return <div data-session-handoff-frame className="absolute inset-0 z-40 bg-black/40 backdrop-blur-sm" />;
+  }
   return (
-    <div
-      ref={modalRootRef}
-      tabIndex={-1}
-      data-remote-handoff-modal-root
-      className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+    <HandOffDialogFrame
+      dialogRef={modalRootRef}
+      titleId={titleId}
+      statusText={preparing ? '正在整理会话上下文…' : committing ? '正在创建…' : undefined}
+      busy={committing}
+      onClose={close}
+      primaryLabel={committing ? '正在创建续接会话…' : '打开新会话接力'}
+      primaryDisabled={busy || !prepared}
+      onPrimary={() => { void commit(); }}
+      ariaBusy={presentation === 'fallback'}
     >
-      {presentation !== 'deferred' && <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-busy={presentation === 'fallback'}
-        className="no-drag flex max-h-[92%] w-[620px] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl"
-      >
-        <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-4 py-3">
-          <h2 id={titleId} className="flex items-center gap-1.5 text-[13px] font-medium">
-            <HandOffIcon className="h-4 w-4 text-status-working" />
-            <span>接力到新会话{preparing ? '（正在整理上下文…）' : committing ? '（正在提交…）' : ''}</span>
-          </h2>
-          <button type="button" onClick={close} disabled={committing} aria-label="关闭接力窗口" className="flex h-5 w-5 items-center justify-center rounded text-deck-muted hover:bg-white/10 disabled:opacity-50">
-            <CloseIcon className="h-3.5 w-3.5" />
-          </button>
-        </header>
         {presentation === 'fallback' ? (
           <div
             role="status"
             className="flex min-h-40 items-center justify-center p-4 text-[11px] text-deck-muted"
           >
-            正在读取 Remote 会话配置…
+            正在读取会话配置…
           </div>
-        ) : <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4 scrollbar-deck">
+        ) : <>
           <p className="text-[10px] leading-relaxed text-deck-muted">
-            运行时选项与模型列表全部来自当前 Remote Worker；工作目录继承源会话，不会读取本机 Provider 配置或本机工作区。
+            下方选项决定新会话使用的运行方式、模型和思考程度；工作目录继承当前会话。
           </p>
           {remote.adapters.length > 0 && (
             <label className="flex flex-col gap-1">
-              <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">运行时</span>
+              <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">助手</span>
               <DeckSelect
                 value={remote.presentationAdapterId}
                 options={remote.adapters.map((adapter) => ({
@@ -259,12 +253,12 @@ export function RemoteHandOffDialog({
             <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">下一步指令 / 补充与修正</span>
             <ExpandableAuthoringField
               identity={{ sessionId, kind: 'payload', payloadId: 'remote-handoff-instruction' }}
-              title="编辑 Remote 接力指令"
-              ariaLabel="Remote 接力下一步指令"
-              triggerLabel="展开编辑 Remote 接力指令"
+              title="编辑下一步指令"
+              ariaLabel="下一步指令 / 补充与修正"
+              triggerLabel="展开编辑下一步指令"
               value={instruction}
               disabled={busy}
-              maxLength={65_536}
+              maxLength={102_400}
               rows={4}
               onChange={(value) => invalidate(() => setInstruction(value))}
             />
@@ -293,23 +287,16 @@ export function RemoteHandOffDialog({
                 <h3 className="font-medium text-deck-text">会话续接上下文摘录（只读）</h3>
                 <span>{qualityLabel(prepared.result.quality)} · 约 {prepared.result.metrics.estimatedPromptTokens.toLocaleString()} tokens · 保留 {prepared.result.metrics.includedUserMessages} 条用户输入</span>
               </div>
-              <ExpandableTextViewer ariaLabel="Remote 续接上下文摘录" value={prepared.result.preview} rows={16} monospace excerptNotice="这里仅展示有长度上限的节选；提交时 Worker 会重新生成并校验同一绑定。" />
+              <ExpandableTextViewer ariaLabel="续接上下文摘录" value={prepared.result.preview} rows={16} monospace excerptNotice="这里仅展示有长度上限的节选；实际发送给模型的内容可能更完整。" />
               {(prepared.result.previewTruncated || warnings.length > 0) && (
                 <div className="rounded bg-status-waiting/10 px-3 py-2 text-[10px] text-status-waiting">
                   {prepared.result.previewTruncated && <div>节选已截短，提交内容可能更完整。</div>}
                   {warnings.map((warning) => <div key={warning.key}>{warning.label}</div>)}
                 </div>
               )}
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={close} disabled={committing} className="rounded px-3 py-1 text-[11px] text-deck-muted hover:bg-white/5 disabled:opacity-50">取消</button>
-                <button type="button" onClick={() => void commit()} disabled={busy} className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50">
-                  <HandOffIcon className="mr-1 inline h-3 w-3" />{committing ? '正在创建…' : '确认接力'}
-                </button>
-              </div>
             </section>
           )}
-        </div>}
-      </div>}
-    </div>
+        </>}
+    </HandOffDialogFrame>
   );
 }

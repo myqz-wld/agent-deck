@@ -132,7 +132,7 @@ export function RemoteIssueResolutionDialog({
         controls={remoteControls(descriptor, options, remote.setOption)}
         createLabel="创建并关联"
         creatingLabel="创建并关联中…"
-        directoryHelp={<>目录始终相对于 Remote Workspace；`.` 表示根目录。</>}
+        directoryHelp={<>目录始终相对于远端工作区；`.` 表示根目录。</>}
         directoryPlaceholder=". 或 repo/subdir"
         error={error ?? remote.error ?? source.error}
         images={images}
@@ -172,7 +172,7 @@ export function RemoteIssueResolutionDialog({
         ) : undefined}
         pickingDirectory={false}
         prompt={prompt}
-        sourceLabel={`Remote · ${source.profile?.label ?? 'Worker'} · Workspace`}
+        sourceLabel={`远端 · ${source.profile?.label ?? '远端主机'} · 工作区`}
         title="新建处理会话"
         workingDirectory={workingDirectory}
         onAdapterChange={remote.setAdapterId}

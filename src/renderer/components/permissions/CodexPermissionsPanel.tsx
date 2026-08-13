@@ -4,14 +4,18 @@ import type {
   CodexPermissionScanResult,
   CodexSandboxMode,
 } from '@shared/types';
+import type { CodexSessionPermissionProjection } from '@contracts/index';
 import {
   CheckIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
-  RefreshIcon,
 } from '../icons';
-import { RawTextBlock } from './permission-chrome';
+import {
+  PermissionField,
+  PermissionRefreshField,
+  RawTextBlock,
+} from './permission-chrome';
 
 const logger = log.scope('renderer-codex-permissions');
 
@@ -33,95 +37,115 @@ export function CodexPermissionsPanel({
   data,
   loading,
   onRefresh,
+  remote,
 }: {
-  data: CodexPermissionScanResult;
+  data?: CodexPermissionScanResult;
   loading: boolean;
   onRefresh: () => void;
+  remote?: CodexSessionPermissionProjection;
 }): JSX.Element {
+  if (!data && !remote) throw new Error('Codex permission presentation is unavailable');
+  const configLabel = data?.config.path ?? '配置文件保存在远程设备上';
+  const sandbox = data?.effective.sandboxMode ?? remote!.sandbox;
+  const approval = data
+    ? data.effective.approvalPolicy ?? '由 Codex 决定'
+    : remote!.approvalPolicy === 'provider-default'
+      ? '由 Codex 决定'
+      : remote!.approvalPolicy;
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2 text-[10px] text-deck-muted">
-        <div className="truncate">
-          Codex CLI 配置：<span className="font-mono text-deck-text/80">{data.config.path}</span>
-        </div>
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={loading}
-          className="inline-flex shrink-0 items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-deck-text hover:bg-white/15 disabled:opacity-50"
-        >
-          {!loading && <RefreshIcon className="h-3 w-3" />}{loading ? '刷新中…' : '刷新'}
-        </button>
-      </div>
+      <PermissionRefreshField
+        field="codex.settings-location"
+        label="Codex 配置"
+        value={configLabel}
+        loading={loading}
+        onRefresh={onRefresh}
+      />
 
       <section className="rounded-md border border-deck-border/60 bg-white/[0.03] p-2">
         <header className="mb-1.5 text-[10px] uppercase tracking-wider text-deck-muted">
-          Codex CLI 当前生效配置
+          Codex 当前生效配置
         </header>
         <div className="grid gap-1.5 text-[11px]">
           <CodexSummaryRow
+            field="codex.sandbox"
             label="沙盒模式"
-            value={CODEX_SANDBOX_LABEL[data.effective.sandboxMode]}
-            detail={`${data.effective.sandboxMode} · ${data.effective.sandboxSource === 'session' ? '当前会话' : '全局默认'}`}
+            value={sandbox === 'provider-default' ? '由 Codex 决定' : CODEX_SANDBOX_LABEL[sandbox]}
+            detail={data
+              ? `${sandbox} · ${data.effective.sandboxSource === 'session' ? '当前会话' : '全局默认'}`
+              : remote!.sandboxSource === 'session' ? '当前会话' : 'Codex 默认值'}
           />
           <CodexSummaryRow
+            field="codex.approval"
             label="审批策略"
-            value={data.effective.approvalPolicy ?? '由 Codex CLI 决定'}
-            detail={
-              data.effective.approvalSource === 'codex-config'
-                ? 'Agent Deck 不覆盖 Codex CLI config'
-                : 'Agent Deck 会话覆盖'
-            }
+            value={approval}
+            detail={data
+              ? data.effective.approvalSource === 'codex-config'
+                ? '使用 Codex config.toml 中的设置'
+                : '使用当前会话设置'
+              : remote!.approvalPolicySource === 'session' ? '当前会话' : 'Codex 默认值'}
           />
           <CodexSummaryRow
+            field="codex.git-repository-check"
             label="Git 仓库检查"
-            value={data.effective.skipGitRepoCheck ? '已跳过' : '启用'}
-            detail="skipGitRepoCheck=true"
+            value={data ? data.effective.skipGitRepoCheck ? '已跳过' : '启用' : '未提供'}
+            detail={data ? '创建会话时的实际设置' : '当前没有这项信息'}
           />
-          <CodexSummaryRow label="默认模型" value={data.config.topLevelModel ?? '未配置'} detail="Codex CLI config.toml 顶层 model" />
           <CodexSummaryRow
-            label="Agent Deck MCP"
-            value={data.effective.agentDeckMcp.injectedForNewSessions ? '会注入' : '未注入'}
-            detail={formatAgentDeckMcpDetail(data)}
+            field="codex.default-model"
+            label="默认模型"
+            value={data?.config.topLevelModel ?? (data ? '未配置' : '未提供')}
+            detail={data ? 'Codex 配置中的默认模型' : '当前没有这项信息'}
+          />
+          <CodexSummaryRow
+            field="codex.agent-deck-connection"
+            label="Agent Deck 连接"
+            value={data
+              ? data.effective.agentDeckMcp.injectedForNewSessions ? '会注入' : '未注入'
+              : '未提供'}
+            detail={data ? formatAgentDeckMcpDetail(data) : '请在远程设置页查看'}
           />
         </div>
       </section>
 
-      <CodexConfigPanel data={data} />
+      <CodexConfigPanel data={data ?? null} />
     </div>
   );
 }
 
-function CodexSummaryRow({ label, value, detail }: { label: string; value: string; detail: string }): JSX.Element {
-  return (
-    <div className="grid grid-cols-[92px_minmax(0,1fr)] gap-2">
-      <span className="text-deck-muted">{label}</span>
-      <span className="min-w-0">
-        <span className="font-mono text-deck-text/90">{value}</span>
-        <span className="ml-1 text-[10px] text-deck-muted">{detail}</span>
-      </span>
-    </div>
-  );
+function CodexSummaryRow({
+  field,
+  label,
+  value,
+  detail,
+}: {
+  field: string;
+  label: string;
+  value: string;
+  detail: string;
+}): JSX.Element {
+  return <PermissionField field={field} label={label} value={value} detail={detail} />;
 }
 
 function formatAgentDeckMcpDetail(data: CodexPermissionScanResult): string {
   const mcp = data.effective.agentDeckMcp;
   if (!mcp.injectedForNewSessions) {
-    if (!mcp.enabled) return 'Agent Deck MCP 已关闭';
-    if (!mcp.httpEnabled) return 'MCP HTTP transport 已关闭，Codex CLI 无法连接';
+    if (!mcp.enabled) return 'Agent Deck 连接已关闭';
+    if (!mcp.httpEnabled) return 'Agent Deck 的远程连接已关闭，Codex 无法连接';
     return '未满足注入条件';
   }
-  if (mcp.toolTimeoutSec === null) return '下次新建 Codex CLI 会话时生效';
-  if (mcp.toolTimeoutSec === 0) return '下次新建 Codex CLI 会话时生效 · tool timeout 不限制';
-  return `下次新建 Codex CLI 会话时生效 · tool timeout ${mcp.toolTimeoutSec}s`;
+  if (mcp.toolTimeoutSec === null) return '下次新建 Codex 会话时生效';
+  if (mcp.toolTimeoutSec === 0) return '下次新建 Codex 会话时生效 · 等待时间不限';
+  return `下次新建 Codex 会话时生效 · 最长等待 ${mcp.toolTimeoutSec} 秒`;
 }
 
-function CodexConfigPanel({ data }: { data: CodexPermissionScanResult }): JSX.Element {
+function CodexConfigPanel({ data }: { data: CodexPermissionScanResult | null }): JSX.Element {
   const [collapsed, setCollapsed] = useState(false);
   const [openFailed, setOpenFailed] = useState(false);
   const onOpen = useCallback(async () => {
     setOpenFailed(false);
     try {
+      if (!data) return;
       const result = await window.api.openCodexPermissionFile(data.config.path);
       if (result.ok) return;
       logger.error('permission file open failed', {
@@ -141,10 +165,13 @@ function CodexConfigPanel({ data }: { data: CodexPermissionScanResult }): JSX.El
       });
       setOpenFailed(true);
     }
-  }, [data.config.path]);
+  }, [data]);
 
   return (
-    <section className="rounded-md border border-deck-border/60 bg-white/[0.02]">
+    <section
+      className="rounded-md border border-deck-border/60 bg-white/[0.02]"
+      data-permission-field="codex.config-file"
+    >
       <header className="flex min-w-0 flex-wrap items-center gap-1.5 px-2 py-1">
         <button
           type="button"
@@ -156,20 +183,21 @@ function CodexConfigPanel({ data }: { data: CodexPermissionScanResult }): JSX.El
         >
           {collapsed ? <ChevronRightIcon className="h-3 w-3" /> : <ChevronDownIcon className="h-3 w-3" />}
         </button>
-        <span className="text-[11px] font-medium text-deck-text">Codex CLI config.toml</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-deck-muted" title={data.config.path}>{data.config.path}</span>
+        <span className="text-[11px] font-medium text-deck-text">Codex config.toml</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-deck-muted" title={data?.config.path}>{data?.config.path ?? '配置文件保存在远程设备上'}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
-          {data.config.exists ? (
+          {data?.config.exists ? (
             <span className="inline-flex items-center gap-0.5 text-[10px] text-status-working"><CheckIcon className="h-3 w-3" />存在</span>
-          ) : (
+          ) : data ? (
             <span className="text-[10px] text-deck-muted">— 未配置</span>
-          )}
+          ) : <span className="text-[10px] text-deck-muted">只读</span>}
           <button
             type="button"
             onClick={() => void onOpen()}
+            disabled={!data}
             aria-label="打开 Codex CLI config.toml"
-            className="inline-flex h-7 items-center gap-1 rounded bg-white/10 px-2 text-[10px] text-deck-text hover:bg-white/15"
-            title="用系统默认应用打开"
+            className="inline-flex h-7 items-center gap-1 rounded bg-white/10 px-2 text-[10px] text-deck-text hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+            title={data ? '用系统默认应用打开' : '远程文件不能在此电脑打开'}
           >
             <ExternalLinkIcon className="h-3 w-3" />打开
           </button>
@@ -182,13 +210,15 @@ function CodexConfigPanel({ data }: { data: CodexPermissionScanResult }): JSX.El
       )}
       {!collapsed && (
         <div className="border-t border-deck-border/40 px-2 py-1.5">
-          {data.config.readError && (
+          {data?.config.readError && (
             <div className="mb-1 rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[10px] text-red-200">
               配置读取失败，请刷新后重试。
             </div>
           )}
-          {!data.config.exists
-            ? <div className="text-[10px] text-deck-muted">这层未配置；点「打开」按钮可在编辑器中创建。</div>
+          {!data
+            ? <div className="text-[10px] text-deck-muted">此设备未收到配置文件位置和完整内容。</div>
+            : !data.config.exists
+              ? <div className="text-[10px] text-deck-muted">这层未配置；点「打开」按钮可在编辑器中创建。</div>
             : (
               <RawTextBlock
                 raw={data.config.raw ?? ''}

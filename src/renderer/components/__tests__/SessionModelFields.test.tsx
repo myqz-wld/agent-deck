@@ -78,7 +78,7 @@ describe('SessionModelFields', () => {
       onThinkingChange: vi.fn(),
     };
     const view = render(<SessionModelDisclosure {...props} />);
-    expect(screen.getByText(/思考：跟随运行时默认值/)).toBeTruthy();
+    expect(screen.getByText(/思考：跟随当前助手默认值/)).toBeTruthy();
     expect(document.body.textContent).not.toContain('思考：HIGH');
 
     view.rerender(
@@ -110,9 +110,9 @@ describe('SessionModelFields', () => {
     );
 
     const summary = screen.getByText('模型配置').closest('summary');
-    expect(summary?.textContent).toContain('Provider：不可用');
+    expect(summary?.textContent).toContain('模型来源：不可用');
     expect(summary?.textContent).toContain('模型：不可用');
-    expect(summary?.textContent).not.toContain('Provider：原生');
+    expect(summary?.textContent).not.toContain('模型来源：原生');
     expect(summary?.textContent).not.toContain('模型：配置文件');
   });
 
@@ -131,7 +131,7 @@ describe('SessionModelFields', () => {
       />,
     );
 
-    const gateway = screen.getByRole('combobox', { name: 'Gateway' });
+    const gateway = screen.getByRole('combobox', { name: '模型网关' });
     expect((gateway as HTMLInputElement).value).toBe('');
     expect((gateway as HTMLInputElement).placeholder).toBe('留空使用 settings.json');
     fireEvent.focus(gateway);
@@ -157,12 +157,12 @@ describe('SessionModelFields', () => {
       />,
     );
 
-    const provider = screen.getByRole('combobox', { name: 'Provider' });
+    const provider = screen.getByRole('combobox', { name: '模型来源' });
     expect((provider as HTMLInputElement).value).toBe('');
     expect((provider as HTMLInputElement).placeholder).toBe('留空使用 config.toml');
     fireEvent.focus(provider);
     expect(screen.queryByRole('option')).toBeNull();
-    expect(screen.getByText('没有匹配的 Provider，可直接输入或留空')).toBeTruthy();
+    expect(screen.getByText('没有匹配的模型来源，可直接输入或留空')).toBeTruthy();
     expect(document.body.textContent).not.toContain('请检查');
     fireEvent.change(provider, { target: { value: 'manual-provider' } });
     expect(onProviderChange).toHaveBeenCalledWith('manual-provider');

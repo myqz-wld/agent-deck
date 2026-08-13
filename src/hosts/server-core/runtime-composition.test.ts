@@ -91,6 +91,9 @@ describe('concrete Server Core runtime composition', () => {
         activeWindowMs: 12_345,
         closeAfterMs: 67_890,
         historyRetentionDays: 3,
+        issueResolvedRetentionDays: 4,
+        issueSoftDeletedRetentionDays: 2,
+        messageRetentionDays: 5,
       },
     }), { mode: 0o600 });
     const bootstrap = createServerCoreRuntimeWithOverrides(input(base), {

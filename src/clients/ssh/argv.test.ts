@@ -46,7 +46,7 @@ describe('OpenSSH argv boundary', () => {
         '-T',
         'BatchMode=yes',
         'StrictHostKeyChecking=yes',
-        'UserKnownHostsFile="/tmp/agent-deck-known-hosts"',
+        'UserKnownHostsFile=/tmp/agent-deck-known-hosts',
         'UpdateHostKeys=no',
         'IdentitiesOnly=yes',
         'IdentityFile=none',
@@ -88,6 +88,6 @@ describe('OpenSSH argv boundary', () => {
     );
     expect(
       buildOpenSshArgv(makeSshProfile({ knownHostsFile: '/tmp/Agent Deck/known hosts' })),
-    ).toContain('UserKnownHostsFile="/tmp/Agent Deck/known hosts"');
+    ).toContain('UserKnownHostsFile=/tmp/Agent\\ Deck/known\\ hosts');
   });
 });

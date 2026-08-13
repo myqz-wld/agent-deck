@@ -8,6 +8,7 @@ import {
   resetContextUsageForCompaction,
 } from '@main/session/context-window/ingest';
 import { sessionRepo } from '@main/store/session-repo';
+import { eventBus } from '@main/event-bus';
 import { sessionChange } from './provider-host-common';
 import type { ServerCoreProviderEventBus } from './provider-event-bus';
 import type { ServerCoreRuntimeDiagnostics } from './repository-host';
@@ -42,6 +43,13 @@ export function createServerCoreSessionManagerObserver(input: {
       entityId,
       payload,
     );
+  const publish = (operation: () => void): void => {
+    try { operation(); }
+    catch (error) {
+      try { input.diagnostics.warn('Server Core background event publication failed', {}, error); }
+      catch {}
+    }
+  };
   return Object.freeze({
     eventPersisted: (event, eventId) => {
       input.reviewEvents.emit(event);
@@ -51,6 +59,7 @@ export function createServerCoreSessionManagerObserver(input: {
         kind: event.kind,
         timestamp: event.ts,
       });
+      publish(() => eventBus.emit('agent-event', event));
     },
     tokenUsageObserved: (event) => {
       try {
@@ -89,10 +98,14 @@ export function createServerCoreSessionManagerObserver(input: {
         catch {}
       }
     },
-    sessionUpdated: (session) => append(
-      'session.updated', session.id, sessionChange(session),
-    ),
-    sessionRemoved: (sessionId) => append('session.removed', sessionId, null),
+    sessionUpdated: (session) => {
+      append('session.updated', session.id, sessionChange(session));
+      publish(() => eventBus.emit('session-upserted', session));
+    },
+    sessionRemoved: (sessionId) => {
+      append('session.removed', sessionId, null);
+      publish(() => eventBus.emit('session-removed', sessionId));
+    },
     sessionRenamed: (fromId, toId) => {
       try { input.metadata.renameSessionMutationResults(fromId, toId); }
       catch (error) {
@@ -100,6 +113,7 @@ export function createServerCoreSessionManagerObserver(input: {
         catch {}
       }
       append('session.renamed', toId, { fromId, toId });
+      publish(() => eventBus.emit('session-renamed', { from: fromId, to: toId }));
     },
     warning: () => {
       try { input.diagnostics.warn('Server Core session lifecycle warning'); } catch {}

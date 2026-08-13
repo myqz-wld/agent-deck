@@ -93,7 +93,7 @@ describe('HandOffPreviewDialog modal interaction', () => {
     expect(dialog.getAttribute('aria-modal')).toBe('true');
     expect(document.activeElement).toBe(dialog);
 
-    const runtime = await screen.findByLabelText('目标运行时');
+    const runtime = await screen.findByLabelText('目标助手');
     fireEvent.click(runtime);
     fireEvent.keyDown(runtime, { key: 'Escape' });
     expect(screen.getByRole('dialog')).toBeTruthy();

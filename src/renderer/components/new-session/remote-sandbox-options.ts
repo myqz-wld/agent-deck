@@ -47,7 +47,7 @@ export function remoteSandboxOptions(
       label: choice.value,
     }),
     ...(choice.effectiveAccess === 'workspace-read-write'
-      ? { label: '⚠️ Workspace 内完全开放' }
+      ? { label: '⚠️ 工作区内完全开放' }
       : {}),
     disabled: !choice.enabled,
     title: choice.disabledReason ?? description(choice.effectiveAccess, optionKey),
@@ -60,15 +60,15 @@ function description(
   optionKey: 'claudeCodeSandbox' | 'codexSandbox' | 'grokSandbox',
 ): string {
   if (access === 'workspace-read-write') {
-    return '可在 Remote Workspace 内读写；不能访问 Worker 私有目录或主机其他路径。';
+    return '可读写远端工作区；不能访问工作区以外的目录。';
   }
   if (access === 'selected-directory-read-write') {
     return optionKey === 'grokSandbox'
-      ? '仅能读写当前会话目录；不能读取 Workspace 其他目录、Worker 私有目录或主机路径。'
-      : '可读取 Remote Workspace，仅能写入当前会话目录；不能访问 Worker 私有目录或 Workspace 外路径。';
+      ? '仅能读写当前会话目录，不能访问工作区里的其他目录。'
+      : '可读取远端工作区，但只能写入当前会话目录。';
   }
   if (access === 'workspace-read-only') {
-    return 'Remote Workspace 只读；不能写入 Workspace 或访问 Worker 私有目录。';
+    return '远端工作区只读，不能修改文件。';
   }
-  return '使用运行时原生严格策略，并保留 Remote Workspace 外层边界。';
+  return '使用助手的严格策略，同时仍受远端工作区边界限制。';
 }

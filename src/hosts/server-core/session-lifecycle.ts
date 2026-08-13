@@ -35,7 +35,10 @@ export interface ServerCoreLifecycleRepositoryPort {
   ): HistoryLifecycleCandidate[];
 }
 
-export interface ServerCoreSessionLifecycleOptions extends ServerCoreSessionLifecycleSettings {
+export interface ServerCoreSessionLifecycleOptions extends Pick<
+  ServerCoreSessionLifecycleSettings,
+  'activeWindowMs' | 'closeAfterMs' | 'historyRetentionDays'
+> {
   sessions: ServerCoreLifecycleRepositoryPort;
   manager: Pick<ServerCoreSessionManager,
     'bumpCloseEpoch' | 'forgetCloseEpoch' | 'hasPendingCloseSideEffects' |

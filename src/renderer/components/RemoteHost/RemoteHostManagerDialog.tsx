@@ -35,7 +35,7 @@ export function RemoteHostManagerDialog({
     const confirmed = await window.api.confirmDialog({
       title: '删除远程主机配置',
       message: '仅删除本机配置并关闭本机 SSH 传输。',
-      detail: '远程 Core 和远程 session 不会停止。',
+      detail: '远端服务和远端会话不会停止。',
       okLabel: '删除配置',
       destructive: true,
     });

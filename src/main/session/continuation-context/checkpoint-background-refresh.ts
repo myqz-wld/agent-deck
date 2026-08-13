@@ -16,14 +16,11 @@ import type {
   CheckpointRefreshTrigger,
 } from './checkpoint-refresh-scheduler';
 import type { ContinuationCheckpointGenerator } from './checkpoint-generator';
-import { resolveContinuationGeneratorSnapshot } from './resolver';
-import { createCheckpointGeneratorRuntime } from './runtime';
 import { observeCheckpointGeneratorCapacity } from './generator-capacity-observation';
 import {
   type CheckpointBackgroundChunkSource,
   type OpenCheckpointBackgroundSourceInput,
 } from './checkpoint-background-worker-client';
-import { openDesktopCheckpointBackgroundSource } from './checkpoint-background-worker-host';
 import type { ResolvedContinuationGenerator } from './types';
 
 export const BACKGROUND_CHECKPOINT_DEADLINE_MS = 300_000;
@@ -48,7 +45,7 @@ export interface BackgroundCheckpointRefreshResult {
   uncoveredRevisionRange: { from: number; to: number } | null;
 }
 
-interface BackgroundCheckpointRefreshDependencies {
+export interface BackgroundCheckpointRefreshDependencies {
   db?: Database;
   now?: () => number;
   resolveGenerator?: () => ResolvedContinuationGenerator;
@@ -91,10 +88,14 @@ export async function refreshContinuationCheckpointWithDependencies(
   const now = dependencies.now ?? Date.now;
   const startedAt = now();
   const deadlineAt = startedAt + BACKGROUND_CHECKPOINT_DEADLINE_MS;
-  const generatorSpec = (dependencies.resolveGenerator ?? resolveContinuationGeneratorSnapshot)();
-  const backgroundSource = await (
-    dependencies.openBackgroundSource ?? openDesktopCheckpointBackgroundSource
-  )({
+  if (!dependencies.resolveGenerator || !dependencies.generatorFactory) {
+    throw new Error('Checkpoint generator host is unavailable');
+  }
+  const generatorSpec = dependencies.resolveGenerator();
+  if (!dependencies.openBackgroundSource) {
+    throw new Error('Background checkpoint source host is unavailable');
+  }
+  const backgroundSource = await dependencies.openBackgroundSource({
     dbPath: db.name,
     sessionId: input.sessionId,
     deadlineAt,
@@ -115,9 +116,7 @@ export async function refreshContinuationCheckpointWithDependencies(
     ) {
       throw new Error('Background checkpoint materialization made no revision progress');
     }
-    const generator = (dependencies.generatorFactory ?? createCheckpointGeneratorRuntime)(
-      generatorSpec,
-    );
+    const generator = dependencies.generatorFactory(generatorSpec);
     const fold: FoldContinuationCheckpointResult = await foldContinuationCheckpoint({
       db,
       backgroundSource,
@@ -161,13 +160,4 @@ export async function refreshContinuationCheckpointWithDependencies(
   } finally {
     await backgroundSource.close();
   }
-}
-
-export function refreshContinuationCheckpoint(input: {
-  sessionId: string;
-  trigger: CheckpointRefreshTrigger;
-  snapshot: Readonly<ContinuationCheckpointRefreshSnapshot>;
-  signal?: AbortSignal;
-}): Promise<BackgroundCheckpointRefreshResult> {
-  return refreshContinuationCheckpointWithDependencies(input);
 }

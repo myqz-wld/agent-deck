@@ -3,9 +3,7 @@ import { lstatSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createProviderAdapterSet } from '@main/adapters/provider-adapter-set-core';
-import {
-  initializeProviderRuntimeCore,
-} from '@main/adapters/provider-runtime-core';
+import { initializeProviderRuntimeCore } from '@main/adapters/provider-runtime-core';
 import { AdapterRegistryClass } from '@main/adapters/registry-core';
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
@@ -27,14 +25,8 @@ import {
   type ServerCoreProviderHostInput,
 } from './provider-host-common';
 import { ServerCoreProviderRuntimeLifecycle } from './provider-runtime-lifecycle';
-import {
-  resolveServerCoreProjectCatalog,
-  withServerCoreWorkspaceRootProject,
-} from './project-catalog';
-import {
-  ServerCoreRepositoryHost,
-  type ServerCoreRuntimeDiagnostics,
-} from './repository-host';
+import { resolveServerCoreProjectCatalog, withServerCoreWorkspaceRootProject } from './project-catalog';
+import { ServerCoreRepositoryHost, type ServerCoreRuntimeDiagnostics } from './repository-host';
 import { ServerCoreDaemonRuntime } from './runtime-core';
 import { ServerCoreRuntimeMetadataStore } from './runtime-metadata-store';
 import { ServerCoreSessionConsoleAuthority } from './session-console-authority';
@@ -52,10 +44,7 @@ import { createServerCoreProviderCompositionHost } from './runtime-provider-host
 import { createServerCoreMcpComposition } from './runtime-mcp-host';
 import { installServerCoreProviderHooks } from './provider-hook-runtime';
 import { ServerCoreProviderEventBus } from './provider-event-bus';
-import {
-  appendServerCoreChangeSafely,
-  createServerCoreSessionManagerObserver,
-} from './session-manager-observer';
+import { appendServerCoreChangeSafely, createServerCoreSessionManagerObserver } from './session-manager-observer';
 import { ServerCorePlanReviewRuntime } from './plan-review-runtime';
 import { ServerCoreTeamRuntime } from './team-runtime';
 import { ServerCoreUsageRuntime } from './usage-runtime';
@@ -64,16 +53,14 @@ import { ServerCoreNodeHookProjectionState } from './node-hook-projection-state'
 import { ServerCoreNodeAssetRuntime } from './node-asset-runtime';
 import { ServerCoreNodeAssetCatalog } from './node-asset-catalog';
 import { ServerCoreSessionLifecycle } from './session-lifecycle';
+import { createServerCoreBackgroundComposition } from './background-composition';
 import { ServerCoreSessionPresentationRuntime } from './session-presentation-runtime';
 import { ServerCoreSessionMetadataRuntime } from './session-metadata-runtime';
 import { ServerCoreSessionHistoryMutationRuntime } from './session-history-mutation-runtime';
 import { ServerCoreWorkspaceDirectoryMutationRuntime } from './workspace-directory-mutation-runtime';
 import { createServerCoreProviderRetirement } from './runtime-provider-retirement';
 import { createServerCoreSessionRollback } from './runtime-session-rollback';
-import {
-  resolveServerCoreRuntimeSettings,
-  validateServerCoreRuntimeOptions,
-} from './runtime-settings';
+import { resolveServerCoreRuntimeSettings, validateServerCoreRuntimeOptions } from './runtime-settings';
 import {
   resolveServerCoreProviderGrokContainer,
   resolveServerCoreProviderContainerRuntimePaths,
@@ -257,6 +244,11 @@ export function createServerCoreRuntimeWithOverrides(
     collaboration: spawnCollaboration,
     metadata,
     agents: nodeAssets,
+    spawnLimits: {
+      maxDepth: providerSettings.mcpMaxSpawnDepth,
+      maxFanOut: providerSettings.mcpMaxFanOutPerParent,
+      maxRate: providerSettings.mcpSpawnRatePerMinute,
+    },
   });
   const worktrees = new ServerCoreWorktreeRuntime({
     workspaceRoot,
@@ -297,6 +289,9 @@ export function createServerCoreRuntimeWithOverrides(
       try { runtimeDiagnostics.warn(message); } catch {}
     },
   });
+  const background = createServerCoreBackgroundComposition({
+    settings: providerSettings, registry, metadata, diagnostics: runtimeDiagnostics,
+  });
   const { desktopBroker, handoff, mcpBroker, presentations } = createServerCoreMcpComposition({
     workspaceRoot,
     privateRoots,
@@ -310,6 +305,8 @@ export function createServerCoreRuntimeWithOverrides(
     capabilities: createCapabilities,
     mcpEnabled: providerSettings.enableAgentDeckMcp,
     mcpHttpEnabled: providerSettings.mcpHttpEnabled,
+    rawRetentionCeilingTokens: providerSettings.continuationRawRetentionTokens,
+    refreshContinuation: (sessionId) => background.refreshContinuation(sessionId),
     diagnostics: runtimeDiagnostics,
     reviewEvents,
     appendChange: (kind, entityId, payload) => {
@@ -480,12 +477,13 @@ export function createServerCoreRuntimeWithOverrides(
     observer: sessionObserver,
     diagnostics: runtimeDiagnostics,
   });
+  const backgroundComponents = background.bindProviderHost(providerInput);
   return Object.freeze({
     processId,
     runtime,
     sessionConsoleAuthority,
     credentialLifecycle,
-    components: Object.freeze([sessionLifecycle]),
+    components: Object.freeze([sessionLifecycle, ...backgroundComponents]),
   });
 }
 

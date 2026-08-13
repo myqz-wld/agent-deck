@@ -62,8 +62,8 @@ export function BundledAgentRuntimeEditor({
       })
       .catch((reason: unknown) => {
         if (!cancelled) {
-          const runtime = asset.adapter === 'claude-code' ? 'Claude Gateway' : 'Codex provider';
-          setError(`${runtime} 读取失败：${reason instanceof Error ? reason.message : String(reason)}`);
+          const source = asset.adapter === 'claude-code' ? 'Claude 模型网关' : 'Codex 模型来源';
+          setError(`${source} 读取失败：${reason instanceof Error ? reason.message : String(reason)}`);
         }
       });
     return () => {
@@ -74,7 +74,7 @@ export function BundledAgentRuntimeEditor({
   const normalizedModel = model.trim();
   const normalizedThinking = thinking.trim();
   const normalizedProvider = provider.trim();
-  const providerLabel = asset.adapter === 'codex-cli' ? 'Provider' : 'Gateway';
+  const providerLabel = asset.adapter === 'codex-cli' ? '模型来源' : '模型网关';
   const dirty =
     normalizedModel !== (asset.model ?? '') ||
     normalizedThinking !== (asset.thinking ?? '') ||
@@ -215,10 +215,10 @@ export function BundledAgentRuntimeEditor({
               value={model}
               onChange={(event) => setModel(event.target.value)}
               disabled={busy}
-              placeholder="输入 adapter 原生模型名或别名"
+              placeholder="输入助手支持的模型名或别名"
               className="w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[11px] outline-none focus:border-white/20 disabled:opacity-50"
             />
-            <DefaultHint value={defaults.model} fallback="跟随 adapter 原生默认" />
+            <DefaultHint value={defaults.model} fallback="跟随助手默认值" />
           </RuntimeField>
 
           <RuntimeField label="思考等级">
@@ -229,7 +229,7 @@ export function BundledAgentRuntimeEditor({
               ariaLabel="思考等级"
               options={[
                 ...(!defaults.thinking
-                  ? [{ value: '', label: '跟随 adapter 原生默认' }]
+                  ? [{ value: '', label: '跟随助手默认值' }]
                   : []),
                 ...THINKING_LEVELS[asset.adapter].map((level) => ({
                   value: level,
@@ -238,7 +238,7 @@ export function BundledAgentRuntimeEditor({
               ]}
               menuMinWidth={180}
             />
-            <DefaultHint value={defaults.thinking} fallback="跟随 adapter 原生默认" />
+            <DefaultHint value={defaults.thinking} fallback="跟随助手默认值" />
           </RuntimeField>
 
           {asset.adapter !== 'grok-build' && (
@@ -259,8 +259,8 @@ export function BundledAgentRuntimeEditor({
                 }
                 emptyMessage={
                   asset.adapter === 'claude-code'
-                    ? '没有匹配的 Gateway，可直接输入或留空'
-                    : '没有匹配的 Provider，可直接输入或留空'
+                    ? '没有匹配的模型网关，可直接输入或留空'
+                    : '没有匹配的模型来源，可直接输入或留空'
                 }
               />
               <DefaultHint
@@ -276,7 +276,7 @@ export function BundledAgentRuntimeEditor({
 
           <div className="rounded border border-deck-border/70 bg-white/[0.025] p-2 text-[10px] leading-relaxed text-deck-muted/75">
             {nativeConfigHint(asset.adapter)}
-            {' '}这里只保存内建 Agent 的运行时差异；不会修改 packaged 资产、用户 Agent 或原生配置。
+            {' '}这里只保存内建 Agent 的模型设置差异；不会修改内建资产、用户 Agent 或原生配置。
           </div>
         </div>
 
@@ -340,10 +340,10 @@ function invalidSingleLine(value: string): boolean {
 
 function nativeConfigHint(adapter: AssetMeta['adapter']): string {
   if (adapter === 'codex-cli') {
-    return 'provider 定义仍由 $CODEX_HOME/config.toml 的 [model_providers.<id>] 管理。';
+    return '模型来源仍由 $CODEX_HOME/config.toml 中的对应配置管理。';
   }
   if (adapter === 'grok-build') {
     return '自定义模型别名仍由 ~/.grok/config.toml 的 [model.<alias>] 管理。';
   }
-  return 'Claude Gateway profile 由 ~/.claude/gateways/<id>.json 管理；这里只保存 profile ID。';
+  return 'Claude 模型网关由 ~/.claude/gateways/<id>.json 管理；这里只保存所选配置。';
 }

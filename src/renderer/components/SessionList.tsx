@@ -209,7 +209,7 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
       <SessionListState
         kind="empty"
         title="还没有远程会话"
-        detail="点击右上角的 +，从远程 Core 提供的项目中创建 session。"
+        detail="点击右上角的 +，从远端项目中创建会话。"
       />
     );
   }

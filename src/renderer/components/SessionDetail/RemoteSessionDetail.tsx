@@ -13,15 +13,18 @@ import { SummaryRecordsView } from '../SummaryView';
 import { RemoteDiffPanel } from './RemoteDiffPanel';
 import { TaskRecordsView } from './TasksPanel';
 import {
+  createSessionDetailTabs,
   SessionDetailShell,
   type SessionDetailTabId,
-  type SessionDetailTabModel,
 } from './SessionDetailShell';
 import { useDelayedTabSelection } from './use-delayed-tab-selection';
 import { RemoteSessionComposer } from './RemoteSessionComposer';
 import { RemoteHandOffDialog } from './RemoteHandOffDialog';
-import { RemoteEffectivePermissionsView } from './RemoteEffectivePermissionsView';
+import { PermissionsViewContent } from '../PermissionsView';
 import { SessionMessagesView } from './MessagesPanel';
+import { SourceBadge } from './SourceBadge';
+import { SessionPinControl } from '../SessionPinButton';
+import { RemotePendingRequestRow } from '../pending-rows/RemotePendingRequests';
 
 interface HandOffNotice {
   sessionId: string;
@@ -82,14 +85,8 @@ export function RemoteSessionDetail({
     setRequestedTabState({ identity: detailIdentity, tab: next });
     selectTab(next);
   };
-  const tabs = useMemo<readonly SessionDetailTabModel[]>(() => [
-    {
-      id: 'activity',
-      label: '活动',
-      unavailableReason: canReadEvents
-        ? undefined
-        : '此远程 Core 未提供活动事件读取能力；不会回退读取本地事件。',
-      content: (
+  const tabs = useMemo(() => createSessionDetailTabs({
+    activity: (
         <ActivityRecordsView
           events={source.events?.events ?? []}
           loaded={source.events !== null}
@@ -100,49 +97,44 @@ export function RemoteSessionDetail({
           allowLocalAssets={false}
           interactivePending={false}
           truncated={source.events?.truncated ?? false}
+          renderPendingEvent={(event) => {
+            const payload = event.payload as { requestId?: unknown } | null;
+            const requestId = typeof payload?.requestId === 'string' ? payload.requestId : null;
+            const pending = source.selectedPending;
+            const request = requestId
+              ? pending?.requests.find((candidate) => candidate.id === requestId)
+              : undefined;
+            if (!pending || !request) return undefined;
+            return (
+              <RemotePendingRequestRow
+                request={request}
+                revision={pending.revision}
+                sourceIdentity={source.identity}
+                agentId={session?.adapterId ?? 'remote'}
+                busy={source.busy}
+                onRespond={source.respondPending}
+                planReviewTransport={source.planReviewTransport}
+              />
+            );
+          }}
         />
       ),
-    },
-    {
-      id: 'tasks',
-      label: '任务',
-      content: (
+    tasks: (
         <TaskRecordsView
           tasks={source.tasks?.tasks ?? []}
           loaded={source.tasks !== null}
           error={source.taskLoadError}
         />
       ),
-      unavailableReason: canReadTasks
-        ? undefined
-        : '此远程 Core 未提供任务读取能力；不会回退读取本地任务。',
-    },
-    {
-      id: 'diff',
-      label: '改动',
-      content: <RemoteDiffPanel source={source} />,
-      unavailableReason: canReadFileChanges
-        ? undefined
-        : '此远程 Core 未提供文件改动读取能力；不会回退读取本地工作区。',
-    },
-    {
-      id: 'summary',
-      label: '总结',
-      content: (
+    diff: <RemoteDiffPanel source={source} />,
+    summary: (
         <SummaryRecordsView
           summaries={source.summaries?.summaries ?? []}
           loaded={source.summaries !== null}
           loadError={source.summaryLoadError ?? null}
         />
       ),
-      unavailableReason: canReadSummaries
-        ? undefined
-        : '此远程 Core 未提供会话总结读取能力。',
-    },
-    {
-      id: 'messages',
-      label: '跨会话',
-      content: (
+    messages: (
         <SessionMessagesView
           sessionId={session?.id ?? ''}
           messages={tabData.messages.value?.messages ?? []}
@@ -151,26 +143,25 @@ export function RemoteSessionDetail({
           truncated={tabData.messages.value?.truncated ?? false}
         />
       ),
-      unavailableReason: canReadMessages
-        ? undefined
-        : '此远程 Core 未提供安全的跨会话消息投影；不会回退读取本地消息数据库。',
-    },
-    {
-      id: 'permissions',
-      label: '权限',
-      content: (
-        <RemoteEffectivePermissionsView
-          data={tabData.permissions.value}
-          loading={tabData.permissions.loading}
-          error={tabData.permissions.error}
-          onRefresh={tabData.refreshPermissions}
+    permissions: (
+        <PermissionsViewContent
+          agentId={session?.adapterId ?? 'remote'}
+          remoteState={{
+            data: tabData.permissions.value,
+            loading: tabData.permissions.loading,
+            error: tabData.permissions.error,
+            refresh: tabData.refreshPermissions,
+          }}
         />
       ),
-      unavailableReason: canReadPermissions
-        ? undefined
-        : '此远程 Core 未提供无路径、无配置原文的生效权限投影；不会扫描 Worker 配置文件。',
-    },
-  ], [
+  }, {
+    ...(!canReadEvents ? { activity: '当前版本暂不支持查看活动。' } : {}),
+    ...(!canReadTasks ? { tasks: '当前版本暂不支持查看任务。' } : {}),
+    ...(!canReadFileChanges ? { diff: '当前版本暂不支持查看改动。' } : {}),
+    ...(!canReadSummaries ? { summary: '当前版本暂不支持查看总结。' } : {}),
+    ...(!canReadMessages ? { messages: '当前版本暂不支持查看跨会话消息。' } : {}),
+    ...(!canReadPermissions ? { permissions: '当前版本暂不支持查看权限。' } : {}),
+  }), [
     canReadEvents, canReadFileChanges,
     canReadMessages, canReadPermissions, canReadSummaries, canReadTasks,
     session?.id, source, tabData,
@@ -184,8 +175,8 @@ export function RemoteSessionDetail({
     ? (
         <div role="status" className="border-b border-amber-400/15 bg-amber-500/10 px-3 py-1.5 text-[10px] text-amber-100">
           {source.recoveringWorker
-            ? '远程执行节点当前离线；连接保留用于恢复探测。'
-            : 'SSH 正在重连；当前操作仍受主进程 deadline 和数据源 epoch 保护。'}
+            ? '远程服务暂时离线，恢复后会自动继续。'
+            : '正在重新连接，恢复后可继续查看和操作。'}
         </div>
       )
     : undefined;
@@ -197,10 +188,11 @@ export function RemoteSessionDetail({
     : undefined;
   return (
     <SessionDetailShell
-      title={session.title ?? '未命名 session'}
-      sourceBadge={<span className="rounded bg-blue-500/15 px-1 py-0.5 text-[9px] text-blue-200">Remote · {presentation?.source === 'cli' ? 'CLI' : 'SDK'}</span>}
-      subtitle={`${source.profile?.label ?? '远程主机'} · ${presentation?.workspaceLabel ?? 'Worker 工作区'}`}
+      title={session.title ?? '未命名会话'}
+      sourceBadge={<SourceBadge isSdk={presentation?.source !== 'cli'} />}
+      subtitle={`${source.profile?.label ?? '远程主机'} · ${presentation?.workspaceLabel ?? '远程工作区'}`}
       metadata={<RemoteSessionMetadata source={source} presentation={presentation} />}
+      headerActions={<SessionPinControl pinned={presentation?.pinned ?? false} disabled disabledReason="远程会话暂不支持修改置顶状态" />}
       banner={banner}
       tabs={tabs}
       activeTab={tab}
@@ -246,7 +238,13 @@ function RemoteSessionMetadata({
     ? values.thinking : presentation?.thinking ?? null;
   return (
     <>
-      <RuntimeMetadataChips model={model} thinking={thinking} compact />
+      <RuntimeMetadataChips
+        adapterId={presentation?.adapterId}
+        runtimeProvider={presentation?.runtimeProvider}
+        model={model}
+        thinking={thinking}
+        compact
+      />
       {source.capabilities.has('sessions.context.read') && source.selectedSession
         ? source.contextLoadError
           ? <SessionContextUnavailableChip reason={source.contextLoadError} />
@@ -257,7 +255,7 @@ function RemoteSessionMetadata({
             }} />
           )
         : (
-            <SessionContextUnavailableChip reason="此 Remote Core 未提供可归属到 Worker runtime identity 的上下文窗口快照；不会回退显示本机会话数据。" />
+            <SessionContextUnavailableChip reason="当前暂时无法读取上下文用量。" />
           )}
     </>
   );
@@ -273,42 +271,46 @@ function RemoteDetailLoading({
   const state = source.state?.status;
   const copy = source.recoveringWorker
     ? {
-        title: 'Remote Worker 当前离线',
-        detail: '连接保留用于受控恢复；恢复前不会发送会话读取或写入请求。',
+        title: '远程服务暂时离线',
+        detail: '恢复后会自动重新读取当前会话。',
       }
     : state === 'reconnecting'
       ? {
-          title: 'Remote SSH 正在重连',
-          detail: '重连完成并重新确认 Core 身份后才能读取此会话。',
+          title: '正在重新连接',
+          detail: '连接恢复后会自动重新读取当前会话。',
         }
       : state === 'connecting'
         ? {
-            title: '正在连接 Remote Core',
-            detail: '完成协议协商和 Worker 身份确认后才能读取此会话。',
+            title: '正在连接远程服务',
+            detail: '连接完成后即可查看和操作此会话。',
           }
         : state === 'offline'
           ? {
-              title: 'Remote 当前未连接',
-              detail: '此会话仍保持选中；重新连接后会按同一 Remote 身份重新读取。',
+              title: '远程服务未连接',
+              detail: '当前会话会保持选中，重新连接后自动恢复。',
             }
           : state === 'incompatible'
             ? {
-                title: 'Remote 协议不兼容',
-                detail: '请升级 Remote Core；不会回退读取本机会话数据。',
+                title: '远程版本不兼容',
+                detail: '请更新远程服务后重试。',
               }
             : {
-                title: '正在读取远程 session…',
-                detail: '正在确认当前 Remote 会话身份。',
+                title: '正在读取远程会话…',
+                detail: '请稍候。',
               };
-  const tabs: readonly SessionDetailTabModel[] = [{
-    id: 'activity',
-    label: '活动',
-    content: <div className="py-10 text-center text-[10px] text-deck-muted">{copy.detail}</div>,
-  }];
+  const placeholder = <div className="py-10 text-center text-[10px] text-deck-muted">{copy.detail}</div>;
+  const tabs = createSessionDetailTabs({
+    activity: placeholder,
+    tasks: placeholder,
+    diff: placeholder,
+    summary: placeholder,
+    messages: placeholder,
+    permissions: placeholder,
+  });
   return (
     <SessionDetailShell
       title={copy.title}
-      sourceBadge={<span className="rounded bg-blue-500/15 px-1 py-0.5 text-[9px] text-blue-200">Remote</span>}
+      sourceBadge={<SourceBadge isSdk />}
       subtitle={source.profile?.label ?? '远程主机'}
       tabs={tabs}
       activeTab="activity"
@@ -316,7 +318,7 @@ function RemoteDetailLoading({
       alert={source.error
         ? <div role="alert" className="border-t border-red-400/15 bg-red-500/10 px-3 py-1.5 text-[10px] text-red-200">{source.error}</div>
         : undefined}
-      composer={<div className="shrink-0 border-t border-deck-border p-2 text-center text-[10px] text-deck-muted">等待当前远程 session 完成身份校验后才能操作。</div>}
+      composer={<div className="shrink-0 border-t border-deck-border p-2 text-center text-[10px] text-deck-muted">会话恢复后即可继续操作。</div>}
       onClose={onClose}
     />
   );

@@ -74,7 +74,7 @@ describe('remote source surfaces', () => {
       initialMessage: 'Inspect the repository',
       workingDirectory: 'repo/subdir',
     })));
-    expect(screen.getByText(/目录始终相对于 Remote Workspace/)).toBeTruthy();
+    expect(screen.getByText(/目录始终相对于远端工作区/)).toBeTruthy();
     expect(screen.queryByText(/新建远程/u)).toBeNull();
     expect(localListAdapters).not.toHaveBeenCalled();
   });
@@ -101,7 +101,7 @@ describe('remote source surfaces', () => {
 
     await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenCalled());
     fireEvent.click(screen.getByText('模型配置'));
-    const gateway = screen.getByRole('combobox', { name: 'Gateway' });
+    const gateway = screen.getByRole('combobox', { name: '模型网关' });
     expect((gateway as HTMLInputElement).value).toBe('');
     expect((gateway as HTMLInputElement).placeholder).toBe('留空使用 settings.json');
     fireEvent.focus(gateway);

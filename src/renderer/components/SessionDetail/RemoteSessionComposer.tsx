@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useEffect, useMemo, useState, type JSX } from 'react';
 
 import {
   SESSION_CONSOLE_REMOTE_ATTACHMENT_MAX_BYTES,
@@ -7,15 +7,14 @@ import {
   SESSION_CONSOLE_REMOTE_ATTACHMENT_MIME_TYPES,
   parseSessionConsoleAttachments,
   type SessionConsoleAttachmentPolicyDescriptor,
+  type SessionConsoleCapabilitiesResult,
 } from '@contracts/index';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
-import { PendingImageAttachments } from '../PendingImageAttachments';
-import { HandOffIcon, ImageIcon, SendIcon, StopIcon } from '../icons';
-import { ComposerInput } from './composer-sdk/ComposerInput';
 import { ErrorBanner } from './composer-sdk/ErrorBanner';
 import { RemoteSessionRuntimeControls } from './RemoteSessionRuntimeControls';
 import { RemotePendingOutgoingQueue } from './RemotePendingOutgoingQueue';
+import { SessionComposerView } from './SessionComposerView';
 
 export function RemoteSessionComposer({
   source,
@@ -35,7 +34,9 @@ export function RemoteSessionComposer({
   const [attachmentPolicy, setAttachmentPolicy] = useState<
     SessionConsoleAttachmentPolicyDescriptor | null
   >(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sessionCapabilities, setSessionCapabilities] = useState<
+    SessionConsoleCapabilitiesResult | null
+  >(null);
   const turnBusy = source.selectedSession?.status.endsWith('-working') === true;
   const turnWaiting = source.selectedSession?.status.endsWith('-waiting') === true;
   const activeInput = source.inputCapabilities?.adapterId === adapterId
@@ -76,15 +77,22 @@ export function RemoteSessionComposer({
   useEffect(() => {
     let cancelled = false;
     setAttachmentPolicy(null);
+    setSessionCapabilities(null);
     if (!source.usable || !source.capabilities.has('session-console.read')) return;
     void source.getSessionCapabilities({
       adapterId,
       provider: runtimeString(source.runtime?.values ?? null, 'provider'),
       workingDirectory: '.',
     }).then((result) => {
-      if (!cancelled) setAttachmentPolicy(result.create.attachments);
+      if (!cancelled) {
+        setAttachmentPolicy(result.create.attachments);
+        setSessionCapabilities(result);
+      }
     }).catch(() => {
-      if (!cancelled) setAttachmentPolicy(null);
+      if (!cancelled) {
+        setAttachmentPolicy(null);
+        setSessionCapabilities(null);
+      }
     });
     return () => { cancelled = true; };
   }, [adapterId, identity, source.runtime?.revision, source.usable]);
@@ -127,74 +135,81 @@ export function RemoteSessionComposer({
       ? 'Grok Build'
       : 'Claude Code';
 
+  const placeholder = canWrite
+    ? steerMode
+      ? `${steerLabel}当前 ${agentName} 轮次…  (Enter 发送 / Shift+Enter 换行)`
+      : queueMode
+        ? `排队发送给当前 ${agentName} 轮次…  (Enter 发送 / Shift+Enter 换行${canUseAttachments ? ' / 可粘贴或拖放图片' : ''})`
+        : `给 ${agentName} 发消息…  (Enter 发送 / Shift+Enter 换行${canUseAttachments ? ' / 可粘贴或拖放图片' : ''})`
+    : '当前会话暂时不能发送消息';
   return (
-    <div data-remote-session-composer className="shrink-0 border-t border-deck-border px-2.5 py-2">
-      <RemoteSessionRuntimeControls
+    <SessionComposerView
+      controls={<RemoteSessionRuntimeControls
         adapterId={adapterId}
         busy={source.busy}
         canWrite={canWriteRuntime}
         identity={identity}
         turnActive={turnBusy || turnWaiting}
         values={source.runtime?.values ?? null}
+        optionSchema={sessionCapabilities?.create.options ?? null}
         onApply={source.updateRuntime}
-      />
-      <RemoteReadNotice label="远端运行时状态" message={source.runtimeLoadError} />
-      <RemoteReadNotice label="活动回合输入能力" message={source.inputLoadError} />
-      <ErrorBanner message={error} onDismiss={() => setError(null)} />
-      <ErrorBanner message={imgs.error} onDismiss={imgs.dismissError} />
-      <RemotePendingOutgoingQueue
+      />}
+      feedback={<>
+        <RemoteReadNotice label="运行设置" message={source.runtimeLoadError} />
+        <RemoteReadNotice label="输入状态" message={source.inputLoadError} />
+        <ErrorBanner message={error} onDismiss={() => setError(null)} />
+        <ErrorBanner message={imgs.error} onDismiss={imgs.dismissError} />
+      </>}
+      queue={<RemotePendingOutgoingQueue
         source={source}
         adapterId={adapterId}
         sessionId={sessionId}
-      />
-      <ComposerInput
-        text={text}
-        onTextChange={setText}
-        submitLabel={steerMode ? steerLabel : '发送'}
-        busy={source.busy}
-        canSubmit={canSubmit}
-        attachments={imgs.attachments}
-        getAttachmentPreviewDataUrl={imgs.getPreviewDataUrl}
-        onRemoveAttachment={imgs.remove}
-        onSubmit={send}
-        onPaste={canUseAttachments ? imgs.onPaste : undefined}
-        onDrop={canUseAttachments ? imgs.onDrop : undefined}
-        onDragOver={canUseAttachments ? imgs.onDragOver : undefined}
-        placeholder={canWrite
-          ? steerMode
-            ? `${steerLabel}当前 Remote ${agentName} 轮次…  (Enter 发送 / Shift+Enter 换行)`
-            : queueMode
-              ? `排队发送给当前 Remote ${agentName} 轮次…  (Enter 发送 / Shift+Enter 换行${canUseAttachments ? ' / 可粘贴或拖放图片' : ''})`
-            : `给 Remote ${agentName} 发消息…  (Enter 发送 / Shift+Enter 换行${canUseAttachments ? ' / 可粘贴或拖放图片' : ''})`
-          : '此 Remote 数据源未提供 session 写入能力'}
-      />
-      <div className="mt-1.5 flex items-center gap-1.5">
-        {canUseAttachments && (
-          <>
-            <input ref={fileInputRef} type="file" accept={attachmentLimits.mimeTypes.join(',')} multiple className="hidden" onChange={(event) => {
-              void imgs.add(event.target.files);
-              if (fileInputRef.current) fileInputRef.current.value = '';
-            }} />
-            <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text" title="上传图片到 Remote Worker（也可粘贴 / 拖放）" aria-label="上传图片">
-              <ImageIcon className="h-4 w-4" />
-            </button>
-          </>
-        )}
-        {imgs.attachments.length > 0 && (
-          <PendingImageAttachments attachments={imgs.attachments} getPreviewDataUrl={imgs.getPreviewDataUrl} onRemove={imgs.remove} />
-        )}
-        <div className="flex-1" />
-        <button type="button" onClick={onHandOff} disabled={!source.usable || !source.capabilities.has('sessions.handoff') || source.busy || turnBusy || turnWaiting} className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40" title={!source.capabilities.has('sessions.handoff') ? '此 Remote Core 未提供接力能力' : turnBusy || turnWaiting ? '当前任务完成或中断后可接力' : '在当前 Remote Worker 上创建原子续接会话'}>
-          <HandOffIcon className="mr-1 inline h-3 w-3" />接力
-        </button>
-        <button type="button" onClick={() => void interrupt()} disabled={!canWrite || !turnBusy || interrupting} className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40" title={!turnBusy ? '当前没有运行中的 Remote 任务' : '中断当前 Remote 任务'}>
-          <StopIcon className="mr-1 inline h-3 w-3" />{interrupting ? '中断中…' : '中断'}
-        </button>
-        <button type="button" onClick={() => void send()} disabled={!canSubmit} className="h-7 shrink-0 rounded bg-status-working/30 px-3 text-[10px] font-medium text-status-working hover:bg-status-working/40 disabled:opacity-40">
-          {!source.busy && <SendIcon className="mr-1 inline h-3 w-3" />}{source.busy ? '发送中…' : steerMode ? steerLabel : '发送'}
-        </button>
-      </div>
-    </div>
+      />}
+      input={{
+        text,
+        onTextChange: setText,
+        submitLabel: steerMode ? steerLabel : '发送',
+        busy: source.busy,
+        canSubmit,
+        attachments: imgs.attachments,
+        getAttachmentPreviewDataUrl: imgs.getPreviewDataUrl,
+        onRemoveAttachment: imgs.remove,
+        onSubmit: send,
+        onPaste: canUseAttachments ? imgs.onPaste : undefined,
+        onDrop: canUseAttachments ? imgs.onDrop : undefined,
+        onDragOver: canUseAttachments ? imgs.onDragOver : undefined,
+        placeholder,
+      }}
+      attachment={{
+        enabled: canUseAttachments,
+        accept: attachmentLimits.mimeTypes.join(','),
+        attachments: imgs.attachments,
+        getPreviewDataUrl: imgs.getPreviewDataUrl,
+        onRemove: imgs.remove,
+        onAdd: (files) => { void imgs.add(files); },
+      }}
+      handOff={{
+        disabled: !source.usable || !source.capabilities.has('sessions.handoff') || source.busy || turnBusy || turnWaiting,
+        label: '接力',
+        title: !source.capabilities.has('sessions.handoff')
+          ? '当前版本暂不支持接力'
+          : turnBusy || turnWaiting ? '当前任务完成或中断后可接力' : '接力到新会话继续',
+        onClick: onHandOff,
+      }}
+      interrupt={{
+        disabled: !canWrite || !turnBusy || interrupting,
+        label: interrupting ? '中断中…' : '中断',
+        title: !turnBusy ? '当前没有运行中的任务' : '中断当前任务',
+        onClick: () => { void interrupt(); },
+      }}
+      submit={{
+        disabled: !canSubmit,
+        label: source.busy ? '发送中…' : steerMode ? steerLabel : '发送',
+        title: steerMode ? steerLabel : '发送',
+        busy: source.busy,
+        onClick: () => { void send(); },
+      }}
+    />
   );
 }
 

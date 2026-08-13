@@ -16,7 +16,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { sessionManager } from '@main/session/manager';
 import { eventRepo } from '@main/store/event-repo';
 import { eventBus } from '@main/event-bus';
-import { summarizer } from '@main/session/summarizer';
+import { summarizer } from '@main/session/summarizer/desktop';
 import { enqueueAgentDeckMessage } from '@main/teams/universal-message-watcher';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import type {

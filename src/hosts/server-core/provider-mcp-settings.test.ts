@@ -29,6 +29,9 @@ function disabledRelaySettings(): ServerCoreProviderSettings {
       activeWindowMs: 60_000,
       closeAfterMs: 120_000,
       historyRetentionDays: 30,
+      issueResolvedRetentionDays: 30,
+      issueSoftDeletedRetentionDays: 7,
+      messageRetentionDays: 30,
     },
   };
   return resolveServerCoreProviderSettings(

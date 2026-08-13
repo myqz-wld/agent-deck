@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { delimiter, dirname, join } from 'node:path';
 
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
@@ -28,6 +28,8 @@ import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
 import { HookRouteDiagnostics } from '@main/hook-server/route-diagnostics';
+import { runCodexOneshotWithHost } from '@main/session/oneshot-llm/codex-runner-core';
+import { formatEventsForPrompt } from '@main/session/summarizer/event-formatter';
 import {
   DEFAULT_SETTINGS,
   type AppSettings,
@@ -122,7 +124,7 @@ function trustedAgentDeckMcpServers(config: CodexConfigObject | null | undefined
   return { 'agent-deck': agentDeck as unknown as JsonObject };
 }
 
-function createClient(
+export function createServerCoreCodexClient(
   options: CodexAppServerOptions,
   input: ServerCoreProviderHostInput,
 ): CodexAppServerClient {
@@ -168,7 +170,7 @@ export function createServerCoreCodexUsageSnapshotHost(
   input: ServerCoreProviderHostInput,
 ): CodexUsageSnapshotHost {
   return Object.freeze({
-    createClient: (options) => createClient(options, input),
+    createClient: (options) => createServerCoreCodexClient(options, input),
     readCodexCliPath: () => input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,
     readProbeCwd: () => input.workspaceBoundary.providerTempRoot,
     snapshotProcessEnv: () => providerProcessEnvironment(input),
@@ -181,12 +183,34 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
   const appSettings = settings(input);
   const usageSnapshotHost = createServerCoreCodexUsageSnapshotHost(input);
   const clientHost: CodexClientConstructionHost = {
-    createClient: (options) => createClient(options, input),
+    createClient: (options) => createServerCoreCodexClient(options, input),
     readCodexCliPath: () => input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,
     readSettings: () => appSettings,
     readSkillExtraRoots: () => input.assets.codexSkillExtraRoots(),
     snapshotProcessEnv: () => providerProcessEnvironment(input),
   };
+  const runSummaryOneshot = (
+    options: Parameters<typeof runCodexOneshotWithHost>[0],
+  ) => runCodexOneshotWithHost(options, {
+    getInstance: async () => createServerCoreCodexClient({
+      codexPathOverride: input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,
+      config: null,
+      env: {
+        ...providerProcessEnvironment(input),
+        AGENT_DECK_ORIGIN: 'sdk',
+      },
+    }, input),
+    releaseInstance: (client) => {
+      if (client instanceof CodexAppServerClient) client.dispose();
+    },
+    createIsolatedCwd: () => {
+      mkdirSync(input.workspaceBoundary.workspaceRoot, { recursive: true, mode: 0o700 });
+      return mkdtempSync(join(
+        input.workspaceBoundary.workspaceRoot,
+        '.agent-deck-periodic-summary-',
+      ));
+    },
+  });
 
   return createCodexCliAdapterHost({
     bridge: {
@@ -298,8 +322,8 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
       readSummaryModel: () => input.settings.summaryModel,
       readSummaryReasoning: () => input.settings.summaryThinking,
       readSummaryTimeoutMs: () => input.settings.summaryTimeoutMs,
-      runOneshot: async () => '',
-      formatEvents: () => '',
+      runOneshot: runSummaryOneshot,
+      formatEvents: formatEventsForPrompt,
     },
   });
 }

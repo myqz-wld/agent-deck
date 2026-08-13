@@ -39,6 +39,9 @@ export function remoteHostResourcesForCoreEvent(
   if (eventKind.startsWith('task.') || eventKind.startsWith('message.')) {
     return DETAIL_AND_TEAMS;
   }
+  if (eventKind.startsWith('summary.')) {
+    return ['session-list', 'session-detail'];
+  }
   if (
     eventKind.startsWith('session.')
   ) return SESSION_LIFECYCLE_RESOURCES;

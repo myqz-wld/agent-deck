@@ -7,7 +7,7 @@ import { adapterRegistry } from '../adapters/registry';
 import { setLifecycleScheduler } from '../session/lifecycle-scheduler';
 import { setIssueLifecycleScheduler } from '../store/issue-lifecycle-scheduler';
 import { setMessageLifecycleScheduler } from '../store/message-lifecycle-scheduler';
-import { summarizer } from '../session/summarizer';
+import { summarizer } from '../session/summarizer/desktop';
 import { stopContinuationCheckpointRefreshService } from '../session/continuation-context/checkpoint-refresh-service';
 import { stopAllSounds } from '../notify/sound';
 import { universalMessageWatcher } from '../teams/universal-message-watcher';
@@ -166,7 +166,15 @@ export function registerLifecycleHooks(
             );
             return false;
           });
-        summarizer.stop();
+        const summaryStop = summarizer.stop()
+          .then(() => true)
+          .catch((err) => {
+            logger.warn(
+              'summary drain failed during cleanup',
+              lifecycleDiagnostic('summary-stop', 'failed', err),
+            );
+            return false;
+          });
         stopAllSounds();
         // REVIEW_35 MED-D-claude (D6): cleanup 整体 race-with-timeout 兜底,防 adapter
         // shutdown / hookServer stop / mcp http shutdown 任一卡死整个 quit 流程(codex CLI
@@ -174,6 +182,7 @@ export function registerLifecycleHooks(
         const cleanupSteps = (async (): Promise<'ok' | 'degraded'> => {
           let allIngressStopped = true;
           if (!await checkpointRefreshStop) allIngressStopped = false;
+          if (!await summaryStop) allIngressStopped = false;
           if (!await messageWatcherStop) allIngressStopped = false;
           if (!await remoteHostStop) allIngressStopped = false;
           // Background checkpoint folds and foreground hand-off preparations share the

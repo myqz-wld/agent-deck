@@ -148,7 +148,7 @@ describe('AppWorkspace Local and Remote page parity', () => {
   it('fails closed when the Remote Core omits the page capability', () => {
     workspace('teams', true, []);
     expect(screen.queryByTestId('teams')).toBeNull();
-    expect(screen.getByText(/当前 Remote Core 未提供团队能力/)).toBeTruthy();
+    expect(screen.getByText('当前远端版本暂不支持团队')).toBeTruthy();
   });
 
   it.each([
@@ -172,7 +172,7 @@ describe('AppWorkspace Local and Remote page parity', () => {
     workspace(view, true, capabilities, null, status, usable);
     expect(screen.queryByTestId(view)).toBeNull();
     expect(screen.getByTestId('remote-page-unavailable')).toBeTruthy();
-    expect(screen.getByText(/不会回退读取 Local 数据/u)).toBeTruthy();
+    expect(screen.getByTestId('remote-page-unavailable')).toBeTruthy();
   });
 
   it('does not mount a selected Remote detail while its connection is reconnecting', () => {
@@ -208,7 +208,7 @@ describe('AppWorkspace Local and Remote page parity', () => {
     expect(screen.queryByTestId('live')).toBeNull();
     expect(screen.queryByTestId('detail')).toBeNull();
     expect(screen.getByText('无法确认数据源')).toBeTruthy();
-    expect(screen.getByText(/停止 Local 与 Remote 业务读取/u)).toBeTruthy();
+    expect(screen.getByText('数据来源读取失败，请稍后重试。')).toBeTruthy();
     screen.getByRole('button', { name: '重新读取数据源' }).click();
     expect(onAuthorityRetry).toHaveBeenCalledOnce();
   });

@@ -1,5 +1,7 @@
 import {
   existsSync,
+  mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -24,6 +26,8 @@ import { createClaudeSessionManagerPort } from '@main/adapters/claude-code/sessi
 import { ClaudeSdkBridge } from '@main/adapters/claude-code/sdk-bridge';
 import { rememberIgnoredClaudeUserMessageIdCore } from '@main/adapters/claude-code/sdk-bridge/user-message-acceptance-core';
 import { HookRouteDiagnostics } from '@main/hook-server/route-diagnostics';
+import { runClaudeOneshotWithHost } from '@main/session/oneshot-llm/claude-runner-core';
+import { summariseClaudeSessionWithHost } from '@main/session/summarizer/claude-runner-core';
 import {
   HEADLESS_CLAUDE_EXECUTABLE,
   createServerCoreClaudeQueryHost,
@@ -63,6 +67,14 @@ function gatewayProfile(gatewaysDir: string, gateway?: string | null) {
   );
 }
 
+export function resolveServerCoreClaudeGatewayProfile(
+  input: ServerCoreProviderHostInput,
+  gateway?: string | null,
+) {
+  const configRoot = getClaudeConfigRoot(providerProcessEnvironment(input));
+  return gatewayProfile(join(configRoot, 'gateways'), gateway);
+}
+
 function canonical(path: string): string {
   try {
     return normalize(realpathSync(resolve(path))).normalize('NFC');
@@ -80,6 +92,31 @@ export function createServerCoreClaudeHost(input: ServerCoreProviderHostInput) {
   const providerEnvironment = providerProcessEnvironment(input);
   const configRoot = getClaudeConfigRoot(providerEnvironment);
   const gatewaysDir = join(configRoot, 'gateways');
+  const summaryHost = {
+    readSummaryThinking: () => input.settings.summaryThinking,
+    readSummaryTimeoutMs: () => input.settings.summaryTimeoutMs,
+    resolveGatewayProfile: (gateway?: string) => gatewayProfile(gatewaysDir, gateway),
+    runOneshot: (options: Parameters<typeof runClaudeOneshotWithHost>[0]) =>
+      runClaudeOneshotWithHost(options, {
+        loadSdk: async () => loadServerCoreClaudeSdk(),
+        runtimeOptions: () => ({
+          executable: process.execPath as 'node',
+          env: { ...providerEnvironment },
+        }),
+        resolveBinary: () =>
+          input.settings.claudeCliPath ?? HEADLESS_CLAUDE_EXECUTABLE,
+        createIsolatedCwd: () => {
+          mkdirSync(input.workspaceBoundary.providerTempRoot, {
+            recursive: true,
+            mode: 0o700,
+          });
+          return mkdtempSync(join(
+            input.workspaceBoundary.providerTempRoot,
+            'periodic-summary-',
+          ));
+        },
+      }),
+  };
 
   return createClaudeCodeAdapterHost({
     bridge: {
@@ -231,7 +268,13 @@ export function createServerCoreClaudeHost(input: ServerCoreProviderHostInput) {
       ),
     },
     summary: {
-      summariseEvents: async () => null,
+      summariseEvents: (cwd, events, evidenceContext, runtime) =>
+        summariseClaudeSessionWithHost(summaryHost, cwd, events, {
+          ...(evidenceContext ? { evidenceContext } : {}),
+          runtimeProvider: runtime?.provider,
+          model: runtime?.model,
+          thinking: runtime?.thinking,
+        }),
     },
   });
 }

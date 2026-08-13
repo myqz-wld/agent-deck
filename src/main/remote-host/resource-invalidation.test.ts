@@ -12,6 +12,7 @@ describe('Remote host resource invalidation', () => {
     ['plan.review.feedback', ['pending', 'session-detail', 'teams']],
     ['task.updated', ['session-detail', 'teams']],
     ['message.updated', ['session-detail', 'teams']],
+    ['summary.added', ['session-list', 'session-detail']],
     ['session.updated', ['session-list', 'session-detail', 'pending', 'teams']],
     ['event.persisted', ['session-list', 'session-detail', 'teams']],
     ['team.member-added', ['session-list', 'session-detail', 'teams']],

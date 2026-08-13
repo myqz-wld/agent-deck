@@ -37,6 +37,9 @@ function writeState(root: string): void {
       activeWindowMs: 120_000,
       closeAfterMs: 3_600_000,
       historyRetentionDays: 14,
+      issueResolvedRetentionDays: 21,
+      issueSoftDeletedRetentionDays: 5,
+      messageRetentionDays: 28,
     },
   }), { mode: 0o600 });
 }

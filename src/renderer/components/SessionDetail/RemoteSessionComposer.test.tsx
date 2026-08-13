@@ -88,7 +88,7 @@ describe('RemoteSessionComposer parity and authority', () => {
     expect((screen.getByRole('button', { name: '中断' }) as HTMLButtonElement).disabled)
       .toBe(true);
 
-    const input = screen.getByPlaceholderText(/给 Remote Claude Code 发消息/);
+    const input = screen.getByPlaceholderText(/给 Claude Code 发消息/);
     fireEvent.change(input, { target: { value: 'remote hello' } });
     fireEvent.click(screen.getByRole('button', { name: '发送' }));
     await waitFor(() => expect(remote.send).toHaveBeenCalledWith('remote hello', []));
@@ -96,7 +96,7 @@ describe('RemoteSessionComposer parity and authority', () => {
     fireEvent.click(screen.getByLabelText('沙盒'));
     fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
     await waitFor(() => expect(confirmDialog).toHaveBeenCalledWith(expect.objectContaining({
-      title: '关闭 Remote Claude Code 系统沙盒',
+      title: '关闭 Claude Code 系统沙盒',
     })));
     await waitFor(() => expect(remote.updateRuntime).toHaveBeenCalledWith({
       claudeCodeSandbox: 'off',
@@ -142,7 +142,7 @@ describe('RemoteSessionComposer parity and authority', () => {
       sessionId="session-a"
     />);
 
-    expect(await screen.findByPlaceholderText(/修正当前 Remote Codex CLI 轮次/)).toBeTruthy();
+    expect(await screen.findByPlaceholderText(/修正当前 Codex CLI 轮次/)).toBeTruthy();
     expect(screen.getByRole('button', { name: '上传图片' })).toBeTruthy();
     const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
     expect(fileInput).toBeTruthy();
@@ -150,7 +150,7 @@ describe('RemoteSessionComposer parity and authority', () => {
       target: { files: [new File([new Uint8Array([97])], 'steer.gif', { type: 'image/gif' })] },
     });
     await screen.findByAltText('steer.gif');
-    fireEvent.change(screen.getByPlaceholderText(/修正当前 Remote Codex CLI 轮次/), {
+    fireEvent.change(screen.getByPlaceholderText(/修正当前 Codex CLI 轮次/), {
       target: { value: 'focus on the failing test' },
     });
     fireEvent.click(screen.getByRole('button', { name: '修正' }));
@@ -189,7 +189,7 @@ describe('RemoteSessionComposer parity and authority', () => {
       sessionId="session-a"
     />);
 
-    const input = await screen.findByPlaceholderText(/排队发送给当前 Remote Claude Code 轮次/);
+    const input = await screen.findByPlaceholderText(/排队发送给当前 Claude Code 轮次/);
     const fileInput = container.querySelector<HTMLInputElement>('input[type="file"]');
     fireEvent.change(fileInput!, {
       target: { files: [new File([new Uint8Array([98])], 'queued.gif', { type: 'image/gif' })] },
@@ -230,7 +230,7 @@ describe('RemoteSessionComposer parity and authority', () => {
       sessionId="session-a"
     />);
 
-    const input = await screen.findByPlaceholderText(/修正当前 Remote Codex CLI 轮次/);
+    const input = await screen.findByPlaceholderText(/修正当前 Codex CLI 轮次/);
     expect(screen.queryByRole('button', { name: '上传图片' })).toBeNull();
     fireEvent.change(input, { target: { value: 'text only' } });
     fireEvent.click(screen.getByRole('button', { name: '修正' }));
@@ -291,7 +291,7 @@ describe('RemoteSessionComposer parity and authority', () => {
     });
     render(<RemoteSessionComposer source={remote} adapterId="codex-cli" sessionId="session-a" />);
 
-    expect(screen.getAllByText('由提供方默认值决定（未记录权威值）')).toHaveLength(2);
+    expect(screen.getAllByText('使用当前默认值')).toHaveLength(2);
     expect(screen.queryByText('NEVER')).toBeNull();
     expect(screen.queryByText('工作区可写')).toBeNull();
   });
