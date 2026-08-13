@@ -127,9 +127,6 @@ export function SessionModelFields({
               options={providerOptions}
               disabled={disabled}
               allowCustom={!providerClosed}
-              defaultOptionLabel={
-                adapterId === 'claude-code' ? '原生 settings.json' : '原生 config.toml'
-              }
               ariaLabel={adapterId === 'claude-code' ? 'Gateway' : 'Provider'}
               placeholder={
                 adapterId === 'claude-code'

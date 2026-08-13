@@ -8,7 +8,7 @@ changed_at: 2026-08-12
 ## Summary
 
 Remote Claude Gateway and Codex Provider controls now share the same searchable combobox
-presentation as Local. Codex and Claude also retain an explicit native-configuration choice when
+presentation as Local. Codex and Claude also retain a usable empty native-configuration state when
 the Worker discovers no custom provider definitions.
 
 ## Changes
@@ -25,7 +25,8 @@ the Worker discovers no custom provider definitions.
 - Use the shared searchable Provider combobox for both Local and Remote session-model fields.
 - Let Remote users filter advertised Gateway or Provider values without committing arbitrary
   typed text, and commit only a selected Core-owned option.
-- Show explicit native-configuration labels for an empty provider selection.
+- Represent the native configuration exactly as Local does: an empty input with the existing
+  placeholder, without adding a synthetic native option to the dropdown.
 
 ## Validation
 

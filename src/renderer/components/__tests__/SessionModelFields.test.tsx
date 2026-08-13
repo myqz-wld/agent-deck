@@ -133,15 +133,17 @@ describe('SessionModelFields', () => {
     );
 
     const gateway = screen.getByRole('combobox', { name: 'Gateway' });
-    expect((gateway as HTMLInputElement).value).toBe('原生 settings.json');
+    expect((gateway as HTMLInputElement).value).toBe('');
+    expect((gateway as HTMLInputElement).placeholder).toBe('留空使用 settings.json');
     fireEvent.focus(gateway);
+    expect(screen.queryByRole('option', { name: '原生 settings.json' })).toBeNull();
     fireEvent.change(gateway, { target: { value: 'deep' } });
     expect(onProviderChange).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('option', { name: 'deepseek' }));
     expect(onProviderChange).toHaveBeenCalledWith('deepseek');
   });
 
-  it('Remote Codex 无自定义 Provider 时仍提供原生 config.toml 选项', () => {
+  it('Remote Codex 无自定义 Provider 时与 Local 一样以空值表达原生配置', () => {
     const onProviderChange = vi.fn();
     render(
       <SessionModelFields
@@ -158,8 +160,10 @@ describe('SessionModelFields', () => {
     );
 
     const provider = screen.getByRole('combobox', { name: 'Provider' });
-    expect((provider as HTMLInputElement).value).toBe('原生 config.toml');
+    expect((provider as HTMLInputElement).value).toBe('');
+    expect((provider as HTMLInputElement).placeholder).toBe('留空使用 config.toml');
     fireEvent.focus(provider);
-    expect(screen.getByRole('option', { name: '原生 config.toml' })).toBeTruthy();
+    expect(screen.queryByRole('option')).toBeNull();
+    expect(screen.getByText('没有发现 Codex provider，请检查 $CODEX_HOME/config.toml')).toBeTruthy();
   });
 });

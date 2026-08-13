@@ -102,7 +102,8 @@ describe('remote source surfaces', () => {
     await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenCalled());
     fireEvent.click(screen.getByText('模型配置'));
     const gateway = screen.getByRole('combobox', { name: 'Gateway' });
-    expect((gateway as HTMLInputElement).value).toBe('原生 settings.json');
+    expect((gateway as HTMLInputElement).value).toBe('');
+    expect((gateway as HTMLInputElement).placeholder).toBe('留空使用 settings.json');
     fireEvent.focus(gateway);
     fireEvent.change(gateway, { target: { value: 'deep' } });
     fireEvent.click(screen.getByRole('option', { name: 'deepseek' }));
