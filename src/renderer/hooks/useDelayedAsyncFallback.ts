@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 
 /** Fast reads finish behind the current view; slower reads earn an explicit loading state. */
 export const FAST_ASYNC_FALLBACK_GRACE_MS = 150;
+
+export type InitialAsyncPresentation = 'deferred' | 'fallback' | 'ready';
 
 export function useDelayedAsyncFallback(
   pending: boolean,
@@ -21,4 +23,34 @@ export function useDelayedAsyncFallback(
   }, [delayMs, identity, pending]);
 
   return pending && visibleIdentity === identity;
+}
+
+/**
+ * Gate only the first unresolved projection for one exact identity.
+ *
+ * Once that identity settles it remains ready during later revalidation, allowing callers to keep
+ * the last complete component mounted. An identity change resets the gate synchronously for the
+ * render that observes it, so an old ready state cannot flash during reopen/source switches.
+ */
+export function useInitialAsyncPresentation(
+  pending: boolean,
+  identity: string,
+  delayMs: number = FAST_ASYNC_FALLBACK_GRACE_MS,
+): InitialAsyncPresentation {
+  const [settledIdentity, setSettledIdentity] = useState<string | null>(
+    pending ? null : identity,
+  );
+  const ready = !pending || settledIdentity === identity;
+
+  useLayoutEffect(() => {
+    if (!pending) {
+      setSettledIdentity(identity);
+      return;
+    }
+    setSettledIdentity((current) => (current === identity ? current : null));
+  }, [identity, pending]);
+
+  const showFallback = useDelayedAsyncFallback(!ready, identity, delayMs);
+  if (ready) return 'ready';
+  return showFallback ? 'fallback' : 'deferred';
 }

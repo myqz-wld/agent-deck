@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type JSX } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type JSX } from 'react';
 
 import type { IssueRecord } from '@shared/types';
 import type { SessionThinkingChoice } from '@renderer/components/SessionModelFields';
@@ -44,12 +44,25 @@ export function RemoteIssueResolutionDialog({
   const images = useImageAttachments();
   const remote = useRemoteSessionCreation({
     active: true,
+    scopeKey: `issue-resolution:${issue.id}`,
     source,
     workingDirectory,
   });
-  const descriptor = remote.descriptor;
+  const previousReadinessIdentity = useRef(remote.readinessIdentity);
+  const descriptor = remote.presentationDescriptor;
   const acceptsAttachments = descriptor?.create.attachments.enabled === true;
-  const options = remote.options;
+  const options = remote.presentationOptions;
+  const formIdentity = `issue-resolution:${authoringId}:${issue.id}:${remote.readinessIdentity}`;
+
+  useLayoutEffect(() => {
+    if (previousReadinessIdentity.current === remote.readinessIdentity) return;
+    previousReadinessIdentity.current = remote.readinessIdentity;
+    sequence.current += 1;
+    inFlight.current = false;
+    setBusy(false);
+    setDirectoryOpen(false);
+    setError(null);
+  }, [remote.readinessIdentity]);
 
   const close = (): void => {
     sequence.current += 1;
@@ -98,9 +111,9 @@ export function RemoteIssueResolutionDialog({
   return (
     <>
       <NewSessionForm
-        key={`issue-resolution:${authoringId}:${source.identity}:${issue.id}`}
+        key={formIdentity}
         acceptsAttachments={acceptsAttachments}
-        adapterId={remote.adapterId}
+        adapterId={remote.presentationAdapterId}
         adapters={remote.adapters.map((adapter) => ({
           value: adapter.adapterId,
           label: adapter.displayName,
@@ -109,12 +122,12 @@ export function RemoteIssueResolutionDialog({
           description: adapter.disabledReason ?? undefined,
         }))}
         attachmentReason={descriptor?.create.attachments.disabledReason ?? null}
-        authoringId={`issue-resolution:${authoringId}:${source.identity}:${issue.id}`}
+        authoringId={formIdentity}
         busy={busy}
         canCreate={Boolean(
           source.usable && source.capabilities.has('issues') &&
-          source.capabilities.has('session-console.create') && descriptor?.create.enabled &&
-          !remote.loading && remote.adapterId && (prompt.trim() || images.attachments.length > 0),
+          source.capabilities.has('session-console.create') && remote.descriptor?.create.enabled &&
+          remote.ready && remote.adapterId && (prompt.trim() || images.attachments.length > 0),
         )}
         controls={remoteControls(descriptor, options, remote.setOption)}
         createLabel="创建并关联"
@@ -123,16 +136,12 @@ export function RemoteIssueResolutionDialog({
         directoryPlaceholder=". 或 repo/subdir"
         error={error ?? remote.error ?? source.error}
         images={images}
-        initializing={Boolean(
-          source.usable &&
-          source.capabilities.has('session-console.read') &&
-          descriptor === null &&
-          remote.error === null,
-        )}
-        loading={remote.loading}
-        modelLoading={remote.loading}
+        initializing={remote.initializing}
+        configurationPending={remote.loading}
+        configurationControlsBlocked={remote.loading}
+        configurationSubmissionBlocked={remote.loading}
         model={{
-          adapterId: remote.adapterId,
+          adapterId: remote.presentationAdapterId,
           provider: options.provider ?? '',
           model: options.model ?? '',
           thinking: (options.thinking ?? '') as SessionThinkingChoice,
@@ -169,6 +178,7 @@ export function RemoteIssueResolutionDialog({
         onClose={close}
         onCreate={() => void submit()}
         onPromptChange={setPrompt}
+        onRetryConfiguration={!error && remote.error ? remote.retry : undefined}
         onWorkingDirectoryChange={setWorkingDirectory}
       />
       {directoryOpen && (

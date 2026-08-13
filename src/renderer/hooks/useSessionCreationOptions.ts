@@ -20,11 +20,16 @@ interface Options {
   adapterId: string;
   cwd: string;
   active?: boolean;
+  /** Exact authoring/open cycle. A new scope never reuses an earlier settled projection. */
+  scopeKey?: string;
 }
 
 export interface SessionCreationOptionsState {
   /** The model/provider defaults are being resolved for the current adapter and cwd. */
   defaultsLoading: boolean;
+  /** All readiness-required configuration reads for the current form projection. */
+  configurationLoading: boolean;
+  providerOptions: readonly { id: string; name?: string }[];
   permissionMode: PermissionModeChoice;
   sessionMode: AdapterSessionMode;
   approvalPolicy: CodexApprovalPolicyChoice;
@@ -57,47 +62,59 @@ const SAFE_FALLBACK: SessionCreationDefaults = {
   grokSandbox: 'workspace',
 };
 
+interface SelectionState {
+  identity: string;
+  value: SessionCreationDefaults;
+}
+
+interface ProviderCatalogState {
+  key: string;
+  options: readonly { id: string; name?: string }[];
+}
+
 /** Shared concrete defaults and same-process last-used memory for new-session dialogs. */
 export function useSessionCreationOptions({
   adapterId,
   cwd,
   active = true,
+  scopeKey = 'session-creation',
 }: Options): SessionCreationOptionsState {
   const initial = mergeRemembered(adapterId, fallbackForAdapter(adapterId));
-  const [permissionMode, setPermissionModeState] = useState(initial.permissionMode);
-  const [sessionMode, setSessionModeState] = useState(initial.sessionMode);
-  const [approvalPolicy, setApprovalPolicyState] = useState(initial.approvalPolicy);
-  const [codexSandbox, setCodexSandboxState] = useState(initial.codexSandbox);
-  const [claudeCodeSandbox, setClaudeCodeSandboxState] = useState(
-    initial.claudeCodeSandbox,
-  );
-  const [grokSandbox, setGrokSandboxState] = useState(initial.grokSandbox);
-  const [provider, setProviderState] = useState(initial.provider);
-  const [model, setModelState] = useState(initial.model);
-  const [thinking, setThinkingState] = useState<SessionThinkingChoice>(initial.thinking);
+  const selectionIdentity = `${scopeKey}\u0000${adapterId}`;
+  const [selection, setSelection] = useState<SelectionState>({
+    identity: selectionIdentity,
+    value: initial,
+  });
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [resolvedRequestKey, setResolvedRequestKey] = useState<string | null>(null);
+  const [providerCatalog, setProviderCatalog] = useState<ProviderCatalogState>({
+    key: '',
+    options: [],
+  });
   const defaultsRequestGeneration = useRef(0);
-  const hasResolvedDefaults = useRef(false);
-  const requestKey = `${adapterId}\u0000${cwd.trim()}\u0000${selectionRevision}`;
-
-  useEffect(() => {
-    if (!active) return;
-    applyState(mergeRemembered(adapterId, fallbackForAdapter(adapterId)));
-    // Adapter changes should update the visible controls immediately. Cwd edits deliberately
-    // keep the current values in place until the debounced native-config lookup completes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, adapterId]);
+  const providerCatalogGeneration = useRef(0);
+  const resolvedScope = useRef<string | null>(null);
+  const requestKey = `${scopeKey}\u0000${adapterId}\u0000${cwd.trim()}\u0000${selectionRevision}`;
+  const current = selection.identity === selectionIdentity
+    ? selection.value
+    : initial;
+  const supportsProviderCatalog = adapterId === 'claude-code' || adapterId === 'codex-cli';
+  const providerCatalogReaderAvailable = adapterId === 'claude-code'
+    ? typeof window.api?.listClaudeGatewayProfiles === 'function'
+    : adapterId === 'codex-cli'
+      ? typeof window.api?.listCodexModelProviders === 'function'
+      : false;
+  const providerCatalogKey = `${scopeKey}\u0000${adapterId}`;
 
   useEffect(() => {
     const generation = ++defaultsRequestGeneration.current;
     if (!active) {
-      hasResolvedDefaults.current = false;
+      resolvedScope.current = null;
       setResolvedRequestKey(null);
       return;
     }
-    if (typeof window.api.getAdapterSessionCreationDefaults !== 'function') {
-      hasResolvedDefaults.current = true;
+    if (typeof window.api?.getAdapterSessionCreationDefaults !== 'function') {
+      resolvedScope.current = scopeKey;
       setResolvedRequestKey(requestKey);
       return;
     }
@@ -110,19 +127,28 @@ export function useSessionCreationOptions({
         })
         .then((resolved) => {
           if (defaultsRequestGeneration.current === generation) {
-            applyState(mergeRemembered(adapterId, resolved));
-            hasResolvedDefaults.current = true;
+            setSelection({
+              identity: selectionIdentity,
+              value: mergeRemembered(adapterId, resolved),
+            });
+            resolvedScope.current = scopeKey;
             setResolvedRequestKey(requestKey);
           }
         })
         .catch(() => {
           // Defaults are convenience UI metadata. Session creation still validates natively.
           if (defaultsRequestGeneration.current === generation) {
-            hasResolvedDefaults.current = true;
+            // Do not carry a cwd-derived projection into another cwd after its lookup fails.
+            // Explicit last-used choices survive through mergeRemembered; derived values reset.
+            setSelection({
+              identity: selectionIdentity,
+              value: mergeRemembered(adapterId, fallbackForAdapter(adapterId)),
+            });
+            resolvedScope.current = scopeKey;
             setResolvedRequestKey(requestKey);
           }
         });
-    }, hasResolvedDefaults.current ? 120 : 0);
+    }, resolvedScope.current === scopeKey ? 120 : 0);
 
     return () => {
       if (defaultsRequestGeneration.current === generation) {
@@ -132,68 +158,103 @@ export function useSessionCreationOptions({
     };
     // selectionRevision is incremented when provider changes so its config is re-resolved.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, adapterId, cwd, selectionRevision]);
+  }, [active, adapterId, cwd, scopeKey, selectionIdentity, selectionRevision]);
 
-  function applyState(next: SessionCreationDefaults): void {
-    setPermissionModeState(next.permissionMode);
-    setSessionModeState(next.sessionMode);
-    setApprovalPolicyState(next.approvalPolicy);
-    setCodexSandboxState(next.codexSandbox);
-    setClaudeCodeSandboxState(next.claudeCodeSandbox);
-    setGrokSandboxState(next.grokSandbox);
-    setProviderState(next.provider);
-    setModelState(next.model);
-    setThinkingState(next.thinking);
-  }
+  useEffect(() => {
+    const generation = ++providerCatalogGeneration.current;
+    if (!active || !supportsProviderCatalog || !providerCatalogReaderAvailable) return;
+    const request = adapterId === 'claude-code'
+      ? window.api.listClaudeGatewayProfiles()
+      : window.api.listCodexModelProviders();
+    void request.then((options) => {
+      if (providerCatalogGeneration.current === generation) {
+        setProviderCatalog({ key: providerCatalogKey, options });
+      }
+    }).catch(() => {
+      if (providerCatalogGeneration.current === generation) {
+        // Discovery is convenience metadata. An empty, settled catalog retains free-text input.
+        setProviderCatalog({ key: providerCatalogKey, options: [] });
+      }
+    });
+    return () => {
+      if (providerCatalogGeneration.current === generation) {
+        providerCatalogGeneration.current += 1;
+      }
+    };
+  }, [
+    active,
+    adapterId,
+    providerCatalogKey,
+    providerCatalogReaderAvailable,
+    supportsProviderCatalog,
+  ]);
+
+  const defaultsLoading = active && resolvedRequestKey !== requestKey;
+  const providerOptionsLoading = active && supportsProviderCatalog &&
+    providerCatalogReaderAvailable && providerCatalog.key !== providerCatalogKey;
+  const providerOptions = supportsProviderCatalog && providerCatalog.key === providerCatalogKey
+    ? providerCatalog.options
+    : [];
+
+  const patchSelection = (patch: Partial<SessionCreationDefaults>): void => {
+    setSelection((previous) => ({
+      identity: selectionIdentity,
+      value: {
+        ...(previous.identity === selectionIdentity ? previous.value : initial),
+        ...patch,
+      },
+    }));
+  };
 
   return {
-    defaultsLoading: active && resolvedRequestKey !== requestKey,
-    permissionMode,
-    sessionMode,
-    approvalPolicy,
-    codexSandbox,
-    claudeCodeSandbox,
-    grokSandbox,
-    provider,
-    model,
-    thinking,
+    defaultsLoading,
+    configurationLoading: defaultsLoading || providerOptionsLoading,
+    providerOptions,
+    permissionMode: current.permissionMode,
+    sessionMode: current.sessionMode,
+    approvalPolicy: current.approvalPolicy,
+    codexSandbox: current.codexSandbox,
+    claudeCodeSandbox: current.claudeCodeSandbox,
+    grokSandbox: current.grokSandbox,
+    provider: current.provider,
+    model: current.model,
+    thinking: current.thinking as SessionThinkingChoice,
     setPermissionMode: (value) => {
-      setPermissionModeState(value);
+      patchSelection({ permissionMode: value });
       setLastDefaults(adapterId, { permissionMode: value });
     },
     setSessionMode: (value) => {
-      setSessionModeState(value);
+      patchSelection({ sessionMode: value });
       setLastDefaults(adapterId, { sessionMode: value });
     },
     setApprovalPolicy: (value) => {
-      setApprovalPolicyState(value);
+      patchSelection({ approvalPolicy: value });
       setLastDefaults(adapterId, { approvalPolicy: value });
     },
     setCodexSandbox: (value) => {
-      setCodexSandboxState(value);
+      patchSelection({ codexSandbox: value });
       setLastDefaults(adapterId, { codexSandbox: value });
     },
     setClaudeCodeSandbox: (value) => {
-      setClaudeCodeSandboxState(value);
+      patchSelection({ claudeCodeSandbox: value });
       setLastDefaults(adapterId, { claudeCodeSandbox: value });
     },
     setGrokSandbox: (value) => {
-      setGrokSandboxState(value);
+      patchSelection({ grokSandbox: value });
       setLastDefaults(adapterId, { grokSandbox: value });
     },
     setProvider: (value) => {
-      setProviderState(value);
-      setModelState('');
+      patchSelection({ provider: value, model: '' });
       setLastDefaults(adapterId, { provider: value, model: '' });
       setSelectionRevision((current) => current + 1);
     },
     setModel: (value) => {
-      setModelState(value);
+      patchSelection({ model: value });
       setLastDefaults(adapterId, { model: value });
     },
     setThinking: (value) => {
       if (!value) return;
-      setThinkingState(value);
+      patchSelection({ thinking: value });
       setLastDefaults(adapterId, { thinking: value });
     },
   };

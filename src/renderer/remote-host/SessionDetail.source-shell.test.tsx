@@ -496,6 +496,60 @@ describe('SessionDetail source shell', () => {
     expect(screen.queryByText('只读')).toBeNull();
   });
 
+  it('does not reuse a permission projection after same-identity reconnect', async () => {
+    const oldResult = deferred<Awaited<ReturnType<
+      typeof window.api.getRemoteHostSessionPermissions
+    >>>();
+    const fresh = {
+      sessionId: 'same-session',
+      adapterId: 'codex-cli' as const,
+      effective: {
+        adapterId: 'codex-cli' as const,
+        approvalPolicy: 'on-request' as const,
+        approvalPolicySource: 'session' as const,
+        sandbox: 'workspace-write' as const,
+        sandboxSource: 'session' as const,
+      },
+      workspace: { read: 'allowed' as const, write: 'allowed' as const,
+        network: 'provider-default' as const },
+      rules: { state: 'unavailable' as const, items: [], omittedCount: 0,
+        truncated: false },
+      revision: 2,
+    };
+    const getPermissions = vi.fn()
+      .mockReturnValueOnce(oldResult.promise)
+      .mockResolvedValueOnce(fresh);
+    window.api = {
+      getRemoteHostSessionPermissions: getPermissions,
+    } as unknown as typeof window.api;
+    const connected = remoteSource();
+    connected.capabilities = new Set([
+      ...connected.capabilities,
+      'sessions.permissions.read',
+    ]);
+    const rendered = render(<SessionDetail remoteSource={connected} onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '权限' }));
+    await waitFor(() => expect(getPermissions).toHaveBeenCalledOnce());
+
+    rendered.rerender(<SessionDetail
+      remoteSource={{
+        ...connected,
+        usable: false,
+        selectedSession: null,
+        state: { ...connected.state!, status: 'reconnecting' },
+      }}
+      onClose={vi.fn()}
+    />);
+    await act(async () => oldResult.resolve({ ...fresh, revision: 1 }));
+    expect(screen.queryByText('Codex CLI 当前生效权限')).toBeNull();
+
+    rendered.rerender(<SessionDetail remoteSource={connected} onClose={vi.fn()} />);
+    expect(screen.getByText('remote-only activity')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '权限' }));
+    await screen.findByText('Codex CLI 当前生效权限');
+    expect(getPermissions).toHaveBeenCalledTimes(2);
+  });
+
   it('renders a precise reconnecting detail shell with all session actions absent', () => {
     const source = remoteSource();
     source.usable = false;

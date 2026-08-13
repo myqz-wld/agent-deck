@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type JSX } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type JSX } from 'react';
 
 import type { DeckSelectOption } from '@renderer/components/DeckSelect';
 import type { SessionThinkingChoice } from '@renderer/components/SessionModelFields';
@@ -41,6 +41,7 @@ export function NewSessionDialog({
   const remoteMode = remoteSource !== null;
   const [localAdapters, setLocalAdapters] = useState<LocalSessionAdapterInfo[]>([]);
   const [localAdaptersSettledEpoch, setLocalAdaptersSettledEpoch] = useState(-1);
+  const [localAdaptersFailedEpoch, setLocalAdaptersFailedEpoch] = useState(-1);
   const [localAdapterId, setLocalAdapterId] = useState<string>(() => getLastAdapter());
   const [workingDirectory, setWorkingDirectory] = useState(remoteMode ? '.' : '');
   const [prompt, setPrompt] = useState('');
@@ -48,21 +49,12 @@ export function NewSessionDialog({
   const [pickingDirectory, setPickingDirectory] = useState(false);
   const [remoteDirectoryOpen, setRemoteDirectoryOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const localOptions = useSessionCreationOptions({
-    adapterId: localAdapterId,
-    cwd: workingDirectory,
-    active: open && !remoteMode,
-  });
-  const remote = useRemoteSessionCreation({
-    active: open && remoteMode,
-    source: remoteSource,
-    workingDirectory,
-  });
   const pickingDirectoryRef = useRef(false);
   const openRef = useRef(open);
   const previousOpenRef = useRef(open);
   const previousSourceIdentity = useRef(remoteSource?.identity ?? 'local');
   const dialogEpochRef = useRef(0);
+  const openCycleRef = useRef(0);
   const createSequenceRef = useRef(0);
   const createInFlightRef = useRef(false);
   const authoringInstanceId = useId();
@@ -73,9 +65,24 @@ export function NewSessionDialog({
   if (previousOpenRef.current !== open) {
     previousOpenRef.current = open;
     dialogEpochRef.current += 1;
+    openCycleRef.current += 1;
     createSequenceRef.current += 1;
     createInFlightRef.current = false;
   }
+  const authoringScope = `new-session:${openCycleRef.current}`;
+  const localOptions = useSessionCreationOptions({
+    adapterId: localAdapterId,
+    cwd: workingDirectory,
+    active: open && !remoteMode,
+    scopeKey: authoringScope,
+  });
+  const remote = useRemoteSessionCreation({
+    active: open && remoteMode,
+    scopeKey: authoringScope,
+    source: remoteSource,
+    workingDirectory,
+  });
+  const previousRemoteReadinessIdentity = useRef(remote.readinessIdentity);
 
   useEffect(() => {
     if (!open) {
@@ -87,7 +94,24 @@ export function NewSessionDialog({
     }
   }, [open]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!remoteMode) {
+      previousRemoteReadinessIdentity.current = remote.readinessIdentity;
+      return;
+    }
+    if (previousRemoteReadinessIdentity.current === remote.readinessIdentity) return;
+    previousRemoteReadinessIdentity.current = remote.readinessIdentity;
+    dialogEpochRef.current += 1;
+    createSequenceRef.current += 1;
+    createInFlightRef.current = false;
+    pickingDirectoryRef.current = false;
+    setBusy(false);
+    setPickingDirectory(false);
+    setRemoteDirectoryOpen(false);
+    setError(null);
+  }, [remote.readinessIdentity, remoteMode]);
+
+  useLayoutEffect(() => {
     const identity = sourceIdentity;
     if (previousSourceIdentity.current === identity) return;
     previousSourceIdentity.current = identity;
@@ -106,6 +130,8 @@ export function NewSessionDialog({
     let cancelled = false;
     const epoch = dialogEpochRef.current;
     setError(null);
+    setLocalAdapters([]);
+    setLocalAdaptersFailedEpoch(-1);
     void window.api.listAdapters().then((rows) => {
       if (cancelled) return;
       const usable = rows.filter((adapter) => adapter.capabilities.canCreateSession);
@@ -120,7 +146,11 @@ export function NewSessionDialog({
         });
       }
     }).catch((reason: unknown) => {
-      if (!cancelled) setError(`运行时读取失败：${errorMessage(reason)}`);
+      if (!cancelled) {
+        setLocalAdapters([]);
+        setLocalAdaptersFailedEpoch(epoch);
+        setError(`运行时读取失败：${errorMessage(reason)}`);
+      }
     }).finally(() => {
       if (!cancelled) setLocalAdaptersSettledEpoch(epoch);
     });
@@ -129,10 +159,10 @@ export function NewSessionDialog({
 
   if (!open) return null;
 
-  const adapterId = remoteMode ? remote.adapterId : localAdapterId;
+  const adapterId = remoteMode ? remote.presentationAdapterId : localAdapterId;
   const selectedLocalAdapter = localAdapters.find((adapter) => adapter.id === localAdapterId);
-  const descriptor = remote.descriptor;
-  const createOptions = remoteMode ? remote.options : null;
+  const descriptor = remote.presentationDescriptor;
+  const createOptions = remoteMode ? remote.presentationOptions : null;
   const provider = remoteMode ? createOptions?.provider ?? '' : localOptions.provider;
   const model = remoteMode ? createOptions?.model ?? '' : localOptions.model;
   const thinking = (
@@ -154,14 +184,16 @@ export function NewSessionDialog({
     ? descriptor?.create.attachments.enabled === true
     : selectedLocalAdapter?.capabilities.canAcceptAttachments === true;
   const combinedError = error ?? remote.error ?? remoteSource?.error ?? null;
+  const formIdentity = remoteMode
+    ? `new-session:${authoringInstanceId}:${remote.readinessIdentity}`
+    : `new-session:${authoringInstanceId}:local`;
   const initializing = remoteMode
-    ? Boolean(
-        remoteSource?.usable &&
-        remoteSource.capabilities.has('session-console.read') &&
-        descriptor === null &&
-        remote.error === null,
-      )
-    : localAdaptersSettledEpoch !== dialogEpochRef.current || localOptions.defaultsLoading;
+    ? remote.initializing
+    : localAdaptersSettledEpoch !== dialogEpochRef.current || Boolean(
+        localAdaptersFailedEpoch !== dialogEpochRef.current &&
+        localAdapters.length > 0 &&
+        localOptions.configurationLoading,
+      );
 
   const browse = async (): Promise<void> => {
     if (remoteMode || busy || pickingDirectoryRef.current) return;
@@ -256,17 +288,17 @@ export function NewSessionDialog({
   return (
     <>
       <NewSessionForm
-        key={`new-session:${authoringInstanceId}:${sourceIdentity}`}
+        key={formIdentity}
         acceptsAttachments={acceptsAttachments}
         adapterId={adapterId}
         adapters={adapters}
         attachmentReason={descriptor?.create.attachments.disabledReason ?? null}
-        authoringId={`new-session:${authoringInstanceId}:${remoteSource?.identity ?? 'local'}`}
+        authoringId={formIdentity}
         busy={busy}
         canCreate={Boolean(
           adapterId && (prompt.trim() || images.attachments.length > 0) &&
           (remoteMode
-            ? remoteSource?.usable && descriptor?.create.enabled && !remote.loading
+            ? remoteSource?.usable && remote.descriptor?.create.enabled && remote.ready
             : selectedLocalAdapter),
         )}
         controls={controls}
@@ -277,8 +309,11 @@ export function NewSessionDialog({
         error={combinedError}
         images={images}
         initializing={initializing}
-        loading={remote.loading}
-        modelLoading={remoteMode ? remote.loading : localOptions.defaultsLoading}
+        configurationPending={remoteMode ? remote.loading : localOptions.configurationLoading}
+        configurationControlsBlocked={remoteMode && remote.loading}
+        configurationSubmissionBlocked={remoteMode
+          ? remote.loading
+          : localOptions.configurationLoading}
         model={{
           adapterId,
           provider,
@@ -287,7 +322,7 @@ export function NewSessionDialog({
           providerClosed: remoteMode,
           providerOptions: remoteMode
             ? descriptor?.create.options.provider.allowedValues?.map((id) => ({ id })) ?? []
-            : undefined,
+            : localOptions.providerOptions,
           thinkingOptions: remoteMode
             ? descriptor?.create.options.thinking.allowedValues?.map((value) => ({
                 value: value as SessionThinkingChoice,
@@ -325,6 +360,9 @@ export function NewSessionDialog({
         onClose={close}
         onCreate={() => void submit()}
         onPromptChange={setPrompt}
+        onRetryConfiguration={remoteMode && !error && remote.error
+          ? remote.retry
+          : undefined}
         onWorkingDirectoryChange={setWorkingDirectory}
       />
       {remoteDirectoryOpen && remoteSource && (

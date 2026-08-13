@@ -159,4 +159,40 @@ describe('PermissionsView adapter routing', () => {
     expect(screen.getByText('codex:newest:idle')).toBeTruthy();
     expect(screen.queryByText(/stale failure/)).toBeNull();
   });
+
+  it('retains the last complete projection when a refresh fails', async () => {
+    const refresh = deferred<CodexPermissionScanResult>();
+    const scanCodexSettings = vi.fn()
+      .mockResolvedValueOnce(codexScan('initial'))
+      .mockReturnValueOnce(refresh.promise);
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { scanCwdSettings: vi.fn(), scanCodexSettings } as unknown as Window['api'],
+    });
+    render(<PermissionsView cwd="/repo" sessionId="session" agentId="codex-cli" />);
+    await screen.findByText('codex:initial:idle');
+
+    fireEvent.click(screen.getByRole('button', { name: 'codex-refresh' }));
+    expect(screen.getByText('codex:initial:loading')).toBeTruthy();
+    await act(async () => refresh.reject(new Error('temporary failure')));
+
+    expect(screen.getByText('codex:initial:idle')).toBeTruthy();
+    expect(screen.getByText('扫描失败：temporary failure，当前显示上次结果。')).toBeTruthy();
+  });
+
+  it('offers a retry after the initial scan fails', async () => {
+    const scanCodexSettings = vi.fn()
+      .mockRejectedValueOnce(new Error('initial failure'))
+      .mockResolvedValueOnce(codexScan('recovered'));
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { scanCwdSettings: vi.fn(), scanCodexSettings } as unknown as Window['api'],
+    });
+    render(<PermissionsView cwd="/repo" sessionId="session" agentId="codex-cli" />);
+
+    expect(await screen.findByText('扫描失败：initial failure')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '重试' }));
+    expect(await screen.findByText('codex:recovered:idle')).toBeTruthy();
+    expect(scanCodexSettings).toHaveBeenCalledTimes(2);
+  });
 });

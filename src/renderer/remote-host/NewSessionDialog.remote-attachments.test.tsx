@@ -269,5 +269,58 @@ describe('Remote New Session attachments', () => {
 
     expect(screen.getByText('当前远程 Core 未提供会话创建配置。')).toBeTruthy();
     expect(screen.queryByText('Codex CLI')).toBeNull();
+
+    const fresh = deferred<Awaited<ReturnType<typeof current.getSessionCapabilities>>>();
+    vi.mocked(current.getSessionCapabilities).mockImplementationOnce(() => fresh.promise);
+    view.rerender(
+      <NewSessionDialog open remoteSource={current} onClose={vi.fn()} onCreated={vi.fn()} />,
+    );
+    await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenCalledTimes(2));
+    expect(document.querySelector('[data-new-session-modal-root="true"]')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: '新建会话' })).toBeNull();
+
+    await act(async () => fresh.resolve({
+      ...descriptor,
+      create: {
+        ...descriptor.create,
+        attachments: {
+          disabledReason: null,
+          enabled: true,
+          maxBytesEach: 2 * 1024 * 1024,
+          maxBytesTotal: 2 * 1024 * 1024,
+          maxCount: 4,
+          mimeTypes: ['image/png'],
+        },
+      },
+    }));
+    expect(screen.getByText('Codex CLI')).toBeTruthy();
+  });
+
+  it('fences a Remote create completion when the same identity disconnects', async () => {
+    const create = deferred<string>();
+    const current = source();
+    current.createSession = vi.fn(() => create.promise);
+    const onCreated = vi.fn();
+    window.api = {} as typeof window.api;
+    const view = render(
+      <NewSessionDialog open remoteSource={current} onClose={vi.fn()} onCreated={onCreated} />,
+    );
+    const createButton = await screen.findByRole('button', { name: '创建' });
+    await waitFor(() => expect((createButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(createButton);
+    await waitFor(() => expect(current.createSession).toHaveBeenCalledOnce());
+
+    view.rerender(
+      <NewSessionDialog
+        open
+        remoteSource={{ ...current, usable: false }}
+        onClose={vi.fn()}
+        onCreated={onCreated}
+      />,
+    );
+    await act(async () => create.resolve('stale-session'));
+
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(screen.getByText('当前远程 Core 未提供会话创建配置。')).toBeTruthy();
   });
 });

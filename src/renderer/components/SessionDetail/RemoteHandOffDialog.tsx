@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type JSX } from 'react';
+import { useId, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react';
 
 import type {
   SessionHandOffCommitResult,
@@ -11,6 +11,7 @@ import type { SessionThinkingChoice } from '@renderer/components/SessionModelFie
 import { useRemoteSessionCreation } from '@renderer/components/new-session/useRemoteSessionCreation';
 import { remoteControls } from '@renderer/components/NewSessionDialog';
 import { useModalFocus } from '@renderer/components/use-modal-focus';
+import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { CloseIcon, HandOffIcon, RefreshIcon } from '../icons';
 import {
@@ -39,18 +40,25 @@ export function RemoteHandOffDialog({
   onClose(): void;
   onCommitted(result: SessionHandOffCommitResult): void;
 }): JSX.Element {
-  const remote = useRemoteSessionCreation({ active: true, source, workingDirectory: '.' });
+  const identity = `${source.identity}:${sessionId}`;
+  const remote = useRemoteSessionCreation({
+    active: true,
+    scopeKey: `remote-handoff:${sessionId}`,
+    source,
+    workingDirectory: '.',
+  });
   const [instruction, setInstruction] = useState(CONTINUATION_INSTRUCTION);
   const [prepared, setPrepared] = useState<PreparedHandOff | null>(null);
   const [preparing, setPreparing] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestSequence = useRef(0);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const modalRootRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  const identity = `${source.identity}:${sessionId}`;
+  const displayDescriptor = remote.presentationDescriptor;
+  const displayOptions = remote.presentationOptions;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     requestSequence.current += 1;
     setInstruction(CONTINUATION_INSTRUCTION);
     setPrepared(null);
@@ -60,11 +68,19 @@ export function RemoteHandOffDialog({
     return () => { requestSequence.current += 1; };
   }, [identity]);
 
+  useLayoutEffect(() => {
+    requestSequence.current += 1;
+    setPrepared(null);
+    setPreparing(false);
+    setCommitting(false);
+    setError(null);
+  }, [remote.readinessIdentity]);
+
   const controls = useMemo(() => remoteControls(
-    remote.descriptor,
-    remote.options,
+    displayDescriptor,
+    displayOptions,
     remote.setOption,
-  ), [remote.descriptor, remote.options, remote.setOption]);
+  ), [displayDescriptor, displayOptions, remote.setOption]);
   const invalidate = (change: () => void): void => {
     requestSequence.current += 1;
     setPrepared(null);
@@ -127,9 +143,13 @@ export function RemoteHandOffDialog({
     onClose();
   };
   const busy = preparing || committing || remote.loading || source.busy;
+  const presentation = useInitialAsyncPresentation(
+    remote.initializing,
+    `remote-handoff:${identity}:${remote.readinessIdentity}`,
+  );
   useModalFocus({
     blocked: committing,
-    dialogRef,
+    dialogRef: modalRootRef,
     onClose: close,
   });
   const warnings = prepared?.result.warnings.flatMap((warning) => {
@@ -138,13 +158,17 @@ export function RemoteHandOffDialog({
   }) ?? [];
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div
-        ref={dialogRef}
+    <div
+      ref={modalRootRef}
+      tabIndex={-1}
+      data-remote-handoff-modal-root
+      className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+    >
+      {presentation !== 'deferred' && <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        tabIndex={-1}
+        aria-busy={presentation === 'fallback'}
         className="no-drag flex max-h-[92%] w-[620px] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl"
       >
         <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-4 py-3">
@@ -156,7 +180,14 @@ export function RemoteHandOffDialog({
             <CloseIcon className="h-3.5 w-3.5" />
           </button>
         </header>
-        <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4 scrollbar-deck">
+        {presentation === 'fallback' ? (
+          <div
+            role="status"
+            className="flex min-h-40 items-center justify-center p-4 text-[11px] text-deck-muted"
+          >
+            正在读取 Remote 会话配置…
+          </div>
+        ) : <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4 scrollbar-deck">
           <p className="text-[10px] leading-relaxed text-deck-muted">
             运行时选项与模型列表全部来自当前 Remote Worker；工作目录继承源会话，不会读取本机 Provider 配置或本机工作区。
           </p>
@@ -164,7 +195,7 @@ export function RemoteHandOffDialog({
             <label className="flex flex-col gap-1">
               <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">运行时</span>
               <DeckSelect
-                value={remote.adapterId}
+                value={remote.presentationAdapterId}
                 options={remote.adapters.map((adapter) => ({
                   value: adapter.adapterId,
                   label: adapter.displayName,
@@ -177,28 +208,28 @@ export function RemoteHandOffDialog({
               />
             </label>
           )}
-          {remote.descriptor && (
+          {displayDescriptor && (
             <>
               <SessionModelDisclosure
-                adapterId={remote.adapterId}
-                provider={remote.options.provider ?? ''}
-                model={remote.options.model ?? ''}
-                thinking={(remote.options.thinking ?? '') as SessionThinkingChoice}
+                adapterId={remote.presentationAdapterId}
+                provider={displayOptions.provider ?? ''}
+                model={displayOptions.model ?? ''}
+                thinking={(displayOptions.thinking ?? '') as SessionThinkingChoice}
                 disabled={busy}
                 providerClosed
-                providerOptions={remote.descriptor.create.options.provider.allowedValues?.map(
+                providerOptions={displayDescriptor.create.options.provider.allowedValues?.map(
                   (id) => ({ id }),
                 ) ?? []}
-                thinkingOptions={remote.descriptor.create.options.thinking.allowedValues?.map(
+                thinkingOptions={displayDescriptor.create.options.thinking.allowedValues?.map(
                   (value) => ({ value: value as SessionThinkingChoice, label: value.toUpperCase() }),
                 ) ?? []}
                 disabledReasons={{
-                  provider: remote.descriptor.create.options.provider.enabled
-                    ? null : remote.descriptor.create.options.provider.disabledReason,
-                  model: remote.descriptor.create.options.model.enabled
-                    ? null : remote.descriptor.create.options.model.disabledReason,
-                  thinking: remote.descriptor.create.options.thinking.enabled
-                    ? null : remote.descriptor.create.options.thinking.disabledReason,
+                  provider: displayDescriptor.create.options.provider.enabled
+                    ? null : displayDescriptor.create.options.provider.disabledReason,
+                  model: displayDescriptor.create.options.model.enabled
+                    ? null : displayDescriptor.create.options.model.disabledReason,
+                  thinking: displayDescriptor.create.options.thinking.enabled
+                    ? null : displayDescriptor.create.options.thinking.disabledReason,
                 }}
                 onProviderChange={(value) => invalidate(() => remote.setOption('provider', value))}
                 onModelChange={(value) => invalidate(() => remote.setOption('model', value))}
@@ -243,7 +274,18 @@ export function RemoteHandOffDialog({
             {preparing ? '正在整理会话上下文…' : prepared ? '重新生成续接上下文' : '生成续接上下文'}
           </button>
           {(error ?? remote.error) && (
-            <div role="alert" className="rounded bg-status-waiting/10 px-3 py-2 text-[10px] text-status-waiting">{error ?? remote.error}</div>
+            <div role="alert" className="flex items-center justify-between gap-2 rounded bg-status-waiting/10 px-3 py-2 text-[10px] text-status-waiting">
+              <span>{error ?? remote.error}</span>
+              {!error && remote.error && (
+                <button
+                  type="button"
+                  onClick={remote.retry}
+                  className="shrink-0 rounded bg-white/10 px-2 py-0.5 text-deck-text hover:bg-white/15"
+                >
+                  重试读取配置
+                </button>
+              )}
+            </div>
           )}
           {prepared && (
             <section className="space-y-2">
@@ -266,8 +308,8 @@ export function RemoteHandOffDialog({
               </div>
             </section>
           )}
-        </div>
-      </div>
+        </div>}
+      </div>}
     </div>
   );
 }

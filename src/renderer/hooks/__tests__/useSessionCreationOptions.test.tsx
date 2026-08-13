@@ -50,6 +50,39 @@ describe('useSessionCreationOptions request fencing', () => {
     expect(hook.result.current.codexSandbox).toBe('workspace-write');
   });
 
+  it('includes provider discovery in the initial complete-form readiness boundary', async () => {
+    vi.useFakeTimers();
+    const catalog = deferred<readonly { id: string; name?: string }[]>();
+    const getDefaults = vi.fn().mockResolvedValue(defaults('claude-default'));
+    const listClaudeGatewayProfiles = vi.fn(() => catalog.promise);
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        getAdapterSessionCreationDefaults: getDefaults,
+        listClaudeGatewayProfiles,
+      } as unknown as Window['api'],
+    });
+
+    const hook = renderHook(() => useSessionCreationOptions({
+      adapterId: 'claude-code',
+      cwd: '/repo',
+      scopeKey: 'dialog-a',
+    }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(getDefaults).toHaveBeenCalledOnce();
+    expect(listClaudeGatewayProfiles).toHaveBeenCalledOnce();
+    expect(hook.result.current.defaultsLoading).toBe(false);
+    expect(hook.result.current.configurationLoading).toBe(true);
+    expect(hook.result.current.providerOptions).toEqual([]);
+
+    await act(async () => catalog.resolve([{ id: 'gateway-a', name: 'Gateway A' }]));
+    expect(hook.result.current.configurationLoading).toBe(false);
+    expect(hook.result.current.providerOptions).toEqual([
+      { id: 'gateway-a', name: 'Gateway A' },
+    ]);
+  });
+
   it('never applies stale adapter, cwd, or provider completions and catches rejection', async () => {
     vi.useFakeTimers();
     const requests = [
@@ -84,5 +117,27 @@ describe('useSessionCreationOptions request fencing', () => {
     await act(async () => requests[0].resolve(defaults('stale')));
     expect(hook.result.current.model).toBe('latest');
     expect(getDefaults).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retain a prior cwd-derived model after the next cwd lookup fails', async () => {
+    vi.useFakeTimers();
+    const getDefaults = vi.fn()
+      .mockResolvedValueOnce({ ...defaults('repo-one-model'), model: 'repo-one-model' })
+      .mockRejectedValueOnce(new Error('unreadable cwd config'));
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { getAdapterSessionCreationDefaults: getDefaults } as unknown as Window['api'],
+    });
+    const hook = renderHook(
+      ({ cwd }) => useSessionCreationOptions({ adapterId: 'grok-build', cwd }),
+      { initialProps: { cwd: '/repo/one' } },
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(hook.result.current.model).toBe('repo-one-model');
+
+    hook.rerender({ cwd: '/repo/two' });
+    await act(() => vi.advanceTimersByTimeAsync(120));
+    expect(hook.result.current.model).toBe('grok-4.5');
+    expect(hook.result.current.configurationLoading).toBe(false);
   });
 });

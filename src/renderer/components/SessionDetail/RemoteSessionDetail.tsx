@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type JSX } from 'react';
 
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
-import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 import { useRemoteSessionTabData } from '@renderer/remote-host/use-remote-session-tab-data';
 import { RuntimeMetadataChips } from '../SessionMetadataChips';
 import {
@@ -18,6 +17,7 @@ import {
   type SessionDetailTabId,
   type SessionDetailTabModel,
 } from './SessionDetailShell';
+import { useDelayedTabSelection } from './use-delayed-tab-selection';
 import { RemoteSessionComposer } from './RemoteSessionComposer';
 import { RemoteHandOffDialog } from './RemoteHandOffDialog';
 import { RemoteEffectivePermissionsView } from './RemoteEffectivePermissionsView';
@@ -35,8 +35,6 @@ export function RemoteSessionDetail({
   source: RemoteSessionSourceView;
   onClose: () => void;
 }): JSX.Element {
-  const [tab, setTab] = useState<SessionDetailTabId>('activity');
-  const [pendingTab, setPendingTab] = useState<SessionDetailTabId | null>(null);
   const [handOffOpen, setHandOffOpen] = useState(false);
   const [handOffNotice, setHandOffNotice] = useState<HandOffNotice | null>(null);
   const session = source.selectedSession?.id === source.selectedSessionId
@@ -46,13 +44,20 @@ export function RemoteSessionDetail({
     ? [...(source.sessions ?? []), ...(source.historySessions ?? [])]
         .find((item) => item.id === session.id) ?? null
     : null;
-  const tabData = useRemoteSessionTabData(source, pendingTab ?? tab);
+  const detailIdentity = `${source.identity}\u0000${session?.id ?? 'none'}`;
+  const [requestedTabState, setRequestedTabState] = useState<{
+    identity: string;
+    tab: SessionDetailTabId;
+  }>({ identity: detailIdentity, tab: 'activity' });
+  const requestedTab = requestedTabState.identity === detailIdentity
+    ? requestedTabState.tab
+    : 'activity';
+  const tabData = useRemoteSessionTabData(source, requestedTab);
 
   useEffect(() => {
-    setPendingTab(null);
-    setTab('activity');
+    setRequestedTabState({ identity: detailIdentity, tab: 'activity' });
     setHandOffOpen(false);
-  }, [session?.id, source.identity]);
+  }, [detailIdentity]);
 
   useEffect(() => setHandOffNotice(null), [source.identity]);
 
@@ -63,27 +68,19 @@ export function RemoteSessionDetail({
   const canReadMessages = source.capabilities.has('sessions.messages.read');
   const canReadPermissions = source.capabilities.has('sessions.permissions.read');
   const permissionsReady = tabData.permissions.value !== null || tabData.permissions.error !== null;
-  const showPendingPermissions = useDelayedAsyncFallback(
-    pendingTab === 'permissions' && !permissionsReady,
-    `${source.identity}:${session?.id ?? 'none'}:permissions`,
-  );
-
-  useEffect(() => {
-    if (pendingTab !== 'permissions') return;
-    if (!permissionsReady && !showPendingPermissions) return;
-    setPendingTab(null);
-    setTab('permissions');
-  }, [pendingTab, permissionsReady, showPendingPermissions]);
+  const {
+    activeTab: tab,
+    selectTab,
+  } = useDelayedTabSelection({
+    canDefer: canReadPermissions && source.usable,
+    deferredTab: 'permissions',
+    identity: detailIdentity,
+    ready: permissionsReady,
+  });
 
   const changeTab = (next: SessionDetailTabId): void => {
-    if (
-      next === 'permissions' && canReadPermissions && source.usable && !permissionsReady
-    ) {
-      setPendingTab(next);
-      return;
-    }
-    setPendingTab(null);
-    setTab(next);
+    setRequestedTabState({ identity: detailIdentity, tab: next });
+    selectTab(next);
   };
   const tabs = useMemo<readonly SessionDetailTabModel[]>(() => [
     {
