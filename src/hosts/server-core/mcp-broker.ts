@@ -38,6 +38,8 @@ interface ActiveResource {
 export interface ServerCoreMcpBrokerOptions {
   readonly host: ServerCoreMcpToolHost;
   readonly diagnostics: ServerCoreRuntimeDiagnostics;
+  readonly mcpEnabled?: boolean;
+  readonly mcpHttpEnabled?: boolean;
   readonly loadMcpSdk?: () => Promise<{
     server: ServerCoreMcpServerModule;
     http: ServerCoreStreamableHttpModule;
@@ -145,6 +147,9 @@ export class ServerCoreMcpBroker implements ServerCoreMcpBrokerPort {
     callerSessionId: () => string,
     adapterId: Parameters<ServerCoreMcpBrokerPort['createInProcessServer']>[1],
   ) {
+    if (this.options.mcpEnabled === false) {
+      throw new Error('Server Core MCP is disabled');
+    }
     return createServerCoreInProcessMcpServer(this.options.host, callerSessionId, adapterId);
   }
 
@@ -165,6 +170,10 @@ export class ServerCoreMcpBroker implements ServerCoreMcpBrokerPort {
     }
     if (await this.hookRouter.handle(request, response)) return;
     if (request.url !== '/mcp') {
+      jsonResponse(response, 404, { error: 'not-found' });
+      return;
+    }
+    if (this.options.mcpEnabled === false || this.options.mcpHttpEnabled === false) {
       jsonResponse(response, 404, { error: 'not-found' });
       return;
     }

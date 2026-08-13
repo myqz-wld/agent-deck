@@ -15,6 +15,69 @@ import {
 afterEach(closeSpawnHarnessDatabases);
 
 describe('ServerCoreMcpSessionSpawner', () => {
+  it('applies the selected built-in Agent config while explicit runtime values win', async () => {
+    const state = harness({
+      agents: {
+        resolveBundledAgent: (adapterId, agentName) => adapterId === 'codex-cli' &&
+          agentName === 'reviewer-codex' ? {
+            dto: {
+              adapterId,
+              kind: 'agent',
+              source: 'bundled',
+              name: agentName,
+              qualifiedName: 'agent-deck:codex-cli:reviewer-codex',
+              description: 'Reviewer',
+              location: 'packaged',
+              tools: null,
+              model: 'agent-model',
+              thinking: 'xhigh',
+              provider: 'agent-provider',
+              origin: null,
+              pluginName: null,
+              runtimeName: null,
+              runtimeDefaults: { model: 'default-model', thinking: 'high', provider: null },
+              runtimeOverride: {
+                model: 'agent-model', thinking: 'xhigh', provider: 'agent-provider',
+              },
+            },
+            content: [
+              'name = "reviewer-codex"',
+              'description = "Reviewer"',
+              'model = "default-model"',
+              'model_reasoning_effort = "high"',
+              'developer_instructions = "Review this batch"',
+              '[features]',
+              'web_search = true',
+            ].join('\n'),
+          } : null,
+      },
+    });
+    const result = await state.spawner.spawn('caller', {
+      adapter: 'codex-cli',
+      agentName: 'reviewer-codex',
+      cwd: '.',
+      prompt: 'Inspect',
+      model: 'explicit-model',
+    });
+
+    expect(result).toMatchObject({
+      agentName: 'reviewer-codex',
+      displayName: 'reviewer-codex',
+    });
+    const create = state.createSpawnSession.mock.calls[0]![0];
+    expect(create.params.options).toMatchObject({
+      model: 'explicit-model',
+      thinking: 'xhigh',
+      provider: 'agent-provider',
+    });
+    expect(create.agent).toMatchObject({
+      adapterId: 'codex-cli',
+      developerInstructions: expect.stringContaining('Review this batch'),
+      codexConfigOverrides: { features: { web_search: true } },
+    });
+    expect(state.records.get('child')?.title).toBe('reviewer-codex');
+  });
+
   it('creates a linked provider child with Core defaults, team membership, and reply anchor', async () => {
     const state = harness();
     const result = await state.spawner.spawn('caller', {

@@ -138,7 +138,7 @@ export function createServerCoreClaudeQueryHost(
       createServer: (callerSessionId, authenticatedAdapterId) =>
         input.mcpBroker.createInProcessServer(callerSessionId, authenticatedAdapterId),
       onServerAttached: () => undefined,
-      readEnabled: () => input.mcpBroker.isRunning,
+      readEnabled: () => input.settings.enableAgentDeckMcp && input.mcpBroker.isRunning,
     }, internal, adapterId),
     buildQueryOptions: (args) => {
       const context = sandboxContexts.get(args.sandboxOpts);

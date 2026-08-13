@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { scanServerCoreUserAssets } from '@hosts/server-core/node-asset-user-scan';
+import { LOCAL_WORKER_DESKTOP_STATE_PATH } from '@hosts/provider-state/local-worker-desktop-state';
 import {
   projectLocalWorkerProviderHome,
   syncLocalWorkerProviderHome,
@@ -28,6 +29,54 @@ function fixture() {
 }
 
 describe('Local Worker provider home projection', () => {
+  it('projects only Worker-relevant desktop settings and bundled Agent overrides', () => {
+    const { destination, source } = fixture();
+    const userData = join(source, 'Library', 'Application Support', 'Agent Deck');
+    mkdirSync(userData, { recursive: true, mode: 0o700 });
+    chmodSync(userData, 0o700);
+    writeFileSync(join(userData, 'agent-deck-settings.json'), JSON.stringify({
+      activeWindowMs: 120_000,
+      closeAfterMs: 3_600_000,
+      historyRetentionDays: 14,
+      claudeCodeSandbox: 'strict',
+      injectAgentDeckCodexAgents: false,
+      mcpServerToken: 'must-not-leave-the-desktop',
+      bundledAgentRuntimeOverrides: {
+        'claude-code:reviewer-claude': {
+          model: 'deepseek-v4-flash[1m]', thinking: 'max', provider: 'deepseek',
+        },
+      },
+    }), { mode: 0o666 });
+
+    expect(projectLocalWorkerProviderHome(source, destination)).toContain(
+      LOCAL_WORKER_DESKTOP_STATE_PATH,
+    );
+    const projected = JSON.parse(readFileSync(
+      join(destination, LOCAL_WORKER_DESKTOP_STATE_PATH),
+      'utf8',
+    )) as Record<string, unknown>;
+    expect(projected).toMatchObject({
+      schemaVersion: 1,
+      providerSettings: {
+        claudeCodeSandbox: 'strict',
+        injectAgentDeckCodexAgents: false,
+        bundledAgentRuntimeOverrides: {
+          'claude-code:reviewer-claude': {
+            model: 'deepseek-v4-flash[1m]', thinking: 'max', provider: 'deepseek',
+          },
+        },
+      },
+      sessionLifecycle: {
+        schemaVersion: 1,
+        activeWindowMs: 120_000,
+        closeAfterMs: 3_600_000,
+        historyRetentionDays: 14,
+      },
+    });
+    expect(JSON.stringify(projected)).not.toContain('must-not-leave-the-desktop');
+    expect(projected).not.toHaveProperty('mcpServerToken');
+  });
+
   it('copies auth plus sanitized provider runtime inputs into private provider roots', () => {
     const { destination, source } = fixture();
     mkdirSync(join(source, '.codex'), { mode: 0o700 });

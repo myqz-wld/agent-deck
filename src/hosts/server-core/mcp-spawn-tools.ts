@@ -15,7 +15,7 @@ export function registerServerCoreSpawnTool(
 ): void {
   server.registerTool('spawn_session', {
     description:
-      'Start one fresh or provider-native forked session inside this Core Workspace. The cwd is Workspace-relative; fork requires the authenticated caller\'s exact adapter, native runtime selector, and realpath cwd; recursion, fan-out, and rate are bounded.',
+      'Start one fresh or provider-native forked session inside this Core Workspace. The cwd is Workspace-relative. agentName selects an enabled built-in Agent whose node-owned runtime settings are applied before explicit overrides. Fork requires the authenticated caller\'s exact adapter, native runtime selector, and realpath cwd; recursion, fan-out, and rate are bounded.',
     inputSchema: SERVER_CORE_SPAWN_SESSION_SCHEMA,
   }, async (args) => {
     try {

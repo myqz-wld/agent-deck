@@ -115,4 +115,20 @@ describe('AssetCard', () => {
     expect(screen.getByText(/plugin:very-long-plugin-name/).className).toContain('break-all');
     expect(screen.getByTitle(/Plugin · very-long-plugin-name/).className).toContain('truncate');
   });
+
+  it('长模型和 provider 值会在卡片内换行', () => {
+    const longModel = `model-${'x'.repeat(250)}`;
+    const longProvider = `provider-${'y'.repeat(247)}`;
+    const { container } = render(
+      <AssetCard
+        asset={asset({ model: longModel, provider: longProvider })}
+        onView={vi.fn()}
+      />,
+    );
+
+    const metadata = container.querySelector('.flex.min-w-0.flex-wrap.gap-x-1');
+    expect(metadata).not.toBeNull();
+    expect(screen.getByText(longModel).className).toContain('break-all');
+    expect(screen.getByText(longProvider).className).toContain('break-all');
+  });
 });

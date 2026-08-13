@@ -37,12 +37,13 @@ import { substituteResourcesPlaceholderWithRoot } from '@main/utils/resources-pl
 import type { AssetMeta } from '@shared/types';
 
 import { scanServerCoreUserAssets } from './node-asset-user-scan';
+import { applyServerCoreBundledAgentRuntimeOverride } from './node-asset-runtime-overrides';
 import type { ServerCoreProviderSettings } from './provider-settings';
 import { isRemoteSensitiveAssetPath } from './remote-sensitive-data';
 import { readRemoteSafeFile } from './remote-safe-file-read';
+import type { ServerCoreBundledAgentAsset } from './spawn-agent-runtime';
 
-const READ_ONLY_REASON =
-  '资产与注入状态来自 Worker 部署快照，在 Remote 中仅供查看。';
+const READ_ONLY_REASON = '这里展示当前远端环境中的配置，不能在此页面修改。';
 const ASSET_SCAN_CACHE_TTL_MS = 5_000;
 const ASSET_SCAN_MAX_VISITED_ENTRIES = (NODE_ASSET_MAX_ITEMS + 1) * 32;
 
@@ -158,6 +159,12 @@ function conventionPath(resourcesRoot: string, adapterId: NodeAssetAdapterId): s
 function nullable(value: string | undefined): string | null { return value || null; }
 
 function dto(asset: AssetMeta, location: string): NodeAssetDto {
+  const runtime = asset.bundledAgentRuntime;
+  const complete = (value: NonNullable<typeof runtime>['defaults']) => ({
+    model: value.model ?? null,
+    thinking: value.thinking ?? null,
+    provider: value.provider ?? null,
+  });
   return {
     adapterId: asset.adapter,
     kind: asset.kind,
@@ -173,6 +180,8 @@ function dto(asset: AssetMeta, location: string): NodeAssetDto {
     origin: asset.origin ?? null,
     pluginName: asset.pluginName ?? null,
     runtimeName: asset.runtimeName ?? null,
+    runtimeDefaults: runtime ? complete(runtime.defaults) : null,
+    runtimeOverride: runtime ? complete(runtime.override) : null,
   };
 }
 
@@ -280,7 +289,7 @@ export class ServerCoreNodeAssetCatalog {
       throw new Error('Worker asset changed after the catalog snapshot');
     }
     return parseNodeAssetContentResult({
-      content: substituteResourcesPlaceholderWithRoot(raw, 'Worker packaged resources'),
+      content: substituteResourcesPlaceholderWithRoot(raw, '应用内置资源'),
       revision: snapshot.revision,
     });
   }
@@ -297,7 +306,7 @@ export class ServerCoreNodeAssetCatalog {
     }
     return parseNodeAssetConventionResult({
       adapterId,
-      content: substituteResourcesPlaceholderWithRoot(raw, 'Worker packaged resources'),
+      content: substituteResourcesPlaceholderWithRoot(raw, '应用内置资源'),
       isCustom: false,
       revision: snapshot.revision,
     });
@@ -311,6 +320,26 @@ export class ServerCoreNodeAssetCatalog {
       return `--- Agent Deck application conventions (bundled, per-session) ---\n\n${content}`;
     }
     return content;
+  }
+
+  resolveBundledAgent(adapterId: NodeAssetAdapterId, agentName: string):
+  ServerCoreBundledAgentAsset | null {
+    const enabled = adapterId === 'claude-code'
+      ? this.options.settings.injectAgentDeckClaudeAgents
+      : adapterId === 'codex-cli'
+        ? this.options.settings.injectAgentDeckCodexAgents
+        : this.options.settings.injectAgentDeckGrokAgents;
+    if (!enabled) return null;
+    const match = this.packagedAssets.find((item) =>
+      item.dto.adapterId === adapterId && item.dto.kind === 'agent' &&
+      item.dto.name === agentName);
+    if (!match) return null;
+    const raw = readBounded(match.path, match.root).content;
+    if (digest(raw) !== match.contentDigest) throw new Error('Bundled Agent changed at runtime');
+    return Object.freeze({
+      dto: match.dto,
+      content: substituteResourcesPlaceholderWithRoot(raw, this.resourcesRoot),
+    });
   }
 
   claudePlugins(): Array<{ type: 'local'; path: string }> {
@@ -383,7 +412,7 @@ export class ServerCoreNodeAssetCatalog {
       ? userScan.assets.flatMap((asset) => {
           const internal = this.internal(
             asset,
-            `Worker Provider Home/${relative(providerHomeRoot, asset.absPath)}`,
+            `个人配置/${relative(providerHomeRoot, asset.absPath)}`,
             providerHomeRoot,
           );
           return internal ? [internal] : [];
@@ -446,10 +475,14 @@ export class ServerCoreNodeAssetCatalog {
         { adapter: 'codex-cli', root: bundledRoot(this.resourcesRoot, 'codex-cli') },
         { adapter: 'grok-build', root: bundledRoot(this.resourcesRoot, 'grok-build') },
       ], bundledFilesystem(this.resourcesRoot));
-      const candidates = [...bundled.agents, ...bundled.skills].flatMap((asset) => {
+      const candidates = [...bundled.agents, ...bundled.skills].flatMap((sourceAsset) => {
+        const asset = applyServerCoreBundledAgentRuntimeOverride(
+          sourceAsset,
+          this.options.settings.bundledAgentRuntimeOverrides,
+        );
         const internal = this.internal(
           asset,
-          `Worker packaged resources/${relative(this.resourcesRoot, asset.absPath)}`,
+          `应用内置/${relative(this.resourcesRoot, asset.absPath)}`,
           this.resourcesRoot,
         );
         return internal ? [internal] : [];

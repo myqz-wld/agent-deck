@@ -8,6 +8,12 @@ export type NodeAssetAdapterId = 'claude-code' | 'codex-cli' | 'grok-build';
 export type NodeAssetKind = 'agent' | 'skill';
 export type NodeAssetSource = 'bundled' | 'user';
 
+export interface NodeAssetRuntimeDto {
+  model: string | null;
+  thinking: string | null;
+  provider: string | null;
+}
+
 export interface NodeAssetDto {
   adapterId: NodeAssetAdapterId;
   kind: NodeAssetKind;
@@ -23,6 +29,8 @@ export interface NodeAssetDto {
   origin: 'direct' | 'plugin' | null;
   pluginName: string | null;
   runtimeName: string | null;
+  runtimeDefaults: NodeAssetRuntimeDto | null;
+  runtimeOverride: NodeAssetRuntimeDto | null;
 }
 
 export interface NodeAssetInjectionSettingsDto {
@@ -131,14 +139,33 @@ function name(value: unknown, field: string): string {
   return parsed;
 }
 
+function runtime(value: unknown, field: string): NodeAssetRuntimeDto | null {
+  if (value === null) return null;
+  const raw = object(value, field);
+  exact(raw, ['model', 'provider', 'thinking'], field);
+  return {
+    model: nullableText(raw.model, `${field}.model`, 256),
+    thinking: nullableText(raw.thinking, `${field}.thinking`, 128),
+    provider: nullableText(raw.provider, `${field}.provider`, 256),
+  };
+}
+
 function asset(value: unknown, field: string): NodeAssetDto {
   const raw = object(value, field);
   exact(raw, [
     'adapterId', 'description', 'kind', 'location', 'model', 'name', 'origin',
-    'pluginName', 'provider', 'qualifiedName', 'runtimeName', 'source', 'thinking', 'tools',
+    'pluginName', 'provider', 'qualifiedName', 'runtimeDefaults', 'runtimeName',
+    'runtimeOverride', 'source', 'thinking', 'tools',
   ], field);
   const origin = raw.origin;
   if (origin !== null && origin !== 'direct' && origin !== 'plugin') fail(`${field}.origin`);
+  const runtimeDefaults = runtime(raw.runtimeDefaults, `${field}.runtimeDefaults`);
+  const runtimeOverride = runtime(raw.runtimeOverride, `${field}.runtimeOverride`);
+  const configurable = raw.source === 'bundled' && raw.kind === 'agent';
+  if (
+    (runtimeDefaults === null) !== (runtimeOverride === null) ||
+    (configurable && runtimeDefaults === null) || (!configurable && runtimeDefaults !== null)
+  ) fail(`${field}.runtime`);
   return {
     adapterId: parseNodeAssetAdapterId(raw.adapterId),
     kind: kind(raw.kind, `${field}.kind`),
@@ -154,6 +181,8 @@ function asset(value: unknown, field: string): NodeAssetDto {
     origin,
     pluginName: nullableText(raw.pluginName, `${field}.pluginName`, 128),
     runtimeName: nullableText(raw.runtimeName, `${field}.runtimeName`, 256),
+    runtimeDefaults,
+    runtimeOverride,
   };
 }
 

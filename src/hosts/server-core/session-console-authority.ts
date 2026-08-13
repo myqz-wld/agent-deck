@@ -41,7 +41,10 @@ import type {
   ServerCoreMutationIdentity,
 } from './runtime-metadata-store';
 import { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
-import { buildRemoteCreateOptions } from './session-create-options';
+import {
+  buildRemoteCreateOptions,
+  type ServerCoreAgentCreateOptions,
+} from './session-create-options';
 import { listServerCoreWorkspaceDirectories } from './workspace-directory-catalog';
 import { serverCoreWorktreeReferenceFence } from './worktree-reference-fence';
 
@@ -100,6 +103,7 @@ export interface ServerCoreSessionSpawnCreateInput {
   readonly params: SessionConsoleCreateParams;
   readonly initialSessionRegistration: InitialSessionRegistration;
   readonly teamName?: string;
+  readonly agent?: ServerCoreAgentCreateOptions;
 }
 
 interface PreparedSessionCreate {
@@ -342,6 +346,7 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
         awaitCanonicalId: true,
         initialSessionRegistration: input.initialSessionRegistration,
         ...(input.teamName === undefined ? {} : { teamName: input.teamName }),
+        ...(input.agent === undefined ? {} : { agent: input.agent }),
       }));
   }
 
@@ -380,6 +385,7 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
       readonly awaitCanonicalId?: boolean;
       readonly initialSessionRegistration?: InitialSessionRegistration;
       readonly teamName?: string;
+      readonly agent?: ServerCoreAgentCreateOptions;
     } = {},
     identity?: ServerCoreMutationIdentity,
   ): Promise<SessionConsoleCreateResult> {

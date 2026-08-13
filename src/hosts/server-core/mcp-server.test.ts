@@ -77,6 +77,7 @@ function harness() {
     adapter: 'claude-code' | 'codex-cli' | 'grok-build';
     cwd: string;
     displayName?: string;
+    agentName?: string;
   }) => ({
     sessionId: 'spawned-a',
     adapter: args.adapter,
@@ -85,7 +86,8 @@ function harness() {
     cwd: args.cwd,
     teamId: null,
     teamName: null,
-    displayName: args.displayName ?? null,
+    displayName: args.displayName ?? args.agentName ?? null,
+    agentName: args.agentName ?? null,
     spawnDepth: 1,
     spawnLimits: {
       depth: { current: 0, next: 1, max: 3 },
@@ -389,6 +391,7 @@ describe('Server Core MCP tools', () => {
           cwd: 'project-a',
           prompt: 'Inspect the project',
           displayName: 'Reviewer',
+          agentName: 'reviewer-codex',
         },
       });
       expect(result.isError).not.toBe(true);
@@ -396,9 +399,11 @@ describe('Server Core MCP tools', () => {
         sessionId: 'spawned-a',
         cwd: 'project-a',
         displayName: 'Reviewer',
+        agentName: 'reviewer-codex',
       });
       expect(spawn).toHaveBeenCalledWith('caller-a', expect.objectContaining({
         cwd: 'project-a',
+        agentName: 'reviewer-codex',
       }));
       const rejected = await client.callTool({
         name: 'spawn_session',

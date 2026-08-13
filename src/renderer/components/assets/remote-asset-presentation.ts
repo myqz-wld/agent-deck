@@ -2,6 +2,14 @@ import type { NodeAssetDto } from '@contracts/index';
 import type { AssetMeta, BundledAssetsSnapshot, UserAssetsSnapshot } from '@shared/types';
 
 function toAssetMeta(asset: NodeAssetDto): AssetMeta {
+  const runtime = asset.runtimeDefaults && asset.runtimeOverride
+    ? {
+        defaults: Object.fromEntries(Object.entries(asset.runtimeDefaults)
+          .filter((entry): entry is [string, string] => entry[1] !== null)),
+        override: Object.fromEntries(Object.entries(asset.runtimeOverride)
+          .filter((entry): entry is [string, string] => entry[1] !== null)),
+      }
+    : null;
   return {
     kind: asset.kind,
     source: asset.source,
@@ -17,6 +25,7 @@ function toAssetMeta(asset: NodeAssetDto): AssetMeta {
     ...(asset.origin === null ? {} : { origin: asset.origin }),
     ...(asset.pluginName === null ? {} : { pluginName: asset.pluginName }),
     ...(asset.runtimeName === null ? {} : { runtimeName: asset.runtimeName }),
+    ...(runtime === null ? {} : { bundledAgentRuntime: runtime }),
   };
 }
 

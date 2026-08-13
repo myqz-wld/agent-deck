@@ -7,23 +7,46 @@ import {
   parseNodeHookStatus,
 } from './node-configuration';
 
+const providerDefaults = {
+  claudeCliPath: '/opt/claude',
+  claudeCodeSandbox: 'workspace-write',
+  codexCliPath: '/opt/codex',
+  codexSandbox: 'read-only',
+  enableAgentDeckMcp: true,
+  grokCliPath: '/opt/grok',
+  grokSandbox: 'workspace',
+  injectAgentDeckClaudeAgents: true,
+  injectAgentDeckClaudeMd: true,
+  injectAgentDeckClaudeSkills: true,
+  injectAgentDeckCodexAgents: true,
+  injectAgentDeckCodexAgentsMd: true,
+  injectAgentDeckCodexSkills: true,
+  injectAgentDeckGrokAgents: true,
+  injectAgentDeckGrokAgentsMd: true,
+  injectAgentDeckGrokSkills: true,
+  mcpHttpEnabled: true,
+  permissionTimeoutMs: 30_000,
+  summaryModel: 'summary-model',
+  summaryThinking: 'low',
+  summaryTimeoutMs: 60_000,
+} as const;
+
 describe('node configuration contract', () => {
   it('strictly parses the bounded provider snapshot', () => {
     expect(parseNodeConfigurationGetResult({
       providerDefaults: {
-        claudeCodeSandbox: 'workspace-write',
-        codexSandbox: 'read-only',
-        enableAgentDeckMcp: true,
-        grokSandbox: 'strict',
-        permissionTimeoutMs: 30_000,
-        summaryModel: 'summary-model',
-        summaryThinking: 'low',
-        summaryTimeoutMs: 60_000,
+        ...providerDefaults,
+      },
+      sessionLifecycle: {
+        activeWindowMs: 3_600_000,
+        closeAfterMs: 86_400_000,
+        historyRetentionDays: 30,
       },
       revision: 7,
     })).toMatchObject({ revision: 7, providerDefaults: { enableAgentDeckMcp: true } });
     expect(() => parseNodeConfigurationGetResult({
       providerDefaults: {},
+      sessionLifecycle: {},
       revision: 7,
     })).toThrow('Invalid node configuration contract');
   });

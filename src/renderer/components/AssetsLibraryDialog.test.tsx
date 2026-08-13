@@ -40,7 +40,7 @@ function installApi() {
         name: 'deep-review',
         qualifiedName: 'agent-deck:claude-code:deep-review',
         description: 'Worker review skill',
-        location: 'Worker packaged resources/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md',
+        location: '应用内置/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md',
         tools: null,
         model: null,
         thinking: null,
@@ -48,10 +48,31 @@ function installApi() {
         origin: null,
         pluginName: null,
         runtimeName: null,
+        runtimeDefaults: null,
+        runtimeOverride: null,
+      }, {
+        adapterId: 'claude-code',
+        kind: 'agent',
+        source: 'bundled',
+        name: 'reviewer-claude',
+        qualifiedName: 'agent-deck:claude-code:reviewer-claude',
+        description: 'Reviewer',
+        location: '应用内置/claude-config/agent-deck-plugin/agents/reviewer-claude.md',
+        tools: 'Read, Grep',
+        model: 'deepseek-v4-flash[1m]',
+        thinking: 'max',
+        provider: 'deepseek',
+        origin: null,
+        pluginName: null,
+        runtimeName: null,
+        runtimeDefaults: { model: 'sonnet', thinking: 'high', provider: null },
+        runtimeOverride: {
+          model: 'deepseek-v4-flash[1m]', thinking: 'max', provider: 'deepseek',
+        },
       }],
       assetsTruncated: false,
       injection: INJECTION,
-      readOnlyReason: 'Worker 启动配置只读。',
+      readOnlyReason: '这里展示当前远端环境中的配置，不能在此页面修改。',
       revision: 7,
     }),
     getRemoteHostNodeAssetContent: vi.fn().mockResolvedValue({
@@ -73,6 +94,23 @@ function installApi() {
 }
 
 describe('AssetsLibraryDialog source authority', () => {
+  it('shows the Worker effective Reviewer Agent configuration and modified state', async () => {
+    installApi();
+    render(<AssetsLibraryDialog open onClose={vi.fn()} remote={{
+      identity: 'remote-a:core-a:1',
+      label: 'aws-relay-on-mac',
+      profileId: 'remote-a',
+      supportsNodeAssets: true,
+      usable: true,
+    }} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Agents' }));
+    expect(await screen.findByText('agent-deck:claude-code:reviewer-claude')).toBeTruthy();
+    expect(screen.getByText('deepseek-v4-flash[1m]')).toBeTruthy();
+    expect(screen.getByText('已修改内建 Agent')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /配置/u })).toBeNull();
+  });
+
   it('reads list, content and conventions only from the selected Remote Worker', async () => {
     const { local, remote } = installApi();
     render(<AssetsLibraryDialog open onClose={vi.fn()} remote={{
@@ -87,8 +125,8 @@ describe('AssetsLibraryDialog source authority', () => {
     expect(await screen.findByText('agent-deck:claude-code:deep-review')).toBeTruthy();
     expect(screen.getByText('远端资产')).toBeTruthy();
     expect(screen.getAllByText('远端资产仅供查看。')).toHaveLength(1);
-    expect(screen.queryByText('Worker Provider Home/.claude/skills/')).toBeNull();
-    expect(screen.queryByText('Worker 启动配置只读。')).toBeNull();
+    expect(screen.queryByText('个人配置/.claude/skills/')).toBeNull();
+    expect(screen.queryByText('这里展示当前远端环境中的配置，不能在此页面修改。')).toBeNull();
     for (const toggle of screen.getAllByRole('checkbox')) {
       expect((toggle as HTMLInputElement).disabled).toBe(true);
     }
@@ -97,7 +135,7 @@ describe('AssetsLibraryDialog source authority', () => {
     expect(await screen.findByText('# Worker deep review')).toBeTruthy();
     expect(screen.getByText('远端内容')).toBeTruthy();
     expect(screen.queryByText(
-      'Worker packaged resources/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md',
+      '应用内置/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md',
     )).toBeNull();
     expect(screen.queryByRole('button', { name: '显示文件' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
@@ -124,7 +162,7 @@ describe('AssetsLibraryDialog source authority', () => {
       source: 'bundled',
       name: 'deep-review',
       qualifiedName: 'agent-deck:claude-code:deep-review',
-      location: 'Worker packaged resources/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md',
+      location: '应用内置/claude-config/agent-deck-plugin/skills/deep-review/SKILL.md',
     });
     expect(remote.getRemoteHostNodeAssetConvention).toHaveBeenCalledWith({
       profileId: 'remote-a',

@@ -13,7 +13,7 @@ describe('node asset contract', () => {
         qualifiedName: 'agent-deck:codex-cli:deep-review', description: 'review',
         location: 'Worker packaged resources/codex-config/agent-deck-plugin/skills/deep-review/SKILL.md',
         tools: null, model: null, thinking: null, provider: null, origin: null,
-        pluginName: null, runtimeName: null,
+        pluginName: null, runtimeName: null, runtimeDefaults: null, runtimeOverride: null,
       }],
       assetsTruncated: false,
       injection: {
