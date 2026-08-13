@@ -8,9 +8,11 @@ import { SummarySection } from '../SummarySection';
 function SettingsHarness({
   initial,
   onPatch,
+  readOnly = false,
 }: {
   initial: AppSettings;
   onPatch: (patch: Partial<AppSettings>) => void;
+  readOnly?: boolean;
 }): JSX.Element {
   const [settings, setSettings] = useState(initial);
   const update = async (patch: Partial<AppSettings>): Promise<void> => {
@@ -18,7 +20,7 @@ function SettingsHarness({
     setSettings((current) => ({ ...current, ...patch }));
   };
 
-  return <SummarySection settings={settings} update={update} />;
+  return <SummarySection settings={settings} update={update} readOnly={readOnly} />;
 }
 
 function openSection(): void {
@@ -70,7 +72,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     expect(
       (screen.getByRole('textbox', { name: '总结模型 模型' }) as HTMLInputElement)
         .placeholder,
-    ).toBe('模型（可留空）');
+    ).toBe('留空使用默认模型');
 
     let thinkingButton = screen.getByRole('button', { name: '总结模型 思考程度' });
     expect(thinkingButton.title).toBe('Codex CLI 思考程度');
@@ -90,7 +92,7 @@ describe('SummarySection provider-specific thinking levels', () => {
       expect(reasoningButton.disabled).toBe(false);
       expect(
         (screen.getByRole('textbox', { name: '总结模型 模型' }) as HTMLInputElement).placeholder,
-      ).toBe('模型（可留空）');
+      ).toBe('留空使用默认模型');
     });
     expect(screen.getByText('留空时使用 Claude Code 的 Haiku 模型。')).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
@@ -133,7 +135,7 @@ describe('SummarySection provider-specific thinking levels', () => {
       );
       expect(
         (screen.getByRole('textbox', { name: '总结模型 模型' }) as HTMLInputElement).placeholder,
-      ).toBe('模型（可留空）');
+      ).toBe('留空使用默认模型');
     });
     expect(screen.getByText('留空时使用 deepseek 模型网关的 Haiku 路由。')).toBeTruthy();
     expect(onPatch).toHaveBeenCalledWith({
@@ -257,5 +259,40 @@ describe('SummarySection provider-specific thinking levels', () => {
     fireEvent.change(input, { target: { value: '4' } });
     fireEvent.blur(input);
     await waitFor(() => expect(onPatch).toHaveBeenCalledWith({ summaryMaxConcurrent: 4 }));
+  });
+
+  it('uses one aligned generator card and visibly disables every Remote control', () => {
+    render(
+      <SettingsHarness
+        initial={{ ...DEFAULT_SETTINGS, summaryAdapter: 'codex-cli' }}
+        onPatch={vi.fn()}
+        readOnly
+      />,
+    );
+    openSection();
+
+    const group = screen.getByRole('group', { name: '总结模型' });
+    const fields = Array.from(group.querySelectorAll<HTMLElement>('[data-generator-field]'))
+      .map((field) => field.dataset.generatorField);
+    expect(fields).toEqual(['adapter', 'provider', 'model', 'thinking']);
+    expect(group.querySelector('[data-generator-fields]')?.className)
+      .toContain('min-[420px]:grid-cols-2');
+    expect(group.textContent).toContain('助手');
+    expect(group.textContent).toContain('模型来源');
+    expect(group.textContent).toContain('模型');
+    expect(group.textContent).toContain('思考程度');
+
+    const adapter = screen.getByRole('button', { name: '总结模型 助手' }) as HTMLButtonElement;
+    const provider = screen.getByRole('combobox', {
+      name: '总结模型 模型来源',
+    }) as HTMLInputElement;
+    const model = screen.getByRole('textbox', { name: '总结模型 模型' }) as HTMLInputElement;
+    const thinking = screen.getByRole('button', {
+      name: '总结模型 思考程度',
+    }) as HTMLButtonElement;
+    expect([adapter.disabled, provider.disabled, model.disabled, thinking.disabled])
+      .toEqual([true, true, true, true]);
+    expect(adapter.className).toContain('disabled:opacity-50');
+    expect(thinking.className).toContain('disabled:opacity-50');
   });
 });

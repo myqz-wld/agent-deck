@@ -74,7 +74,7 @@ export function SummarySection({ settings, update, readOnly = false }: Props): J
         runtimeProvider={settings.summaryRuntimeProvider}
         model={settings.summaryModel}
         thinking={settings.summaryThinking}
-        modelPlaceholder="模型（可留空）"
+        modelPlaceholder="留空使用默认模型"
         disabled={readOnly}
         onAdapterChange={(v) =>
           void update({

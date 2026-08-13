@@ -6,8 +6,7 @@ export type SessionDetailTabId =
   | 'tasks'
   | 'diff'
   | 'summary'
-  | 'messages'
-  | 'permissions';
+  | 'messages';
 
 export interface SessionDetailTabModel {
   id: SessionDetailTabId;
@@ -22,7 +21,6 @@ export const SESSION_DETAIL_TABS = Object.freeze([
   { id: 'diff', label: '改动' },
   { id: 'summary', label: '总结' },
   { id: 'messages', label: '跨会话' },
-  { id: 'permissions', label: '权限' },
 ] satisfies ReadonlyArray<{ id: SessionDetailTabId; label: string }>);
 
 export function createSessionDetailTabs(

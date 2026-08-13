@@ -9,7 +9,6 @@ import { RemoteIssuesPanel } from './components/issues/RemoteIssuesPanel';
 import { PendingTab } from './components/PendingTab';
 import { SessionDetail } from './components/SessionDetail';
 import { SessionList } from './components/SessionList';
-import { TeamHub } from './components/TeamHub';
 import {
   RemotePageUnavailable,
   remotePageAvailability,
@@ -99,19 +98,6 @@ export function AppWorkspace({
         onSelect={(sessionId) => {
           if (remoteMode) remoteSource.selectSession(sessionId);
           else onLocalHistorySelect(sessionId);
-        }}
-      />
-    );
-  }
-  if (view === 'teams') {
-    return (
-      <TeamHub
-        key={remoteMode ? remoteSource.identity : 'local'}
-        remoteSource={remoteMode ? remoteSource : null}
-        onOpenSession={(sessionId) => {
-          onViewChange('live');
-          if (remoteMode) remoteSource.selectSession(sessionId);
-          else onOpenLocalSession(sessionId);
         }}
       />
     );

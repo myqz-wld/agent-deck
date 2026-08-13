@@ -7,11 +7,6 @@ import type { RemoteUsageSourceView } from './remote-host/use-remote-usage-sourc
 import type { AppView } from './components/AppHeader';
 import type { RemoteHostConnectionStatus } from '@shared/remote-host';
 
-vi.mock('./components/TeamHub', () => ({
-  TeamHub: ({ remoteSource }: { remoteSource: RemoteSessionSourceView | null }) => (
-    <div data-testid="teams">{remoteSource ? 'remote teams' : 'local teams'}</div>
-  ),
-}));
 vi.mock('./components/DataPanel', () => ({
   DataPanel: ({ remoteUsage }: { remoteUsage: RemoteUsageSourceView | null }) => (
     <div data-testid="data">{remoteUsage ? 'remote data' : 'local data'}</div>
@@ -121,14 +116,6 @@ describe('AppWorkspace Local and Remote page parity', () => {
     expect(screen.getByTestId('detail').textContent).toBe('remote detail');
   });
 
-  it('renders the same TeamHub component against the selected data source', () => {
-    workspace('teams', false, []);
-    expect(screen.getByTestId('teams').textContent).toBe('local teams');
-    cleanup();
-    workspace('teams', true, ['teams']);
-    expect(screen.getByTestId('teams').textContent).toBe('remote teams');
-  });
-
   it('renders the same DataPanel component without mixing Local usage', () => {
     workspace('data', false, []);
     expect(screen.getByTestId('data').textContent).toBe('local data');
@@ -145,17 +132,10 @@ describe('AppWorkspace Local and Remote page parity', () => {
     expect(screen.getByTestId('issues').textContent).toBe('remote issues');
   });
 
-  it('fails closed when the Remote Core omits the page capability', () => {
-    workspace('teams', true, []);
-    expect(screen.queryByTestId('teams')).toBeNull();
-    expect(screen.getByText('当前远端版本暂不支持团队')).toBeTruthy();
-  });
-
   it.each([
     ['live', 'session-console.read', 'reconnecting', true],
     ['pending', 'pending.index.read', 'offline', false],
     ['history', 'sessions.history', 'incompatible', false],
-    ['teams', 'teams', 'reconnecting', true],
     ['issues', 'issues', 'offline', false],
     ['data', 'usage', 'incompatible', false],
   ] as const)('does not mount %s while the Remote source is %s', (

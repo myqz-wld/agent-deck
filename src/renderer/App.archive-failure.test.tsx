@@ -58,7 +58,6 @@ vi.mock('./components/SettingsDialog', () => ({ SettingsDialog: () => null }));
 vi.mock('./components/NewSessionDialog', () => ({ NewSessionDialog: () => null }));
 vi.mock('./components/AssetsLibraryDialog', () => ({ AssetsLibraryDialog: () => null }));
 vi.mock('./components/PendingTab', () => ({ PendingTab: () => <div>pending</div> }));
-vi.mock('./components/TeamHub', () => ({ TeamHub: () => <div>teams</div> }));
 vi.mock('./components/IssuesPanel', () => ({ IssuesPanel: () => <div>issues</div> }));
 vi.mock('./components/DataPanel', () => ({ DataPanel: () => <div>data</div> }));
 

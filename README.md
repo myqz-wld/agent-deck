@@ -110,6 +110,12 @@ existing standalone desktop remains the supported runtime meanwhile.
 The desktop has two selectable data sources and keeps the same project, session, history, pending,
 and runtime pages when switching between them:
 
+The primary workspace navigation is Live, Pending, History, Issues, and Data. Team coordination
+continues through sessions and the built-in collaboration tools rather than a separate Team page.
+Session details contain Activity, Tasks, Changes, Summary, and Cross-session messages; permission
+and sandbox choices remain part of session creation and runtime controls rather than a separate
+inspection page.
+
 | Client source | Meaning |
 | --- | --- |
 | Local | The existing Standalone composition owns data and computation on this machine. No server participates. |
