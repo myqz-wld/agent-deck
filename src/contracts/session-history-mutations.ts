@@ -2,7 +2,7 @@ import { isJsonObject } from './json';
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/u;
 
-export type SessionHistoryMutationState = 'archived' | 'deleted' | 'unarchived';
+export type SessionHistoryMutationState = 'archived' | 'deleted' | 'reactivated' | 'unarchived';
 
 export interface SessionHistoryMutationParams {
   sessionId: string;
@@ -71,7 +71,7 @@ export function parseSessionHistoryMutationResult(
   if (expectedSessionId !== undefined && sessionId !== expectedSessionId) {
     fail('session.history.mutation.sessionId');
   }
-  if (!['archived', 'deleted', 'unarchived'].includes(String(value.state))) {
+  if (!['archived', 'deleted', 'reactivated', 'unarchived'].includes(String(value.state))) {
     fail('session.history.mutation.state');
   }
   const state = value.state as SessionHistoryMutationState;

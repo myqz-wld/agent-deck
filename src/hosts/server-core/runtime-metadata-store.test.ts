@@ -127,6 +127,23 @@ describe('ServerCoreRuntimeMetadataStore', () => {
     });
   });
 
+  it('rewrites a completed create replay when its temporary session id becomes canonical', () => {
+    const metadata = store();
+    const input = identity({ method: 'session.console.create' });
+    expect(metadata.claimMutation(input, 10)).toEqual({ state: 'claimed' });
+    metadata.commitSessionCreate(input, 'temporary-a', {
+      adapterId: 'codex-cli', sessionId: 'temporary-a', workingDirectory: 'repo',
+    }, 11);
+
+    metadata.renameSessionMutationResults('temporary-a', 'canonical-a', 12);
+
+    expect(metadata.claimMutation(input, 13)).toEqual({
+      state: 'completed',
+      result: { sessionId: 'canonical-a', revision: 1 },
+      revision: 1,
+    });
+  });
+
   it('releases only the exact invoking mutation claim', () => {
     const metadata = store();
     const input = identity();

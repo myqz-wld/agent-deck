@@ -30,3 +30,37 @@ export function appendUnique<T>(
   for (const value of incoming) merged.set(identityOf(value), value);
   return [...merged.values()];
 }
+
+export type RemoteSessionRenameAliases = ReadonlyMap<string, string>;
+
+export function resolveRemoteSessionId(
+  aliases: RemoteSessionRenameAliases | undefined,
+  sessionId: string,
+): string {
+  if (!aliases) return sessionId;
+  let current = sessionId;
+  const visited = new Set<string>();
+  while (!visited.has(current) && visited.size < 32) {
+    visited.add(current);
+    const next = aliases.get(current);
+    if (!next) break;
+    current = next;
+  }
+  return current;
+}
+
+export function appendRemoteSessionRename(
+  aliases: RemoteSessionRenameAliases | undefined,
+  fromId: string,
+  toId: string,
+  limit = 256,
+): RemoteSessionRenameAliases {
+  const next = new Map(aliases ?? []);
+  const target = resolveRemoteSessionId(next, toId);
+  if (fromId !== target) {
+    next.delete(fromId);
+    next.set(fromId, target);
+  }
+  while (next.size > limit) next.delete(next.keys().next().value as string);
+  return next;
+}

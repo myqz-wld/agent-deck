@@ -204,7 +204,7 @@ export async function resolveServerCoreHandOffTarget(input: {
     options,
     workingDirectory: cwdRef,
   };
-  const createOptions = buildRemoteCreateOptions(params, cwd, []);
+  const createOptions = buildRemoteCreateOptions(params, cwd, [], { awaitCanonicalId: true });
   createOptions.handOff = {
     mode: 'session',
     fromCallerSid: input.source.id,

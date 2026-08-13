@@ -93,9 +93,14 @@ export function createServerCoreSessionManagerObserver(input: {
       'session.updated', session.id, sessionChange(session),
     ),
     sessionRemoved: (sessionId) => append('session.removed', sessionId, null),
-    sessionRenamed: (fromId, toId) => append(
-      'session.renamed', toId, { fromId, toId },
-    ),
+    sessionRenamed: (fromId, toId) => {
+      try { input.metadata.renameSessionMutationResults(fromId, toId); }
+      catch (error) {
+        try { input.diagnostics.warn('Server Core session rename metadata repair failed', {}, error); }
+        catch {}
+      }
+      append('session.renamed', toId, { fromId, toId });
+    },
     warning: () => {
       try { input.diagnostics.warn('Server Core session lifecycle warning'); } catch {}
     },

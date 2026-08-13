@@ -148,6 +148,10 @@ The selected source mode and last Remote profile persist independently. Renderer
 subscriptions, navigation, and writes are scoped by source/profile/Core generation so a late Local
 or Remote response cannot cross the switch boundary. Capabilities unavailable on a remote endpoint
 are shown as disabled, hidden, or read-only rather than falling through to Local operations.
+Remote Live rows provide the same right-click archive/delete actions as Local, with dormant-session
+reactivation negotiated separately for compatible Cores. Runtime choices changed during an active
+turn apply to later work, and desktop-created Remote sessions open as soon as their temporary row is
+registered before following any provider-assigned canonical session id.
 Remote Teams, Issues, Data, session totals, and token rates come from the selected Core. Remote
 Settings reads Worker defaults and installs Hooks in that Worker's isolated Provider Home, while
 the Assets Library reads only Worker-packaged and Worker Provider Home assets; desktop-only window

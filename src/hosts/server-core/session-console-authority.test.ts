@@ -252,8 +252,8 @@ describe('ServerCoreSessionConsoleAuthority', () => {
       prompt: 'Inspect the repository',
       permissionMode: 'bypassPermissions',
       claudeCodeSandbox: 'workspace-write',
-      awaitCanonicalId: true,
     }));
+    expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty('awaitCanonicalId');
     expect(commitSessionCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         accessCredentialId: 'credential-a',
@@ -285,6 +285,7 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     })).resolves.toEqual({ sessionId: 'created-session', revision: 4 });
     expect(onRegistered).toHaveBeenCalledWith('created-session');
     expect(createSession).toHaveBeenCalledWith(expect.objectContaining({
+      awaitCanonicalId: true,
       teamName: 'review-team',
       initialSessionRegistration: expect.objectContaining({
         spawnLink: { parentSessionId: 'lead-session', depth: 2 },

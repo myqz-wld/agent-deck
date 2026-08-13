@@ -61,6 +61,7 @@ export function RemoteSessionRuntimeControls({
   busy,
   canWrite,
   identity,
+  turnActive = false,
   values,
   onApply,
 }: {
@@ -68,6 +69,7 @@ export function RemoteSessionRuntimeControls({
   busy: boolean;
   canWrite: boolean;
   identity: string;
+  turnActive?: boolean;
   values: RemoteHostJsonObject | null;
   onApply: (patch: RemoteHostJsonObject) => Promise<void>;
 }): JSX.Element {
@@ -355,7 +357,7 @@ export function RemoteSessionRuntimeControls({
           />
           <RemoteGrokSandbox
             value={stringValue(values, 'grokSandbox')}
-            disabled={disabled}
+            disabled={disabled || turnActive}
             onApply={(next) => apply({ grokSandbox: next || null })}
           />
         </>

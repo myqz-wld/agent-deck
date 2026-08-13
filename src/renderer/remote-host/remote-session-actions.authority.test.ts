@@ -98,4 +98,44 @@ describe('Remote session mutation authority', () => {
       name: 'new-folder',
     }));
   });
+
+  it('binds dormant reactivation to its dedicated capability and intent', async () => {
+    const reactivateRemoteHostSession = vi.fn(async () => ({
+      sessionId: 'session-a', state: 'reactivated' as const, revision: 3,
+    }));
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { reactivateRemoteHostSession },
+    });
+    const requireCapability = vi.fn();
+    const identityRef = { current: 'profile-a|core-a|1' };
+    const actions = createRemoteSessionActions({
+      activeProfileId: 'profile-a',
+      expectedAuthority: { authoritativeCoreId: 'core-a', workerGeneration: 1 },
+      identityRef,
+      intents: new RemoteUserIntentLedger(() => 'intent-r'),
+      requireCapability,
+      runBusiness: (operation) => operation(),
+      runTerminalBusiness: (operation) => operation(),
+      runtimeRef: { current: null },
+      selectSession: vi.fn(),
+      setRuntime: vi.fn(),
+      sourceIdentity: identityRef.current,
+      target: () => ({ profileId: 'profile-a', sessionId: 'session-a' }),
+    });
+    await actions.reactivateSession({
+      id: 'session-a', adapterId: 'codex-cli', title: 'Dormant', source: 'sdk',
+      lifecycle: 'dormant', activity: 'idle', archived: false, pinned: false,
+      createdAt: 1, updatedAt: 2, endedAt: 2, model: null, thinking: null,
+      runtimeProvider: null, context: null, spawnedBy: null, spawnDepth: 0,
+      teams: [], summary: null, workspaceLabel: 'Workspace', contextOnly: false,
+    });
+
+    expect(requireCapability).toHaveBeenCalledWith('sessions.reactivate');
+    expect(reactivateRemoteHostSession).toHaveBeenCalledWith(expect.objectContaining({
+      expectedAuthority: { authoritativeCoreId: 'core-a', workerGeneration: 1 },
+      expectedUpdatedAt: 2,
+      intentId: 'intent-r',
+    }));
+  });
 });

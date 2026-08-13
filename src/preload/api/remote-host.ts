@@ -171,6 +171,10 @@ export const remoteHostApi = {
     request: RemoteHostSessionHistoryMutationDto,
   ): Promise<RemoteHostSessionHistoryMutationResultDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.SessionUnarchive, request),
+  reactivateRemoteHostSession: (
+    request: RemoteHostSessionHistoryMutationDto,
+  ): Promise<RemoteHostSessionHistoryMutationResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionReactivate, request),
   deleteRemoteHostSession: (
     request: RemoteHostSessionHistoryMutationDto,
   ): Promise<RemoteHostSessionHistoryMutationResultDto> =>

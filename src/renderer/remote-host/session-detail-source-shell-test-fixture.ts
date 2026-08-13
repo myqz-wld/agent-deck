@@ -136,5 +136,6 @@ export function remoteSource(): RemoteSessionSourceView {
     steer: vi.fn(),
     updateRuntime: vi.fn(),
     unarchiveHistorySession: vi.fn(),
+    reactivateSession: vi.fn(),
   };
 }

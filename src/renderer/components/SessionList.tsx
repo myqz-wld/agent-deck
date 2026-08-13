@@ -1,4 +1,4 @@
-import { useMemo, type JSX } from 'react';
+import { useMemo, useState, type JSX } from 'react';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { selectLiveSessions } from '@renderer/lib/session-selectors';
 import { deriveTeamRole } from '@renderer/lib/derive-team-role';
@@ -143,6 +143,44 @@ function LocalSessionList(): JSX.Element {
 }
 
 function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX.Element {
+  const [actionFailure, setActionFailure] = useState<{
+    identity: string;
+    message: string;
+  } | null>(null);
+  const canMutate = source.usable && source.capabilities.has('sessions.history.write');
+  const canReactivate = source.usable && source.capabilities.has('sessions.reactivate');
+  const run = async (label: string, action: () => Promise<void>): Promise<void> => {
+    setActionFailure(null);
+    try {
+      await action();
+    } catch (reason) {
+      setActionFailure({
+        identity: source.identity,
+        message: `${label}失败：${reason instanceof Error ? reason.message : String(reason)}`,
+      });
+    }
+  };
+  const remove = async (
+    session: RemoteSessionSourceView['sessions'][number],
+  ): Promise<void> => {
+    setActionFailure(null);
+    try {
+      const confirmed = await window.api.confirmDialog({
+        title: '删除会话',
+        message: `确定要删除会话「${session.title}」吗？`,
+        detail: '此操作无法撤销，相关事件、文件改动和总结也会删除。',
+        okLabel: '删除',
+        cancelLabel: '取消',
+        destructive: true,
+      });
+      if (confirmed) await run('删除', () => source.deleteHistorySession(session));
+    } catch (reason) {
+      setActionFailure({
+        identity: source.identity,
+        message: `删除失败：${reason instanceof Error ? reason.message : String(reason)}`,
+      });
+    }
+  };
   if (!source.usable) {
     const title = source.state?.status === 'connecting' || source.state?.status === 'reconnecting'
       ? '正在建立受限 SSH 连接…'
@@ -205,6 +243,20 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
               selected={source.selectedSessionId === session.id}
               onSelect={() => source.selectSession(session.id)}
               teamRole={teamRole}
+              {...(canMutate ? {
+                onArchive: () => run('归档', () => source.archiveHistorySession(session)),
+                onUnarchive: () => run(
+                  '取消归档',
+                  () => source.unarchiveHistorySession(session),
+                ),
+                onDelete: () => remove(session),
+                ...(canReactivate && session.lifecycle === 'dormant' ? {
+                  onReactivate: () => run(
+                    '重新激活',
+                    () => source.reactivateSession(session),
+                  ),
+                } : {}),
+              } : {})}
             />
           ))}
         </SessionListSection>
@@ -219,7 +271,11 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
           加载更多会话
         </button>
       )}
-      {source.error && <div role="alert" className="rounded bg-red-500/10 px-2 py-1 text-[10px] text-red-200">{source.error}</div>}
+      {(actionFailure?.identity === source.identity ? actionFailure.message : source.error) && (
+        <div role="alert" className="rounded bg-red-500/10 px-2 py-1 text-[10px] text-red-200">
+          {actionFailure?.identity === source.identity ? actionFailure.message : source.error}
+        </div>
+      )}
     </div>
   );
 }

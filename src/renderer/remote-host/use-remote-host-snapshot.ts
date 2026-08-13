@@ -8,11 +8,17 @@ import type {
   RemoteHostSourceMode,
 } from '@shared/remote-host';
 import { REMOTE_HOST_RESOURCE_KINDS } from '@shared/remote-host';
+import {
+  appendRemoteSessionRename,
+  remoteSourceIdentity,
+  type RemoteSessionRenameAliases,
+} from './remote-source-utils';
 
 export interface RemoteHostSnapshotState {
   snapshot: RemoteHostSnapshotDto | null;
   dataRevisionByProfile: ReadonlyMap<string, number>;
   resourceRevisionsByProfile: ReadonlyMap<string, RemoteHostResourceRevisions>;
+  sessionRenamesBySource?: ReadonlyMap<string, RemoteSessionRenameAliases>;
   busy: boolean;
   error: string | null;
   snapshotError: string | null;
@@ -46,6 +52,9 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
   );
   const [resourceRevisionsByProfile, setResourceRevisionsByProfile] = useState<
     ReadonlyMap<string, RemoteHostResourceRevisions>
+  >(new Map());
+  const [sessionRenamesBySource, setSessionRenamesBySource] = useState<
+    ReadonlyMap<string, RemoteSessionRenameAliases>
   >(new Map());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +157,25 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
       snapshotDebounceTimer = setTimeout(finishSnapshotWindow, 50);
     };
     const off = window.api.onRemoteHostChanged((event) => {
+      if (event.profileId && event.sessionRename) {
+        const rename = event.sessionRename;
+        const sourceIdentity = remoteSourceIdentity(
+          event.profileId,
+          rename.authoritativeCoreId,
+          rename.workerGeneration,
+        );
+        setSessionRenamesBySource((current) => {
+          const next = new Map(current);
+          next.delete(sourceIdentity);
+          next.set(sourceIdentity, appendRemoteSessionRename(
+            current.get(sourceIdentity),
+            rename.fromId,
+            rename.toId,
+          ));
+          while (next.size > 32) next.delete(next.keys().next().value as string);
+          return next;
+        });
+      }
       if (event.reason === 'data') {
         const key = event.profileId ?? '*';
         pendingDataRevisions.set(
@@ -252,6 +280,7 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
     snapshot,
     dataRevisionByProfile,
     resourceRevisionsByProfile,
+    sessionRenamesBySource,
     busy,
     error,
     snapshotError,

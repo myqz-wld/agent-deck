@@ -14,6 +14,7 @@ import {
 import {
   remoteMutationAuthority,
   remoteSourceIdentity,
+  resolveRemoteSessionId,
 } from './remote-source-utils';
 import { useRemoteSourceContext } from './use-remote-source-context';
 import { createRemoteDetailReaders } from './remote-detail-readers';
@@ -51,6 +52,8 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   const navigation = useRef(new Map<string, string | null>());
   const identityRef = useRef(identity);
   identityRef.current = identity;
+  const renameAliasesRef = useRef(hosts.sessionRenamesBySource);
+  renameAliasesRef.current = hosts.sessionRenamesBySource;
   const usableRef = useRef(usable);
   usableRef.current = usable;
   const capabilitiesRef = useRef(capabilities);
@@ -222,9 +225,12 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
 
   const selectSession = useCallback((sessionId: string | null): void => {
     const currentIdentity = identityRef.current;
+    const resolvedSessionId = sessionId === null
+      ? null
+      : resolveRemoteSessionId(renameAliasesRef.current?.get(currentIdentity), sessionId);
     detailSequence.current += 1;
-    navigation.current.set(currentIdentity, sessionId);
-    setSelection({ identity: currentIdentity, sessionId });
+    navigation.current.set(currentIdentity, resolvedSessionId);
+    setSelection({ identity: currentIdentity, sessionId: resolvedSessionId });
     setSelectedSession(null);
     setRuntime(null);
     setRuntimeLoadError(null);
@@ -237,6 +243,12 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     setSummaryLoadError(null);
     setError(null);
   }, []);
+  const renamedSelectedSessionId = selectedSessionId === null
+    ? null
+    : resolveRemoteSessionId(hosts.sessionRenamesBySource?.get(identity), selectedSessionId);
+  useEffect(() => {
+    if (renamedSelectedSessionId !== selectedSessionId) selectSession(renamedSelectedSessionId);
+  }, [renamedSelectedSessionId, selectSession, selectedSessionId]);
 
   const target = (): { profileId: string; sessionId: string } => {
     if (!activeProfileId || !selectedSessionId) throw new Error('请先选择远程 session。');

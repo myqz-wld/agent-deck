@@ -176,6 +176,7 @@ export const RemoteHostIpcInvoke = {
   SessionCreate: 'remote-host:session-create',
   SessionArchive: 'remote-host:session-archive',
   SessionUnarchive: 'remote-host:session-unarchive',
+  SessionReactivate: 'remote-host:session-reactivate',
   SessionDelete: 'remote-host:session-delete',
   HistoryList: 'remote-host:history-list',
   EventsList: 'remote-host:events-list',

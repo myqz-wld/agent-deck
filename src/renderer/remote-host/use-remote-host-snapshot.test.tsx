@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { RemoteHostDataChangedDto, RemoteHostSnapshotDto } from '@shared/remote-host';
+import { remoteSourceIdentity, resolveRemoteSessionId } from './remote-source-utils';
 import { useRemoteHostSnapshot } from './use-remote-host-snapshot';
 
 const snapshot: RemoteHostSnapshotDto = {
@@ -66,6 +67,30 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
     expect(hook.result.current.resourceRevisionsByProfile.get('remote-a')?.usage).toBe(0);
     expect(hook.result.current.dataRevisionByProfile.has('remote-b')).toBe(false);
     expect(getSnapshot).toHaveBeenCalledTimes(3);
+  });
+
+  it('records a session rename immediately for the exact Remote Core generation', async () => {
+    const hook = renderHook(() => useRemoteHostSnapshot());
+    await act(async () => { await Promise.resolve(); });
+
+    act(() => listener?.({
+      revision: 2,
+      profileId: 'remote-a',
+      reason: 'data',
+      resources: ['session-list', 'session-detail'],
+      sessionRename: {
+        fromId: 'temporary-a',
+        toId: 'canonical-a',
+        authoritativeCoreId: 'core-a',
+        workerGeneration: 4,
+      },
+    }));
+
+    const identity = remoteSourceIdentity('remote-a', 'core-a', 4);
+    expect(resolveRemoteSessionId(
+      hook.result.current.sessionRenamesBySource?.get(identity),
+      'temporary-a',
+    )).toBe('canonical-a');
   });
 
   it('clears a refresh-owned snapshot error after the next accepted refresh', async () => {

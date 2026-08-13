@@ -44,6 +44,7 @@ describe('Local and Remote History presentation parity', () => {
     local.unmount();
 
     const remote = render(<RemoteSessionSummaryCard
+      history
       session={legacyRemoteSessionPresentation({
         id: 'remote-a',
         adapterId: 'codex-cli',

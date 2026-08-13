@@ -27,6 +27,7 @@ type SessionActions = Pick<RemoteSessionSourceView,
   | 'listWorkspaceDirectories'
   | 'listOutgoing'
   | 'previewHandOff'
+  | 'reactivateSession'
   | 'respondPending'
   | 'removeOutgoing'
   | 'send'
@@ -160,6 +161,15 @@ export function createRemoteSessionActions(
       const result = await window.api.previewRemoteHostSessionHandOff({ ...target(), ...input });
       assertIdentity(expectedIdentity, '数据源已切换，请重新生成接力预览。');
       return result;
+    }),
+    reactivateSession: (session) => runBusiness(async () => {
+      requireCapability('sessions.reactivate');
+      const request = mutationRequest({
+        profileId: requireProfile(), sessionId: session.id,
+        expectedArchived: session.archived, expectedUpdatedAt: session.updatedAt,
+      });
+      await intents.run(sourceIdentity, 'session-reactivate', request, (intentId) =>
+        window.api.reactivateRemoteHostSession({ ...request, intentId }));
     }),
     commitHandOff: (input) => runTerminalBusiness(async () => {
       requireCapability('sessions.handoff');

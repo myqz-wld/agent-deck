@@ -28,12 +28,16 @@ export class RemoteHostSessionHistoryMutationController {
     return this.mutate('session.unarchive', 'unarchive', 'unarchived', request);
   }
 
+  reactivate(request: RemoteHostSessionHistoryMutationDto): Promise<RemoteHostSessionHistoryMutationResultDto> {
+    return this.mutate('session.reactivate', 'reactivate', 'reactivated', request);
+  }
+
   delete(request: RemoteHostSessionHistoryMutationDto): Promise<RemoteHostSessionHistoryMutationResultDto> {
     return this.mutate('session.delete', 'delete', 'deleted', request);
   }
 
   private mutate(
-    method: 'session.archive' | 'session.delete' | 'session.unarchive',
+    method: 'session.archive' | 'session.delete' | 'session.reactivate' | 'session.unarchive',
     operation: string,
     state: SessionHistoryMutationState,
     request: RemoteHostSessionHistoryMutationDto,

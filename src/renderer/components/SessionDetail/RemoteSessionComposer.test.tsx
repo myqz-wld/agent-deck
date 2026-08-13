@@ -237,7 +237,7 @@ describe('RemoteSessionComposer parity and authority', () => {
     await waitFor(() => expect(remote.steer).toHaveBeenCalledWith('text only', []));
   });
 
-  it('disables handoff and runtime mutation while the provider turn is working', async () => {
+  it('keeps next-turn runtime controls editable while a provider turn is working', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: { confirmDialog: vi.fn() },
@@ -262,9 +262,15 @@ describe('RemoteSessionComposer parity and authority', () => {
     render(<RemoteSessionComposer source={remote} adapterId="codex-cli" sessionId="session-a" />);
 
     expect((screen.getByRole('button', { name: '接力' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByLabelText('审批') as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByLabelText('沙盒') as HTMLButtonElement).disabled).toBe(true);
-    expect(remote.updateRuntime).not.toHaveBeenCalled();
+    expect((screen.getByLabelText('模型') as HTMLInputElement).disabled).toBe(false);
+    expect((screen.getByLabelText('审批') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByLabelText('沙盒') as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(screen.getByLabelText('审批'));
+    fireEvent.click(screen.getByRole('option', { name: '从不询问' }));
+    await waitFor(() => expect(remote.updateRuntime).toHaveBeenCalledWith({
+      approvalPolicy: 'never',
+    }));
   });
 
   it('shows provider-default runtime values instead of inventing concrete policies', () => {

@@ -28,6 +28,7 @@ import {
 export const SERVER_CORE_SESSION_HISTORY_MUTATION_METHODS = Object.freeze([
   'session.archive',
   'session.unarchive',
+  'session.reactivate',
   'session.delete',
 ] as const satisfies readonly CoreMethod[]);
 
@@ -35,7 +36,10 @@ type HistoryMutationMethod = (typeof SERVER_CORE_SESSION_HISTORY_MUTATION_METHOD
 
 export interface ServerCoreSessionHistoryMutationRuntimeOptions {
   readonly sessions: { get(sessionId: string): SessionRecord | null };
-  readonly manager: Pick<ServerCoreSessionManager, 'archive' | 'delete' | 'unarchive'>;
+  readonly manager: Pick<
+    ServerCoreSessionManager,
+    'archive' | 'delete' | 'reactivate' | 'unarchive'
+  >;
   readonly teams: Pick<AgentDeckTeamRepo,
     | 'archive'
     | 'countActiveLeads'
@@ -99,14 +103,13 @@ export class ServerCoreSessionHistoryMutationRuntime implements DaemonCoreRuntim
         throw new DaemonRequestError(AgentDeckClientErrorCode.NotFound, 'Session was not found');
       }
       const archived = record.archivedAt !== null;
-      const inHistory = record.lifecycle === 'closed' || archived;
       if (
-        !inHistory || archived !== params.expectedArchived ||
+        archived !== params.expectedArchived ||
         record.lastEventAt !== params.expectedUpdatedAt
       ) {
         throw new DaemonRequestError(
           AgentDeckClientErrorCode.Conflict,
-          'History row changed; refresh before retrying',
+          'Session row changed; refresh before retrying',
         );
       }
       let state: SessionHistoryMutationState;
@@ -122,6 +125,16 @@ export class ServerCoreSessionHistoryMutationRuntime implements DaemonCoreRuntim
         mutated = true;
         this.restoreLeadTeams(record.id);
         state = 'unarchived';
+      } else if (input.method === 'session.reactivate') {
+        if (archived || (record.lifecycle !== 'dormant' && record.lifecycle !== 'closed')) {
+          throw new DaemonRequestError(
+            AgentDeckClientErrorCode.Conflict,
+            'Session cannot be reactivated',
+          );
+        }
+        this.options.manager.reactivate(record.id);
+        mutated = true;
+        state = 'reactivated';
       } else {
         this.leaveTeams(record.id);
         await this.options.manager.delete(record.id);

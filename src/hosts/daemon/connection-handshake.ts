@@ -74,27 +74,29 @@ function capabilities(
       const capability = CORE_METHOD_METADATA[method].capability;
       const minimumMinor = capability === AgentDeckCapability.Usage
         ? 1
-        : capability === AgentDeckCapability.NodeAssets ||
-            capability === AgentDeckCapability.NodeConfiguration
-          ? 2
-          : capability === AgentDeckCapability.SessionContextRead ||
-              capability === AgentDeckCapability.SessionInputRead ||
-              capability === AgentDeckCapability.SessionHandOff
-            ? 3
-          : capability === AgentDeckCapability.SessionHistoryWrite ||
-              capability === AgentDeckCapability.WorkspaceDirectoryWrite
-            ? 5
-          : capability === AgentDeckCapability.NodeHooksRead ||
-              capability === AgentDeckCapability.NodeHooksWrite ||
-              capability === AgentDeckCapability.NodeAssetsBound ||
-              capability === AgentDeckCapability.SessionPresentationRead ||
-              capability === AgentDeckCapability.SessionMessagesRead ||
-              capability === AgentDeckCapability.SessionPermissionsRead ||
-              capability === AgentDeckCapability.SessionOutgoingRead ||
-              capability === AgentDeckCapability.SessionOutgoingWrite ||
-              capability === AgentDeckCapability.PendingIndexRead
-            ? 4
-          : 0;
+        : capability === AgentDeckCapability.SessionReactivate
+          ? 6
+          : capability === AgentDeckCapability.NodeAssets ||
+              capability === AgentDeckCapability.NodeConfiguration
+            ? 2
+            : capability === AgentDeckCapability.SessionContextRead ||
+                capability === AgentDeckCapability.SessionInputRead ||
+                capability === AgentDeckCapability.SessionHandOff
+              ? 3
+              : capability === AgentDeckCapability.SessionHistoryWrite ||
+                  capability === AgentDeckCapability.WorkspaceDirectoryWrite
+                ? 5
+                : capability === AgentDeckCapability.NodeHooksRead ||
+                    capability === AgentDeckCapability.NodeHooksWrite ||
+                    capability === AgentDeckCapability.NodeAssetsBound ||
+                    capability === AgentDeckCapability.SessionPresentationRead ||
+                    capability === AgentDeckCapability.SessionMessagesRead ||
+                    capability === AgentDeckCapability.SessionPermissionsRead ||
+                    capability === AgentDeckCapability.SessionOutgoingRead ||
+                    capability === AgentDeckCapability.SessionOutgoingWrite ||
+                    capability === AgentDeckCapability.PendingIndexRead
+                  ? 4
+                  : 0;
       if (
         protocolVersion.major > 2 ||
         (protocolVersion.major === 2 && protocolVersion.minor >= minimumMinor)

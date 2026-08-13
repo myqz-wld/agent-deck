@@ -25,6 +25,7 @@ function event(kind: AgentEvent['kind']): AgentEvent {
 
 function harness(insert = vi.fn()) {
   const appendChange = vi.fn(() => 1);
+  const renameSessionMutationResults = vi.fn();
   const diagnostics: ServerCoreRuntimeDiagnostics = {
     info: vi.fn(),
     warn: vi.fn(),
@@ -34,7 +35,10 @@ function harness(insert = vi.fn()) {
   reviewEvents.subscribe(review);
   const observer = createServerCoreSessionManagerObserver({
     diagnostics,
-    metadata: { appendChange } as unknown as ServerCoreRuntimeMetadataStore,
+    metadata: {
+      appendChange,
+      renameSessionMutationResults,
+    } as unknown as ServerCoreRuntimeMetadataStore,
     reviewEvents,
     tokenUsage: {
       insert,
@@ -44,7 +48,7 @@ function harness(insert = vi.fn()) {
       deleteOlderThan: vi.fn(() => 0),
     },
   });
-  return { appendChange, diagnostics, insert, observer, review };
+  return { appendChange, diagnostics, insert, observer, renameSessionMutationResults, review };
 }
 
 describe('Server Core session manager observer', () => {
@@ -93,5 +97,20 @@ describe('Server Core session manager observer', () => {
       failure,
     );
     expect(state.appendChange).not.toHaveBeenCalled();
+  });
+
+  it('repairs create idempotency before publishing a session rename', () => {
+    const state = harness();
+    state.observer.sessionRenamed('temporary-a', 'canonical-a');
+
+    expect(state.renameSessionMutationResults).toHaveBeenCalledWith(
+      'temporary-a',
+      'canonical-a',
+    );
+    expect(state.appendChange).toHaveBeenCalledWith(
+      'session.renamed',
+      'canonical-a',
+      { fromId: 'temporary-a', toId: 'canonical-a' },
+    );
   });
 });
