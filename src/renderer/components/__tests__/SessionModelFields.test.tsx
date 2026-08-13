@@ -115,4 +115,51 @@ describe('SessionModelFields', () => {
     expect(summary?.textContent).not.toContain('Provider：原生');
     expect(summary?.textContent).not.toContain('模型：配置文件');
   });
+
+  it('Remote Gateway 与 Local 共用 Combobox，并只提交 Core 白名单选项', () => {
+    const onProviderChange = vi.fn();
+    render(
+      <SessionModelFields
+        adapterId="claude-code"
+        provider=""
+        providerOptions={[{ id: 'deepseek' }]}
+        providerClosed
+        model="sonnet"
+        thinking="high"
+        onProviderChange={onProviderChange}
+        onModelChange={vi.fn()}
+        onThinkingChange={vi.fn()}
+      />,
+    );
+
+    const gateway = screen.getByRole('combobox', { name: 'Gateway' });
+    expect((gateway as HTMLInputElement).value).toBe('原生 settings.json');
+    fireEvent.focus(gateway);
+    fireEvent.change(gateway, { target: { value: 'deep' } });
+    expect(onProviderChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('option', { name: 'deepseek' }));
+    expect(onProviderChange).toHaveBeenCalledWith('deepseek');
+  });
+
+  it('Remote Codex 无自定义 Provider 时仍提供原生 config.toml 选项', () => {
+    const onProviderChange = vi.fn();
+    render(
+      <SessionModelFields
+        adapterId="codex-cli"
+        provider=""
+        providerOptions={[]}
+        providerClosed
+        model="gpt-5.6-sol"
+        thinking="high"
+        onProviderChange={onProviderChange}
+        onModelChange={vi.fn()}
+        onThinkingChange={vi.fn()}
+      />,
+    );
+
+    const provider = screen.getByRole('combobox', { name: 'Provider' });
+    expect((provider as HTMLInputElement).value).toBe('原生 config.toml');
+    fireEvent.focus(provider);
+    expect(screen.getByRole('option', { name: '原生 config.toml' })).toBeTruthy();
+  });
 });

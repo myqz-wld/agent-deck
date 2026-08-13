@@ -134,7 +134,7 @@ describe('ServerCoreSessionCreateCapabilities', () => {
     )).rejects.toMatchObject({ code: 'capability_unavailable' });
   });
 
-  it('truthfully disables an unconfigured provider selector without reading provider files', async () => {
+  it('keeps the native provider choice available without custom provider definitions', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-create-empty-catalog-')));
     roots.push(root);
     const workspaceRoot = join(root, 'workspace');
@@ -156,10 +156,10 @@ describe('ServerCoreSessionCreateCapabilities', () => {
     expect(descriptor.create.options.provider).toEqual({
       allowedValues: [],
       allowCustom: false,
-      allowEmpty: false,
-      defaultValue: null,
-      disabledReason: 'Worker 未配置可选 Provider；当前会话将跟随提供方默认值。',
-      enabled: false,
+      allowEmpty: true,
+      defaultValue: '',
+      disabledReason: null,
+      enabled: true,
     });
   });
 

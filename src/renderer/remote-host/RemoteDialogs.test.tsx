@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
 import { NewSessionDialog } from '@renderer/components/NewSessionDialog';
 import { RemoteHostManagerDialog } from '@renderer/components/RemoteHost/RemoteHostManagerDialog';
 import { HistoryPanel } from '@renderer/components/HistoryPanel';
@@ -76,6 +77,38 @@ describe('remote source surfaces', () => {
     expect(screen.getByText(/目录始终相对于 Remote Workspace/)).toBeTruthy();
     expect(screen.queryByText(/新建远程/u)).toBeNull();
     expect(localListAdapters).not.toHaveBeenCalled();
+  });
+
+  it('uses the Local-aligned closed combobox for a Core-advertised Claude Gateway', async () => {
+    const current = source();
+    vi.mocked(current.getSessionCapabilities).mockImplementation(async (request) => {
+      const descriptor = sessionConsoleCapabilitiesFixture(
+        'claude-code',
+        request.workingDirectory,
+      );
+      descriptor.create.options.provider = {
+        allowedValues: ['deepseek'],
+        allowCustom: false,
+        allowEmpty: true,
+        defaultValue: request.provider,
+        disabledReason: null,
+        enabled: true,
+      };
+      return descriptor;
+    });
+    window.api = {} as typeof window.api;
+    render(<NewSessionDialog open remoteSource={current} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenCalled());
+    fireEvent.click(screen.getByText('模型配置'));
+    const gateway = screen.getByRole('combobox', { name: 'Gateway' });
+    expect((gateway as HTMLInputElement).value).toBe('原生 settings.json');
+    fireEvent.focus(gateway);
+    fireEvent.change(gateway, { target: { value: 'deep' } });
+    fireEvent.click(screen.getByRole('option', { name: 'deepseek' }));
+    await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenLastCalledWith(
+      expect.objectContaining({ adapterId: 'claude-code', provider: 'deepseek' }),
+    ));
   });
 
   it('browses Workspace subdirectories without invoking the Local native picker', async () => {
