@@ -26,6 +26,7 @@ import type {
   ServerCoreSessionSpawnCreateInput,
 } from './session-console-authority';
 import type { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
+import type { ServerCoreBundledAgentLookupPort } from './spawn-agent-runtime';
 
 const databases: Database.Database[] = [];
 
@@ -54,7 +55,12 @@ export function session(
   };
 }
 
-export function harness(input: { failAnchor?: boolean; callerDepth?: number } = {}) {
+export function harness(input: {
+  failAnchor?: boolean;
+  callerDepth?: number;
+  agents?: ServerCoreBundledAgentLookupPort;
+  capabilities?: ServerCoreSessionCreateCapabilities;
+} = {}) {
   const database = makeMemoryDb();
   databases.push(database);
   insertSession(database, 'caller', 'codex-cli');
@@ -110,13 +116,19 @@ export function harness(input: { failAnchor?: boolean; callerDepth?: number } = 
   });
   const describe = vi.fn(async (params: {
     adapterId: 'claude-code' | 'codex-cli' | 'grok-build';
+    provider: string;
     workingDirectory: string;
-  }) => sessionConsoleCapabilitiesFixture(params.adapterId, params.workingDirectory));
+  }) => input.capabilities
+    ? input.capabilities.describe(params)
+    : sessionConsoleCapabilitiesFixture(params.adapterId, params.workingDirectory));
   const validateCreate = vi.fn(async (
     adapterId: 'claude-code' | 'codex-cli' | 'grok-build',
-    _revision: string,
+    revision: string,
     cwd: string,
-  ) => sessionConsoleCapabilitiesFixture(adapterId, cwd));
+    options: Parameters<ServerCoreSessionCreateCapabilities['validateCreate']>[3],
+  ) => input.capabilities
+    ? input.capabilities.validateCreate(adapterId, revision, cwd, options)
+    : sessionConsoleCapabilitiesFixture(adapterId, cwd));
   const closeSessionForRollback = vi.fn(async () => undefined);
   const validateForkSession = vi.fn(async (
     _source: ForkSessionSource,
@@ -159,12 +171,15 @@ export function harness(input: { failAnchor?: boolean; callerDepth?: number } = 
     registry: { get: () => adapter },
     capabilities: {
       describe,
-      resolveWorkingDirectory: () => process.cwd(),
+      resolveWorkingDirectory: (cwd: string) => input.capabilities
+        ? input.capabilities.resolveWorkingDirectory(cwd)
+        : process.cwd(),
       validateCreate,
     } as unknown as ServerCoreSessionCreateCapabilities,
     authority: { createSpawnSession } as unknown as ServerCoreSessionConsoleAuthority,
     collaboration,
     metadata: { appendChange } as unknown as ServerCoreRuntimeMetadataStore,
+    agents: input.agents,
     now: () => 5_000,
   });
   return {

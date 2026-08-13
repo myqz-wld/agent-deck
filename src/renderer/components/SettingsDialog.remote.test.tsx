@@ -2,6 +2,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { DEFAULT_SETTINGS } from '@shared/types';
+import type {
+  NodeConfigurationGetResult,
+  NodeProviderDefaultsDto,
+} from '@contracts/index';
 import { SettingsDialog } from './SettingsDialog';
 
 const RAW_BACKEND_ERROR =
@@ -13,6 +17,44 @@ const REMOTE_HOOK_STATUS = {
   writeAllowed: true,
   disabledReason: null,
 } as const;
+
+function configuration(
+  overrides: Partial<NodeProviderDefaultsDto> = {},
+  revision = 4,
+): NodeConfigurationGetResult {
+  return {
+    providerDefaults: {
+      claudeCliPath: '/Applications/Agent Deck/claude',
+      claudeCodeSandbox: DEFAULT_SETTINGS.claudeCodeSandbox,
+      codexCliPath: '/Applications/Agent Deck/codex',
+      codexSandbox: DEFAULT_SETTINGS.codexSandbox,
+      enableAgentDeckMcp: DEFAULT_SETTINGS.enableAgentDeckMcp,
+      grokCliPath: '/Applications/Agent Deck/grok',
+      grokSandbox: DEFAULT_SETTINGS.grokSandbox,
+      injectAgentDeckClaudeAgents: DEFAULT_SETTINGS.injectAgentDeckClaudeAgents,
+      injectAgentDeckClaudeMd: DEFAULT_SETTINGS.injectAgentDeckClaudeMd,
+      injectAgentDeckClaudeSkills: DEFAULT_SETTINGS.injectAgentDeckClaudeSkills,
+      injectAgentDeckCodexAgents: DEFAULT_SETTINGS.injectAgentDeckCodexAgents,
+      injectAgentDeckCodexAgentsMd: DEFAULT_SETTINGS.injectAgentDeckCodexAgentsMd,
+      injectAgentDeckCodexSkills: DEFAULT_SETTINGS.injectAgentDeckCodexSkills,
+      injectAgentDeckGrokAgents: DEFAULT_SETTINGS.injectAgentDeckGrokAgents,
+      injectAgentDeckGrokAgentsMd: DEFAULT_SETTINGS.injectAgentDeckGrokAgentsMd,
+      injectAgentDeckGrokSkills: DEFAULT_SETTINGS.injectAgentDeckGrokSkills,
+      mcpHttpEnabled: DEFAULT_SETTINGS.mcpHttpEnabled,
+      permissionTimeoutMs: DEFAULT_SETTINGS.permissionTimeoutMs,
+      summaryModel: DEFAULT_SETTINGS.summaryModel,
+      summaryThinking: DEFAULT_SETTINGS.summaryThinking,
+      summaryTimeoutMs: DEFAULT_SETTINGS.summaryTimeoutMs,
+      ...overrides,
+    },
+    sessionLifecycle: {
+      activeWindowMs: DEFAULT_SETTINGS.activeWindowMs,
+      closeAfterMs: DEFAULT_SETTINGS.closeAfterMs,
+      historyRetentionDays: DEFAULT_SETTINGS.historyRetentionDays,
+    },
+    revision,
+  };
+}
 function expectRawBackendDetailsHidden(): void {
   const text = document.body.textContent ?? '';
   for (const marker of [
@@ -59,8 +101,7 @@ describe('SettingsDialog adapter views', () => {
       value: {
         getSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
         hookStatus: localHookStatus,
-        getRemoteHostNodeConfiguration: vi.fn().mockResolvedValue({
-          providerDefaults: {
+        getRemoteHostNodeConfiguration: vi.fn().mockResolvedValue(configuration({
             claudeCodeSandbox: 'strict',
             codexSandbox: 'read-only',
             enableAgentDeckMcp: true,
@@ -69,9 +110,7 @@ describe('SettingsDialog adapter views', () => {
             summaryModel: 'summary-model',
             summaryThinking: 'low',
             summaryTimeoutMs: 60_000,
-          },
-          revision: 4,
-        }),
+          })),
         getRemoteHostNodeHookStatus: remoteHookStatus,
       },
     });
@@ -88,10 +127,17 @@ describe('SettingsDialog adapter views', () => {
     expect(await screen.findByText('Remote 设置 · aws-relay-on-mac')).toBeTruthy();
     expect(screen.getByRole('dialog', { name: 'Remote 设置 · aws-relay-on-mac' })).toBeTruthy();
     fireEvent.click(await screen.findByRole('button', { name: '实验功能' }));
-    expect(screen.getByDisplayValue('strict')).toBeTruthy();
+    expect((screen.getByRole('textbox', {
+      name: 'Claude Code 沙盒（系统隔离）',
+    }) as HTMLInputElement).value).toBe('完全只读');
+    fireEvent.click(screen.getByRole('button', { name: '外部工具' }));
+    expect(screen.getByDisplayValue('/Applications/Agent Deck/claude')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Agent Deck MCP' }));
-    expect((screen.getByRole('checkbox', { name: '启用 Agent Deck MCP' }) as HTMLInputElement).disabled)
+    expect((screen.getByRole('checkbox', { name: '允许会话使用协作功能' }) as HTMLInputElement).disabled)
       .toBe(true);
+    expect((screen.getByRole('checkbox', {
+      name: '允许 Codex CLI 和 Grok Build 连接',
+    }) as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('tab', { name: 'Claude Code' }));
     fireEvent.click(screen.getByRole('button', { name: 'Claude Code 终端 Hook' }));
     expect((screen.getByRole('button', { name: '安装 Hook' }) as HTMLButtonElement).disabled)
@@ -119,14 +165,11 @@ describe('SettingsDialog adapter views', () => {
       value: {
         getSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
         hookStatus,
-        getRemoteHostNodeConfiguration: vi.fn().mockResolvedValue({
-          providerDefaults: {
+        getRemoteHostNodeConfiguration: vi.fn().mockResolvedValue(configuration({
             claudeCodeSandbox: 'strict', codexSandbox: 'read-only',
             enableAgentDeckMcp: true, grokSandbox: 'off', permissionTimeoutMs: 30_000,
             summaryModel: 'summary-model', summaryThinking: 'low', summaryTimeoutMs: 60_000,
-          },
-          revision: 4,
-        }),
+          })),
         getRemoteHostNodeHookStatus: remoteHookStatus,
       },
     });
@@ -181,14 +224,11 @@ describe('SettingsDialog adapter views', () => {
   });
 
   it('loads Worker configuration after reconnecting without requiring the dialog to close', async () => {
-    const remoteConfiguration = vi.fn().mockResolvedValue({
-      providerDefaults: {
+    const remoteConfiguration = vi.fn().mockResolvedValue(configuration({
         claudeCodeSandbox: 'strict', codexSandbox: 'read-only',
         enableAgentDeckMcp: true, grokSandbox: 'off', permissionTimeoutMs: 30_000,
         summaryModel: '', summaryThinking: '', summaryTimeoutMs: 60_000,
-      },
-      revision: 8,
-    });
+      }, 8));
     const remoteHookStatus = vi.fn().mockResolvedValue({
       adapterId: 'claude-code', revision: 8, status: REMOTE_HOOK_STATUS,
     });
@@ -220,19 +260,7 @@ describe('SettingsDialog adapter views', () => {
   });
 
   it('ignores a same-identity Worker response that lands after disconnect', async () => {
-    let resolveConfiguration!: (value: {
-      providerDefaults: {
-        claudeCodeSandbox: string;
-        codexSandbox: string;
-        enableAgentDeckMcp: boolean;
-        grokSandbox: string;
-        permissionTimeoutMs: number;
-        summaryModel: string;
-        summaryThinking: string;
-        summaryTimeoutMs: number;
-      };
-      revision: number;
-    }) => void;
+    let resolveConfiguration!: (value: NodeConfigurationGetResult) => void;
     const remoteConfiguration = vi.fn(() => new Promise((resolve) => {
       resolveConfiguration = resolve;
     }));
@@ -266,8 +294,7 @@ describe('SettingsDialog adapter views', () => {
       '当前远端环境尚未连接，暂时无法读取设置。',
     )).toBeTruthy();
 
-    resolveConfiguration({
-      providerDefaults: {
+    resolveConfiguration(configuration({
         claudeCodeSandbox: 'strict',
         codexSandbox: 'read-only',
         enableAgentDeckMcp: true,
@@ -276,9 +303,7 @@ describe('SettingsDialog adapter views', () => {
         summaryModel: 'stale-worker-model',
         summaryThinking: 'low',
         summaryTimeoutMs: 60_000,
-      },
-      revision: 99,
-    });
+      }, 99));
     await Promise.resolve();
     expect(screen.queryByText('stale-worker-model')).toBeNull();
     expect(screen.queryByText('99')).toBeNull();

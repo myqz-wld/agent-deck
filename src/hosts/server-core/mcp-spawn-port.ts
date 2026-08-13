@@ -7,6 +7,7 @@ export interface ServerCoreSpawnSessionArgs {
   readonly contextMode?: 'fresh' | 'fork';
   readonly teamName?: string;
   readonly displayName?: string;
+  readonly agentName?: string;
   readonly gateway?: string;
   readonly provider?: string;
   readonly model?: string;
@@ -44,6 +45,7 @@ interface ServerCoreSpawnSessionResultBase {
   readonly teamId: string | null;
   readonly teamName: string | null;
   readonly displayName: string | null;
+  readonly agentName: string | null;
   readonly spawnDepth: number;
   readonly spawnLimits: ServerCoreSpawnLimits;
   readonly sentAt: number;

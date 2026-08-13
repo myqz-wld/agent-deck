@@ -55,8 +55,10 @@ export function createServerCoreGrokHost(input: ServerCoreProviderHostInput) {
       readInjectAgents: () => input.settings.injectAgentDeckGrokAgents,
       readInjectAgentPrompt: () => input.settings.injectAgentDeckGrokAgentsMd,
       readInjectSkills: () => input.settings.injectAgentDeckGrokSkills,
-      readMcpEnabled: () => input.mcpBroker.isRunning,
-      readMcpHttpEnabled: () => input.mcpBroker.isRunning,
+      readMcpEnabled: () =>
+        input.settings.enableAgentDeckMcp && input.mcpBroker.isRunning,
+      readMcpHttpEnabled: () =>
+        input.settings.mcpHttpEnabled && input.mcpBroker.isRunning,
       readPermissionTimeoutMs: () => input.settings.permissionTimeoutMs,
       readSummaryModel: () => input.settings.summaryModel,
       readSummaryReasoning: () => input.settings.summaryThinking,

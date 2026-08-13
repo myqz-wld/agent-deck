@@ -9,18 +9,38 @@ export type NodeConfigurationAdapterId =
   (typeof NODE_CONFIGURATION_ADAPTER_IDS)[number];
 
 export interface NodeProviderDefaultsDto extends JsonObject {
+  claudeCliPath: string | null;
   claudeCodeSandbox: 'off' | 'workspace-write' | 'strict';
+  codexCliPath: string | null;
   codexSandbox: 'workspace-write' | 'read-only' | 'danger-full-access';
   enableAgentDeckMcp: boolean;
+  grokCliPath: string | null;
   grokSandbox: string;
+  injectAgentDeckClaudeAgents: boolean;
+  injectAgentDeckClaudeMd: boolean;
+  injectAgentDeckClaudeSkills: boolean;
+  injectAgentDeckCodexAgents: boolean;
+  injectAgentDeckCodexAgentsMd: boolean;
+  injectAgentDeckCodexSkills: boolean;
+  injectAgentDeckGrokAgents: boolean;
+  injectAgentDeckGrokAgentsMd: boolean;
+  injectAgentDeckGrokSkills: boolean;
+  mcpHttpEnabled: boolean;
   permissionTimeoutMs: number;
   summaryModel: string;
   summaryThinking: string;
   summaryTimeoutMs: number;
 }
 
+export interface NodeSessionLifecycleDto extends JsonObject {
+  activeWindowMs: number;
+  closeAfterMs: number;
+  historyRetentionDays: number;
+}
+
 export interface NodeConfigurationGetResult {
   providerDefaults: NodeProviderDefaultsDto;
+  sessionLifecycle: NodeSessionLifecycleDto;
   revision: number;
 }
 
@@ -189,12 +209,22 @@ export function parseNodeHookProjectionResult(value: unknown): NodeHookProjectio
 
 export function parseNodeConfigurationGetResult(value: unknown): NodeConfigurationGetResult {
   if (!isJsonObject(value)) fail('node.configuration.get.result');
-  exactKeys(value, ['providerDefaults', 'revision'], 'node.configuration.get.result');
+  exactKeys(
+    value,
+    ['providerDefaults', 'revision', 'sessionLifecycle'],
+    'node.configuration.get.result',
+  );
   if (!isJsonObject(value.providerDefaults)) fail('node.configuration.providerDefaults');
   const defaults = value.providerDefaults;
   exactKeys(defaults, [
-    'claudeCodeSandbox', 'codexSandbox', 'enableAgentDeckMcp', 'grokSandbox',
-    'permissionTimeoutMs', 'summaryModel', 'summaryThinking', 'summaryTimeoutMs',
+    'claudeCliPath', 'claudeCodeSandbox', 'codexCliPath', 'codexSandbox',
+    'enableAgentDeckMcp', 'grokCliPath', 'grokSandbox',
+    'injectAgentDeckClaudeAgents', 'injectAgentDeckClaudeMd',
+    'injectAgentDeckClaudeSkills', 'injectAgentDeckCodexAgents',
+    'injectAgentDeckCodexAgentsMd', 'injectAgentDeckCodexSkills',
+    'injectAgentDeckGrokAgents', 'injectAgentDeckGrokAgentsMd',
+    'injectAgentDeckGrokSkills', 'mcpHttpEnabled', 'permissionTimeoutMs',
+    'summaryModel', 'summaryThinking', 'summaryTimeoutMs',
   ], 'node.configuration.providerDefaults');
   if (!['off', 'workspace-write', 'strict'].includes(String(defaults.claudeCodeSandbox))) {
     fail('node.configuration.providerDefaults.claudeCodeSandbox');
@@ -205,6 +235,22 @@ export function parseNodeConfigurationGetResult(value: unknown): NodeConfigurati
   if (typeof defaults.enableAgentDeckMcp !== 'boolean') {
     fail('node.configuration.providerDefaults.enableAgentDeckMcp');
   }
+  const booleanKeys = [
+    'injectAgentDeckClaudeAgents', 'injectAgentDeckClaudeMd',
+    'injectAgentDeckClaudeSkills', 'injectAgentDeckCodexAgents',
+    'injectAgentDeckCodexAgentsMd', 'injectAgentDeckCodexSkills',
+    'injectAgentDeckGrokAgents', 'injectAgentDeckGrokAgentsMd',
+    'injectAgentDeckGrokSkills', 'mcpHttpEnabled',
+  ] as const;
+  for (const key of booleanKeys) {
+    if (typeof defaults[key] !== 'boolean') {
+      fail(`node.configuration.providerDefaults.${key}`);
+    }
+  }
+  const cliPath = (key: 'claudeCliPath' | 'codexCliPath' | 'grokCliPath'): string | null =>
+    defaults[key] === null
+      ? null
+      : text(defaults[key], `node.configuration.providerDefaults.${key}`, MAX_PATH_BYTES);
   const permissionTimeoutMs = revision(
     defaults.permissionTimeoutMs,
     'node.configuration.providerDefaults.permissionTimeoutMs',
@@ -213,17 +259,53 @@ export function parseNodeConfigurationGetResult(value: unknown): NodeConfigurati
     defaults.summaryTimeoutMs,
     'node.configuration.providerDefaults.summaryTimeoutMs',
   );
+  if (!isJsonObject(value.sessionLifecycle)) fail('node.configuration.sessionLifecycle');
+  const lifecycle = value.sessionLifecycle;
+  exactKeys(
+    lifecycle,
+    ['activeWindowMs', 'closeAfterMs', 'historyRetentionDays'],
+    'node.configuration.sessionLifecycle',
+  );
+  const activeWindowMs = revision(
+    lifecycle.activeWindowMs,
+    'node.configuration.sessionLifecycle.activeWindowMs',
+  );
+  const closeAfterMs = revision(
+    lifecycle.closeAfterMs,
+    'node.configuration.sessionLifecycle.closeAfterMs',
+  );
+  const historyRetentionDays = revision(
+    lifecycle.historyRetentionDays,
+    'node.configuration.sessionLifecycle.historyRetentionDays',
+  );
+  if (activeWindowMs === 0 || closeAfterMs <= activeWindowMs) {
+    fail('node.configuration.sessionLifecycle.consistency');
+  }
   return {
     providerDefaults: {
+      claudeCliPath: cliPath('claudeCliPath'),
       claudeCodeSandbox: defaults.claudeCodeSandbox as NodeProviderDefaultsDto['claudeCodeSandbox'],
+      codexCliPath: cliPath('codexCliPath'),
       codexSandbox: defaults.codexSandbox as NodeProviderDefaultsDto['codexSandbox'],
       enableAgentDeckMcp: defaults.enableAgentDeckMcp,
+      grokCliPath: cliPath('grokCliPath'),
       grokSandbox: text(defaults.grokSandbox, 'node.configuration.providerDefaults.grokSandbox'),
+      injectAgentDeckClaudeAgents: defaults.injectAgentDeckClaudeAgents as boolean,
+      injectAgentDeckClaudeMd: defaults.injectAgentDeckClaudeMd as boolean,
+      injectAgentDeckClaudeSkills: defaults.injectAgentDeckClaudeSkills as boolean,
+      injectAgentDeckCodexAgents: defaults.injectAgentDeckCodexAgents as boolean,
+      injectAgentDeckCodexAgentsMd: defaults.injectAgentDeckCodexAgentsMd as boolean,
+      injectAgentDeckCodexSkills: defaults.injectAgentDeckCodexSkills as boolean,
+      injectAgentDeckGrokAgents: defaults.injectAgentDeckGrokAgents as boolean,
+      injectAgentDeckGrokAgentsMd: defaults.injectAgentDeckGrokAgentsMd as boolean,
+      injectAgentDeckGrokSkills: defaults.injectAgentDeckGrokSkills as boolean,
+      mcpHttpEnabled: defaults.mcpHttpEnabled as boolean,
       permissionTimeoutMs,
       summaryModel: text(defaults.summaryModel, 'node.configuration.providerDefaults.summaryModel'),
       summaryThinking: text(defaults.summaryThinking, 'node.configuration.providerDefaults.summaryThinking'),
       summaryTimeoutMs,
     },
+    sessionLifecycle: { activeWindowMs, closeAfterMs, historyRetentionDays },
     revision: revision(value.revision, 'node.configuration.get.revision'),
   };
 }

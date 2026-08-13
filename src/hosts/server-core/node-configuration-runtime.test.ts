@@ -13,6 +13,7 @@ import { DEFAULT_SETTINGS } from '@shared/types';
 
 import { ServerCoreNodeConfigurationRuntime } from './node-configuration-runtime';
 import { resolveServerCoreProviderSettings } from './provider-settings';
+import { resolveServerCoreSessionLifecycleSettings } from './session-lifecycle-options';
 
 const access: AuthenticatedClientAccessContext = {
   kind: 'authenticated-client',
@@ -69,11 +70,24 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
   it('returns the immutable provider settings owned by the Worker Core', async () => {
     const runtime = new ServerCoreNodeConfigurationRuntime(base(), {
       settings: resolveServerCoreProviderSettings({ providerSettings: {
+        claudeCliPath: '/opt/claude',
         claudeCodeSandbox: 'strict',
+        codexCliPath: '/opt/codex',
         codexSandbox: 'read-only',
         enableAgentDeckMcp: false,
+        grokCliPath: '/opt/grok',
         grokSandbox: 'off',
+        injectAgentDeckClaudeAgents: false,
+        mcpHttpEnabled: false,
       } }),
+      sessionLifecycle: resolveServerCoreSessionLifecycleSettings({
+        sessionLifecycle: {
+          schemaVersion: 1,
+          activeWindowMs: 120_000,
+          closeAfterMs: 3_600_000,
+          historyRetentionDays: 14,
+        },
+      }),
       hookStates: hookStates(),
       registry: { get: () => undefined, isReady: () => false },
       metadata: {
@@ -89,11 +103,21 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
       revision: 12,
       result: {
         providerDefaults: {
+          claudeCliPath: '/opt/claude',
           claudeCodeSandbox: 'strict',
+          codexCliPath: '/opt/codex',
           codexSandbox: 'read-only',
           enableAgentDeckMcp: false,
+          grokCliPath: '/opt/grok',
           grokSandbox: 'off',
+          injectAgentDeckClaudeAgents: false,
+          mcpHttpEnabled: false,
           permissionTimeoutMs: DEFAULT_SETTINGS.permissionTimeoutMs,
+        },
+        sessionLifecycle: {
+          activeWindowMs: 120_000,
+          closeAfterMs: 3_600_000,
+          historyRetentionDays: 14,
         },
       },
     });
@@ -124,6 +148,7 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
     } as unknown as AgentAdapter;
     const runtime = new ServerCoreNodeConfigurationRuntime(base(), {
       settings: resolveServerCoreProviderSettings({}),
+      sessionLifecycle: resolveServerCoreSessionLifecycleSettings({}),
       hookStates: hookStates({ 'claude-code': 'installed' }),
       registry: { get: () => adapter, isReady: () => true },
       metadata: {
@@ -168,6 +193,7 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
     } as unknown as AgentAdapter;
     const runtime = new ServerCoreNodeConfigurationRuntime(base(), {
       settings: resolveServerCoreProviderSettings({}),
+      sessionLifecycle: resolveServerCoreSessionLifecycleSettings({}),
       hookStates: hookStates({ 'claude-code': 'installed' }),
       registry: { get: () => adapter, isReady: () => true },
       metadata: {
@@ -188,6 +214,7 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
   it('returns an explicit path-free unavailable status for an unsupported adapter', async () => {
     const runtime = new ServerCoreNodeConfigurationRuntime(base(), {
       settings: resolveServerCoreProviderSettings({}),
+      sessionLifecycle: resolveServerCoreSessionLifecycleSettings({}),
       hookStates: hookStates(),
       registry: { get: () => undefined, isReady: () => false },
       metadata: {
@@ -224,6 +251,7 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
     } as unknown as AgentAdapter;
     const runtime = new ServerCoreNodeConfigurationRuntime(base(), {
       settings: resolveServerCoreProviderSettings({}),
+      sessionLifecycle: resolveServerCoreSessionLifecycleSettings({}),
       hookStates: hookStates({ 'claude-code': 'installed' }),
       registry: { get: () => adapter, isReady: () => false },
       metadata: {

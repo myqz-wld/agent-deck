@@ -13,6 +13,7 @@ import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import { resolveServerCoreProviderSettings } from './provider-settings';
 import { ServerCoreNodeAssetCatalog } from './node-asset-catalog';
 import { ServerCoreNodeAssetRuntime } from './node-asset-runtime';
+import { resolveServerCoreSpawnAgent } from './spawn-agent-runtime';
 
 function fixtures(): { contents: string; home: string; state: string } {
   const root = mkdtempSync(join(tmpdir(), 'agent-deck-node-assets-'));
@@ -87,13 +88,54 @@ function input(method: CoreMethod, params: Record<string, JsonValue>): DaemonReq
 describe('ServerCoreNodeAssetRuntime', () => {
   it('lists and reads only Worker-owned packaged resources', async () => {
     const paths = fixtures();
+    const settings = resolveServerCoreProviderSettings({
+      providerSettings: {
+        bundledAgentRuntimeOverrides: {
+          'claude-code:sample': {
+            model: 'full-review-model',
+            thinking: 'max',
+            provider: 'full-gateway',
+          },
+          'codex-cli:sample': {
+            model: 'full-codex-model',
+            thinking: 'ultra',
+            provider: 'full-codex-provider',
+          },
+          'grok-build:sample': {
+            model: 'full-grok-model',
+            thinking: 'xhigh',
+          },
+        },
+      },
+    });
     const catalog = ServerCoreNodeAssetCatalog.create({
       providerHomeRoot: paths.home,
       runtimeReadRoots: [paths.contents],
       stateDirectory: paths.state,
-      settings: resolveServerCoreProviderSettings({}),
+      settings,
     });
     expect(catalog).not.toBeNull();
+    expect(resolveServerCoreSpawnAgent(catalog, 'claude-code', 'sample')).toMatchObject({
+      defaults: {
+        model: 'full-review-model', thinking: 'max', provider: 'full-gateway',
+      },
+      create: { adapterId: 'claude-code', claudeAgentName: 'sample' },
+    });
+    expect(resolveServerCoreSpawnAgent(catalog, 'codex-cli', 'sample')).toMatchObject({
+      defaults: {
+        model: 'full-codex-model', thinking: 'ultra', provider: 'full-codex-provider',
+      },
+      create: {
+        adapterId: 'codex-cli',
+        developerInstructions: expect.stringContaining('review'),
+      },
+    });
+    expect(resolveServerCoreSpawnAgent(catalog, 'grok-build', 'sample')).toMatchObject({
+      defaults: { model: 'full-grok-model', thinking: 'xhigh' },
+      create: {
+        adapterId: 'grok-build', grokAgentName: 'sample', grokAgentSource: 'bundled',
+      },
+    });
     const base: DaemonCoreRuntime = {
       supportedMethods: [] as CoreMethod[],
       start: async () => undefined,
@@ -111,6 +153,9 @@ describe('ServerCoreNodeAssetRuntime', () => {
       name: string;
       qualifiedName: string;
       location: string;
+      model: string | null;
+      runtimeDefaults: { model: string | null } | null;
+      runtimeOverride: { model: string | null } | null;
     }> }).assets;
     expect(assets.filter((asset) => asset.name === 'sample')).toHaveLength(8);
 
@@ -131,6 +176,12 @@ describe('ServerCoreNodeAssetRuntime', () => {
     expect(pluginAgent?.location).toContain('.claude/plugins/demo/agents/sample.md');
     expect(assets.some((asset) =>
       asset.qualifiedName === 'plugin:demo/sample' && asset.adapterId === 'grok-build')).toBe(true);
+    expect(assets.find((asset) =>
+      asset.qualifiedName === 'agent-deck:claude-code:sample')).toMatchObject({
+      model: 'full-review-model',
+      runtimeDefaults: { model: null },
+      runtimeOverride: { model: 'full-review-model' },
+    });
     const pluginContent = await runtime.execute(input('node.assets.content', {
       adapterId: pluginAgent!.adapterId,
       kind: pluginAgent!.kind,
@@ -172,7 +223,7 @@ describe('ServerCoreNodeAssetRuntime', () => {
       source: 'user',
       name: 'late',
       qualifiedName: 'late',
-      location: 'Worker Provider Home/.claude/agents/late.md',
+      location: '个人配置/.claude/agents/late.md',
     } as const;
 
     expect(catalog!.content(params, 2)).toBeNull();

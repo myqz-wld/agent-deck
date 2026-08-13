@@ -6,6 +6,7 @@ import {
   type AppSettings,
 } from '@shared/types';
 import { normalizeGrokSandboxProfile } from '@shared/grok-sandbox';
+import { normalizeBundledAgentRuntimeOverrideMap } from '@main/bundled-agent-runtime-validation';
 
 const MAX_PATH_BYTES = 4_096;
 const MAX_TEXT_BYTES = 512;
@@ -13,6 +14,7 @@ const MAX_DURATION_MS = 24 * 60 * 60 * 1_000;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
 export const SERVER_CORE_PROVIDER_SETTINGS_KEYS = Object.freeze([
+  'bundledAgentRuntimeOverrides',
   'claudeCliPath',
   'claudeCodeSandbox',
   'codexCliPath',
@@ -110,8 +112,22 @@ function resolveValue<K extends ServerCoreProviderSettingKey>(
   key: K,
 ): AppSettings[K] {
   const value = raw[key];
-  if (value === undefined) return DEFAULT_SETTINGS[key];
+  if (value === undefined) {
+    return (key === 'bundledAgentRuntimeOverrides'
+      ? Object.freeze({})
+      : DEFAULT_SETTINGS[key]) as AppSettings[K];
+  }
   switch (key) {
+    case 'bundledAgentRuntimeOverrides':
+      try {
+        return Object.freeze(Object.fromEntries(
+          Object.entries(normalizeBundledAgentRuntimeOverrideMap(value)).map(
+            ([agentId, override]) => [agentId, Object.freeze({ ...override })],
+          ),
+        )) as AppSettings[K];
+      } catch {
+        return fail(key);
+      }
     case 'claudeCliPath':
     case 'codexCliPath':
     case 'grokCliPath':

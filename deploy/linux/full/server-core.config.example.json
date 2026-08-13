@@ -7,7 +7,9 @@
     "providerContainer": {
       "schemaVersion": 1
     },
-    "providerSettings": {},
+    "providerSettings": {
+      "bundledAgentRuntimeOverrides": {}
+    },
     "projects": []
   },
   "socketPath": "/run/agent-deck/instance-a/agent-deckd.sock"

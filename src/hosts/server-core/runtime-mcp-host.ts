@@ -31,6 +31,8 @@ export function createServerCoreMcpComposition(input: {
   readonly worktreeRuntime: ServerCoreWorktreeRuntimePort;
   readonly registry: { get(adapterId: string): AgentAdapter | undefined };
   readonly capabilities: ServerCoreSessionCreateCapabilities;
+  readonly mcpEnabled: boolean;
+  readonly mcpHttpEnabled: boolean;
   readonly diagnostics: ServerCoreRuntimeDiagnostics;
   readonly reviewEvents: ServerCorePlanReviewEventPort;
   readonly appendChange: (kind: string, entityId: string, payload: JsonValue) => void;
@@ -79,6 +81,8 @@ export function createServerCoreMcpComposition(input: {
       presentations,
     }),
     diagnostics: input.diagnostics,
+    mcpEnabled: input.mcpEnabled,
+    mcpHttpEnabled: input.mcpHttpEnabled,
   });
   return Object.freeze({ desktopBroker, handoff, mcpBroker, presentations });
 }

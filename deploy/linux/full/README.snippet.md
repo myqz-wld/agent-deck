@@ -10,6 +10,10 @@ Browser data all live in the appliance.
 No hand-maintained Remote session catalog is used. At Server Core startup, the trusted provider
 source projection derives one bounded, non-secret Gateway/Provider/model snapshot. Remote
 capability requests consume only that snapshot and never open raw provider configuration.
+Full keeps its own read-only settings in `runtimeOptions.providerSettings`; it never imports a
+desktop or Relay Worker settings snapshot. Built-in Agent model, reasoning, and Claude
+Gateway/Codex Provider changes belong in `bundledAgentRuntimeOverrides` there. The same values are
+shown in the Remote Assets page and are used when `spawn_session` selects that built-in Agent.
 
 ```bash
 pnpm deploy:full-server -- --config /absolute/path/full-server.json --check

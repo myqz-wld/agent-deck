@@ -21,11 +21,17 @@ describe('Server Core provider settings', () => {
       permissionTimeoutMs: DEFAULT_SETTINGS.permissionTimeoutMs,
     });
     expect(Object.isFrozen(settings)).toBe(true);
+    expect(Object.isFrozen(settings.bundledAgentRuntimeOverrides)).toBe(true);
   });
 
   it('normalizes bounded overrides without accepting desktop-only settings', () => {
     const settings = resolveServerCoreProviderSettings({
       providerSettings: {
+        bundledAgentRuntimeOverrides: {
+          'claude-code:reviewer-claude': {
+            model: 'review-model', thinking: 'max', provider: 'deepseek',
+          },
+        },
         claudeCliPath: '/opt/providers/claude',
         codexCliPath: '/opt/providers/codex',
         enableAgentDeckMcp: false,
@@ -44,7 +50,15 @@ describe('Server Core provider settings', () => {
       permissionTimeoutMs: 0,
       summaryModel: 'model-a',
       summaryThinking: 'ultra',
+      bundledAgentRuntimeOverrides: {
+        'claude-code:reviewer-claude': {
+          model: 'review-model', thinking: 'max', provider: 'deepseek',
+        },
+      },
     });
+    expect(Object.isFrozen(
+      settings.bundledAgentRuntimeOverrides['claude-code:reviewer-claude'],
+    )).toBe(true);
   });
 
   it.each<JsonObject>([
@@ -55,6 +69,11 @@ describe('Server Core provider settings', () => {
     { providerSettings: { permissionTimeoutMs: -1 } },
     { providerSettings: { summaryThinking: 'unsupported' } },
     { providerSettings: { grokSandbox: 'strict\nworkspace' } },
+    { providerSettings: {
+      bundledAgentRuntimeOverrides: {
+        'claude-code:reviewer-claude': { thinking: 'ultra' },
+      },
+    } },
   ])('rejects an invalid provider settings boundary %#', (runtimeOptions) => {
     expect(() => resolveServerCoreProviderSettings(runtimeOptions)).toThrow(
       /providerSettings/,

@@ -22,6 +22,7 @@ import {
 import type { AgentAdapter } from '@main/adapters/types';
 
 import type { ServerCoreProviderSettings } from './provider-settings';
+import type { ServerCoreSessionLifecycleSettings } from './session-lifecycle-options';
 import type { ServerCoreMutationClaim, ServerCoreMutationIdentity } from './runtime-metadata-store';
 
 export const SERVER_CORE_NODE_CONFIGURATION_METHODS = Object.freeze([
@@ -33,6 +34,7 @@ type NodeConfigurationMethod = (typeof SERVER_CORE_NODE_CONFIGURATION_METHODS)[n
 
 export interface ServerCoreNodeConfigurationRuntimeOptions {
   readonly settings: ServerCoreProviderSettings;
+  readonly sessionLifecycle: ServerCoreSessionLifecycleSettings;
   readonly registry: {
     get(id: string): AgentAdapter | undefined;
     isReady(id: string): boolean;
@@ -99,15 +101,29 @@ export class ServerCoreNodeConfigurationRuntime implements DaemonCoreRuntime {
     const revision = this.options.metadata.currentRevision();
     return this.result(parseNodeConfigurationGetResult({
       providerDefaults: {
+        claudeCliPath: this.options.settings.claudeCliPath,
         claudeCodeSandbox: this.options.settings.claudeCodeSandbox,
+        codexCliPath: this.options.settings.codexCliPath,
         codexSandbox: this.options.settings.codexSandbox,
         enableAgentDeckMcp: this.options.settings.enableAgentDeckMcp,
+        grokCliPath: this.options.settings.grokCliPath,
         grokSandbox: this.options.settings.grokSandbox,
+        injectAgentDeckClaudeAgents: this.options.settings.injectAgentDeckClaudeAgents,
+        injectAgentDeckClaudeMd: this.options.settings.injectAgentDeckClaudeMd,
+        injectAgentDeckClaudeSkills: this.options.settings.injectAgentDeckClaudeSkills,
+        injectAgentDeckCodexAgents: this.options.settings.injectAgentDeckCodexAgents,
+        injectAgentDeckCodexAgentsMd: this.options.settings.injectAgentDeckCodexAgentsMd,
+        injectAgentDeckCodexSkills: this.options.settings.injectAgentDeckCodexSkills,
+        injectAgentDeckGrokAgents: this.options.settings.injectAgentDeckGrokAgents,
+        injectAgentDeckGrokAgentsMd: this.options.settings.injectAgentDeckGrokAgentsMd,
+        injectAgentDeckGrokSkills: this.options.settings.injectAgentDeckGrokSkills,
+        mcpHttpEnabled: this.options.settings.mcpHttpEnabled,
         permissionTimeoutMs: this.options.settings.permissionTimeoutMs,
         summaryModel: this.options.settings.summaryModel,
         summaryThinking: this.options.settings.summaryThinking,
         summaryTimeoutMs: this.options.settings.summaryTimeoutMs,
       },
+      sessionLifecycle: this.options.sessionLifecycle,
       revision,
     }), revision);
   }

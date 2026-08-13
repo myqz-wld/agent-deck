@@ -3,6 +3,7 @@ import {
   syncProviderHomeFiles,
 } from '@hosts/provider-state/provider-home-projection';
 import { projectLocalWorkerAssets } from './provider-asset-projection';
+import { projectLocalWorkerDesktopState } from './desktop-state-projection';
 
 /** One-time terminal-owned projection into a freshly created Local Worker private root. */
 export function projectLocalWorkerProviderHome(
@@ -12,6 +13,7 @@ export function projectLocalWorkerProviderHome(
   return Object.freeze([
     ...projectProviderHomeFiles(sourceHome, destinationHome, 'create-only'),
     ...projectLocalWorkerAssets(sourceHome, destinationHome, 'create-only'),
+    ...projectLocalWorkerDesktopState(sourceHome, destinationHome, 'create-only'),
   ]);
 }
 
@@ -23,5 +25,6 @@ export function syncLocalWorkerProviderHome(
   return Object.freeze([
     ...syncProviderHomeFiles(sourceHome, destinationHome),
     ...projectLocalWorkerAssets(sourceHome, destinationHome, 'replace'),
+    ...projectLocalWorkerDesktopState(sourceHome, destinationHome, 'replace'),
   ]);
 }

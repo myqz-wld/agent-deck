@@ -13,7 +13,6 @@ import { tokenUsageRepo } from '@main/store/token-usage-repo';
 import { findSessionHandOffSuccessor } from '@main/store/session-handoff-alias-repo';
 import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
-import type { JsonObject } from '@contracts/index';
 import type { WorkspaceSandboxSpec } from '@contracts/workspace-sandbox';
 import { syncProviderHomeFiles } from '@hosts/provider-state/provider-home-projection';
 import type { ServerCoreRuntimeBootstrap, ServerCoreRuntimeFactoryInput } from './root';
@@ -28,7 +27,6 @@ import {
   type ServerCoreProviderHostInput,
 } from './provider-host-common';
 import { ServerCoreProviderRuntimeLifecycle } from './provider-runtime-lifecycle';
-import { resolveServerCoreProviderSettings } from './provider-settings';
 import {
   resolveServerCoreProjectCatalog,
   withServerCoreWorkspaceRootProject,
@@ -70,23 +68,21 @@ import { ServerCoreSessionPresentationRuntime } from './session-presentation-run
 import { ServerCoreSessionMetadataRuntime } from './session-metadata-runtime';
 import { ServerCoreSessionHistoryMutationRuntime } from './session-history-mutation-runtime';
 import { ServerCoreWorkspaceDirectoryMutationRuntime } from './workspace-directory-mutation-runtime';
-import { resolveServerCoreSessionLifecycleSettings } from './session-lifecycle-options';
 import { createServerCoreProviderRetirement } from './runtime-provider-retirement';
 import { createServerCoreSessionRollback } from './runtime-session-rollback';
+import {
+  resolveServerCoreRuntimeSettings,
+  validateServerCoreRuntimeOptions,
+} from './runtime-settings';
 import {
   resolveServerCoreProviderGrokContainer,
   resolveServerCoreProviderContainerRuntimePaths,
   resolveServerCoreProviderWorkspaceBoundary,
-  validateServerCoreProviderContainerOption,
   type ServerCoreProviderGrokContainerPort,
 } from './runtime-provider-container';
 
 export const SERVER_CORE_CREDENTIAL_FILE = '/run/secrets/agent-deck/credentials.json';
 export const SERVER_CORE_PROVIDER_AUTH_SOURCE = '/run/secrets/agent-deck/provider-home';
-const RUNTIME_OPTION_KEYS = new Set([
-  'projects', 'providerContainer', 'providerSettings', 'sessionLifecycle',
-]);
-
 export interface ServerCoreRuntimeCompositionOverrides {
   readonly processId?: string;
   readonly credentialFilePath?: string;
@@ -97,16 +93,6 @@ export interface ServerCoreRuntimeCompositionOverrides {
   readonly providerAuthSource?: string | null;
   /** Trusted composition seam; capability publication remains independently fail-closed. */
   readonly grokContainer?: ServerCoreProviderGrokContainerPort;
-}
-
-function validateRuntimeOptions(runtimeOptions: JsonObject): void {
-  for (const key of Object.keys(runtimeOptions)) {
-    if (!RUNTIME_OPTION_KEYS.has(key)) {
-      throw new Error(`runtimeOptions.${key} is unsupported`);
-    }
-  }
-  validateServerCoreProviderContainerOption(runtimeOptions);
-  resolveServerCoreSessionLifecycleSettings(runtimeOptions);
 }
 
 function diagnostics(): ServerCoreRuntimeDiagnostics {
@@ -123,7 +109,7 @@ export function createServerCoreRuntimeWithOverrides(
   input: ServerCoreRuntimeFactoryInput,
   overrides: ServerCoreRuntimeCompositionOverrides = {},
 ): ServerCoreRuntimeBootstrap {
-  validateRuntimeOptions(input.runtimeOptions);
+  validateServerCoreRuntimeOptions(input.runtimeOptions);
   const workspaceRoot = overrides.workspaceRoot ?? '/workspaces';
   const workspaceBoundary = resolveServerCoreProviderWorkspaceBoundary(
     input,
@@ -140,6 +126,13 @@ export function createServerCoreRuntimeWithOverrides(
       : null;
     syncProviderHomeFiles(source, workspaceBoundary.providerHomeRoot);
   }
+  const resolvedSettings = resolveServerCoreRuntimeSettings(
+    input.runtimeOptions,
+    workspaceBoundary.providerHomeRoot,
+    Boolean(overrides.workspaceSandbox),
+  );
+  const { runtimeOptions, providerSettings, sessionLifecycle: sessionLifecycleSettings } =
+    resolvedSettings;
   const runtimeDiagnostics = overrides.diagnostics ?? diagnostics();
   const grokContainer = overrides.grokContainer ?? resolveServerCoreProviderGrokContainer(
     input,
@@ -148,7 +141,7 @@ export function createServerCoreRuntimeWithOverrides(
     overrides.workspaceSandbox ? { workspaceSandbox: overrides.workspaceSandbox } : {},
   );
   let providerRuntimePrivateRoot: string | null = null;
-  if (input.runtimeOptions.providerContainer) {
+  if (runtimeOptions.providerContainer) {
     try {
       providerRuntimePrivateRoot = resolveServerCoreProviderContainerRuntimePaths(
         input,
@@ -196,7 +189,6 @@ export function createServerCoreRuntimeWithOverrides(
       }
     },
   });
-  const providerSettings = resolveServerCoreProviderSettings(input.runtimeOptions);
   const sessionCreateCatalog = resolveServerCoreSessionCreateCatalog(
     workspaceBoundary.providerHomeRoot,
     providerSettings,
@@ -208,7 +200,7 @@ export function createServerCoreRuntimeWithOverrides(
     settings: providerSettings,
   });
   const projects = withServerCoreWorkspaceRootProject(
-    resolveServerCoreProjectCatalog(input.runtimeOptions, workspaceRoot),
+    resolveServerCoreProjectCatalog(runtimeOptions, workspaceRoot),
     workspaceRoot,
   );
   const createCapabilities = new ServerCoreSessionCreateCapabilities({
@@ -264,6 +256,7 @@ export function createServerCoreRuntimeWithOverrides(
     authority: sessionConsoleAuthority,
     collaboration: spawnCollaboration,
     metadata,
+    agents: nodeAssets,
   });
   const worktrees = new ServerCoreWorktreeRuntime({
     workspaceRoot,
@@ -315,6 +308,8 @@ export function createServerCoreRuntimeWithOverrides(
     worktreeRuntime: worktrees,
     registry,
     capabilities: createCapabilities,
+    mcpEnabled: providerSettings.enableAgentDeckMcp,
+    mcpHttpEnabled: providerSettings.mcpHttpEnabled,
     diagnostics: runtimeDiagnostics,
     reviewEvents,
     appendChange: (kind, entityId, payload) => {
@@ -453,7 +448,11 @@ export function createServerCoreRuntimeWithOverrides(
     currentRevision: () => metadata.currentRevision(),
   });
   const configurationRuntime = new ServerCoreNodeConfigurationRuntime(usageRuntime, {
-    settings: providerSettings, registry, metadata, hookStates,
+    settings: providerSettings,
+    sessionLifecycle: sessionLifecycleSettings,
+    registry,
+    metadata,
+    hookStates,
   });
   const nodeAssetRuntime = nodeAssets
     ? new ServerCoreNodeAssetRuntime(
@@ -475,7 +474,7 @@ export function createServerCoreRuntimeWithOverrides(
     diagnostics: runtimeDiagnostics,
   });
   const sessionLifecycle = new ServerCoreSessionLifecycle({
-    ...resolveServerCoreSessionLifecycleSettings(input.runtimeOptions),
+    ...sessionLifecycleSettings,
     sessions: repositories.sessions,
     manager: repositories.sessionManager,
     observer: sessionObserver,

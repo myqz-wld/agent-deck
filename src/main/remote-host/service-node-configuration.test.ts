@@ -2,6 +2,30 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { RemoteHostScopedClient } from './service-scope';
 import { RemoteHostNodeConfigurationController } from './service-node-configuration';
+import { DEFAULT_SETTINGS } from '@shared/types';
+
+function configuration() {
+  return {
+    providerDefaults: {
+      claudeCliPath: '/opt/claude', claudeCodeSandbox: 'strict' as const,
+      codexCliPath: '/opt/codex', codexSandbox: 'read-only' as const,
+      enableAgentDeckMcp: true, grokCliPath: '/opt/grok', grokSandbox: 'off',
+      injectAgentDeckClaudeAgents: true, injectAgentDeckClaudeMd: true,
+      injectAgentDeckClaudeSkills: true, injectAgentDeckCodexAgents: true,
+      injectAgentDeckCodexAgentsMd: true, injectAgentDeckCodexSkills: true,
+      injectAgentDeckGrokAgents: true, injectAgentDeckGrokAgentsMd: true,
+      injectAgentDeckGrokSkills: true, mcpHttpEnabled: true,
+      permissionTimeoutMs: 30_000, summaryModel: 'summary', summaryThinking: 'low',
+      summaryTimeoutMs: 60_000,
+    },
+    sessionLifecycle: {
+      activeWindowMs: DEFAULT_SETTINGS.activeWindowMs,
+      closeAfterMs: DEFAULT_SETTINGS.closeAfterMs,
+      historyRetentionDays: DEFAULT_SETTINGS.historyRetentionDays,
+    },
+    revision: 5,
+  };
+}
 
 function scoped(clientRequest: ReturnType<typeof vi.fn>) {
   const admitted = vi.fn(async (
@@ -19,19 +43,7 @@ function scoped(clientRequest: ReturnType<typeof vi.fn>) {
 
 describe('RemoteHostNodeConfigurationController', () => {
   it('reads the selected Core configuration without a local fallback', async () => {
-    const clientRequest = vi.fn(async () => ({
-      providerDefaults: {
-        claudeCodeSandbox: 'strict',
-        codexSandbox: 'read-only',
-        enableAgentDeckMcp: true,
-        grokSandbox: 'off',
-        permissionTimeoutMs: 30_000,
-        summaryModel: 'summary',
-        summaryThinking: 'low',
-        summaryTimeoutMs: 60_000,
-      },
-      revision: 5,
-    }));
+    const clientRequest = vi.fn(async () => configuration());
     const scope = scoped(clientRequest);
     const controller = new RemoteHostNodeConfigurationController(scope.request);
     await expect(controller.get({ profileId: 'remote-a' })).resolves.toMatchObject({

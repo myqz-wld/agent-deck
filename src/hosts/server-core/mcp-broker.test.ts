@@ -30,7 +30,11 @@ function record(
   };
 }
 
-function harness(options: { useDefaultSdk?: boolean } = {}) {
+function harness(options: {
+  useDefaultSdk?: boolean;
+  mcpEnabled?: boolean;
+  mcpHttpEnabled?: boolean;
+} = {}) {
   let current = record();
   const host = {
     workspaceRoot: process.cwd(),
@@ -45,6 +49,10 @@ function harness(options: { useDefaultSdk?: boolean } = {}) {
   const broker = new ServerCoreMcpBroker({
     host,
     diagnostics: { info: vi.fn(), warn: vi.fn() },
+    ...(options.mcpEnabled === undefined ? {} : { mcpEnabled: options.mcpEnabled }),
+    ...(options.mcpHttpEnabled === undefined
+      ? {}
+      : { mcpHttpEnabled: options.mcpHttpEnabled }),
     ...(options.useDefaultSdk ? {} : {
       loadMcpSdk: () => Promise.resolve({
         server: { McpServer },
@@ -108,6 +116,33 @@ describe('ServerCoreMcpBroker', () => {
     expect((await invoke(broker.mcpBearerToken)).status).toBe(401);
     expect((await invoke(broker.bearerToken)).status).toBe(200);
     expect(received).toEqual([{ session_id: 'session-a' }]);
+  });
+
+  it('keeps provider hooks available while the MCP transports are disabled', async () => {
+    const { broker } = harness({ mcpEnabled: false, mcpHttpEnabled: false });
+    broker.registerForAdapter('codex-cli', {
+      method: 'POST',
+      url: '/hook/codex/test',
+      handler: async (_request, reply) => reply.code(200).send({ ok: true }),
+    });
+    await broker.start();
+
+    const hook = await fetch(
+      `http://127.0.0.1:${broker.listeningPort}/hook/codex/test`,
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${broker.bearerToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ session_id: 'session-a' }),
+      },
+    );
+    expect(hook.status).toBe(200);
+    const token = mcpSessionTokenMap.allocate('session-a');
+    expect((await unauthorized(endpoint(broker), token)).status).toBe(404);
+    expect(() => broker.createInProcessServer(() => 'session-a', 'claude-code'))
+      .toThrow('disabled');
   });
 
   it('binds a random loopback port and accepts only a live per-session token', async () => {

@@ -66,16 +66,16 @@ export function AssetCard({
         </div>
       </div>
       {asset.kind === 'agent' && (asset.model || asset.thinking || asset.provider || asset.tools) && (
-        <div className="mt-0.5 text-[10px] text-deck-muted/70">
-          {asset.model && <span>模型：<code className="rounded bg-white/5 px-1">{asset.model}</code> </span>}
-          {asset.thinking && <span>思考程度：<code className="rounded bg-white/5 px-1">{asset.thinking}</code> </span>}
+        <div className="mt-0.5 flex min-w-0 flex-wrap gap-x-1 text-[10px] text-deck-muted/70">
+          {asset.model && <span>模型：<code className="break-all rounded bg-white/5 px-1">{asset.model}</code></span>}
+          {asset.thinking && <span>思考程度：<code className="break-all rounded bg-white/5 px-1">{asset.thinking}</code></span>}
           {asset.provider && (
             <span>
               {asset.adapter === 'claude-code' ? 'gateway' : 'provider'}：
-              <code className="rounded bg-white/5 px-1">{asset.provider}</code>{' '}
+              <code className="break-all rounded bg-white/5 px-1">{asset.provider}</code>
             </span>
           )}
-          {asset.tools && <span>工具：<code className="rounded bg-white/5 px-1">{asset.tools}</code></span>}
+          {asset.tools && <span>工具：<code className="break-all rounded bg-white/5 px-1">{asset.tools}</code></span>}
         </div>
       )}
       {asset.bundledAgentRuntime && Object.keys(asset.bundledAgentRuntime.override).length > 0 && (

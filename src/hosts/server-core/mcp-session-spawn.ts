@@ -32,6 +32,12 @@ import type { ServerCoreRuntimeMetadataStore } from './runtime-metadata-store';
 import type { ServerCoreSessionConsoleAuthority } from './session-console-authority';
 import type { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
 import { buildRemoteCreateOptions } from './session-create-options';
+import {
+  alignServerCoreSpawnAgentRuntime,
+  resolveServerCoreSpawnAgent,
+  type ServerCoreBundledAgentLookupPort,
+  type ServerCoreResolvedSpawnAgent,
+} from './spawn-agent-runtime';
 import { serverCoreWorktreeReferenceFence } from './worktree-reference-fence';
 
 interface SpawnSessionRepository {
@@ -54,6 +60,7 @@ export interface ServerCoreMcpSessionSpawnerOptions {
   readonly authority: ServerCoreSessionConsoleAuthority;
   readonly collaboration: ServerCoreSpawnCollaboration;
   readonly metadata: ServerCoreRuntimeMetadataStore;
+  readonly agents?: ServerCoreBundledAgentLookupPort | null;
   readonly now?: () => number;
 }
 
@@ -81,6 +88,7 @@ function explicitOptions(
 export function resolveServerCoreCreateOptions(
   descriptor: SessionConsoleCapabilitiesResult,
   args: ServerCoreSpawnSessionArgs,
+  agent?: ServerCoreResolvedSpawnAgent | null,
 ): SessionConsoleCreateOptions {
   if (args.gateway !== undefined && args.adapter !== 'claude-code') {
     throw new Error('gateway is owned by claude-code');
@@ -92,6 +100,7 @@ export function resolveServerCoreCreateOptions(
     key,
     descriptor.create.options[key].defaultValue,
   ])) as unknown as SessionConsoleCreateOptions;
+  if (agent) Object.assign(values, agent.defaults);
   Object.assign(values, explicitOptions(args));
   return values;
 }
@@ -125,15 +134,20 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
     const contextMode = args.contextMode ?? 'fresh';
     const cwd = parseWorkspaceDirectoryRef(args.cwd, 'spawn_session.cwd');
     const originalPrompt = parseSessionConsoleInitialMessage(args.prompt, 'spawn_session.prompt');
+    const agent = args.agentName
+      ? resolveServerCoreSpawnAgent(this.options.agents ?? null, args.adapter, args.agentName)
+      : null;
     const selector = args.adapter === 'claude-code'
       ? args.gateway
       : args.adapter === 'codex-cli' ? args.provider : undefined;
+    const effectiveSelector = selector ?? agent?.defaults.provider ?? '';
     const descriptor = await this.options.capabilities.describe({
       adapterId: args.adapter,
-      provider: selector ?? '',
+      provider: effectiveSelector,
       workingDirectory: cwd,
     });
-    const options = resolveServerCoreCreateOptions(descriptor, args);
+    const options = resolveServerCoreCreateOptions(descriptor, args, agent);
+    const agentCreate = agent ? alignServerCoreSpawnAgentRuntime(agent, options) : undefined;
     await this.options.capabilities.validateCreate(
       args.adapter,
       descriptor.capabilityRevision,
@@ -157,6 +171,7 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
         workingDirectory: cwd,
       }, absoluteCwd, [], {
         awaitCanonicalId: true,
+        ...(agentCreate ? { agent: agentCreate } : {}),
         ...(args.teamName ? { teamName: args.teamName } : {}),
       });
       forkSource = await validateServerCoreSpawnFork({
@@ -177,6 +192,7 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
         target: forkTarget,
       });
     }
+    const displayName = args.displayName ?? args.agentName ?? null;
     const team = this.options.collaboration.preflight(callerSessionId, args.teamName);
     const anchorId = randomUUID();
     const leadContext = buildLeadContextBlock({
@@ -239,6 +255,7 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
             options,
           },
           initialSessionRegistration,
+          ...(agentCreate ? { agent: agentCreate } : {}),
           ...(team.teamName === null ? {} : { teamName: team.teamName }),
         });
         createdSessionId = result.sessionId;
@@ -262,7 +279,7 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
         preflight: team,
         callerSessionId,
         targetSessionId: createdSessionId,
-        displayName: args.displayName ?? null,
+        displayName,
         anchorId,
         anchorBody: originalPrompt,
       });
@@ -283,7 +300,7 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
 
     const sessionId = createdSessionId!;
     try {
-      if (args.displayName) this.options.sessions.setTitle(sessionId, args.displayName);
+      if (displayName) this.options.sessions.setTitle(sessionId, displayName);
       this.options.sessionManager.recordCreatedPermissionMode(
         sessionId,
         options.permissionMode ?? undefined,
@@ -310,7 +327,8 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
       cwd,
       teamId: team.teamId,
       teamName: team.teamName,
-      displayName: args.displayName ?? null,
+      displayName,
+      agentName: args.agentName ?? null,
       spawnDepth: depth,
       spawnLimits: lease.snapshot(),
       sentAt: this.now(),

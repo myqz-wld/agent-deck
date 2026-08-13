@@ -16,6 +16,11 @@ import {
   type AuthenticatedClientAccessContext,
 } from '@contracts/index';
 import type { DaemonInstancePaths } from '@hosts/daemon';
+import {
+  LOCAL_WORKER_DESKTOP_STATE_PATH,
+  LOCAL_WORKER_SYNCED_PROVIDER_SETTING_KEYS,
+} from '@hosts/provider-state/local-worker-desktop-state';
+import { DEFAULT_SETTINGS } from '@shared/types';
 import type { ServerCoreRuntimeFactoryInput } from './root';
 import { createServerCoreRuntimeWithOverrides } from './runtime-composition';
 
@@ -68,6 +73,52 @@ afterEach(() => {
 });
 
 describe('concrete Server Core runtime composition', () => {
+  it('keeps Full deployment settings independent from a stale Local Worker projection', async () => {
+    const base = root();
+    const workspace = join(base, 'workspace');
+    const providerHome = join(base, 'state', 'provider-home');
+    mkdirSync(join(providerHome, '.agent-deck'), { recursive: true, mode: 0o700 });
+    mkdirSync(workspace, { mode: 0o700 });
+    const projectedProvider = Object.fromEntries(
+      LOCAL_WORKER_SYNCED_PROVIDER_SETTING_KEYS.map((key) => [key, DEFAULT_SETTINGS[key]]),
+    );
+    projectedProvider.mcpHttpEnabled = false;
+    writeFileSync(join(providerHome, LOCAL_WORKER_DESKTOP_STATE_PATH), JSON.stringify({
+      schemaVersion: 1,
+      providerSettings: projectedProvider,
+      sessionLifecycle: {
+        schemaVersion: 1,
+        activeWindowMs: 12_345,
+        closeAfterMs: 67_890,
+        historyRetentionDays: 3,
+      },
+    }), { mode: 0o600 });
+    const bootstrap = createServerCoreRuntimeWithOverrides(input(base), {
+      providerAuthSource: null,
+      workspaceRoot: workspace,
+    });
+
+    await bootstrap.runtime.start();
+    try {
+      const result = await bootstrap.runtime.execute({
+        access,
+        requestId: 'request:full-settings',
+        method: 'node.configuration.get',
+        params: {},
+        idempotencyKey: null,
+        expectedRevision: null,
+        deadlineAt: null,
+        signal: new AbortController().signal,
+      });
+      expect(result.result).toMatchObject({
+        providerDefaults: { mcpHttpEnabled: true },
+        sessionLifecycle: { activeWindowMs: DEFAULT_SETTINGS.activeWindowMs },
+      });
+    } finally {
+      await bootstrap.runtime.stop('test');
+    }
+  });
+
   it('owns an injected Provider Grok container runtime through provider shutdown', async () => {
     const base = root();
     const workspace = join(base, 'workspace');
