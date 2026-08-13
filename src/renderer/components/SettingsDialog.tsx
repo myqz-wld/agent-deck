@@ -74,6 +74,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
   const [grokHookStatus, setGrokHookStatus] = useState<HookStatusPresentation | null>(null);
   const [nodeConfiguration, setNodeConfiguration] =
     useState<NodeConfigurationGetResult | null>(null);
+  const [nodeConfigurationFailed, setNodeConfigurationFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   /** Reopen on the general tab so every settings visit starts from the overview. */
@@ -109,6 +110,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
     setCodexHookStatus(null);
     setGrokHookStatus(null);
     setNodeConfiguration(null);
+    setNodeConfigurationFailed(false);
     void window.api
       .getSettings()
       .then((s) => {
@@ -140,7 +142,11 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
             .then((value) => {
               if (current()) setNodeConfiguration(value);
             })
-            .catch(() => appendLoadError('远端执行节点配置读取失败，请重连后重试。'));
+            .catch(() => {
+              if (!current()) return;
+              setNodeConfigurationFailed(true);
+              appendLoadError('远端设置读取失败，请重新连接后重试。');
+            });
         }
         if (remote.supportsNodeHooksRead) {
           for (const adapterId of Object.keys(HOOK_FAILURE_COPY) as HookAdapterId[]) {
@@ -315,49 +321,69 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
               ))}
             </nav>
 
+            {remote && (
+              <div className="mb-3 rounded border border-deck-border/70 bg-white/[0.025] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted/75">
+                远端运行设置仅供查看。通用页中的提醒、窗口、快捷键和日志仍使用这台电脑的设置。
+              </div>
+            )}
+
             {activeTab === 'general' && (
               <>
-                {remote ? (
-                  <>
+                {remote && remoteConfigurationStatus(
+                  remote,
+                  nodeConfiguration,
+                  nodeConfigurationFailed,
+                )}
+
+                <SectionGroup title="会话">
+                  {remote ? (
                     <RemoteNodeConfigurationSection
                       configuration={nodeConfiguration}
-                      unavailableReason={remoteConfigurationUnavailableReason(remote)}
+                      group="session"
                     />
-                    <SectionGroup title="本机桌面（不影响 Worker）">
-                      <NotifySection settings={settings} update={update} />
-                      <WindowSection settings={settings} update={update} />
-                      <KeyboardShortcutsSection />
-                      <LogsSection settings={settings} update={update} />
-                    </SectionGroup>
-                  </>
-                ) : (
-                  <>
-                    <SectionGroup title="会话">
+                  ) : (
+                    <>
                       <LifecycleSection settings={settings} update={update} />
                       <ContinuationContextSection settings={settings} update={update} />
                       <SummarySection settings={settings} update={update} />
-                    </SectionGroup>
+                    </>
+                  )}
+                </SectionGroup>
 
-                    <SectionGroup title="提醒与外观">
-                      <NotifySection settings={settings} update={update} />
-                      <WindowSection settings={settings} update={update} />
-                      <KeyboardShortcutsSection />
-                    </SectionGroup>
+                <SectionGroup title="提醒与外观">
+                  <NotifySection settings={settings} update={update} />
+                  <WindowSection settings={settings} update={update} />
+                  <KeyboardShortcutsSection />
+                </SectionGroup>
 
-                    <SectionGroup title="集成与运行环境">
+                <SectionGroup title="集成与运行环境">
+                  {remote ? (
+                    <RemoteNodeConfigurationSection
+                      configuration={nodeConfiguration}
+                      group="runtime"
+                    />
+                  ) : (
+                    <>
                       <HookServerSection settings={settings} update={update} />
                       <ExternalToolsSection settings={settings} update={update} />
                       <ExperimentalSection settings={settings} update={update} />
-                      <LogsSection settings={settings} update={update} />
-                    </SectionGroup>
+                    </>
+                  )}
+                  <LogsSection settings={settings} update={update} />
+                </SectionGroup>
 
-                    <SectionGroup title="跨工具协作（MCP）">
-                      <AgentDeckMcpSection settings={settings} update={update} />
-                    </SectionGroup>
+                <SectionGroup title="跨工具协作（MCP）">
+                  {remote ? (
+                    <RemoteNodeConfigurationSection
+                      configuration={nodeConfiguration}
+                      group="mcp"
+                    />
+                  ) : (
+                    <AgentDeckMcpSection settings={settings} update={update} />
+                  )}
+                </SectionGroup>
 
-                    <ResetSettingsButton busy={busy} update={update} />
-                  </>
-                )}
+                {!remote && <ResetSettingsButton busy={busy} update={update} />}
               </>
             )}
 
@@ -371,10 +397,9 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                   busy={busy}
                   installHook={() => installHook('claude-code')}
                   uninstallHook={() => uninstallHook('claude-code')}
-                  targetDescription={remote ? '以下状态来自当前 Worker；Hook 由 Worker 部署管理。' : undefined}
                   unavailableReason={remote ? remoteHookUnavailableReason(remote) : null}
                 />
-                {remote ? <RemoteAdapterNote /> : <AdapterConfigHelp adapter="claude" />}
+                {!remote && <AdapterConfigHelp adapter="claude" />}
               </SectionGroup>
             )}
 
@@ -388,10 +413,9 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                   busy={busy}
                   installHook={() => installHook('codex-cli')}
                   uninstallHook={() => uninstallHook('codex-cli')}
-                  targetDescription={remote ? '以下状态来自当前 Worker；Hook 由 Worker 部署管理。' : undefined}
                   unavailableReason={remote ? remoteHookUnavailableReason(remote) : null}
                 />
-                {remote ? <RemoteAdapterNote /> : <AdapterConfigHelp adapter="codex" />}
+                {!remote && <AdapterConfigHelp adapter="codex" />}
               </SectionGroup>
             )}
 
@@ -405,11 +429,10 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
                   busy={busy}
                   installHook={() => installHook('grok-build')}
                   uninstallHook={() => uninstallHook('grok-build')}
-                  targetDescription={remote ? '以下状态来自当前 Worker；Hook 由 Worker 部署管理。' : undefined}
                   unavailableReason={remote ? remoteHookUnavailableReason(remote) : null}
                 />
                 {!remote && <GrokAuthenticationSection />}
-                {remote ? <RemoteAdapterNote /> : <AdapterConfigHelp adapter="grok" />}
+                {!remote && <AdapterConfigHelp adapter="grok" />}
               </SectionGroup>
             )}
           </>
@@ -420,27 +443,34 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
 }
 
 function remoteConfigurationUnavailableReason(remote: NonNullable<Props['remote']>): string | null {
-  if (!remote.usable) return '当前 Worker 尚未连接，暂时无法读取部署配置。';
+  if (!remote.usable) return '当前远端环境尚未连接，暂时无法读取设置。';
   if (!remote.supportsNodeConfiguration) {
-    return '当前 Remote Core 版本未提供节点配置能力；请先升级远端部署。';
+    return '当前远端版本不支持读取设置，请升级后重试。';
   }
-  if (!remote.profileId) return '当前没有可寻址的 Remote profile。';
+  if (!remote.profileId) return '当前远端连接信息不完整。';
   return null;
 }
 
 function remoteHookUnavailableReason(remote: NonNullable<Props['remote']>): string | null {
-  if (!remote.usable) return '当前 Worker 尚未连接，暂时无法读取 Hook 状态。';
+  if (!remote.usable) return '当前远端环境尚未连接，暂时无法读取 Hook 状态。';
   if (!remote.supportsNodeHooksRead) {
-    return '当前 Remote Core 未提供安全 Hook 状态能力；不会读取旧版路径型状态。';
+    return '当前远端版本不支持读取 Hook 状态，请升级后重试。';
   }
-  if (!remote.profileId) return '当前没有可寻址的 Remote profile。';
+  if (!remote.profileId) return '当前远端连接信息不完整。';
   return null;
 }
 
-function RemoteAdapterNote(): JSX.Element {
+function remoteConfigurationStatus(
+  remote: NonNullable<Props['remote']>,
+  configuration: NodeConfigurationGetResult | null,
+  failed: boolean,
+): JSX.Element | null {
+  const unavailableReason = remoteConfigurationUnavailableReason(remote);
+  const message = unavailableReason ?? (!configuration && !failed ? '正在读取远端设置…' : null);
+  if (!message) return null;
   return (
-    <p className="text-[10px] leading-relaxed text-deck-muted/75">
-      当前页只显示 Worker 的部署状态。Hook、二进制、认证和运行策略均由 Worker 部署管理，Remote 中不可修改。
-    </p>
+    <div role="status" className="mb-3 text-[11px] text-deck-muted">
+      {message}
+    </div>
   );
 }

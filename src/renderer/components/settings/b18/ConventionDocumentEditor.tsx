@@ -277,7 +277,7 @@ export function ConventionDocumentEditor({
   );
 }
 
-/** Local editor presentation reused for a selectable, Worker-owned Remote snapshot. */
+/** Local editor presentation reused for a selectable Remote snapshot. */
 export function ReadOnlyConventionDocument({
   adapter,
   adapterName,
@@ -295,7 +295,6 @@ export function ReadOnlyConventionDocument({
     <button
       type="button"
       disabled
-      title="应用约定由 Worker 部署管理"
       className="min-h-8 rounded bg-status-working/20 px-2 text-[10px] text-status-working opacity-40"
     >
       <SaveIcon className="mr-1 inline h-3 w-3" />保存
@@ -317,11 +316,6 @@ export function ReadOnlyConventionDocument({
           triggerLabel={`放大查看 ${adapterName} 应用约定`}
           triggerVariant="input"
           actions={actions}
-          validation={(
-            <div className="text-[10px] leading-snug text-deck-muted/60">
-              由 Worker 部署管理，Remote 中仅供查看
-            </div>
-          )}
           heavyView={{
             id: `remote-application-convention:${identity}:${adapter}`,
             kind: 'custom',
@@ -336,10 +330,7 @@ export function ReadOnlyConventionDocument({
           }}
         />
       </div>
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        <div className="text-[10px] leading-snug text-deck-muted/60">
-          由 Worker 部署管理，Remote 中仅供查看
-        </div>
+      <div className="flex min-w-0 justify-end">
         {actions}
       </div>
     </div>

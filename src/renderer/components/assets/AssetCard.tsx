@@ -16,12 +16,14 @@ export function AssetCard({
   asset,
   onView,
   onConfigure,
+  showReadOnlyBadge = true,
 }: {
   /** 单条 AssetMeta（user / bundled 同款，按所在 sub-tab 单 adapter 视图）。 */
   asset: AssetMeta;
   onView: (asset: AssetMeta) => void;
   /** bundled Agent only：只改 app-owned model/thinking/provider 差异。 */
   onConfigure?: (asset: AssetMeta) => void;
+  showReadOnlyBadge?: boolean;
 }): JSX.Element {
   return (
     <div className="min-w-0 overflow-hidden rounded-md border border-deck-border bg-white/[0.03] p-2">
@@ -38,7 +40,7 @@ export function AssetCard({
               Plugin · {asset.pluginName}
             </span>
           )}
-          {asset.source === 'user' && (
+          {showReadOnlyBadge && asset.source === 'user' && (
             <span className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-deck-muted/70">
               只读
             </span>

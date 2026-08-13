@@ -16,7 +16,6 @@ interface Props {
   busy: boolean;
   installHook: () => Promise<void>;
   uninstallHook: () => Promise<void>;
-  targetDescription?: string;
   unavailableReason?: string | null;
 }
 
@@ -28,7 +27,6 @@ export function HookSection({
   busy,
   installHook,
   uninstallHook,
-  targetDescription,
   unavailableReason,
 }: Props): JSX.Element {
   const partial = hookStatus?.state === 'partial';
@@ -36,11 +34,6 @@ export function HookSection({
   const unavailable = hookStatus?.state === 'unavailable';
   return (
     <Section title={title} storageKey={storageKey} defaultOpen={false}>
-      {targetDescription && (
-        <div className="mb-1 text-[10px] leading-relaxed text-deck-muted/75">
-          {targetDescription}
-        </div>
-      )}
       {unavailableReason ? (
         <div role="status" className="text-[11px] leading-relaxed text-deck-muted">
           {unavailableReason}

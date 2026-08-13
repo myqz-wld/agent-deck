@@ -8,7 +8,7 @@ interface Props {
   adapter: AssetAdapter;
   bundled: AssetMeta[];
   user: AssetMeta[];
-  userHomeLabel?: string;
+  sourceScope?: 'local' | 'remote';
   onView: (asset: AssetMeta) => void;
   onConfigureBundledAgent?: (asset: AssetMeta) => void;
 }
@@ -21,7 +21,7 @@ export function AssetsTab({
   adapter,
   bundled,
   user,
-  userHomeLabel = '~',
+  sourceScope = 'local',
   onView,
   onConfigureBundledAgent,
 }: Props): JSX.Element {
@@ -29,29 +29,30 @@ export function AssetsTab({
   const [userLimit, setUserLimit] = useState(ASSET_PAGE_SIZE);
   const filteredBundled = bundled.filter((asset) => asset.adapter === adapter);
   const filteredUser = user.filter((asset) => asset.adapter === adapter);
-  const workerSnapshot = userHomeLabel !== '~';
+  const remote = sourceScope === 'remote';
   useEffect(() => {
     setBundledLimit(ASSET_PAGE_SIZE);
     setUserLimit(ASSET_PAGE_SIZE);
   }, [adapter, bundled, kind, user]);
-  const userPathHint =
-    adapter === 'claude-code'
+  const userPathHint = remote
+    ? null
+    : adapter === 'claude-code'
       ? kind === 'agent'
-        ? `${userHomeLabel}/.claude/agents/`
-        : `${userHomeLabel}/.claude/skills/`
+        ? '~/.claude/agents/'
+        : '~/.claude/skills/'
       : adapter === 'codex-cli' && kind === 'agent'
-        ? `${userHomeLabel}/.codex/agents/`
-      : adapter === 'codex-cli'
-        ? `${userHomeLabel}/.codex/skills/`
-        : kind === 'agent'
-          ? `${userHomeLabel}/.grok/agents/`
-          : `${userHomeLabel}/.grok/skills/`;
+        ? '~/.codex/agents/'
+        : adapter === 'codex-cli'
+          ? '~/.codex/skills/'
+          : kind === 'agent'
+            ? '~/.grok/agents/'
+            : '~/.grok/skills/';
 
   return (
     <div className="flex flex-col gap-3">
       <section>
         <div className="mb-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-          {kind === 'agent' ? '内置' : '内置（只读）'}
+          {kind === 'agent' || remote ? '内置' : '内置（只读）'}
         </div>
         {filteredBundled.length === 0 ? (
           <div className="text-[10px] text-deck-muted/60">（无）</div>
@@ -62,6 +63,7 @@ export function AssetsTab({
                 key={`${asset.adapter}:${asset.qualifiedName}:${asset.absPath}`}
                 asset={asset}
                 onView={onView}
+                showReadOnlyBadge={!remote}
                 onConfigure={
                   kind === 'agent' ? onConfigureBundledAgent : undefined
                 }
@@ -77,18 +79,20 @@ export function AssetsTab({
         )}
       </section>
 
-      {userPathHint && (
+      {(remote || userPathHint) && (
         <section>
           <div className="mb-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-            {workerSnapshot ? 'Worker 同步资产（只读）' : '用户与 Plugin（只读）'}
+            {remote ? '远端资产' : '用户与 Plugin（只读）'}
           </div>
-          <div className="mb-1.5 text-[9px] text-deck-muted/55">
-            {workerSnapshot ? 'Worker 快照目录' : '直系目录'}：<code>{userPathHint}</code>
-          </div>
+          {userPathHint && (
+            <div className="mb-1.5 text-[9px] text-deck-muted/55">
+              直系目录：<code>{userPathHint}</code>
+            </div>
+          )}
           {filteredUser.length === 0 ? (
             <div className="text-[10px] text-deck-muted/60">
-              {workerSnapshot
-                ? '当前 Worker 部署未包含此类资产。请在 Worker 所在机器同步后重新启动 Worker。'
+              {remote
+                ? '当前远端环境中没有此类资产。'
                 : `未发现资产。请通过 ${adapter === 'claude-code' ? 'Claude Code' : adapter === 'codex-cli' ? 'Codex CLI' : 'Grok Build'} 原生配置管理。`}
             </div>
           ) : (
@@ -98,6 +102,7 @@ export function AssetsTab({
                   key={`${asset.adapter}:${asset.qualifiedName}:${asset.absPath}`}
                   asset={asset}
                   onView={onView}
+                  showReadOnlyBadge={!remote}
                 />
               ))}
               {filteredUser.length > userLimit && (

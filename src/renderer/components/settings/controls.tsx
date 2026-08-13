@@ -48,7 +48,7 @@ export function Section({
   };
 
   return (
-    <section className="mb-4">
+    <section className="mb-4" data-settings-section={title}>
       <button
         type="button"
         onClick={toggle}
@@ -317,7 +317,10 @@ export function SectionGroup({
   children: React.ReactNode;
 }): JSX.Element {
   return (
-    <div className="mb-2 first:mt-0 mt-3 first:pt-0 first:border-t-0 border-t border-deck-border/40 pt-2">
+    <div
+      className="mb-2 first:mt-0 mt-3 first:pt-0 first:border-t-0 border-t border-deck-border/40 pt-2"
+      data-settings-group={title}
+    >
       <div className="mb-2 text-[9px] font-semibold uppercase tracking-widest text-deck-muted/60">
         {title}
       </div>
