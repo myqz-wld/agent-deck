@@ -113,10 +113,14 @@ function GeneratorField({
   label: string;
   children: ReactNode;
 }): JSX.Element {
+  const widthClass = field === 'provider' || field === 'model'
+    ? 'min-[420px]:col-span-2'
+    : 'min-[420px]:col-span-1';
+
   return (
     <div
       data-generator-field={field}
-      className="flex min-w-0 flex-col gap-1"
+      className={`flex min-w-0 flex-col gap-1 ${widthClass}`}
     >
       <span className="text-[10px] leading-none text-deck-muted/70">{label}</span>
       {children}
@@ -199,7 +203,7 @@ export function ProviderModelThinkingFields({
       <div className="font-medium text-deck-text/90">{label}</div>
       <div
         data-generator-fields
-        className="grid grid-cols-1 gap-x-3 gap-y-2 rounded-md border border-white/[0.06] bg-black/10 p-2 min-[420px]:grid-cols-2"
+        className="grid grid-cols-1 gap-x-3 gap-y-2 rounded-md border border-white/[0.06] bg-black/10 p-2 min-[420px]:grid-cols-3"
       >
         <GeneratorField field="adapter" label="助手">
           <DeckSelect
@@ -263,7 +267,7 @@ export function ProviderModelThinkingFields({
             menuMinWidth={140}
           />
         </GeneratorField>
-        <div className="border-t border-white/[0.05] pt-1.5 text-[10px] leading-snug text-deck-muted/60 min-[420px]:col-span-2">
+        <div className="border-t border-white/[0.05] pt-1.5 text-[10px] leading-snug text-deck-muted/60 min-[420px]:col-span-3">
           {hint}
         </div>
       </div>

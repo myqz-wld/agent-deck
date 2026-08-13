@@ -163,6 +163,48 @@ describe('ElectronHostRegistry resilience boundaries', () => {
     }
   });
 
+  it('replaces an exhausted SSH transport when Connect is clicked again', async () => {
+    const profile = remoteProfile('relay-explicit-reconnect', 'relay');
+    const firstHarness = new FakeSpawnHarness();
+    const replacementHarness = new FakeSpawnHarness();
+    const harnesses = [firstHarness, replacementHarness];
+    const createClient = vi.fn(() => {
+      const harness = harnesses.shift();
+      if (!harness) throw new Error('Unexpected extra SSH binding');
+      return bindSshHostClient(new SshAgentDeckClient(profile.ssh, {
+        spawn: harness.spawn,
+        reconnect: { maxAttempts: 0 },
+        timing: { pingIntervalMs: 0, pongTimeoutMs: 0 },
+      }));
+    });
+    const registry = new ElectronHostRegistry({ appVersion: 'desktop-test', createClient });
+    registry.register(profile);
+
+    const initiallyConnected = registry.connect(profile.id);
+    emitHello(firstHarness, relayWireHello(profile, 'worker-stable', 1));
+    await initiallyConnected;
+    firstHarness.latest.exit(1);
+    expect(registry.state(profile.id)).toMatchObject({
+      status: 'offline',
+      error: { code: 'connection_failed' },
+    });
+
+    const reconnecting = registry.connect(profile.id);
+    await vi.waitFor(() => expect(replacementHarness.calls).toHaveLength(1));
+    const joinedReconnect = registry.connect(profile.id);
+    expect(joinedReconnect).toBe(reconnecting);
+    emitHello(replacementHarness, relayWireHello(profile, 'worker-stable', 2));
+    await Promise.all([reconnecting, joinedReconnect]);
+
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(registry.state(profile.id)).toMatchObject({
+      status: 'connected',
+      authoritativeCoreId: 'worker-stable',
+      workerGeneration: 2,
+    });
+    await registry.stopAll();
+  });
+
   it('fences slow disconnect completion from a newer connect epoch', async () => {
     const profile = standaloneProfile('disconnect-race');
     const first = new ControlledClient(standaloneHello(profile.clientId));
