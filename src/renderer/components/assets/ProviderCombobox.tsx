@@ -11,7 +11,6 @@ interface Props {
   options: readonly ProviderOption[];
   disabled?: boolean;
   allowCustom?: boolean;
-  defaultOptionLabel?: string;
   ariaLabel?: string;
   placeholder?: string;
   emptyMessage?: string;
@@ -28,7 +27,6 @@ export function ProviderCombobox({
   options,
   disabled = false,
   allowCustom = true,
-  defaultOptionLabel = '跟随 adapter 原生配置',
   ariaLabel = 'provider',
   placeholder = '留空则跟随 adapter 原生配置',
   emptyMessage = '没有匹配项，可直接输入自定义 provider',
@@ -38,11 +36,8 @@ export function ProviderCombobox({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [closedQuery, setClosedQuery] = useState('');
-  const closedOptions = allowCustom
-    ? options
-    : [{ id: '', name: defaultOptionLabel }, ...options];
   const normalizedQuery = (allowCustom ? value : closedQuery).trim().toLocaleLowerCase();
-  const filtered = closedOptions.filter((option) => {
+  const filtered = options.filter((option) => {
     if (!normalizedQuery) return true;
     return (
       option.id.toLocaleLowerCase().includes(normalizedQuery) ||
@@ -69,17 +64,12 @@ export function ProviderCombobox({
     setClosedQuery('');
   };
 
-  const selected = closedOptions.find((option) => option.id === value);
-  const selectedIndex = Math.max(0, closedOptions.findIndex((option) => option.id === value));
-  const displayedValue = allowCustom
-    ? value
-    : open
-      ? closedQuery
-      : selected?.name ?? selected?.id ?? value;
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.id === value));
+  const displayedValue = allowCustom || !open ? value : closedQuery;
 
   const toggleOpen = (): void => {
     setActiveIndex(allowCustom ? 0 : selectedIndex);
-    setClosedQuery('');
+    setClosedQuery(value);
     setOpen((current) => !current);
   };
 
@@ -93,7 +83,7 @@ export function ProviderCombobox({
         value={displayedValue}
         onFocus={() => {
           setActiveIndex(allowCustom ? 0 : selectedIndex);
-          if (!allowCustom) setClosedQuery('');
+          if (!allowCustom) setClosedQuery(value);
           setOpen(true);
         }}
         onChange={(event) => {
@@ -115,7 +105,7 @@ export function ProviderCombobox({
             choose(filtered[activeIndex]);
           } else if (event.key === 'Escape') {
             setOpen(false);
-            setClosedQuery('');
+            setClosedQuery(value);
           }
         }}
         disabled={disabled}
@@ -161,7 +151,7 @@ export function ProviderCombobox({
                 }`}
               >
                 <span className="block truncate">{option.name ?? option.id}</span>
-                {option.name && option.id && (
+                {option.name && (
                   <code className="block truncate text-[9px] text-deck-muted/60">
                     {option.id}
                   </code>

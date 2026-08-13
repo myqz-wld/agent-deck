@@ -134,7 +134,7 @@ describe('ServerCoreSessionCreateCapabilities', () => {
     )).rejects.toMatchObject({ code: 'capability_unavailable' });
   });
 
-  it('keeps the native provider choice available without custom provider definitions', async () => {
+  it('keeps the provider field enabled with an empty native value without custom definitions', async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-create-empty-catalog-')));
     roots.push(root);
     const workspaceRoot = join(root, 'workspace');
