@@ -29,6 +29,7 @@ export function AssetsTab({
   const [userLimit, setUserLimit] = useState(ASSET_PAGE_SIZE);
   const filteredBundled = bundled.filter((asset) => asset.adapter === adapter);
   const filteredUser = user.filter((asset) => asset.adapter === adapter);
+  const workerSnapshot = userHomeLabel !== '~';
   useEffect(() => {
     setBundledLimit(ASSET_PAGE_SIZE);
     setUserLimit(ASSET_PAGE_SIZE);
@@ -79,14 +80,16 @@ export function AssetsTab({
       {userPathHint && (
         <section>
           <div className="mb-1 text-[10px] uppercase tracking-wider text-deck-muted/70">
-            用户与 Plugin（只读）
+            {workerSnapshot ? 'Worker 同步资产（只读）' : '用户与 Plugin（只读）'}
           </div>
           <div className="mb-1.5 text-[9px] text-deck-muted/55">
-            直系目录：<code>{userPathHint}</code>
+            {workerSnapshot ? 'Worker 快照目录' : '直系目录'}：<code>{userPathHint}</code>
           </div>
           {filteredUser.length === 0 ? (
             <div className="text-[10px] text-deck-muted/60">
-              未发现资产。请通过 {adapter === 'claude-code' ? 'Claude Code' : adapter === 'codex-cli' ? 'Codex CLI' : 'Grok Build'} 原生配置管理。
+              {workerSnapshot
+                ? '当前 Worker 部署未包含此类资产。请在 Worker 所在机器同步后重新启动 Worker。'
+                : `未发现资产。请通过 ${adapter === 'claude-code' ? 'Claude Code' : adapter === 'codex-cli' ? 'Codex CLI' : 'Grok Build'} 原生配置管理。`}
             </div>
           ) : (
             <div className="flex flex-col gap-1.5">

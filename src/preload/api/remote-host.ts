@@ -91,7 +91,6 @@ import type {
   RemoteHostUsageTokenRequestDto,
   RemoteHostNodeConfigurationDto,
   RemoteHostNodeConfigurationRequestDto,
-  RemoteHostNodeHookMutationDto,
   RemoteHostNodeHookRequestDto,
   RemoteHostNodeHookStatusDto,
   RemoteHostNodeAssetListDto,
@@ -229,14 +228,6 @@ export const remoteHostApi = {
     request: RemoteHostNodeHookRequestDto,
   ): Promise<RemoteHostNodeHookStatusDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.NodeHookStatus, request),
-  installRemoteHostNodeHook: (
-    request: RemoteHostNodeHookMutationDto,
-  ): Promise<RemoteHostNodeHookStatusDto> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.NodeHookInstall, request),
-  uninstallRemoteHostNodeHook: (
-    request: RemoteHostNodeHookMutationDto,
-  ): Promise<RemoteHostNodeHookStatusDto> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.NodeHookUninstall, request),
   listRemoteHostNodeAssets: (
     request: RemoteHostNodeAssetListRequestDto,
   ): Promise<RemoteHostNodeAssetListDto> =>

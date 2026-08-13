@@ -49,6 +49,14 @@ export interface ConventionDocumentEditorProps {
   onDirtyChange?: (dirty: boolean) => void;
 }
 
+export interface ReadOnlyConventionDocumentProps {
+  adapter: ConventionAdapter;
+  adapterName: ConventionDocumentEditorConfig['adapterName'];
+  content: string;
+  description: string;
+  identity: string;
+}
+
 function safeErrorKind(reason: unknown): 'function' | 'null' | 'object' | 'primitive' | 'string' {
   if (reason === null) return 'null';
   if (typeof reason === 'object') return 'object';
@@ -269,29 +277,103 @@ export function ConventionDocumentEditor({
   );
 }
 
-function ConventionTextArea({
+/** Local editor presentation reused for a selectable, Worker-owned Remote snapshot. */
+export function ReadOnlyConventionDocument({
+  adapter,
+  adapterName,
+  content,
+  description,
+  identity,
+}: ReadOnlyConventionDocumentProps): JSX.Element {
+  const ariaLabel = `${adapterName} 应用约定（只读）`;
+  const payload: DiagnosticContentPayload = {
+    kind: 'diagnostic',
+    text: content,
+    metadata: { adapter, readOnly: true },
+  };
+  const actions = (
+    <button
+      type="button"
+      disabled
+      title="应用约定由 Worker 部署管理"
+      className="min-h-8 rounded bg-status-working/20 px-2 text-[10px] text-status-working opacity-40"
+    >
+      <SaveIcon className="mr-1 inline h-3 w-3" />保存
+    </button>
+  );
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5 text-[11px] opacity-75">
+      <div className="text-[10px] leading-snug text-deck-muted/70">{description}</div>
+      <div className="relative min-w-0">
+        <ConventionTextArea ariaLabel={ariaLabel} value={content} readOnly />
+        <ExpandableContent<DiagnosticContentPayload>
+          identity={{
+            sessionId: `agent-deck-remote-convention:${identity}`,
+            kind: 'diagnostic',
+            diagnosticId: adapter,
+          }}
+          payload={payload}
+          title={`查看 ${adapterName} 应用约定`}
+          triggerLabel={`放大查看 ${adapterName} 应用约定`}
+          triggerVariant="input"
+          actions={actions}
+          validation={(
+            <div className="text-[10px] leading-snug text-deck-muted/60">
+              由 Worker 部署管理，Remote 中仅供查看
+            </div>
+          )}
+          heavyView={{
+            id: `remote-application-convention:${identity}:${adapter}`,
+            kind: 'custom',
+            render: () => (
+              <ConventionTextArea
+                ariaLabel={`${adapterName} 应用约定（放大查看，只读）`}
+                value={content}
+                readOnly
+                expanded
+              />
+            ),
+          }}
+        />
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <div className="text-[10px] leading-snug text-deck-muted/60">
+          由 Worker 部署管理，Remote 中仅供查看
+        </div>
+        {actions}
+      </div>
+    </div>
+  );
+}
+
+export function ConventionTextArea({
   ariaLabel,
   value,
   onChange,
   disabled,
+  readOnly = false,
   expanded = false,
 }: {
   ariaLabel: string;
   value: string;
-  onChange: (value: string) => void;
-  disabled: boolean;
+  onChange?: (value: string) => void;
+  disabled?: boolean;
+  readOnly?: boolean;
   expanded?: boolean;
 }): JSX.Element {
   return (
     <textarea
       aria-label={ariaLabel}
       value={value}
-      onChange={(event) => onChange(event.target.value)}
+      onChange={(event) => onChange?.(event.target.value)}
       disabled={disabled}
+      readOnly={readOnly}
+      aria-readonly={readOnly}
       spellCheck={false}
       className={[
         'no-drag w-full rounded border border-deck-border bg-white/[0.04]',
         'p-2 font-mono text-[11px] leading-relaxed outline-none focus:border-white/20 disabled:opacity-60',
+        readOnly ? 'cursor-text text-deck-muted' : '',
         expanded ? 'min-h-[60vh] flex-1 resize-none' : 'h-64 resize-none pr-12',
       ].join(' ')}
       style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}

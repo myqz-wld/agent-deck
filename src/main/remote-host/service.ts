@@ -83,7 +83,6 @@ import { RemoteHostSessionRenameTracker } from './remote-session-rename';
 import log from '@main/utils/logger';
 
 const logger = log.scope('remote-host-transport');
-
 export interface RemoteHostServiceOptions {
   registry: ElectronHostRegistry;
   store: RemoteHostProfileStore;
@@ -151,7 +150,7 @@ export class RemoteHostService {
     );
     this.teams = new RemoteHostTeamController(requestScoped, mutationId);
     this.usage = new RemoteHostUsageController(requestScoped);
-    this.nodeConfiguration = new RemoteHostNodeConfigurationController(requestScoped, mutationId);
+    this.nodeConfiguration = new RemoteHostNodeConfigurationController(requestScoped);
     this.nodeAssets = new RemoteHostNodeAssetController(requestScoped);
     this.sessionMutations = new RemoteHostSessionMutationController(requestScoped, mutationId);
     this.sessionState = new RemoteHostSessionStateController(
@@ -209,7 +208,6 @@ export class RemoteHostService {
   getSnapshot(): Promise<RemoteHostSnapshotDto> {
     return this.mutationTail.then(() => this.snapshot());
   }
-
   addProfile(draft: RemoteHostProfileDraftDto): Promise<RemoteHostSnapshotDto> {
     return this.mutateActive(async () => {
       await this.profiles.add(draft);

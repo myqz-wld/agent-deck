@@ -153,9 +153,10 @@ reactivation negotiated separately for compatible Cores. Runtime choices changed
 turn apply to later work, and desktop-created Remote sessions open as soon as their temporary row is
 registered before following any provider-assigned canonical session id.
 Remote Teams, Issues, Data, session totals, and token rates come from the selected Core. Remote
-Settings reads Worker defaults and installs Hooks in that Worker's isolated Provider Home, while
-the Assets Library reads only Worker-packaged and Worker Provider Home assets; desktop-only window
-and notification controls remain explicitly labeled as local.
+Settings displays Worker defaults and Hook status as disabled, read-only controls. The Assets
+Library reads only Worker-packaged assets and the bounded Local Agents/Skills snapshot in the
+Worker's isolated Provider Home. Remote never edits Worker configuration, assets, or Hooks;
+desktop-only window and notification controls remain explicitly labeled as local.
 
 SSH uses pinned host keys, dedicated public-key credentials, forced commands, and no shell, PTY,
 agent forwarding, or tunnel surface. The server issues and enrolls each desktop credential in one

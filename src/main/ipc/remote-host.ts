@@ -36,7 +36,6 @@ import {
   parseRemoteHostUsageToken,
   parseRemoteHostNodeConfiguration,
   parseRemoteHostNodeHook,
-  parseRemoteHostNodeHookMutation,
   parseRemoteHostNodeAssetList,
   parseRemoteHostNodeAssetContent,
   parseRemoteHostNodeAssetConvention,
@@ -190,14 +189,6 @@ export function registerRemoteHostIpc(): void {
     )));
   on(RemoteHostIpcInvoke.NodeHookStatus, (_event, request) => safely(() =>
     getRemoteHostService().nodeConfiguration.status(parseRemoteHostNodeHook(request))));
-  on(RemoteHostIpcInvoke.NodeHookInstall, (_event, request) => safely(() =>
-    getRemoteHostService().nodeConfiguration.install(
-      parseRemoteHostNodeHookMutation(request),
-    )));
-  on(RemoteHostIpcInvoke.NodeHookUninstall, (_event, request) => safely(() =>
-    getRemoteHostService().nodeConfiguration.uninstall(
-      parseRemoteHostNodeHookMutation(request),
-    )));
   on(RemoteHostIpcInvoke.NodeAssetsList, (_event, request) => safely(() =>
     getRemoteHostService().nodeAssets.list(parseRemoteHostNodeAssetList(request))));
   on(RemoteHostIpcInvoke.NodeAssetContentGet, (_event, request) => safely(() =>

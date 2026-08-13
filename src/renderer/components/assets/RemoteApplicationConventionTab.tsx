@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
 
+import { ReadOnlyConventionDocument } from '../settings/b18/ConventionDocumentEditor';
 import { AdapterSubTab, type AssetAdapter } from './AdapterSubTab';
-import { BoundedTextPreview } from './BoundedTextPreview';
+
+const ADAPTER_NAMES = {
+  'claude-code': 'Claude Code',
+  'codex-cli': 'Codex CLI',
+  'grok-build': 'Grok Build',
+} as const;
 
 interface Props {
   catalogRevision: number | null;
@@ -50,17 +56,20 @@ export function RemoteApplicationConventionTab({
   return (
     <div className="flex min-h-[310px] flex-col gap-2">
       <AdapterSubTab current={adapter} onSelect={setAdapter} showGrok />
-      <div className="text-[10px] leading-snug text-deck-muted/70">
-        当前内容来自 Remote Worker「{label}」的打包资源，并实际注入该 Worker 新建的对应会话；远端协议当前只读。
-      </div>
       {error ? (
         <div className="rounded border border-status-waiting/40 bg-status-waiting/10 p-2 text-[11px] text-status-waiting">
           {error}
         </div>
       ) : content === null ? (
-        <div className="text-[11px] text-deck-muted">读取 Worker 应用约定中…</div>
+        <div className="text-[11px] text-deck-muted">正在读取 Worker 应用约定…</div>
       ) : (
-        <BoundedTextPreview content={content} ariaLabel={`${adapter} Remote 应用约定`} />
+        <ReadOnlyConventionDocument
+          adapter={adapter}
+          adapterName={ADAPTER_NAMES[adapter]}
+          content={content}
+          description={`当前显示 Worker「${label}」部署的应用约定；新建会话会使用这份内容。`}
+          identity={identity}
+        />
       )}
     </div>
   );

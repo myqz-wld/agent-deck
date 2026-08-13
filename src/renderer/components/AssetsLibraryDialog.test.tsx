@@ -97,7 +97,18 @@ describe('AssetsLibraryDialog source authority', () => {
     fireEvent.click(screen.getByRole('button', { name: '关闭' }));
 
     fireEvent.click(screen.getByRole('button', { name: '应用约定' }));
-    expect(await screen.findByText('# Worker CLAUDE.md')).toBeTruthy();
+    const convention = await screen.findByRole('textbox', {
+      name: 'Claude Code 应用约定（只读）',
+    });
+    expect((convention as HTMLTextAreaElement).value).toBe('# Worker CLAUDE.md');
+    expect((convention as HTMLTextAreaElement).readOnly).toBe(true);
+    fireEvent.click(screen.getByRole('button', {
+      name: '放大查看 Claude Code 应用约定',
+    }));
+    expect(screen.getByRole('dialog', { name: '查看 Claude Code 应用约定' })).toBeTruthy();
+    expect(screen.getByRole('textbox', {
+      name: 'Claude Code 应用约定（放大查看，只读）',
+    })).toBeTruthy();
 
     expect(remote.listRemoteHostNodeAssets).toHaveBeenCalledWith({ profileId: 'remote-a' });
     expect(remote.getRemoteHostNodeAssetContent).toHaveBeenCalledWith({
@@ -187,7 +198,7 @@ describe('AssetsLibraryDialog source authority', () => {
     rerender(
       <AssetsLibraryDialog open onClose={vi.fn()} remote={{ ...remoteProps, usable: false }} />,
     );
-    expect(await screen.findByText('当前 Remote Worker 尚未连接，资产数据不可用。')).toBeTruthy();
+    expect(await screen.findByText('当前 Worker 尚未连接，暂时无法读取资产。')).toBeTruthy();
     expect(screen.queryByText('agent-deck:claude-code:deep-review')).toBeNull();
     expect(screen.queryByRole('button', { name: '关闭' })).toBeNull();
 

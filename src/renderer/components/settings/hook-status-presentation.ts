@@ -1,5 +1,4 @@
 import type {
-  NodeHookProjectionResult,
   NodeHookProjectionStatusDto,
 } from '@contracts/index';
 import type { HookInstallStatus } from '@shared/types';
@@ -30,26 +29,13 @@ const REMOTE_HOOK_DISABLED_COPY: Record<
 
 export function presentRemoteHookStatus(
   status: NodeHookProjectionStatusDto,
-  supportsWrite: boolean,
 ): HookStatusPresentation {
-  const writeAllowed = status.writeAllowed && supportsWrite;
   return {
     state: status.state,
     locationLabel: null,
-    writeAllowed,
+    writeAllowed: false,
     disabledReason: status.disabledReason
       ? REMOTE_HOOK_DISABLED_COPY[status.disabledReason]
-      : writeAllowed
-        ? null
-        : '当前 Remote Core 未提供 Hook 修改能力。',
+      : 'Hook 由 Worker 部署管理，Remote 中仅供查看。',
   };
-}
-
-export function presentRemoteHookResult(
-  result: NodeHookProjectionResult,
-  expectedAdapterId: NodeHookProjectionResult['adapterId'],
-  supportsWrite: boolean,
-): HookStatusPresentation {
-  if (result.adapterId !== expectedAdapterId) throw new Error('Remote Hook adapter mismatch');
-  return presentRemoteHookStatus(result.status, supportsWrite);
 }

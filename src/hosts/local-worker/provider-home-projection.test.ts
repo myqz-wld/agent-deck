@@ -5,13 +5,18 @@ import {
   readFileSync,
   realpathSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { projectLocalWorkerProviderHome } from './provider-home-projection';
+import { scanServerCoreUserAssets } from '@hosts/server-core/node-asset-user-scan';
+import {
+  projectLocalWorkerProviderHome,
+  syncLocalWorkerProviderHome,
+} from './provider-home-projection';
 
 function fixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-provider-home-')));
@@ -72,6 +77,71 @@ describe('Local Worker provider home projection', () => {
     expect(() => readFileSync(join(destination, '.codex', 'config.toml'))).toThrow();
     expect(() => readFileSync(join(destination, '.grok', 'auth.json'))).toThrow();
     expect(() => readFileSync(join(destination, '.grok', 'config.toml'))).toThrow();
+  });
+
+  it('projects Local direct and Plugin Agents/Skills into the Worker catalog', () => {
+    const { destination, source } = fixture();
+    const files: Array<readonly [string, string]> = [
+      ['.claude/agents/reviewer.md', '---\nname: reviewer\ndescription: Review\n---\n'],
+      ['.claude/skills/planning/SKILL.md', '---\nname: planning\ndescription: Plan\n---\n'],
+      ['.claude/skills/planning/scripts/check.sh', '#!/bin/sh\nexit 0\n'],
+      ['.claude/plugins/demo/.claude-plugin/plugin.json', '{"name":"demo"}\n'],
+      ['.claude/plugins/demo/skills/audit/SKILL.md', '---\nname: audit\ndescription: Audit\n---\n'],
+      ['.codex/agents/builder.toml', 'name = "builder"\ndescription = "Build"\n'],
+      ['.codex/plugins/demo/.codex-plugin/plugin.json', '{"name":"codex-demo"}\n'],
+      ['.codex/plugins/demo/skills/ship/SKILL.md', '---\nname: ship\ndescription: Ship\n---\n'],
+      ['.grok/skills/explore/SKILL.md', '---\nname: explore\ndescription: Explore\n---\n'],
+    ];
+    for (const [path, content] of files) {
+      mkdirSync(join(source, path, '..'), { recursive: true, mode: 0o700 });
+      writeFileSync(join(source, path), content, { mode: 0o600 });
+    }
+
+    const projected = projectLocalWorkerProviderHome(source, destination);
+    expect(projected).toContain('.claude/agents/reviewer.md');
+    expect(projected).toContain('.claude/skills/planning/SKILL.md');
+    expect(projected).toContain('.claude/skills/planning/scripts/check.sh');
+    expect(projected).toContain(
+      '.claude/plugins/agent-deck-worker-sync/demo/skills/audit/SKILL.md',
+    );
+    expect(projected).toContain(
+      '.codex/plugins/agent-deck-worker-sync/codex-demo/skills/ship/SKILL.md',
+    );
+    const snapshot = scanServerCoreUserAssets(destination, {
+      maxAssets: 50,
+      maxVisitedEntries: 1_000,
+    });
+    expect(snapshot.assets.map((asset) => [
+      asset.adapter,
+      asset.kind,
+      asset.qualifiedName,
+    ])).toEqual(expect.arrayContaining([
+      ['claude-code', 'agent', 'reviewer'],
+      ['claude-code', 'skill', 'planning'],
+      ['claude-code', 'skill', 'plugin:demo/audit'],
+      ['codex-cli', 'agent', 'builder'],
+      ['codex-cli', 'skill', 'plugin:codex-demo/ship'],
+      ['grok-build', 'skill', 'explore'],
+    ]));
+  });
+
+  it('removes stale synchronized assets when the Worker restarts', () => {
+    const { destination, source } = fixture();
+    const alpha = join(source, '.claude', 'skills', 'alpha', 'SKILL.md');
+    mkdirSync(join(alpha, '..'), { recursive: true, mode: 0o700 });
+    writeFileSync(alpha, '---\nname: alpha\n---\n', { mode: 0o600 });
+    projectLocalWorkerProviderHome(source, destination);
+
+    unlinkSync(alpha);
+    const beta = join(source, '.claude', 'skills', 'beta', 'SKILL.md');
+    mkdirSync(join(beta, '..'), { recursive: true, mode: 0o700 });
+    writeFileSync(beta, '---\nname: beta\n---\n', { mode: 0o600 });
+    syncLocalWorkerProviderHome(source, destination);
+
+    expect(() => readFileSync(join(destination, '.claude', 'skills', 'alpha', 'SKILL.md')))
+      .toThrow();
+    expect(readFileSync(join(destination, '.claude', 'skills', 'beta', 'SKILL.md'), 'utf8'))
+      .toContain('name: beta');
   });
 
   it('rejects a symlinked or writable source instead of widening the projection', () => {
