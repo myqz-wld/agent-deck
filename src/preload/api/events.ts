@@ -4,9 +4,6 @@
  * 包含 main → renderer 的实时推送订阅（agent event / session 增删改 / summary / task /
  * pin / transparent / focus request）。每个订阅返回 unsubscribe 函数。
  *
- * 注：team / message 域的两个订阅（onAgentDeckTeamChanged / onAgentDeckMessageChanged）
- * 在 api/teams.ts 内（语义归属）。
- *
  * R37 P1 Step 1.1：8 个 onXxx 5 行模板（`const handler = ...; on(); return off`）
  * 压缩为单行 `subscribe<T>(channel, cb)` 调用，节省 -32 LOC + 防漏 unsubscribe。
  */
@@ -36,6 +33,15 @@ export const eventsApi = {
     subscribe<{ from: string; to: string }>(IpcEvent.SessionRenamed, cb),
   onSummaryAdded: (cb: (s: SummaryRecord) => void): (() => void) =>
     subscribe<SummaryRecord>(IpcEvent.SummaryAdded, cb),
+  /** 跨会话消息入队、状态变迁或清理后的聚合刷新信号。 */
+  onAgentDeckMessageChanged: (
+    cb: (
+      items: { kind: string; teamId: string | null; messageId: string; payload: unknown }[],
+    ) => void,
+  ): (() => void) =>
+    subscribe<
+      { kind: string; teamId: string | null; messageId: string; payload: unknown }[]
+    >(IpcEvent.AgentDeckMessageChanged, cb),
   /**
    * Task Manager (CHANGELOG_43)：订阅 tasks 写操作（create/update/delete）after-commit
    * 推送。SessionDetail TasksPanel 用它节流重拉当前会话可见任务。

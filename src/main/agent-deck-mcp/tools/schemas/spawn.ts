@@ -66,7 +66,7 @@ export const SPAWN_SESSION_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Optional active-team name, 1-128 characters with no trimming or normalization. Omit for a standalone session; it can still exchange teamless DMs through send_message but does not share TeamDetail membership. When set, the authenticated caller must already have a durable Agent Deck session row; otherwise the request fails before team or provider creation. Preflight then creates or reuses the exact active name, requires the caller to be or become lead, and adds the target as teammate. Post-creation team setup participates in the tool contract’s reported rollback boundary.',
+      'Optional active-team name, 1-128 characters with no trimming or normalization. Omit for a standalone session; it can still exchange teamless DMs through send_message but does not share active-team membership. When set, the authenticated caller must already have a durable Agent Deck session row; otherwise the request fails before team or provider creation. Preflight then creates or reuses the exact active name, requires the caller to be or become lead, and adds the target as teammate. Post-creation team setup participates in the tool contract’s reported rollback boundary.',
     ),
   /**
    * Optional adapter-native agent selection. Claude targets use SDK `agent` plus either

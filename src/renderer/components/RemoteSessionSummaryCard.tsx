@@ -2,7 +2,7 @@ import { useState, type JSX, type MouseEvent } from 'react';
 
 import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
 import { CrownIcon, ShieldIcon, UsersIcon } from './icons';
-import { lifecycleLabel } from './TeamDetail/helpers';
+import { lifecycleLabel } from './session-presentation';
 import { HistorySessionActionsMenu } from './HistorySessionActionsMenu';
 import { RuntimeMetadataChips } from './SessionMetadataChips';
 import { SessionCardFrame, SessionCardHeader } from './SessionListPrimitives';

@@ -32,7 +32,7 @@ export type SessionEndReason = 'closed' | 'deleted';
  * 行为完全等价 except archive reason 由参数 explicit map：
  * 1. lazy import agentDeckTeamRepo + listActiveMemberships
  * 2. 逐个 leaveTeam(team_id, sid) 写 left_at = now
- * 3. emit `agent-deck-team-member-changed` 让 TeamHub / TeamDetail UI 刷新
+ * 3. emit `agent-deck-team-member-changed` 让协作消息 watcher 刷新成员投递状态
  * 4. 0-lead 自动 archive：lead 离开后该 team 无 active lead → archive team + emit
  *    `agent-deck-team-updated`，archive reason 由本函数参数决定
  *

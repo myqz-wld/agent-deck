@@ -11,7 +11,7 @@
  * - adapters.ts          Adapter* (createSession / sendMessage / RespondPermission / etc.)
  * - permissions.ts       PermissionScanCwd / PermissionOpenFile
  * - images.ts            ImageLoadBlob + 双白名单 + TOCTOU 防护
- * - teams.ts             SummarizerLastErrors + Team* + TeamPermission*
+ * - diagnostics.ts       SummarizerLastErrors
  * - assets.ts            Assets* (bundled + user agents/skills 管理，CHANGELOG_57)
  * - logs.ts              Logs* (Settings LogsSection 后端 — Plan runtime-logging §D9 §Step 3.2.5)
  * - issues.ts            Issues* (plan issue-tracker-mcp-20260529 §Step 3.5)
@@ -25,7 +25,7 @@ import { registerSettingsIpc } from './settings';
 import { registerAdaptersIpc } from './adapters';
 import { registerPermissionsIpc } from './permissions';
 import { registerImagesIpc } from './images';
-import { registerTeamsIpc } from './teams';
+import { registerDiagnosticsIpc } from './diagnostics';
 import { registerAssetsIpc } from './assets';
 import { registerLogsIpc } from './logs';
 import { registerIssuesIpc } from './issues';
@@ -43,7 +43,7 @@ export function bootstrapIpc(): void {
   registerPlanReviewIpc();
   registerPermissionsIpc();
   registerImagesIpc();
-  registerTeamsIpc();
+  registerDiagnosticsIpc();
   registerAssetsIpc();
   registerLogsIpc();
   registerIssuesIpc();

@@ -1,13 +1,11 @@
 import {
   isJsonObject,
   parseSessionMessagesListParams,
-  parseSessionPermissionsGetParams,
   parseSessionOutgoingListParams,
   parseSessionOutgoingRemoveParams,
 } from '@contracts/index';
 import type {
   RemoteHostSessionMessagesRequestDto,
-  RemoteHostSessionPermissionsRequestDto,
   RemoteHostSessionOutgoingRequestDto,
   RemoteHostSessionOutgoingRemoveRequestDto,
 } from '@shared/remote-host';
@@ -72,25 +70,6 @@ export function parseRemoteHostSessionOutgoingRemoveRequest(
   } catch (error) {
     if (error instanceof RemoteHostInputError) throw error;
     throw new RemoteHostInputError('sessionOutgoingRemove', 'is invalid');
-  }
-}
-
-export function parseRemoteHostSessionPermissionsRequest(
-  value: unknown,
-): RemoteHostSessionPermissionsRequestDto {
-  const raw = exact(value, ['adapterId', 'profileId', 'sessionId'], 'sessionPermissions');
-  if (!['claude-code', 'codex-cli', 'grok-build'].includes(String(raw.adapterId))) {
-    throw new RemoteHostInputError('sessionPermissions.adapterId', 'is invalid');
-  }
-  try {
-    return {
-      profileId: parseRemoteHostProfileId(raw.profileId),
-      adapterId: raw.adapterId as RemoteHostSessionPermissionsRequestDto['adapterId'],
-      ...parseSessionPermissionsGetParams({ sessionId: raw.sessionId }),
-    };
-  } catch (error) {
-    if (error instanceof RemoteHostInputError) throw error;
-    throw new RemoteHostInputError('sessionPermissions', 'is invalid');
   }
 }
 

@@ -9,7 +9,6 @@ import type {
   SessionMessagesListResult,
   SessionOutgoingListResult,
   SessionOutgoingRemoveResult,
-  SessionPermissionsGetResult,
 } from '@contracts/index';
 
 export interface RemoteHostMutationAuthorityDto {
@@ -29,11 +28,6 @@ export interface RemoteHostSessionTargetDto {
 
 export type RemoteHostSessionContextDto = SessionContextGetResult;
 export type RemoteHostSessionInputCapabilitiesDto = SessionInputCapabilitiesResult;
-
-export interface RemoteHostSessionPermissionsRequestDto extends RemoteHostSessionTargetDto {
-  adapterId: 'claude-code' | 'codex-cli' | 'grok-build';
-}
-export type RemoteHostSessionPermissionsDto = SessionPermissionsGetResult;
 
 export interface RemoteHostSessionMessagesRequestDto extends RemoteHostSessionTargetDto {
   limit: number;

@@ -2,10 +2,11 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { IpcInvoke } from '@shared/ipc-channels';
-import type { TaskRecord } from '@shared/types';
+import type { AgentDeckMessage, TaskRecord } from '@shared/types';
 import { sessionManager } from '@main/session/manager';
 import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
+import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { eventRepo } from '@main/store/event-repo';
 import { fileChangeReadRepo } from '@main/store/file-change-read-repo';
 import { sessionRepo, SessionRowMissingError } from '@main/store/session-repo';
@@ -105,6 +106,27 @@ export function registerSessionsIpc(): void {
       }),
     };
   });
+  on(
+    IpcInvoke.AgentDeckMessageListBySession,
+    (_event, input): AgentDeckMessage[] => {
+      if (!input || typeof input !== 'object' || Array.isArray(input)) {
+        throw new IpcInputError('input', 'must be { sessionId, limit?, offset? }');
+      }
+      const obj = input as Record<string, unknown>;
+      const sessionId = parseStringId('sessionId', obj.sessionId);
+      const limit = parsePositiveInt('limit', obj.limit, {
+        fallback: 100,
+        min: 1,
+        max: 500,
+      });
+      const offset = parsePositiveInt('offset', obj.offset, {
+        fallback: 0,
+        min: 0,
+        max: Number.MAX_SAFE_INTEGER,
+      });
+      return agentDeckMessageRepo.listBySession(sessionId, { limit, offset });
+    },
+  );
   on(IpcInvoke.SessionArchive, async (_event, id) => {
     const sessionId = parseStringId('sessionId', id);
     try {

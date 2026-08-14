@@ -31,7 +31,6 @@ export function makeAgentDeckTeamRepoMock(
     ensureByName: () => ({}) as ReturnType<AgentDeckTeamRepo['ensureByName']>,
     get: () => null,
     getByActiveName: () => null,
-    getWithMembers: () => null,
     list: () => [],
     archive: () => null,
     unarchive: () => null,

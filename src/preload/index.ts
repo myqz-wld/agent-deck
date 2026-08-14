@@ -4,7 +4,6 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { sessionsApi } from './api/sessions';
 import { adaptersApi } from './api/adapters';
-import { teamsApi } from './api/teams';
 import { miscApi } from './api/misc';
 import { eventsApi } from './api/events';
 import { issuesApi } from './api/issues';
@@ -14,7 +13,6 @@ import { remoteHostApi } from './api/remote-host';
 const api = {
   ...sessionsApi,
   ...adaptersApi,
-  ...teamsApi,
   ...miscApi,
   ...eventsApi,
   ...issuesApi,

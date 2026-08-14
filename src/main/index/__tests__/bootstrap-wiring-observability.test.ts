@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => {
     eventOn: vi.fn((_event: string, _listener: (...args: unknown[]) => void) => () => {}),
     safeSend: vi.fn(),
     makeSafeSend: vi.fn(),
-    makeDebouncedTeamSender: vi.fn(),
+    makeDebouncedKeyedSender: vi.fn(),
     enrichWithTeams: vi.fn((value: unknown) => value),
     notifyUser: vi.fn(),
     handleCliArgv: vi.fn(),
@@ -59,7 +59,7 @@ vi.mock('@main/session-focus-request', () => ({
 
 vi.mock('@main/index/_deps', () => ({
   makeSafeSend: mocks.makeSafeSend,
-  makeDebouncedTeamSender: mocks.makeDebouncedTeamSender,
+  makeDebouncedKeyedSender: mocks.makeDebouncedKeyedSender,
   TOOL_DISPLAY_NAME: {
     hand_off_session: '会话接力',
     SessionHandOffCommit: '会话接力',
@@ -108,7 +108,7 @@ describe('bootstrap wiring observability', () => {
     mocks.window.isDestroyed.mockReturnValue(false);
     mocks.window.isAlwaysOnTop.mockReturnValue(true);
     mocks.makeSafeSend.mockReturnValue(mocks.safeSend);
-    mocks.makeDebouncedTeamSender.mockImplementation(() => vi.fn());
+    mocks.makeDebouncedKeyedSender.mockImplementation(() => vi.fn());
     mocks.enrichWithTeams.mockImplementation((value: unknown) => value);
     mocks.floating.emitCompactChanged = vi.fn();
     mocks.eventOn.mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
@@ -152,8 +152,7 @@ describe('bootstrap wiring observability', () => {
     expect(mocks.eventOn.mock.calls.map(([event]) => event)).toEqual(
       ('agent-event|session-upserted|session-removed|session-renamed|summary-added|' +
        'session-focus-request|task-changed|issue-changed|token-usage-changed|token-rate-tick|' +
-       'caller-archive-failed|agent-deck-team-created|agent-deck-team-updated|' +
-       'agent-deck-team-deleted|agent-deck-team-member-changed|agent-deck-message-enqueued|' +
+       'caller-archive-failed|agent-deck-message-enqueued|' +
        'agent-deck-message-status-changed|agent-deck-message-purged').split('|'),
     );
   });

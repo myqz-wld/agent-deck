@@ -158,8 +158,9 @@ Remote Live rows provide the same right-click archive/delete actions as Local, w
 reactivation negotiated separately for compatible Cores. Runtime choices changed during an active
 turn apply to later work, and desktop-created Remote sessions open as soon as their temporary row is
 registered before following any provider-assigned canonical session id.
-Remote Teams, Issues, Data, session totals, and token rates come from the selected Core. Remote
-Settings displays Worker defaults and Hook status as disabled, read-only controls. The Assets
+Remote Issues, Data, session totals, token rates, and session-scoped collaboration metadata come
+from the selected Core. Remote Settings displays Worker defaults and Hook status as disabled,
+read-only controls. The Assets
 Library reads only Worker-packaged assets and the bounded Local Agents/Skills snapshot in the
 Worker's isolated Provider Home. Remote never edits Worker configuration, assets, or Hooks;
 desktop-only window and notification controls remain explicitly labeled as local.

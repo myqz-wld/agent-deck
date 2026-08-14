@@ -16,7 +16,7 @@
  * → 跳过该路径 GC（N7）。teamless 与 team 统一阈值（不分桶）。
  *
  * **purged 事件**：每轮 batchHardDelete 后 deletedCount>0 才 emit 一次 `agent-deck-message-purged`
- * { count }，触发 renderer（MessagesPanel / TeamDetail 订阅 onAgentDeckMessageChanged）整体重拉
+ * { count }，触发 renderer（MessagesPanel 订阅 onAgentDeckMessageChanged）整体重拉
  * （§D7）。不逐条 emit（消息是 DELETE 非 status 变 + 最多 500 次过 debouncer 浪费）。
  */
 
@@ -77,8 +77,8 @@ export class MessageLifecycleScheduler {
    * §D6 GC tick：listExpiredForGc 拿超期 terminal id → batchHardDelete 单事务删 →
    * deletedCount>0 emit 一次 purged。messageRetentionDays<=0 早退（N7）。
    *
-   * **每轮单次 emit 而非逐条**：renderer 整体重拉不解析 payload（MessagesPanel:61 /
-   * TeamDetail:83），单次 { count } 足够；catch-up 多轮则每轮一次。
+   * **每轮单次 emit 而非逐条**：renderer 的 MessagesPanel 整体重拉且不解析 payload，
+   * 单次 { count } 足够；catch-up 多轮则每轮一次。
    *
    * **catch-up 守门 hitLimit && deletedCount>0**（对齐 issue-lifecycle-scheduler.ts:131）：
    * 删满 limit（=可能还有积压）且本轮真删了行 → 调度短延迟续删。deletedCount===0（本轮全 race /

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { TaskRecord } from '@shared/types';
 import log from '@renderer/utils/logger';
-import { relativeTime } from '../TeamDetail/helpers';
+import { relativeTime } from '../session-presentation';
 import { safeErrorData } from '../activity-feed/viewers/safe-error-data';
 
 interface Props {

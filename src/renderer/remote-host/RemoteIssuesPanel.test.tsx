@@ -61,7 +61,6 @@ function resourceRevisions(issues: number): RemoteHostResourceRevisions {
     'session-list': 0,
     'session-detail': 0,
     pending: 0,
-    teams: 0,
     issues,
     usage: 0,
     'node-configuration': 0,

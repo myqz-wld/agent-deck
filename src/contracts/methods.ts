@@ -58,18 +58,6 @@ import type {
   DesktopBrokerRespondResult,
 } from './desktop-broker';
 import type {
-  TeamAddMemberParams,
-  TeamAddMemberResult,
-  TeamArchiveParams,
-  TeamGetParams,
-  TeamGetResult,
-  TeamListParams,
-  TeamListResult,
-  TeamMutationResult,
-  TeamShutdownParams,
-  TeamShutdownResult,
-} from './teams';
-import type {
   UsageProviderParams,
   UsageProviderResult,
   UsageTokenParams,
@@ -104,7 +92,6 @@ import type {
 } from './session-presentation';
 import type { PendingIndexListParams, PendingIndexListResult } from './pending-index';
 import type { SessionMessagesListParams, SessionMessagesListResult } from './session-messages';
-import type { SessionPermissionsGetParams, SessionPermissionsGetResult } from './session-permissions';
 import type {
   SessionOutgoingListParams,
   SessionOutgoingListResult,
@@ -173,10 +160,6 @@ export type CoreMethodMap = {
     params: SessionMessagesListParams;
     result: SessionMessagesListResult;
   };
-  'session.permissions.get': {
-    params: SessionPermissionsGetParams;
-    result: SessionPermissionsGetResult;
-  };
   'session.outgoing.list': {
     params: SessionOutgoingListParams;
     result: SessionOutgoingListResult;
@@ -242,11 +225,6 @@ export type CoreMethodMap = {
     params: SessionTaskListParams;
     result: SessionTaskListResult;
   };
-  'teams.list': { params: TeamListParams; result: TeamListResult };
-  'teams.get': { params: TeamGetParams; result: TeamGetResult };
-  'teams.archive': { params: TeamArchiveParams; result: TeamMutationResult };
-  'teams.add-member': { params: TeamAddMemberParams; result: TeamAddMemberResult };
-  'teams.shutdown-teammates': { params: TeamShutdownParams; result: TeamShutdownResult };
   'usage.tokens.get': { params: UsageTokenParams; result: UsageTokenResult };
   'usage.providers.get': { params: UsageProviderParams; result: UsageProviderResult };
   'node.configuration.get': {
@@ -422,7 +400,6 @@ export const CORE_METHOD_METADATA = {
     'none',
   ),
   'session.messages.list': readMethod(AgentDeckCapability.SessionMessagesRead, 'none'),
-  'session.permissions.get': readMethod(AgentDeckCapability.SessionPermissionsRead, 'none'),
   'session.outgoing.list': readMethod(AgentDeckCapability.SessionOutgoingRead, 'none'),
   'session.outgoing.remove': mutationMethod(
     AgentDeckCapability.SessionOutgoingWrite,
@@ -440,11 +417,6 @@ export const CORE_METHOD_METADATA = {
   ),
   'session.assets.image-chunk.read': readMethod(AgentDeckCapability.Assets, 'none'),
   'session.tasks.list': readMethod(AgentDeckCapability.Tasks, 'none'),
-  'teams.list': readMethod(AgentDeckCapability.Teams, 'none'),
-  'teams.get': readMethod(AgentDeckCapability.Teams, 'none'),
-  'teams.archive': mutationMethod(AgentDeckCapability.Teams, 'required', 'none'),
-  'teams.add-member': mutationMethod(AgentDeckCapability.Teams, 'required', 'none'),
-  'teams.shutdown-teammates': mutationMethod(AgentDeckCapability.Teams, 'required', 'none'),
   'usage.tokens.get': readMethod(AgentDeckCapability.Usage, 'none'),
   'usage.providers.get': readMethod(AgentDeckCapability.Usage, 'none'),
   'node.configuration.get': readMethod(AgentDeckCapability.NodeConfiguration, 'none'),

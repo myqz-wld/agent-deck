@@ -7,7 +7,7 @@ import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types
 import { StatusBadge } from './StatusBadge';
 import { CheckIcon, CloseIcon, CrownIcon, ShieldIcon, UsersIcon } from './icons';
 import { RemotePendingRequests } from './pending-rows/RemotePendingRequests';
-import { agentIdLabel } from './TeamDetail/helpers';
+import { agentIdLabel } from './session-presentation';
 
 export function RemotePendingBucketSection({
   bucket,

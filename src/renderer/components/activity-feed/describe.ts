@@ -121,9 +121,8 @@ function textValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-/** session-end reason 英文枚举 → 中文(active/dormant/closed 等 SDK 内部枚举值统一翻译)。
- *  exported 让 TeamDetail/EventsSection 复用同一份翻译,避免双处维护漂移。 */
-export function translateSessionEndReason(reason: string): string {
+/** session-end reason 英文枚举 → 中文(active/dormant/closed 等 SDK 内部枚举值统一翻译)。 */
+function translateSessionEndReason(reason: string): string {
   switch (reason) {
     case 'completed':
       return '正常结束';

@@ -28,10 +28,6 @@ import {
   parseRemoteHostSourceMode,
   parseRemoteHostSummaryRequest,
   parseRemoteHostTaskListRequest,
-  parseRemoteHostTeamAddMember,
-  parseRemoteHostTeamList,
-  parseRemoteHostTeamMutationTarget,
-  parseRemoteHostTeamTarget,
   parseRemoteHostUsageProvider,
   parseRemoteHostUsageToken,
   parseRemoteHostNodeConfiguration,
@@ -44,7 +40,6 @@ import {
   parseRemoteHostSessionCapabilitiesRequest,
   parseRemoteHostSessionPageRequest,
   parseRemoteHostSessionPresentationRequest,
-  parseRemoteHostSessionPermissionsRequest,
   parseRemoteHostSessionMessagesRequest,
   parseRemoteHostSessionOutgoingRequest,
   parseRemoteHostSessionOutgoingRemoveRequest,
@@ -167,18 +162,6 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().detail.listSummaries(parseRemoteHostSummaryRequest(request))));
   on(RemoteHostIpcInvoke.TasksList, (_event, request) => safely(() =>
     getRemoteHostService().detail.listTasks(parseRemoteHostTaskListRequest(request))));
-  on(RemoteHostIpcInvoke.TeamsList, (_event, request) => safely(() =>
-    getRemoteHostService().teams.list(parseRemoteHostTeamList(request))));
-  on(RemoteHostIpcInvoke.TeamGet, (_event, request) => safely(() =>
-    getRemoteHostService().teams.get(parseRemoteHostTeamTarget(request))));
-  on(RemoteHostIpcInvoke.TeamArchive, (_event, request) => safely(() =>
-    getRemoteHostService().teams.archive(parseRemoteHostTeamMutationTarget(request))));
-  on(RemoteHostIpcInvoke.TeamAddMember, (_event, request) => safely(() =>
-    getRemoteHostService().teams.addMember(parseRemoteHostTeamAddMember(request))));
-  on(RemoteHostIpcInvoke.TeamShutdownTeammates, (_event, request) => safely(() =>
-    getRemoteHostService().teams.shutdownTeammates(
-      parseRemoteHostTeamMutationTarget(request),
-    )));
   on(RemoteHostIpcInvoke.UsageTokensGet, (_event, request) => safely(() =>
     getRemoteHostService().usage.tokens(parseRemoteHostUsageToken(request))));
   on(RemoteHostIpcInvoke.UsageProvidersGet, (_event, request) => safely(() =>
@@ -230,10 +213,6 @@ export function registerRemoteHostIpc(): void {
   on(RemoteHostIpcInvoke.SessionInputCapabilities, (_event, request) => safely(() =>
     getRemoteHostService().getSessionInputCapabilities(
       parseRemoteHostSessionTarget(request),
-    )));
-  on(RemoteHostIpcInvoke.SessionPermissionsGet, (_event, request) => safely(() =>
-    getRemoteHostService().getSessionPermissions(
-      parseRemoteHostSessionPermissionsRequest(request),
     )));
   on(RemoteHostIpcInvoke.SessionMessagesList, (_event, request) => safely(() =>
     getRemoteHostService().listSessionMessages(

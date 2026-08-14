@@ -24,7 +24,7 @@
  *   原 src/main/store/agent-deck-team-repo.ts (658 行) 拆为：
  *   - index.ts (本文件，~95 行 facade)
  *   - types.ts (~125 行 errors / row types / row→record / input shapes / MAX_LEADS_PER_TEAM)
- *   - team-crud.ts (~190 行 9 funcs：create/ensureByName/get/getByActiveName/getWithMembers/list/archive/unarchive/hardDelete)
+ *   - team-crud.ts（create/ensureByName/get/getByActiveName/list/archive/unarchive/hardDelete）
  *   - member-crud.ts (~165 行 3 funcs：addMember/leaveTeam/setRole)
  *   - member-query.ts：listActiveMembers / listAllMembers /
  *     findActiveMembershipsBySession / findActiveTeamMembershipsBySession /
@@ -59,7 +59,6 @@ export interface AgentDeckTeamRepo {
   ensureByName(name: string, metadata?: Record<string, unknown>): AgentDeckTeam;
   get(teamId: string): AgentDeckTeam | null;
   getByActiveName(name: string): AgentDeckTeam | null;
-  getWithMembers(teamId: string): (AgentDeckTeam & { members: AgentDeckTeamMember[] }) | null;
   list(opts?: ListTeamsOptions): AgentDeckTeam[];
   archive(teamId: string, opts?: { reason?: AgentDeckTeamArchiveReason }): AgentDeckTeam | null;
   unarchive(teamId: string): AgentDeckTeam | null;
@@ -98,11 +97,10 @@ export interface AgentDeckTeamRepo {
 export function createAgentDeckTeamRepo(db: Database): AgentDeckTeamRepo {
   // 拆分顺序保证 dependency DAG：
   // - member-query 无依赖（纯 read SQL）
-  // - team-crud 依赖 member-query.listAllMembers（getWithMembers 用）
   // - member-crud 依赖 team-crud.get（addMember 校验 team 存在）+ member-query
   //   countActiveLeads/listActiveMembers（addMember/setRole 的 lead 数 / 「至少 1 lead」校验）
   const memberQuery = createMemberQueryHelpers(db);
-  const teamCrud = createTeamCrudHelpers(db, memberQuery);
+  const teamCrud = createTeamCrudHelpers(db);
   const memberCrud = createMemberCrudHelpers(db, teamCrud, memberQuery);
 
   return {
@@ -129,7 +127,6 @@ export const agentDeckTeamRepo: AgentDeckTeamRepo = {
   ensureByName: (name, metadata) => defaultRepo().ensureByName(name, metadata),
   get: (teamId) => defaultRepo().get(teamId),
   getByActiveName: (name) => defaultRepo().getByActiveName(name),
-  getWithMembers: (teamId) => defaultRepo().getWithMembers(teamId),
   list: (opts) => defaultRepo().list(opts),
   archive: (teamId, opts) => defaultRepo().archive(teamId, opts),
   unarchive: (teamId) => defaultRepo().unarchive(teamId),

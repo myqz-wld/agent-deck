@@ -138,7 +138,7 @@ describe('task_create — D7 ingest 分流 + v024 D2 teamName 取 args.teamId lo
   it('in-process + 不传 teamId（personal task）→ CHANGELOG_165 skip ingest（emit task-changed 仍调）', async () => {
     // v024 D2: 不传 teamId → personal task → teamName=null
     // CHANGELOG_165: personal task 不再 ingest team-task-* event(kind 名与 personal 语义不符
-    // + ActivityFeed / TeamDetail EventsSection 噪声),仅 eventBus.emit('task-changed') 保 UI 实时性
+    // + ActivityFeed 噪声),仅 eventBus.emit('task-changed') 保 UI 实时性
     mockTaskRepo.create.mockReturnValue(makeTask({ ownerSessionId: 'sess-caller', teamId: null }));
 
     await taskCreateHandler({ subject: 'X' }, makeCtx('sess-caller', 'in-process'));

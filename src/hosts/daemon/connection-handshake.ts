@@ -91,7 +91,6 @@ function capabilities(
                     capability === AgentDeckCapability.NodeAssetsBound ||
                     capability === AgentDeckCapability.SessionPresentationRead ||
                     capability === AgentDeckCapability.SessionMessagesRead ||
-                    capability === AgentDeckCapability.SessionPermissionsRead ||
                     capability === AgentDeckCapability.SessionOutgoingRead ||
                     capability === AgentDeckCapability.SessionOutgoingWrite ||
                     capability === AgentDeckCapability.PendingIndexRead

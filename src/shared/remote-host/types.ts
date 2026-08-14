@@ -15,12 +15,6 @@ import type {
   SessionConsoleCreateOptions,
   SessionSummaryListResult,
   SessionTaskListResult,
-  TeamAddMemberResult,
-  TeamGetResult,
-  TeamListResult,
-  TeamMemberRoleDto,
-  TeamMutationResult,
-  TeamShutdownResult,
   UsageProviderResult,
   UsageTokenResult,
   WorkspaceDirectoryListResult,
@@ -275,33 +269,6 @@ export interface RemoteHostTaskListRequestDto extends RemoteHostSessionTargetDto
 
 export type RemoteHostTaskListDto = SessionTaskListResult;
 
-export interface RemoteHostTeamListRequestDto {
-  profileId: string;
-  includeArchived: boolean;
-  limit: number;
-}
-
-export interface RemoteHostTeamTargetDto {
-  profileId: string;
-  teamId: string;
-}
-
-export interface RemoteHostTeamMutationTargetDto
-  extends RemoteHostTeamTargetDto, RemoteHostMutationIntentDto {
-  expectedRevision: number;
-}
-
-export interface RemoteHostTeamAddMemberDto extends RemoteHostTeamMutationTargetDto {
-  sessionId: string;
-  role: TeamMemberRoleDto;
-}
-
-export type RemoteHostTeamListDto = TeamListResult;
-export type RemoteHostTeamGetDto = TeamGetResult;
-export type RemoteHostTeamMutationResultDto = TeamMutationResult;
-export type RemoteHostTeamAddMemberResultDto = TeamAddMemberResult;
-export type RemoteHostTeamShutdownResultDto = TeamShutdownResult;
-
 export interface RemoteHostUsageTokenRequestDto {
   profileId: string;
   includeDaily: boolean;
@@ -460,7 +427,6 @@ export const REMOTE_HOST_RESOURCE_KINDS = [
   'session-list',
   'session-detail',
   'pending',
-  'teams',
   'issues',
   'usage',
   'node-configuration',

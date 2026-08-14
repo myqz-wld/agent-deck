@@ -1,7 +1,7 @@
 import type { JSX, MouseEventHandler, ReactNode } from 'react';
 
 import type { ActivityState, LifecycleState } from '@shared/types';
-import { agentIdLabel } from './TeamDetail/helpers';
+import { agentIdLabel } from './session-presentation';
 import { StatusBadge } from './StatusBadge';
 
 interface SessionCardFrameProps {

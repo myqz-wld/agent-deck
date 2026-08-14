@@ -57,7 +57,7 @@ function source(
     capabilities: new Set(['session-console.create', 'session-console.read']),
     dataRevision: 0,
     resourceRevisions: {
-      'session-list': 0, 'session-detail': 0, pending: 0, teams: 0,
+      'session-list': 0, 'session-detail': 0, pending: 0,
       issues: 0, usage: 0, 'node-configuration': 0, 'node-assets': 0,
     },
     error: null,

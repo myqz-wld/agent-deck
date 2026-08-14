@@ -4,7 +4,7 @@
  * 拆分历史：从 src/main/store/agent-deck-team-repo.ts 抽出（CHANGELOG_82 / plan
  * deep-review-and-split-20260513 H2 Step 2.2）。
  *
- * 不依赖 team-crud / member-crud；team-crud.getWithMembers 与 member-crud.addMember/setRole
+ * 不依赖 team-crud / member-crud；member-crud.addMember/setRole
  * 反过来依赖此处（read-side helper 无业务副作用）。
  */
 

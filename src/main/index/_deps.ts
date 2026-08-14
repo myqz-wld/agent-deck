@@ -5,7 +5,7 @@
 // 收纳:
 // - BootstrapState interface (module-level let 单例字段聚合)
 // - createInitialBootstrapState() factory
-// - makeDebouncedTeamSender<T> helper (R3.E9 IPC bridge 16ms debouncer)
+// - makeDebouncedKeyedSender<T> helper (IPC bridge 16ms debouncer)
 // - CallerArchiveFailedToolName type narrowing + TOOL_DISPLAY_NAME 常量
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -92,13 +92,10 @@ export function makeSafeSend(getWindow: () => Electron.BrowserWindow | null) {
 }
 
 /**
- * R3.E9 IPC bridge debouncer:team / message events 16ms debounce + per-team 累加
- * (reviewer claude LOW 收口)。burst 投递时 renderer 不会被高频重渲染。
- *
- * 用法:bootstrap-wiring.ts Phase 9 创建 teamChangedSender / messageChangedSender
- * 两个实例分别绑 IpcEvent.AgentDeckTeamChanged / IpcEvent.AgentDeckMessageChanged。
+ * IPC bridge debouncer:events 16ms debounce + per-key accumulation. Burst delivery does not
+ * trigger high-frequency renderer refreshes.
  */
-export function makeDebouncedTeamSender<T>(
+export function makeDebouncedKeyedSender<T>(
   channel: string,
   send: (channel: string, payload: T[]) => void,
   pickKey: (item: T) => string,

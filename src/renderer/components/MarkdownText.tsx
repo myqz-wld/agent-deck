@@ -50,7 +50,7 @@ interface Props {
 }
 
 /**
- * MessageBubble / TeamDetail messages / ExitPlanMode plan / activity-feed message+thinking
+ * MessageBubble / SessionDetail messages / ExitPlanMode plan / activity-feed message+thinking
  * 共用的 Markdown 渲染器。
  *
  * 约束：

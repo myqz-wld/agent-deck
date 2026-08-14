@@ -102,7 +102,7 @@ describe('AppHeader source selection', () => {
   it('uses the same primary page catalog when Remote advertises all visible pages', () => {
     renderHeader('remote', 1, new Set([
       'session-console.read', 'pending.index.read', 'sessions.history',
-      'teams', 'issues', 'usage',
+      'issues', 'usage',
     ]));
     expect(screen.getByRole('button', { name: '实时' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '待处理' })).toBeTruthy();
@@ -144,7 +144,7 @@ describe('AppHeader source selection', () => {
   it('keeps stale Remote capabilities from enabling page and create actions offline', () => {
     renderHeader('remote', 1, new Set([
       'session-console.read', 'pending.index.read', 'sessions.history',
-      'teams', 'issues', 'usage',
+      'issues', 'usage',
     ]), null, false);
     expect((screen.getByRole('button', { name: '实时' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: '团队' })).toBeNull();

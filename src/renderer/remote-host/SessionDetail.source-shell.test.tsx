@@ -174,17 +174,14 @@ describe('SessionDetail source shell', () => {
     expect(screen.getByText('正在验证远程任务')).toBeTruthy();
   });
 
-  it('does not expose or request the removed permissions page', () => {
-    const getRemotePermissions = vi.fn();
-    window.api = {
-      getRemoteHostSessionPermissions: getRemotePermissions,
-    } as unknown as typeof window.api;
+  it('does not expose the removed permissions page', () => {
     const source = remoteSource();
-    source.capabilities = new Set([...source.capabilities, 'sessions.permissions.read']);
     render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
 
+    for (const label of ['活动', '任务', '改动', '总结', '跨会话']) {
+      expect(screen.getByRole('button', { name: label })).toBeTruthy();
+    }
     expect(screen.queryByRole('button', { name: '权限' })).toBeNull();
-    expect(getRemotePermissions).not.toHaveBeenCalled();
   });
 
   it('loads bounded Remote cross-session messages lazily through the shared presentation', async () => {

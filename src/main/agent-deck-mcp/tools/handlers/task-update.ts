@@ -116,8 +116,8 @@ export const taskUpdateHandler = withMcpGuard(
       // `patch.status='completed'` 但 `updated.status='pending'` 漂移时不应误触 becameCompleted。
       // CHANGELOG_165 修法: 加 `updated.teamId` 第四守卫,personal task (teamId IS NULL) skip
       // ingest — kind 名 `team-task-completed` 与 personal task 语义不符,且 v024 plan 把
-      // personal task 升为 first-class default 后这条 event 在 ActivityFeed / TeamDetail
-      // EventsSection 里全是噪声(用户 caller 跑自己 todo 与 team 无关却喷一条进事件流)。
+      // personal task 升为 first-class default 后这条 event 在 ActivityFeed 里全是噪声
+      // (用户 caller 跑自己 todo 与 team 无关却喷一条进事件流)。
       // eventBus.emit('task-changed') 不受影响仍发,UI TasksSection / task_list 实时性不丢。
       const becameCompleted =
         patch.status === 'completed' &&
