@@ -1,5 +1,5 @@
 ---
-review_id: 247
+review_id: 248
 reviewed_at: 2026-08-14
 baseline_commit: bdc7bdb3b12694a95506b3f670dcc28287d21cfd
 expired: false
@@ -8,7 +8,7 @@ skipped_expired:
     reason: "Final record and index maintenance is mechanical evidence derived from the reviewed tree."
 ---
 
-# REVIEW_247_feishu-server-one-click-acceptance: Feishu server integration
+# REVIEW_248_feishu-server-one-click-acceptance: Feishu server integration
 
 ## Scope and method
 

@@ -12,6 +12,10 @@ import {
   type PluginRoot,
   type PluginTraversalBudget,
 } from '@main/plugin-assets';
+import {
+  getGrokUserPluginSearchPaths,
+  GROK_PLUGIN_MANIFEST_PATHS,
+} from '@main/adapters/grok-build/plugin-search-paths';
 import { parseFrontmatter } from '@main/utils/frontmatter';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 import { isNativeAssetName, type AssetMeta } from '@shared/types';
@@ -289,7 +293,12 @@ function componentPaths(
   });
 }
 
-function pluginDiscovery(home: string, adapter: BundledAdapter): PluginDiscovery {
+function pluginDiscovery(
+  home: string,
+  sourceHome: string,
+  adapter: BundledAdapter,
+  budget: ScanBudget,
+): PluginDiscovery {
   if (adapter === 'claude-code') {
     return {
       searchPaths: [join(home, '.claude', 'plugins')],
@@ -308,15 +317,40 @@ function pluginDiscovery(home: string, adapter: BundledAdapter): PluginDiscovery
       allowContentOnly: false,
     };
   }
+  const searchPaths = getGrokUserPluginSearchPaths({
+    grokHome: join(sourceHome, '.grok'),
+    claudeHome: join(sourceHome, '.claude'),
+    userHome: sourceHome,
+    io: {
+      readText: (path) => readAsset(path, home)?.content ?? null,
+      listDirectories: (path) => listPluginDirectories(path, home, budget),
+    },
+  }).filter((path) =>
+    (inside(sourceHome, path) || inside(home, path)) && !isRemoteSensitiveAssetPath(path)
+  );
   return {
-    searchPaths: [join(home, '.grok', 'plugins'), join(home, '.claude', 'plugins')],
-    manifestPaths: ['plugin.json'],
+    searchPaths,
+    manifestPaths: [...GROK_PLUGIN_MANIFEST_PATHS],
     allowContentOnly: true,
   };
 }
 
+function listPluginDirectories(path: string, home: string, budget: ScanBudget): string[] {
+  const root = canonicalDirectory(path);
+  if (!root || !inside(home, root)) return [];
+  const paths: string[] = [];
+  visitEntries(root, budget, (entry) => {
+    const candidate = join(root, entry);
+    const directory = canonicalDirectory(candidate);
+    if (directory && inside(home, directory)) paths.push(directory);
+    return true;
+  });
+  return paths;
+}
+
 function scanPlugins(
   home: string,
+  sourceHome: string,
   adapter: BundledAdapter,
   budget: ScanBudget,
 ): AssetMeta[] {
@@ -324,8 +358,8 @@ function scanPlugins(
     budget.truncated = true;
     return [];
   }
-  const discovery = pluginDiscovery(home, adapter);
-  const plugins = discoverPluginRoots({
+  const discovery = pluginDiscovery(home, sourceHome, adapter, budget);
+  let plugins = discoverPluginRoots({
     ...discovery,
     maxDepth: 6,
     maxManifestBytes: NODE_ASSET_MAX_CONTENT_BYTES,
@@ -335,6 +369,9 @@ function scanPlugins(
     readManifest: (path) => readAsset(path, home)?.content ?? null,
   })
     .filter((plugin) => inside(home, plugin.path) && isNativeAssetName(plugin.name));
+  if (adapter === 'grok-build') {
+    plugins = [...new Map(plugins.map((plugin) => [plugin.name, plugin])).values()];
+  }
   const assets: AssetMeta[] = [];
   for (const plugin of plugins) {
     for (const path of componentPaths(adapter, plugin, 'agents', home, budget)) {
@@ -359,6 +396,7 @@ function scanPlugins(
 
 function scanAdapter(
   home: string,
+  sourceHome: string,
   adapter: BundledAdapter,
   maxAssets: number,
   maxVisitedEntries: number,
@@ -375,7 +413,7 @@ function scanAdapter(
   const scanned = [
     ...scanAgentPath(adapter, join(config, 'agents'), home, null, budget),
     ...scanSkillPath(adapter, join(config, 'skills'), home, null, budget),
-    ...scanPlugins(home, adapter, budget),
+    ...scanPlugins(home, sourceHome, adapter, budget),
   ];
   const unique = new Map<string, AssetMeta>();
   for (const asset of scanned) {
@@ -413,6 +451,7 @@ export function scanServerCoreUserAssets(
 ): ServerCoreUserAssetScanResult {
   const home = canonicalDirectory(providerHomeRoot);
   if (!home) return { assets: [], truncated: false, visitedEntries: 0 };
+  const sourceHome = resolve(providerHomeRoot);
   const maxAssets = Math.max(0, Math.floor(options.maxAssets));
   const maxVisitedEntries = Math.max(0, Math.floor(options.maxVisitedEntries));
   const adapters = ['claude-code', 'codex-cli', 'grok-build'] as const;
@@ -420,6 +459,7 @@ export function scanServerCoreUserAssets(
   const remainder = maxVisitedEntries % adapters.length;
   const scans = adapters.map((adapter, index) => scanAdapter(
     home,
+    sourceHome,
     adapter,
     maxAssets,
     baseEntries + (index < remainder ? 1 : 0),
