@@ -39,7 +39,7 @@ function credential(value: unknown, instanceId: string): CredentialMetadata {
   }
   if (
     typeof object.fingerprint !== 'string' ||
-    (object.publicKey !== null && typeof object.publicKey !== 'string') ||
+    typeof object.publicKey !== 'string' ||
     !Number.isSafeInteger(object.createdAt) ||
     (object.revokedAt !== null && !Number.isSafeInteger(object.revokedAt))
   ) {

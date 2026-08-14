@@ -4,7 +4,6 @@ import {
   isRecord,
   linuxInstanceIdField,
   nullableStableTokenField,
-  nullableStringField,
   RelayMetadataError,
   stableTokenField,
   stringField,
@@ -145,7 +144,7 @@ export interface CredentialMetadata {
   instanceId: string;
   credentialId: string;
   kind: 'ssh-client' | 'feishu' | 'relay-worker';
-  publicKey: string | null;
+  publicKey: string;
   fingerprint: string;
   status: 'active' | 'revoked';
   createdAt: number;
@@ -275,13 +274,10 @@ function validateRow(table: RelayMetadataTable, value: unknown): RelayMetadataRo
       if (value.id !== credentialId) {
         throw new RelayMetadataError('credentials.id must equal credentialId');
       }
-      const kind = enumField(value, 'kind', ['ssh-client', 'feishu', 'relay-worker']);
-      const publicKey = nullableStringField(value, 'publicKey', 8192);
-      if (kind === 'feishu' && publicKey !== null) {
-        throw new RelayMetadataError('Feishu credentials cannot carry SSH public keys');
-      }
-      if (kind !== 'feishu' && (publicKey === null || !OPENSSH_PUBLIC_KEY.test(publicKey))) {
-        throw new RelayMetadataError('SSH credentials require one valid OpenSSH public key');
+      enumField(value, 'kind', ['ssh-client', 'feishu', 'relay-worker']);
+      const publicKey = stringField(value, 'publicKey', 8192);
+      if (!OPENSSH_PUBLIC_KEY.test(publicKey)) {
+        throw new RelayMetadataError('credentials require one valid OpenSSH public key');
       }
       const fingerprint = stringField(value, 'fingerprint');
       if (!/^SHA256:[A-Za-z0-9+/=_-]+$/.test(fingerprint)) {

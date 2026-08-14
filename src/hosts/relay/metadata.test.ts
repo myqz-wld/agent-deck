@@ -227,11 +227,11 @@ describe('Relay metadata allowlist', () => {
       revokedAt: null,
     };
     expect(() => store.put('credentials', { ...credential, publicKey: null })).toThrow(
-      'SSH credentials require',
+      'publicKey must be',
     );
     expect(() =>
       store.put('credentials', { ...credential, kind: 'feishu', publicKey: credential.publicKey }),
-    ).toThrow('Feishu credentials cannot carry');
+    ).not.toThrow();
     expect(() => store.put('credentials', { ...credential, revokedAt: 3 })).toThrow(
       'Active credentials require null revokedAt',
     );
@@ -391,7 +391,7 @@ describe('Relay metadata allowlist', () => {
       instanceId: 'instance-a',
       credentialId: 'credential-feishu',
       kind: 'feishu',
-      publicKey: null,
+      publicKey: 'ssh-ed25519 AAAATEST feishu',
       fingerprint: 'SHA256:feishu',
       status: 'active',
       createdAt: 1,

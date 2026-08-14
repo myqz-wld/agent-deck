@@ -23,11 +23,15 @@ const MAX_POLL_INTERVAL_MS = 60_000;
 export interface ServerCoreCredentialRecord {
   readonly credentialId: string;
   readonly surface: DaemonClientAccessSurface;
+  readonly publicKey: string;
+  readonly fingerprint: string;
   readonly status: 'active' | 'revoked';
+  readonly createdAt: number;
+  readonly revokedAt: number | null;
 }
 
 export interface ServerCoreCredentialDocument {
-  readonly schemaVersion: 2;
+  readonly schemaVersion: 3;
   readonly instanceId: string;
   readonly credentials: readonly ServerCoreCredentialRecord[];
 }
@@ -57,11 +61,42 @@ function status(value: unknown): 'active' | 'revoked' {
 
 function record(value: unknown): ServerCoreCredentialRecord {
   const object = requireObject(value, 'credential record');
-  assertExactKeys(object, ['credentialId', 'status', 'surface'], 'credential record');
+  assertExactKeys(object, [
+    'createdAt',
+    'credentialId',
+    'fingerprint',
+    'publicKey',
+    'revokedAt',
+    'status',
+    'surface',
+  ], 'credential record');
+  if (
+    typeof object.publicKey !== 'string' ||
+    !/^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [^\s].*)?$/u.test(object.publicKey) ||
+    typeof object.fingerprint !== 'string' ||
+    !/^SHA256:[A-Za-z0-9+/_-]+$/u.test(object.fingerprint)
+  ) {
+    throw new Error('credential key identity is invalid');
+  }
+  const createdAt = requirePositiveInteger(object.createdAt, 'credential createdAt');
+  const recordStatus = status(object.status);
+  const revokedAt = object.revokedAt === null
+    ? null
+    : requirePositiveInteger(object.revokedAt, 'credential revokedAt');
+  if (
+    (recordStatus === 'active' && revokedAt !== null) ||
+    (recordStatus === 'revoked' && (revokedAt === null || revokedAt < createdAt))
+  ) {
+    throw new Error('credential lifecycle timestamps are invalid');
+  }
   return Object.freeze({
     credentialId: requireStableToken(object.credentialId, 'credentialId'),
     surface: surface(object.surface),
-    status: status(object.status),
+    publicKey: object.publicKey,
+    fingerprint: object.fingerprint,
+    status: recordStatus,
+    createdAt,
+    revokedAt,
   });
 }
 
@@ -75,7 +110,7 @@ export function parseServerCoreCredentialDocument(
     ['credentials', 'instanceId', 'schemaVersion'],
     'credential document',
   );
-  if (object.schemaVersion !== 2) {
+  if (object.schemaVersion !== 3) {
     throw new Error('credential schemaVersion is unsupported');
   }
   const instanceId = requireLinuxInstanceId(object.instanceId);
@@ -84,12 +119,12 @@ export function parseServerCoreCredentialDocument(
     throw new Error('credentials must be a bounded array');
   }
   const credentials = object.credentials.map(record);
-  const identities = credentials.map((entry) => key(entry.credentialId, entry.surface));
+  const identities = credentials.map((entry) => entry.credentialId);
   if (new Set(identities).size !== identities.length) {
     throw new Error('credential identities must be unique');
   }
   return Object.freeze({
-    schemaVersion: 2,
+    schemaVersion: 3,
     instanceId,
     credentials: Object.freeze(credentials),
   });

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "instanceId": "instance-a",
+  "topology": "relay",
+  "authorityFile": "/var/lib/agent-deck/.config/agent-deck-relay/instance-a/config.json",
+  "authorizedKeysFile": "/var/lib/agent-deck/.ssh/authorized_keys",
+  "endpoint": {
+    "hostname": "relay.example.com",
+    "port": 22,
+    "username": "agentdeck",
+    "hostKeyFile": "/etc/ssh/ssh_host_ed25519_key.pub"
+  },
+  "relayRuntimeUid": 1001,
+  "feishuIdentityOwner": {
+    "uid": 1002,
+    "gid": 1002
+  }
+}
