@@ -15,7 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
-| 2026-08-14 | `PLAN_38_feishu-one-click-server.md` | implementation complete; external live acceptance pending | Add server-managed Feishu for Relay and Full | CHANGELOG_612 / REVIEW_247 |
+| 2026-08-14 | `PLAN_38_feishu-one-click-server.md` | Relay accepted; Full/real Feishu external pending | Add server-managed Feishu for Relay and Full | CHANGELOG_612 / REVIEW_247 / REVIEW_248 |
 | 2026-08-12 | `PLAN_37_ipc-fast-read-readiness.md` | completed | Make fast IPC presentation complete and identity-safe | CHANGELOG_598 / REVIEW_238 |
 | 2026-08-12 | `PLAN_36_remote-full-ui-parity.md` | delivery complete; installed acceptance pending | Complete source-authoritative Remote UI parity | CHANGELOG_592 / REVIEW_233 |
 | 2026-08-11 | `PLAN_35_remote-transport-ui-convergence.md` | closed at user request | Fix Remote transport and UI; package without installed acceptance | CHANGELOG_591 / REVIEW_232 |

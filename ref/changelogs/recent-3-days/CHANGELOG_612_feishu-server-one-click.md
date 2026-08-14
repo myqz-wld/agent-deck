@@ -42,6 +42,9 @@ revocation while Worker/Core retains business data and mechanically enforces imm
   `better-sqlite3` 11.10.0, built from architecture-specific pinned base-image digests.
 - Added immutable root-owned runtime releases, active/desired pointers, checksum/provenance
   validation, bounded service health checks, credential rotation, rollback, and disconnect cleanup.
+- Made runtime packaging reproducible across independent processes, raised the bounded release-upload
+  timeout for slow links, and reduced installer peak disk use by extracting and validating the
+  runtime in its final filesystem before the atomic cutover.
 - Pruned package source, tests, and native build inputs from runtime archives and reject duplicate,
   traversal, source/test, and secret-like archive entries during build validation.
 - Extended Linux install, verification, static checks, manifests, runbooks, and request examples for
@@ -51,13 +54,13 @@ revocation while Worker/Core retains business data and mechanically enforces imm
 
 - Focused behavior/security suites passed 21 files / 156 tests; expiry/deletion coverage passed 2
   files / 23 tests.
-- The complete suite passed 962 files / 6,104 tests; 2 files / 3 tests remained skipped behind
+- The complete suite passed 962 files / 6,105 tests; 2 files / 3 tests remained skipped behind
   existing opt-in guards.
 - `pnpm typecheck`, `pnpm build`, `pnpm verify:linux-headless`, `pnpm check:deployment`, and the
   Full, Relay, Feishu, and Manager static checks passed.
-- Repeated builds were byte-identical: amd64
-  `3cdcb188a4e8202bed527d5106aed6d0fe01a4da65f27e52cdc252acfb595f44` and arm64
-  `a3eae830abad1105218e901c89a3393454fcd9ed882685ebd550a3472a0849b9`.
+- Repeated independent-process builds were byte-identical: amd64
+  `f1a5392b0635a47b08cb9e1b066f38302ad9c8192e170029182338e813777d52` and arm64
+  `59bc3544f016c2b920e1b956c84e731eedec98e8778b3a42f97df27cfd72d2af`.
 - Both artifacts passed inner checksums, pinned Node/ABI checks, and real bundled SQLite execution
   in Ubuntu 24.04 and Rocky Linux 9 containers for their target architectures.
 - Review-expiry inventory, changed-source file-size inventory, and `git diff --check` passed. The
@@ -69,13 +72,21 @@ revocation while Worker/Core retains business data and mechanically enforces imm
 No exception is required. All changed production TypeScript/JavaScript and shell source remains
 below 500 lines; generated lockfiles are exempt.
 
-## External acceptance boundary
+## Relay live acceptance and external boundary
 
-No authorized clean systemd/sshd hosts or tenant-installed Feishu credentials were available.
-Real-host service/ownership/forced-command/egress validation and real Feishu message, card,
-reconnect, revocation, and load acceptance remain explicit user-environment checks.
+- An authorized ARM64 Ubuntu Relay host passed the official check/dry-run/upgrade/verify flow,
+  exact managed-unit restart, metadata-v2 clean break, canonical Desktop forced command, and
+  idempotent connection issue/rotate/revoke verification. Relay remained healthy while its Worker
+  route was offline; no local process was terminated.
+- The installed server CLI passed `connections verify|list`, disposable credential lifecycle
+  acceptance, and `feishu check|status`. The Feishu runtime is installed and verified, while the
+  service correctly remains inactive without app credentials.
+- No authorized Full host, EL9-family systemd host, or tenant-installed Feishu app credentials were
+  available. Full live deployment and real Feishu message/card/pair/delete/reconnect/revocation/load
+  acceptance remain explicit external checks.
 
 ## Related records
 
 - `ref/reviews/recent-3-days/REVIEW_247_feishu-server-one-click-acceptance.md`
+- `ref/reviews/recent-3-days/REVIEW_248_feishu-relay-live-acceptance.md`
 - `ref/plans/recent-3-days/PLAN_38_feishu-one-click-server.md`
