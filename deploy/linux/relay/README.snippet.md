@@ -63,8 +63,8 @@ model-facing tool access to host or Worker-private paths. `sandbox-exec` is used
 boundary canary and is not represented as the shipped production mechanism.
 
 Replace `INSTANCE_ID`, `CREDENTIAL_ID`, `WORKER_ID`, `RUNTIME_UID`, and the public key in the
-authorized-key fixtures. Use the exact `desktop-full` line for an Electron SSH credential and the
-exact `feishu-session-console` line for a Feishu service credential. `RUNTIME_UID` is the uid of the
+authorized-key fixtures. Use the exact `desktop` line for an Electron SSH credential and the exact
+`feishu` line for a Feishu service credential. `RUNTIME_UID` is the uid of the
 same rootless service account that owns
 the Relay Quadlet. The forced command binds the exact host control socket under
 `/run/user/<uid>/agent-deck-relay/<instance>/control.sock`; the container sees that directory only
@@ -95,7 +95,7 @@ umask 077
 Transfer that file only to the Worker machine and configure it from a terminal with the shared
 workspace. Worker configuration is never imported into Electron and is never shown in Remote
 settings. Then issue a separate Client credential for each desktop; each public key is bound only
-to the `bridge --surface desktop-full` forced command:
+to the `bridge --surface desktop` forced command:
 
 ```bash
 agent-deck-worker configure \

@@ -60,7 +60,7 @@ export interface ServerCoreDesktopBrokerOptions {
 function clientKey(access: AuthenticatedClientAccessContext): string {
   const fields = [
     access.instanceId,
-    access.accessCredentialId,
+    access.connectionScope,
     access.clientId,
     access.surface,
   ];
@@ -317,7 +317,7 @@ export class ServerCoreDesktopBroker implements ServerCoreDesktopBrokerPort {
   }
 
   private assertDesktop(access: AuthenticatedClientAccessContext): void {
-    if (access.surface !== AccessSurface.DesktopFull || access.transport !== 'ssh') {
+    if (access.surface !== AccessSurface.Desktop || access.transport !== 'ssh') {
       throw new ServerCoreDesktopBrokerError('unavailable', 'Desktop broker requires SSH desktop access');
     }
   }

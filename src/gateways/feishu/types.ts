@@ -8,17 +8,18 @@ import type {
   FeishuInboundEvent,
 } from '@gateways/im';
 
-export type FeishuProductionTopology = 'relay' | 'server-core';
+export type FeishuProductionTopology = 'relay' | 'full';
 
 export interface FeishuConfiguredCredential {
   openId: string;
   credentialId: string;
+  connectionScope: string;
   status: 'active' | 'revoked';
 }
 
 /** Secret-free, bounded production configuration. */
 export interface FeishuProductionConfig {
-  schemaVersion: 1;
+  schemaVersion: 2;
   topology: FeishuProductionTopology;
   instanceId: string;
   appId: string;

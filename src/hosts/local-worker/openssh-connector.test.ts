@@ -159,8 +159,9 @@ describe('OpenSSH Worker connector boundary', () => {
       payload: emptyRoutePayload(),
       creditBytes: null,
       resetCode: null,
-      accessCredentialId: null,
+      connectionScope: null,
       accessSurface: null,
+      accessGrant: null,
     };
     expect(() => session.send(frame)).toThrow('backpressured');
     child.stdin.emit('drain');
@@ -263,8 +264,9 @@ describe('OpenSSH Worker connector boundary', () => {
       payload: new Uint8Array(32),
       creditBytes: null,
       resetCode: null,
-      accessCredentialId: null,
+      connectionScope: null,
       accessSurface: null,
+      accessGrant: null,
     };
     const exactBodyBytes = encodeRelayRouteFrame(route).byteLength - 4;
     const attached = encodeWorkerWireMessage({ ...ATTACHED, maxFrameBytes: exactBodyBytes - 1 });

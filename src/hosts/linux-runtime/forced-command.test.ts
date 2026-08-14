@@ -11,7 +11,7 @@ describe('forced-command tunnel', () => {
     const output: Buffer[] = [];
     const connect = vi.fn(async () => socket);
     const admission = {
-      version: 1 as const,
+      version: 2 as const,
       topology: 'relay' as const,
       role: 'worker' as const,
       instanceId: 'instance-a',
@@ -38,12 +38,13 @@ describe('forced-command tunnel', () => {
     const connect = vi.fn();
     await expect(runForcedCommandTunnel({
       admission: {
-        version: 1,
-        topology: 'server-core',
+        version: 2,
+        topology: 'full',
         role: 'client',
         instanceId: 'instance-a',
         credentialId: 'credential-a',
-        surface: 'desktop-full',
+        connectionScope: 'scope-credential-a',
+        surface: 'desktop',
       },
       socketPath: '/run/agent-deck.sock',
       expectedOriginalCommand: 'agent-deck-bridge',

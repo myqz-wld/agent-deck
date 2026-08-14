@@ -23,7 +23,7 @@ describe('SshAgentDeckClient child retirement fencing', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'retire-before-spawn', 'server-core', {
+      const client = makeClient(harness, 'retire-before-spawn', 'full', {
         reconnect: { initialDelayMs: 10, maxDelayMs: 10, multiplier: 1, maxAttempts: 1 },
         timing: RETIREMENT_TIMING,
       });
@@ -56,7 +56,7 @@ describe('SshAgentDeckClient child retirement fencing', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'join-reconnect-handshake', 'server-core', {
+      const client = makeClient(harness, 'join-reconnect-handshake', 'full', {
         reconnect: { initialDelayMs: 10, maxDelayMs: 10, multiplier: 1, maxAttempts: 1 },
         timing: RETIREMENT_TIMING,
       });
@@ -87,7 +87,7 @@ describe('SshAgentDeckClient child retirement fencing', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'join-attempt-state', 'server-core', {
+      const client = makeClient(harness, 'join-attempt-state', 'full', {
         reconnect: { initialDelayMs: 10, maxDelayMs: 10, multiplier: 1, maxAttempts: 1 },
         timing: RETIREMENT_TIMING,
       });
@@ -124,7 +124,7 @@ describe('SshAgentDeckClient child retirement fencing', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'stuck-retirement', 'server-core', {
+      const client = makeClient(harness, 'stuck-retirement', 'full', {
         reconnect: { initialDelayMs: 1, maxDelayMs: 1, multiplier: 1, maxAttempts: 1 },
         timing: RETIREMENT_TIMING,
       });
@@ -159,7 +159,7 @@ describe('SshAgentDeckClient child retirement fencing', () => {
 
   it('adopts and retires a child when request-id creation throws during setup', async () => {
     const harness = new FakeSpawnHarness();
-    const client = makeClient(harness, 'setup-throw', 'server-core', {
+    const client = makeClient(harness, 'setup-throw', 'full', {
       createRequestId: () => {
         throw new Error('id factory failed');
       },
@@ -183,7 +183,7 @@ describe('SshAgentDeckClient child retirement fencing', () => {
       };
       return child;
     };
-    const client = makeClient(harness, 'writer-setup-throw', 'server-core', {
+    const client = makeClient(harness, 'writer-setup-throw', 'full', {
       spawn,
       timing: RETIREMENT_TIMING,
     });
@@ -200,7 +200,7 @@ describe('SshAgentDeckClient child retirement fencing', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'close-retirement-race', 'server-core', {
+      const client = makeClient(harness, 'close-retirement-race', 'full', {
         reconnect: { initialDelayMs: 1, maxDelayMs: 1, multiplier: 1, maxAttempts: 1 },
         timing: RETIREMENT_TIMING,
       });
@@ -227,7 +227,7 @@ describe('SshAgentDeckClient child retirement fencing', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'terminal-reconnect-waiter', 'server-core', {
+      const client = makeClient(harness, 'terminal-reconnect-waiter', 'full', {
         reconnect: { initialDelayMs: 10, maxDelayMs: 10, multiplier: 1, maxAttempts: 1 },
         timing: RETIREMENT_TIMING,
       });

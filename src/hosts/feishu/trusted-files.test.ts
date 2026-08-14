@@ -30,7 +30,7 @@ describe('Feishu trusted SSH files', () => {
     const knownHostsFile = await privateFile(root, 'known_hosts', 'host ssh-ed25519 AAAA\n');
     const identityFile = await privateFile(root, 'identity', 'PRIVATE-KEY-FIXTURE\n');
     const configPath = await privateFile(root, 'core.json', JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       topology: 'relay',
       instanceId: 'tenant-a',
       appVersion: '0.1.0',
@@ -39,7 +39,7 @@ describe('Feishu trusted SSH files', () => {
       username: 'agentdeck',
       knownHostsFile,
       hostKeyAlias: null,
-      credentials: [{ credentialId: 'feishu-a', identityFile }],
+      credentials: [{ credentialId: 'feishu-a', connectionScope: 'feishu-a', identityFile }],
     }));
     const config = await readFeishuCoreSshConfig(configPath);
     expect(config.instanceId).toBe('tenant-a');
@@ -58,7 +58,7 @@ describe('Feishu trusted SSH files', () => {
     const identityFile = await privateFile(root, 'identity', 'private key');
     await chmod(identityFile, 0o644);
     await expect(assertFeishuCoreSshTrustFiles({
-      schemaVersion: 1,
+      schemaVersion: 2,
       topology: 'relay',
       instanceId: 'tenant-a',
       appVersion: '0.1.0',
@@ -67,7 +67,7 @@ describe('Feishu trusted SSH files', () => {
       username: 'agentdeck',
       knownHostsFile,
       hostKeyAlias: null,
-      credentials: [{ credentialId: 'feishu-a', identityFile }],
+      credentials: [{ credentialId: 'feishu-a', connectionScope: 'feishu-a', identityFile }],
     })).rejects.toThrow('private file');
   });
 });

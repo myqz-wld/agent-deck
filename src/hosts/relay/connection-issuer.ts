@@ -100,7 +100,7 @@ function issueRelayConnection(
         'restrict,command="/opt/agent-deck/bin/agent-deck-relay bridge',
         `--instance ${instanceId}`,
         `--credential ${credentialId}`,
-        '--surface desktop-full',
+        '--surface desktop',
         `--socket /run/user/${runtimeUid}/agent-deck-relay/${instanceId}/control.sock",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty`,
         issue.publicKey,
       ].join(' ');

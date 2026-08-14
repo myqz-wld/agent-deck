@@ -1,10 +1,7 @@
 import { preflightNodeNativeSqlite } from '@hosts/daemon/sqlite-preflight';
 import { parseExactFlags } from '@hosts/linux-runtime/validation';
-import {
-  createLoadedFeishuRuntime,
-  loadFeishuProductionConfig,
-  type FeishuAuditSink,
-} from '@gateways/feishu';
+import { loadFeishuProductionConfig } from '@gateways/feishu/config';
+import type { FeishuAuditSink } from '@gateways/feishu/types';
 
 import { createFeishuSshClientFactory } from './client-factory';
 import { runFeishuService } from './service';
@@ -48,6 +45,7 @@ async function run(argv: readonly string[]): Promise<number> {
   if (command === 'check-config') return 0;
   preflightNodeNativeSqlite();
   await assertFeishuCoreSshTrustFiles(ssh);
+  const { createLoadedFeishuRuntime } = await import('@gateways/feishu/runtime');
   return (await runFeishuService((onFatal) => createLoadedFeishuRuntime(gateway, {
     appVersion: ssh.appVersion,
     clientFactory,

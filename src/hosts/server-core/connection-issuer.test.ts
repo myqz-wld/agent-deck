@@ -15,13 +15,13 @@ afterEach(() => {
 });
 
 function fixture(): { root: string; flags: Readonly<Record<string, string>> } {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-full-issue-')));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-server-core-issue-')));
   roots.push(root);
   const credentialFile = join(root, 'credentials.json');
   const authorizedKeys = join(root, 'authorized_keys');
   const hostKey = join(root, 'ssh_host_ed25519_key.pub');
   writeFileSync(credentialFile, `${JSON.stringify({
-    schemaVersion: 1, instanceId: 'instance-a', credentials: [],
+    schemaVersion: 2, instanceId: 'instance-a', credentials: [],
   })}\n`, { mode: 0o600 });
   writeFileSync(authorizedKeys, '', { mode: 0o600 });
   writeFileSync(hostKey, 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH host\n', { mode: 0o644 });
@@ -53,7 +53,7 @@ describe('issueServerCoreConnection', () => {
 
     const bundle = parseRemoteConnectionCredential(JSON.parse(readFileSync(flags['--output'], 'utf8')));
     expect(bundle).toMatchObject({
-      schemaVersion: 2, purpose: 'client', topology: 'server-core',
+      schemaVersion: 3, purpose: 'client', topology: 'full',
       instanceId: 'instance-a', credentialId: 'desktop-a',
     });
     expect(bundle).not.toHaveProperty('workerId');
@@ -61,7 +61,7 @@ describe('issueServerCoreConnection', () => {
     const authority = readFileSync(flags['--credential-file'], 'utf8');
     const authorized = readFileSync(flags['--authorized-keys'], 'utf8');
     expect(authority).toContain('desktop-a');
-    expect(authorized).toContain('--surface desktop-full');
+    expect(authorized).toContain('--surface desktop');
     expect(authorized).toContain('ssh-ed25519');
     expect(`${authority}${authorized}`).not.toContain('OPENSSH PRIVATE KEY');
   });

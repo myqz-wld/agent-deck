@@ -1,7 +1,7 @@
 import {
   AgentDeckClientErrorCode,
   CORE_METHOD_METADATA,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   isJsonValue,
   type AuthenticatedClientAccessContext,
   type CoreMethod,
@@ -164,7 +164,7 @@ export class DaemonRequestScheduler {
         MAX_DAEMON_IDEMPOTENCY_KEY_BYTES,
       );
     }
-    if (!isCoreMethodAllowed(access.surface, message.method)) {
+    if (!isCoreMethodGranted(access, message.method)) {
       throw new DaemonRequestError(
         AgentDeckClientErrorCode.AccessDenied,
         `Method is not allowed on ${access.surface}`,

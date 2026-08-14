@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { issueRemoteOwnerGrantClaim } from '@contracts/index';
 
 import {
   assertHostHello,
   assertProtocolMessageEnvelope,
+  parseProtocolMessageEnvelope,
   ProtocolMessageError,
 } from './messages';
 
@@ -83,7 +85,7 @@ describe('protocol message envelope', () => {
     const hello = {
       protocolVersion: { major: 1, minor: 0 },
       appVersion: '0.1.0',
-      topology: 'server-core',
+      topology: 'full',
       instanceId: 'tenant-a',
       authoritativeCore: {
         id: 'core-a',
@@ -92,13 +94,14 @@ describe('protocol message envelope', () => {
       },
       access: {
         kind: 'authenticated-client',
-        topology: 'server-core',
+        topology: 'full',
         instanceId: 'tenant-a',
         clientId: 'feishu-chat-a',
         transport: 'feishu',
-        accessCredentialId: 'credential-a',
+        connectionScope: 'credential-a',
         authority: 'owner-equivalent',
-        surface: 'feishu-session-console',
+        surface: 'feishu',
+        grant: issueRemoteOwnerGrantClaim('feishu'),
       },
       capabilities: ['sessions.read'],
       limits: {
@@ -114,8 +117,20 @@ describe('protocol message envelope', () => {
     expect(() =>
       assertHostHello({
         ...hello,
-        access: { ...hello.access, surface: 'desktop-full' },
+        access: { ...hello.access, surface: 'desktop' },
       }),
     ).toThrowError('Invalid authenticated client access context');
+  });
+
+  it('rejects retired topology and surface vocabulary without normalization', () => {
+    const common = {
+      protocolVersion: { major: 2, minor: 6 },
+      appVersion: '0.1.0',
+      clientId: 'desktop-a',
+    };
+    expect(() => parseProtocolMessageEnvelope({
+      type: 'hello', requestId: 'retired-client',
+      hello: { ...common, requestedTopology: 'server-core' },
+    })).toThrow('Unknown requested topology');
   });
 });

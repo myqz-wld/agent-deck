@@ -24,7 +24,7 @@ function configurationToken(value: string, field: string): string {
 }
 
 export function validateGatewayBinding(binding: FeishuGatewayBinding): FeishuGatewayBinding {
-  if (!['relay', 'server-core'].includes(binding.topology)) {
+  if (!['relay', 'full'].includes(binding.topology)) {
     throw new FeishuGatewayError('invalid_configuration', 'Gateway topology is invalid');
   }
   return {

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   SESSION_CONSOLE_CREATE_OPTION_KEYS,
+  issueRemoteOwnerGrantClaim,
   type AccessContext,
   type SessionConsoleCreateOptions,
   type SessionConsoleCreateParams,
@@ -57,13 +58,14 @@ function context(
   return {
     access: access ?? {
       kind: 'authenticated-client',
-      topology: 'server-core',
+      topology: 'full',
       instanceId: 'instance-a',
       clientId: 'client-a',
       transport: 'ssh',
-      accessCredentialId: 'credential-a',
+      connectionScope: 'credential-a',
       authority: 'owner-equivalent',
-      surface: 'desktop-full',
+      surface: 'desktop',
+      grant: issueRemoteOwnerGrantClaim('desktop'),
     },
     idempotencyKey,
     expectedRevision: null,
@@ -256,7 +258,7 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty('awaitCanonicalId');
     expect(commitSessionCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        accessCredentialId: 'credential-a',
+        connectionScope: 'credential-a',
         method: 'session.console.create',
         requestFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
       }),
@@ -377,13 +379,14 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     const desktop = context(undefined, 'desktop-create');
     const feishu = context({
       kind: 'authenticated-client',
-      topology: 'server-core',
+      topology: 'full',
       instanceId: 'instance-a',
       clientId: 'feishu-client',
       transport: 'feishu',
-      accessCredentialId: 'feishu-credential',
+      connectionScope: 'feishu-credential',
       authority: 'owner-equivalent',
-      surface: 'feishu-session-console',
+      surface: 'feishu',
+      grant: issueRemoteOwnerGrantClaim('feishu'),
     }, 'feishu-create');
 
     for (const client of [desktop, feishu]) {
@@ -449,7 +452,7 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     await expect(authority.createSession(await createParams(authority), context({
       kind: 'standalone', topology: 'standalone', instanceId: 'local',
       clientId: 'local', transport: 'local-ipc', accessCredentialId: null,
-      authority: 'local-owner', surface: 'desktop-full',
+      authority: 'local-owner', surface: 'desktop',
     }))).rejects.toMatchObject({ code: 'access_denied' });
     expect(metadata.claimMutation).not.toHaveBeenCalled();
   });

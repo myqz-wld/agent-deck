@@ -6,11 +6,10 @@ import {
   isCoreMethod,
   type AuthenticatedClientAccessContext,
   type CoreMethod,
-  type JsonValue,
 } from '@contracts/index';
 import {
   assertHostHello,
-  assertProtocolMessageEnvelope,
+  parseProtocolMessageEnvelope,
   LengthPrefixedJsonDecoder,
   negotiateProtocolVersion,
   ProtocolCompatibilityError,
@@ -111,10 +110,9 @@ export class DaemonProtocolConnection {
 
   private readonly onData = (chunk: Buffer): void => {
     if (this.stateValue !== 'open') return;
-    let values: JsonValue[];
+    let values: ProtocolMessage[];
     try {
-      values = this.decoder.push(chunk);
-      for (const value of values) assertProtocolMessageEnvelope(value);
+      values = this.decoder.push(chunk).map(parseProtocolMessageEnvelope);
     } catch {
       this.close('malformed-frame');
       return;
@@ -123,7 +121,7 @@ export class DaemonProtocolConnection {
       this.close('inbound-message-queue-overflow');
       return;
     }
-    this.pendingMessages.push(...(values as unknown as ProtocolMessage[]));
+    this.pendingMessages.push(...values);
     void this.drainPendingMessages();
   };
 
@@ -194,7 +192,7 @@ export class DaemonProtocolConnection {
       return;
     }
     try {
-      const topology = this.options.topology ?? DeploymentTopology.ServerCore;
+      const topology = this.options.topology ?? DeploymentTopology.Full;
       if (hello.requestedTopology !== topology) {
         throw new ProtocolCompatibilityError(
           `agent-deckd serves ${topology}, not ${hello.requestedTopology}`,

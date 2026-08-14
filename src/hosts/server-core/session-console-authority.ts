@@ -185,7 +185,7 @@ function mutationIdentity(
     workingDirectory: params.workingDirectory,
   })).digest('hex');
   return {
-    accessCredentialId: context.access.accessCredentialId,
+    connectionScope: context.access.connectionScope,
     accessSurface: context.access.surface,
     idempotencyKey: context.idempotencyKey,
     method: 'session.console.create',

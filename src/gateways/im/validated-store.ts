@@ -44,12 +44,13 @@ function integer(value: unknown, positive = false): number {
 
 function credential(value: unknown): EnrolledFeishuCredential {
   exact(value, [
-    'appId', 'authority', 'credentialId', 'instanceId', 'openId', 'status', 'tenantKey', 'topology',
+    'appId', 'authority', 'connectionScope', 'credentialId', 'instanceId', 'openId', 'status',
+    'tenantKey', 'topology',
   ]);
   if (
     !['active', 'revoked'].includes(String(value.status)) ||
     value.authority !== 'owner-equivalent' ||
-    !['relay', 'server-core'].includes(String(value.topology))
+    !['relay', 'full'].includes(String(value.topology))
   ) fail();
   return {
     appId: token(value.appId),
@@ -57,6 +58,7 @@ function credential(value: unknown): EnrolledFeishuCredential {
     openId: token(value.openId),
     instanceId: token(value.instanceId),
     credentialId: token(value.credentialId),
+    connectionScope: token(value.connectionScope),
     topology: value.topology as EnrolledFeishuCredential['topology'],
     status: value.status as EnrolledFeishuCredential['status'],
     authority: 'owner-equivalent',

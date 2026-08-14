@@ -58,7 +58,7 @@ describe('SshAgentDeckClient protocol transport', () => {
 
   it('adds stable mutation metadata and emits cancel for an aborted request', async () => {
     const harness = new FakeSpawnHarness();
-    const client = makeClient(harness, 'metadata', 'server-core', { now: () => 1_000 });
+    const client = makeClient(harness, 'metadata', 'full', { now: () => 1_000 });
     const process = await completeConnect(client, harness, 'desktop-metadata');
 
     await expect(
@@ -113,7 +113,7 @@ describe('SshAgentDeckClient protocol transport', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'deadline', 'server-core', { now: () => 1_000 });
+      const client = makeClient(harness, 'deadline', 'full', { now: () => 1_000 });
       const process = await completeConnect(client, harness, 'desktop-deadline');
       const result = client.request('system.health', {}, {
         requestId: 'deadline-request',
@@ -135,7 +135,7 @@ describe('SshAgentDeckClient protocol transport', () => {
   it('rejects methods whose negotiated capability is absent before writing them', async () => {
     const harness = new FakeSpawnHarness();
     const client = makeClient(harness, 'capabilities');
-    const process = await completeConnect(client, harness, 'desktop-capabilities', 'server-core', {
+    const process = await completeConnect(client, harness, 'desktop-capabilities', 'full', {
       capabilities: [AgentDeckCapability.SessionsRead],
     });
     process.takeWrittenMessages();
@@ -152,7 +152,7 @@ describe('SshAgentDeckClient protocol transport', () => {
 
   it('queues above the negotiated in-flight limit and bounds both request and write queues', async () => {
     const inFlightHarness = new FakeSpawnHarness();
-    const inFlightClient = makeClient(inFlightHarness, 'in-flight', 'server-core', {
+    const inFlightClient = makeClient(inFlightHarness, 'in-flight', 'full', {
       bounds: { maxInFlightRequests: 1, maxQueuedRequests: 2 },
     });
     const inFlightProcess = await completeConnect(
@@ -185,7 +185,7 @@ describe('SshAgentDeckClient protocol transport', () => {
     await inFlightClient.close();
 
     const queueHarness = new FakeSpawnHarness();
-    const queueClient = makeClient(queueHarness, 'write-queue', 'server-core', {
+    const queueClient = makeClient(queueHarness, 'write-queue', 'full', {
       bounds: {
         maxInFlightRequests: 8,
         maxQueuedWriteBytes: 1024 * 1024,
@@ -208,7 +208,7 @@ describe('SshAgentDeckClient protocol transport', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'reconnect', 'server-core', {
+      const client = makeClient(harness, 'reconnect', 'full', {
         reconnect: { initialDelayMs: 10, maxDelayMs: 100, multiplier: 2, maxAttempts: 2 },
       });
       const firstProcess = await completeConnect(client, harness, 'desktop-reconnect');
@@ -243,7 +243,7 @@ describe('SshAgentDeckClient protocol transport', () => {
       secondProcess.emitMessage({
         type: 'hello-result',
         requestId: secondHelloId,
-        hello: makeHostHello('desktop-reconnect', 'server-core', { eventRevision: 1 }),
+        hello: makeHostHello('desktop-reconnect', 'full', { eventRevision: 1 }),
       } as unknown as JsonValue);
       const replayed = secondProcess.takeWrittenMessages();
       expect(replayed).toContainEqual(
@@ -276,7 +276,7 @@ describe('SshAgentDeckClient protocol transport', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'lower-limit', 'server-core', {
+      const client = makeClient(harness, 'lower-limit', 'full', {
         bounds: { maxInFlightRequests: 3, maxQueuedRequests: 8 },
         reconnect: { initialDelayMs: 10, maxDelayMs: 10, multiplier: 1, maxAttempts: 1 },
       });
@@ -299,7 +299,7 @@ describe('SshAgentDeckClient protocol transport', () => {
       secondProcess.emitMessage({
         type: 'hello-result',
         requestId: helloMessage.requestId,
-        hello: makeHostHello('desktop-lower-limit', 'server-core', {
+        hello: makeHostHello('desktop-lower-limit', 'full', {
           limits: {
             maxFrameBytes: 1024 * 1024,
             maxBlobBytes: 4 * 1024 * 1024,

@@ -27,6 +27,7 @@ import {
 } from '@shared/remote-host';
 
 import { requireAbsolutePath, requirePositiveInteger } from './validation';
+import { deriveConnectionScope } from './connection-scope';
 
 const MAX_MANAGED_FILE_BYTES = 1024 * 1024;
 const SSH_KEYGEN = '/usr/bin/ssh-keygen';
@@ -150,6 +151,9 @@ export function prepareRemoteConnectionIssue(
       topology: input.topology,
       instanceId: input.instanceId,
       credentialId: input.credentialId,
+      ...(input.purpose === 'client'
+        ? { connectionScope: deriveConnectionScope(input.instanceId, input.credentialId) }
+        : {}),
       endpoint: { hostname: input.hostname, port: input.port, username: input.username },
       hostKeys: [host],
       identity: identity.identity,

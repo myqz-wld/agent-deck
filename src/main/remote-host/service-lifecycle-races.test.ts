@@ -30,8 +30,8 @@ function harness(options: {
   twoRemotes?: boolean;
 } = {}) {
   const local = standaloneProfile('local');
-  const firstProfile = remoteProfile('remote-a', 'server-core');
-  const secondProfile = remoteProfile('remote-b', 'server-core');
+  const firstProfile = remoteProfile('remote-a', 'full');
+  const secondProfile = remoteProfile('remote-b', 'full');
   const clients = new Map([
     [firstProfile.id, new ControlledClient({
       ...remoteHello(firstProfile),
@@ -55,7 +55,7 @@ function harness(options: {
   });
   const profiles = options.twoRemotes ? [local, firstProfile, secondProfile] : [local, firstProfile];
   const backend = new MemoryBackend({
-    schemaVersion: 3,
+    schemaVersion: 4,
     sourceMode: options.local ? 'local' : 'remote',
     selectedRemoteProfileId: firstProfile.id,
     profiles,
@@ -192,7 +192,7 @@ describe('RemoteHostService lifecycle admission', () => {
     const client = context.clients.get(context.firstProfile.id)!;
     context.emitTransport(context.firstProfile.id, {
       profileId: context.firstProfile.id,
-      topology: 'server-core',
+      topology: 'full',
       status: 'reconnecting',
       attempt: 1,
       hello: client.hello,

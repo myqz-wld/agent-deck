@@ -350,7 +350,7 @@ function buildWithSecrets(
 export function createServerCoreFeishuRuntime(
   options: FeishuRuntimeFactoryOptions,
 ): FeishuProductionRuntime {
-  return buildRuntime('server-core', options);
+  return buildRuntime('full', options);
 }
 
 export function createRelayFeishuRuntime(
@@ -363,7 +363,7 @@ export function createLoadedFeishuRuntime(
   config: FeishuProductionConfig,
   options: LoadedFeishuRuntimeFactoryOptions,
 ): FeishuProductionRuntime {
-  if (config.topology !== 'server-core' && config.topology !== 'relay') {
+  if (config.topology !== 'full' && config.topology !== 'relay') {
     throw new FeishuGatewayError(
       'invalid_configuration',
       'Feishu config topology is invalid',

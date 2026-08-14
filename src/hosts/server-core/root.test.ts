@@ -78,7 +78,7 @@ describe('Server Core headless root', () => {
     });
 
     expect(controller.composition).toMatchObject({
-      topology: 'server-core',
+      topology: 'full',
       role: 'server-core-host',
     });
     expect(controller.composition.components.map((component) => component.name)).toEqual([

@@ -21,7 +21,7 @@ const CONFIG_FIELDS = [
   'pingTimeoutSeconds', 'reconnectTimeoutMs', 'schemaVersion', 'shutdownTimeoutMs',
   'startupTimeoutMs', 'stateDirectory', 'tenantKey', 'topology',
 ] as const;
-const CREDENTIAL_FIELDS = ['credentialId', 'openId', 'status'] as const;
+const CREDENTIAL_FIELDS = ['connectionScope', 'credentialId', 'openId', 'status'] as const;
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@/$-]*$/;
 const APP_ID = /^cli_[0-9a-fA-F]{16}$/;
 const INSTANCE_ID = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -125,9 +125,11 @@ function parseCredential(value: unknown): FeishuConfiguredCredential {
   const record = object(value, 'credential');
   exact(record, CREDENTIAL_FIELDS, 'credential');
   if (!['active', 'revoked'].includes(String(record.status))) fail('Credential status is invalid');
+  const credentialId = token(record.credentialId, 'credential.credentialId');
   return {
     openId: token(record.openId, 'credential.openId'),
-    credentialId: token(record.credentialId, 'credential.credentialId'),
+    credentialId,
+    connectionScope: token(record.connectionScope, 'credential.connectionScope'),
     status: record.status as FeishuConfiguredCredential['status'],
   };
 }
@@ -135,15 +137,21 @@ function parseCredential(value: unknown): FeishuConfiguredCredential {
 function parseConfig(value: unknown): FeishuProductionConfig {
   const record = object(value, 'config');
   exact(record, CONFIG_FIELDS, 'config');
-  if (record.schemaVersion !== 1) fail('Config schemaVersion is unsupported');
-  if (!['relay', 'server-core'].includes(String(record.topology))) fail('Topology is invalid');
+  if (record.schemaVersion !== 2) {
+    fail('Config schemaVersion is unsupported');
+  }
+  const topology = record.topology === 'full' || record.topology === 'relay'
+    ? record.topology
+    : null;
+  if (topology === null) fail('Topology is invalid');
   if (!Array.isArray(record.credentials) || record.credentials.length > 1_000) {
     fail('Credentials are outside the production bound');
   }
   const credentials = record.credentials.map(parseCredential);
   if (
     new Set(credentials.map((item) => item.openId)).size !== credentials.length ||
-    new Set(credentials.map((item) => item.credentialId)).size !== credentials.length
+    new Set(credentials.map((item) => item.credentialId)).size !== credentials.length ||
+    new Set(credentials.map((item) => item.connectionScope)).size !== credentials.length
   ) fail('Credential enrollment contains duplicates');
   const appId = token(record.appId, 'appId');
   if (!APP_ID.test(appId)) fail('appId is invalid');
@@ -159,8 +167,8 @@ function parseConfig(value: unknown): FeishuProductionConfig {
     new Set([appSecretFile, actionSecretFile]).size !== 2
   ) fail('Production paths must be absolute and distinct');
   return {
-    schemaVersion: 1,
-    topology: record.topology as FeishuProductionTopology,
+    schemaVersion: 2,
+    topology: topology as FeishuProductionTopology,
     instanceId,
     appId,
     tenantKey: token(record.tenantKey, 'tenantKey'),

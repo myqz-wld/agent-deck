@@ -3,6 +3,8 @@ import {
   AgentDeckClientErrorCode,
   DeploymentTopology,
   getTopologyDescriptor,
+  assertRemoteOwnerGrantClaim,
+  assertRemoteOwnerGrantForSurface,
   type AccessContext,
   type AgentDeckCapability as Capability,
   type AgentDeckClientErrorCode as ClientErrorCode,
@@ -224,18 +226,18 @@ function assertAccessContext(value: JsonValue, topology: DeploymentTopology, ins
       value.transport !== 'local-ipc' ||
       value.accessCredentialId !== null ||
       value.authority !== 'local-owner' ||
-      value.surface !== 'desktop-full'
+      value.surface !== 'desktop'
     ) {
       throw new ProtocolMessageError('Invalid standalone access context');
     }
     return;
   }
 
-  requireString(value, 'accessCredentialId');
   if (kind === 'authenticated-client') {
-    const validSsh = value.transport === 'ssh' && value.surface === 'desktop-full';
+    requireString(value, 'connectionScope');
+    const validSsh = value.transport === 'ssh' && value.surface === 'desktop';
     const validFeishu =
-      value.transport === 'feishu' && value.surface === 'feishu-session-console';
+      value.transport === 'feishu' && value.surface === 'feishu';
     if (
       topology === DeploymentTopology.Standalone ||
       value.authority !== 'owner-equivalent' ||
@@ -243,16 +245,26 @@ function assertAccessContext(value: JsonValue, topology: DeploymentTopology, ins
     ) {
       throw new ProtocolMessageError('Invalid authenticated client access context');
     }
+    try {
+      assertRemoteOwnerGrantClaim(value.grant);
+      assertRemoteOwnerGrantForSurface(
+        value.grant,
+        value.surface as 'desktop' | 'feishu',
+      );
+    } catch {
+      throw new ProtocolMessageError('Invalid authenticated client grant claim');
+    }
     return;
   }
 
+  requireString(value, 'accessCredentialId');
   if (
     kind !== 'relay-worker' ||
     topology !== DeploymentTopology.Relay ||
     value.transport !== 'ssh' ||
     value.credentialKind !== 'relay-worker' ||
     value.authority !== 'worker-attach-only' ||
-    value.surface !== 'relay-worker-attach'
+    value.surface !== 'relay-worker'
   ) {
     throw new ProtocolMessageError('Invalid Relay Worker access context');
   }
@@ -397,4 +409,10 @@ export function assertProtocolMessageEnvelope(value: unknown): asserts value is 
       requireString(value, 'nonce');
       return;
   }
+}
+
+/** Parses an inbound envelope without rewriting retired protocol shapes. */
+export function parseProtocolMessageEnvelope(value: unknown): ProtocolMessage {
+  assertProtocolMessageEnvelope(value);
+  return value;
 }

@@ -26,12 +26,12 @@ class MemoryBackend implements RemoteHostProfileBackend {
 describe('RemoteHostProfileController retirement fencing', () => {
   it('keeps an uncertain retirement fail-closed without consuming credentials or spawning twice', async () => {
     const local = standaloneProfile('local');
-    const remote = remoteProfile('server-a', 'server-core');
+    const remote = remoteProfile('server-a', 'full');
     const client = new ControlledClient(remoteHello(remote));
     const createClient = vi.fn(() => ({ client }));
     const registry = new ElectronHostRegistry({ appVersion: 'desktop-test', createClient });
     const backend = new MemoryBackend({
-      schemaVersion: 3,
+      schemaVersion: 4,
       sourceMode: 'remote',
       selectedRemoteProfileId: remote.id,
       profiles: [local, remote],

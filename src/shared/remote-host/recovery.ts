@@ -1,7 +1,7 @@
 type RemoteHostRecoveryState =
   | { recovery: 'worker-offline' | null }
   | {
-      topology: 'relay' | 'server-core' | 'standalone';
+      topology: 'relay' | 'full' | 'standalone';
       status: string;
       error: { code: string } | null;
     };

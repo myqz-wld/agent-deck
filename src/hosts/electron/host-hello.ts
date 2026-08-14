@@ -34,7 +34,7 @@ export function validateElectronHostHello(
       if (
         hello.access.kind !== 'authenticated-client' ||
         hello.access.transport !== 'ssh' ||
-        hello.access.surface !== 'desktop-full'
+        hello.access.surface !== 'desktop'
       ) {
         throw new Error('Remote desktop access context mismatch');
       }

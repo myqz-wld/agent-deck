@@ -348,8 +348,9 @@ export class WorkerAttachmentController {
           payload: emptyRoutePayload(),
           creditBytes: null,
           resetCode: null,
-          accessCredentialId: null,
+          connectionScope: null,
           accessSurface: null,
+          accessGrant: null,
         });
         this.nextHeartbeatSequence += 1;
         this.scheduleHeartbeat(session, epoch);

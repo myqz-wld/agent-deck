@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import {
   AgentDeckClientErrorCode,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   isJsonValue,
   parseIssueGetParams,
   parseIssueGetResult,
@@ -115,7 +115,7 @@ function replayResult(claim: ServerCoreMutationClaim): DaemonRequestResult | nul
   return { result: claim.result, revision: claim.revision };
 }
 
-/** Adds bounded desktop-only Issue reads and mutations around the authoritative Core store. */
+/** Adds bounded Remote-owner Issue reads and mutations around the authoritative Core store. */
 export class ServerCoreIssueRuntime implements DaemonCoreRuntime {
   readonly supportedMethods: readonly CoreMethod[];
   readonly subscribe?: DaemonCoreRuntime['subscribe'];
@@ -147,7 +147,7 @@ export class ServerCoreIssueRuntime implements DaemonCoreRuntime {
 
   async execute(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     if (!issueMethod(input.method)) return this.base.execute(input);
-    if (!isCoreMethodAllowed(input.access.surface, input.method)) {
+    if (!isCoreMethodGranted(input.access, input.method)) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Request rejected');
     }
     if (input.signal.aborted) {
@@ -320,7 +320,7 @@ export class ServerCoreIssueRuntime implements DaemonCoreRuntime {
       );
     }
     return {
-      accessCredentialId: input.access.accessCredentialId,
+      connectionScope: input.access.connectionScope,
       accessSurface: input.access.surface,
       idempotencyKey: input.idempotencyKey,
       method: input.method,

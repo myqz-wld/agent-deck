@@ -51,7 +51,7 @@ describe('Relay metadata allowlist', () => {
     expect(() =>
       RelayMetadataStore.fromSnapshot(
         JSON.stringify({
-          version: 1,
+          version: 2,
           tables: Object.fromEntries([
             ...RELAY_METADATA_TABLES.map((table) => [table, []]),
             ['sessions', []],
@@ -63,7 +63,7 @@ describe('Relay metadata allowlist', () => {
       expect(() =>
         RelayMetadataStore.fromSnapshot(
           JSON.stringify({
-            version: 1,
+            version: 2,
             tables: Object.fromEntries(RELAY_METADATA_TABLES.map((table) => [table, []])),
             [field]: 'business data',
           }),
@@ -100,7 +100,7 @@ describe('Relay metadata allowlist', () => {
         instanceId: 'instance-a',
         routeId: 'route-a',
         accessCredentialId: 'credential-a',
-        accessSurface: 'desktop-full',
+        accessSurface: 'desktop',
         workerId: 'worker-a',
         generation: 1,
         status: 'open',
@@ -169,7 +169,7 @@ describe('Relay metadata allowlist', () => {
     expect(() =>
       RelayMetadataStore.fromSnapshot(
         JSON.stringify({
-          version: 1,
+          version: 2,
           tables: {
             ...Object.fromEntries(RELAY_METADATA_TABLES.map((table) => [table, []])),
             instances: [
@@ -194,7 +194,7 @@ describe('Relay metadata allowlist', () => {
     expect(() =>
       RelayMetadataStore.fromSnapshot(
         JSON.stringify({
-          version: 1,
+          version: 2,
           tables: {
             ...Object.fromEntries(RELAY_METADATA_TABLES.map((table) => [table, []])),
             instances: [
@@ -369,7 +369,7 @@ describe('Relay metadata allowlist', () => {
         instanceId: 'instance-a',
         routeId: 'route-a',
         accessCredentialId: 'client-credential',
-        accessSurface: 'desktop-full',
+        accessSurface: 'desktop',
         workerId: 'worker-b',
         generation: 2,
         status: 'open',
@@ -411,5 +411,38 @@ describe('Relay metadata allowlist', () => {
     const restored = RelayMetadataStore.fromSnapshot(snapshot);
     expect(restored.rows('feishuDeliveries')).toEqual(store.rows('feishuDeliveries'));
     expect(snapshot).not.toMatch(/messageBody|approvalInput|cardBody|sessionDatabase/);
+  });
+
+  it('rejects retired metadata snapshot versions', () => {
+    const tables = Object.fromEntries(RELAY_METADATA_TABLES.map((table) => [table, []]));
+    Object.assign(tables, {
+      instances: [{ id: 'instance-a', instanceId: 'instance-a', topology: 'relay', createdAt: 1 }],
+      credentials: [
+        {
+          id: 'worker-credential', instanceId: 'instance-a', credentialId: 'worker-credential',
+          kind: 'relay-worker', publicKey: 'ssh-ed25519 AAAATEST', fingerprint: 'SHA256:worker',
+          status: 'active', createdAt: 1, revokedAt: null,
+        },
+        {
+          id: 'desktop-credential', instanceId: 'instance-a', credentialId: 'desktop-credential',
+          kind: 'ssh-client', publicKey: 'ssh-ed25519 AAAATEST', fingerprint: 'SHA256:desktop',
+          status: 'active', createdAt: 1, revokedAt: null,
+        },
+      ],
+      workerRegistrations: [{
+        id: 'instance-a', instanceId: 'instance-a', workerId: 'worker-a',
+        credentialId: 'worker-credential', generation: 1, status: 'online',
+        registeredAt: 1, lastSeenAt: 1,
+      }],
+      routes: [{
+        id: 'route-a', instanceId: 'instance-a', routeId: 'route-a',
+        accessCredentialId: 'desktop-credential', accessSurface: 'desktop-full',
+        workerId: 'worker-a', generation: 1, status: 'open', updatedAt: 1,
+      }],
+    });
+
+    expect(() => RelayMetadataStore.fromSnapshot(
+      JSON.stringify({ version: 1, tables }),
+    )).toThrow('invalid envelope');
   });
 });

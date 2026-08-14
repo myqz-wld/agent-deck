@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { issueRemoteOwnerGrantClaim } from '@contracts/index';
 
 import type { WorkerAttachRequest, WorkerAttached } from '@protocol/relay';
 import { emptyRoutePayload, type RelayRouteFrame } from '@protocol/relay';
@@ -108,8 +109,9 @@ function heartbeat(generation: number, sequence: number): RelayRouteFrame {
     payload: emptyRoutePayload(),
     creditBytes: null,
     resetCode: null,
-    accessCredentialId: null,
+    connectionScope: null,
     accessSurface: null,
+    accessGrant: null,
   };
 }
 
@@ -300,8 +302,9 @@ describe('background local Worker attachment state machine', () => {
       payload: emptyRoutePayload(),
       creditBytes: null,
       resetCode: null,
-      accessCredentialId: 'client-credential-a',
-      accessSurface: 'desktop-full',
+      connectionScope: 'client-credential-a',
+      accessSurface: 'desktop',
+      accessGrant: issueRemoteOwnerGrantClaim('desktop'),
     };
     session.setHandlersError = new Error('handler setup failed');
     const reset = vi.fn();

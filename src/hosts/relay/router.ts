@@ -1,6 +1,6 @@
 import type { WorkerAttachRequest } from '@protocol/relay';
 import { BoundedRelayFrameQueue } from './bounded-queue';
-import { RelayCredentialPolicy } from './credential-policy';
+import { RelayCredentialPolicy, type RelayClientGrantResolver } from './credential-policy';
 import { RelayMetadataStore } from './metadata';
 import { RELAY_CONTROL_STREAM_ID, type RelayRouteFrame } from '@protocol/relay';
 import {
@@ -55,6 +55,7 @@ export class RelayStreamRouter {
     readonly metadata: RelayMetadataStore,
     readonly limits: RelayRouterLimits = DEFAULT_RELAY_ROUTER_LIMITS,
     recoveredAt = Date.now(),
+    resolveClientGrant?: RelayClientGrantResolver,
   ) {
     assertRelayRouterLimits(limits);
     if (metadata.getById('instances', instanceId) === null) {
@@ -85,7 +86,7 @@ export class RelayStreamRouter {
       },
       recoveredAt,
     );
-    this.credentials = new RelayCredentialPolicy(metadata, instanceId);
+    this.credentials = new RelayCredentialPolicy(metadata, instanceId, resolveClientGrant);
     this.terminal = new RelayTerminalCoordinator({
       instanceId,
       metadata,
@@ -103,24 +104,13 @@ export class RelayStreamRouter {
   registerClient(
     clientId: string,
     credentialId: string,
-    surface: 'desktop-full' | 'feishu-session-console' = 'desktop-full',
+    surface: 'desktop' | 'feishu' = 'desktop',
+    connectionScope?: string,
   ): void {
-    if (clientId.length === 0 || credentialId.length === 0) {
-      throw new RelayRouterError('client_unknown', 'clientId and credentialId are required');
-    }
-    if (!this.credentials.activeClientSurface(credentialId, surface)) {
-      throw new RelayRouterError(
-        'credential_invalid',
-        'Client credential is not active for this Relay instance',
-      );
-    }
     if (this.clients.has(clientId)) this.disconnectClient(clientId, 'replaced');
-    this.clients.set(clientId, {
-      clientId,
-      credentialId,
-      surface,
-      queue: createRelayClientQueue(this.limits),
-    });
+    this.clients.set(clientId, this.credentials.createClient(
+      clientId, credentialId, surface, connectionScope, createRelayClientQueue(this.limits),
+    ));
   }
 
   disconnectClient(clientId: string, reason: RelayClientDisconnect['reason'] = 'resync_required'):
@@ -176,7 +166,7 @@ export class RelayStreamRouter {
     assertRelayRouterFrame(this.instanceId, this.limits, frame);
     const client = this.clients.get(clientId);
     if (!client) throw new RelayRouterError('client_unknown', 'Client is not registered');
-    if (!this.credentials.activeClientSurface(client.credentialId, client.surface)) {
+    if (!this.credentials.clientPolicyCurrent(client)) {
       this.disconnectClient(clientId, 'resync_required');
       return { accepted: false, error: 'resync_required' };
     }
@@ -272,7 +262,9 @@ export class RelayStreamRouter {
     frame: RelayRouteFrame,
     status: WorkerLeaseStatus,
   ): RelayRouteResult {
-    if (frame.accessCredentialId !== null || frame.accessSurface !== null) {
+    if (
+      frame.connectionScope !== null || frame.accessSurface !== null || frame.accessGrant !== null
+    ) {
       const delivered = this.terminal.enqueueResetToClient(
         client,
         frame.streamId,
@@ -315,8 +307,9 @@ export class RelayStreamRouter {
     });
     const authorizedOpen: RelayRouteFrame = {
       ...frame,
-      accessCredentialId: client.credentialId,
+      connectionScope: client.connectionScope,
       accessSurface: client.surface,
+      accessGrant: client.grant,
     };
     if (!this.enqueueWorker(authorizedOpen)) {
       const terminalError = this.terminal.failStream(stream, 'backpressure', true, true);
@@ -353,7 +346,7 @@ export class RelayStreamRouter {
       this.terminal.failStream(stream, 'cancelled', false, true);
       return { accepted: false, error: 'cancelled' };
     }
-    if (!this.credentials.activeClientSurface(client.credentialId, client.surface)) {
+    if (!this.credentials.clientPolicyCurrent(client)) {
       this.disconnectClient(stream.clientId, 'resync_required');
       return { accepted: false, error: 'resync_required' };
     }
@@ -467,7 +460,7 @@ export class RelayStreamRouter {
   ): RelayWorkerDelivery | null {
     if (!this.revalidateActiveWorkerCredential(connectionId, Date.now())) return null;
     this.credentials.disconnectInactiveClients(this.clients.values(), (clientId) =>
-      this.disconnectClient(clientId),
+      this.disconnectClient(clientId, 'resync_required'),
     );
     const status = this.lease.status();
     if (status.connectionId !== connectionId) return null;
@@ -478,7 +471,7 @@ export class RelayStreamRouter {
   drainClient(clientId: string, maxBytes = Number.MAX_SAFE_INTEGER): RelayRouteFrame[] {
     const client = this.clients.get(clientId);
     if (!client) return [];
-    if (!this.credentials.activeClientSurface(client.credentialId, client.surface)) {
+    if (!this.credentials.clientPolicyCurrent(client)) {
       this.disconnectClient(clientId, 'resync_required');
       return [];
     }
@@ -496,4 +489,5 @@ export class RelayStreamRouter {
   }
 
   queuedBytesToWorker(): number { return this.workerQueue.totalBytes; }
+
 }

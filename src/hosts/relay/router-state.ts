@@ -8,11 +8,14 @@ import {
   type RelayRouteFrame,
 } from '@protocol/relay';
 import { RelayRouterError, type RelayRouterLimits } from './router-types';
+import type { RemoteOwnerGrantClaim } from '@contracts/index';
 
 export interface RelayClientState {
   clientId: string;
   credentialId: string;
-  surface: 'desktop-full' | 'feishu-session-console';
+  connectionScope: string;
+  surface: 'desktop' | 'feishu';
+  grant: RemoteOwnerGrantClaim;
   queue: {
     clear(): void;
     dropStream(streamId: string): void;
@@ -76,8 +79,9 @@ export function createRelayResetFrame(
     payload: emptyRoutePayload(),
     creditBytes: null,
     resetCode: code,
-    accessCredentialId: null,
+    connectionScope: null,
     accessSurface: null,
+    accessGrant: null,
   };
 }
 
@@ -87,7 +91,7 @@ export function recordOpenRelayRoute(
     instanceId: string;
     streamId: string;
     accessCredentialId: string;
-    accessSurface: 'desktop-full' | 'feishu-session-console';
+    accessSurface: 'desktop' | 'feishu';
     workerId: string;
     generation: number;
     updatedAt: number;

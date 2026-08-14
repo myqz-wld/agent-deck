@@ -31,9 +31,9 @@ describe('stream generation and replay barriers', () => {
         username: 'agentdeck',
         identityFile: '/tmp/feishu-key',
         knownHostsFile: '/tmp/feishu-known-hosts',
-        accessSurface: 'feishu-session-console',
+        accessSurface: 'feishu',
         expectedInstanceId: input.instanceId,
-        expectedAccessCredentialId: input.credentialId,
+        expectedConnectionScope: input.credentialId,
       }, {
         spawn: harness.spawn,
         reconnect: { maxAttempts: 0 },

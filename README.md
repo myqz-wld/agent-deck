@@ -86,7 +86,7 @@ boundaries:
   host-only instance manager plans and executes exact per-instance Full/Relay lifecycle operations
   without exposing them to Core sessions or remote clients.
 - `deploy/linux/full/` and `deploy/linux/relay/` contain fail-closed Quadlet/preflight foundations
-  for the full Server Core and relay-only appliances; `deploy/linux/manager/` adds static policy
+  for Full and Relay appliances; `deploy/linux/manager/` adds static policy
   checks for their host lifecycle manager, and `deploy/linux/feishu/` contains the separate
   long-connection gateway service contract.
 
@@ -94,10 +94,10 @@ The current preload surface remains available while it is migrated in vertical s
 invoke-channel ownership is recorded in `src/contracts/current-api-classification.ts`, so new local
 IPC methods cannot acquire remote or Feishu semantics implicitly.
 
-Protocol 2.0 adds bounded `session.console.*` and `project.*` methods: Feishu can paginate, select,
-create, and inspect runtime state using only normalized Workspace-relative directory references,
-without receiving a host path. The older cwd-bearing desktop methods are outside the Feishu
-allowlist. The P3 milestone adds the Electron-owned remote
+Protocol 2.7 uses canonical `standalone`, `relay`, and `full` topology values plus anonymous
+Server-issued connection scopes and immutable grants. Desktop and Feishu both resolve to the exact
+Remote Owner Product v1 method policy; their interaction entry points differ without granting one
+channel more Core authority than the other. The P3 milestone adds the Electron-owned remote
 profile/source adapter, restricted SSH clients and bridges, official Feishu SDK adapters, isolated
 headless role bundles, and fail-closed Linux service/package fixtures. The concrete Electron-free
 Core/provider runtime and target-Node bundle are packaged and statically checked, but these artifacts
@@ -126,7 +126,7 @@ not additional client pages. SSH and Feishu are access transports rather than ru
 
 | Server topology | Data and computation owner | Client effect |
 | --- | --- | --- |
-| Server Core | The isolated Linux appliance | One or more desktop clients render server-owned state over restricted SSH; Feishu operates the same authoritative sessions through its long connection. Closing a client does not stop the daemon or sessions. |
+| Full | The isolated Linux appliance, including its Server Core component | One or more desktop clients render server-owned state over restricted SSH; Feishu operates the same authoritative sessions through its long connection. Closing a client does not stop the daemon or sessions. |
 | Relay | The always-on local Worker | Desktop and Feishu clients still connect through the server, but repositories, providers, session data, and Browser work remain local. The server forwards opaque bounded frames and metadata only; an offline Worker returns `worker_offline` and never falls back to server compute or queues business work. |
 
 Each Relay Worker owns exactly one operator-selected Workspace. Desktop and owner p2p Feishu flows
@@ -179,8 +179,8 @@ Initial capacity estimates are operational starting points rather than guarantee
 
 | Deployment | Small/test starting point | Recommended ordinary use | Storage |
 | --- | --- | --- | --- |
-| Server Core | 2 vCPU, 8 GB RAM | 4 vCPU, 16 GB RAM for roughly 2–3 active sessions and Browser use | About 100 GB SSD for ordinary repositories, builds, caches, state, and backups |
-| Build-heavy Server Core | Workload-specific | 8 vCPU, 32 GB RAM or more | Commonly 200 GB SSD or more |
+| Full | 2 vCPU, 8 GB RAM | 4 vCPU, 16 GB RAM for roughly 2–3 active sessions and Browser use | About 100 GB SSD for ordinary repositories, builds, caches, state, and backups |
+| Build-heavy Full | Workload-specific | 8 vCPU, 32 GB RAM or more | Commonly 200 GB SSD or more |
 | Relay | 1 vCPU, 1 GB RAM | 1–2 vCPU, 2 GB RAM for more clients and Feishu delivery | 10–20 GB; no repository, provider, Browser-profile, or business-session storage |
 
 The Linux role definitions and their explicit evidence limits are documented in

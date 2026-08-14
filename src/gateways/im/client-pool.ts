@@ -2,8 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   AgentDeckClientErrorCode,
   CORE_METHOD_METADATA,
-  isCoreMethodAllowed,
-  AccessSurface,
+  isCoreMethodGranted,
   type CoreMethod,
   type HostHello,
 } from '@contracts/index';
@@ -38,10 +37,10 @@ export function feishuClientId(credential: EnrolledFeishuCredential, chatId: str
 }
 
 export function assertFeishuMethod(hello: HostHello, method: string): asserts method is CoreMethod {
-  if (!isCoreMethodAllowed(AccessSurface.FeishuSessionConsole, method)) {
+  if (!isCoreMethodGranted(hello.access, method)) {
     throw new FeishuGatewayError(
       AgentDeckClientErrorCode.AccessDenied,
-      `Method is outside the fixed Feishu session-console surface: ${method}`,
+      `Method is outside the Server-issued Feishu grant: ${method}`,
     );
   }
   const capability = CORE_METHOD_METADATA[method].capability;

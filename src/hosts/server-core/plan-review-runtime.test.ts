@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type {
-  AuthenticatedClientAccessContext,
-  CoreMethod,
-  JsonObject,
-  JsonValue,
+import {
+  issueRemoteOwnerGrantClaim,
+  type AuthenticatedClientAccessContext,
+  type CoreMethod,
+  type JsonObject,
+  type JsonValue,
 } from '@contracts/index';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 
@@ -16,13 +17,14 @@ import type {
 
 const desktop: AuthenticatedClientAccessContext = {
   kind: 'authenticated-client',
-  topology: 'server-core',
+  topology: 'full',
   instanceId: 'instance-a',
   clientId: 'desktop-a',
   transport: 'ssh',
-  accessCredentialId: 'credential-a',
+  connectionScope: 'credential-a',
   authority: 'owner-equivalent',
-  surface: 'desktop-full',
+  surface: 'desktop',
+  grant: issueRemoteOwnerGrantClaim('desktop'),
 };
 
 function request(
@@ -107,18 +109,18 @@ describe('ServerCorePlanReviewRuntime', () => {
     );
   });
 
-  it('validates exact bounded input and denies the Feishu surface', async () => {
+  it('validates exact bounded input and grants Feishu the same review operations', async () => {
     const state = harness();
     await expect(state.runtime.execute(request('plan.review.ask', {
       sessionId: 'session-a', requestId: 'request-a', question: 'Review races', extra: true,
     }))).rejects.toMatchObject({ code: 'invalid_request' });
 
     const feishu = { ...desktop, clientId: 'feishu-a', transport: 'feishu' as const,
-      surface: 'feishu-session-console' as const };
+      surface: 'feishu' as const, grant: issueRemoteOwnerGrantClaim('feishu') };
     await expect(state.runtime.execute(request('plan.review.feedback', {
       sessionId: 'session-a', requestId: 'request-a',
-    }, feishu))).rejects.toMatchObject({ code: 'access_denied' });
+    }, feishu))).resolves.toBeDefined();
     expect(state.askReview).not.toHaveBeenCalled();
-    expect(state.generateReviewFeedback).not.toHaveBeenCalled();
+    expect(state.generateReviewFeedback).toHaveBeenCalledOnce();
   });
 });

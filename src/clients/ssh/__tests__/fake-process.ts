@@ -3,7 +3,11 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 
 import type { ClientHello, HostHello, JsonValue } from '@contracts/index';
-import { AgentDeckCapability, isJsonObject } from '@contracts/index';
+import {
+  AgentDeckCapability,
+  isJsonObject,
+  issueRemoteOwnerAccessContext,
+} from '@contracts/index';
 import { encodeJsonFrame, LengthPrefixedJsonDecoder } from '@protocol/frame';
 import { CURRENT_PROTOCOL_VERSION } from '@protocol/version';
 
@@ -122,7 +126,7 @@ export class FakeSpawnHarness {
 
 export function makeClientHello(
   clientId: string,
-  topology: 'relay' | 'server-core' = 'server-core',
+  topology: 'relay' | 'full' = 'full',
   lastEventRevision = 0,
 ): ClientHello {
   return {
@@ -136,7 +140,7 @@ export function makeClientHello(
 
 export function makeHostHello(
   clientId: string,
-  topology: 'relay' | 'server-core' = 'server-core',
+  topology: 'relay' | 'full' = 'full',
   overrides: Partial<HostHello> = {},
 ): HostHello {
   const relay = topology === 'relay';
@@ -150,16 +154,13 @@ export function makeHostHello(
       location: relay ? 'local-worker' : 'server-appliance',
       generation: relay ? 1 : null,
     },
-    access: {
-      kind: 'authenticated-client',
+    access: issueRemoteOwnerAccessContext({
       topology,
       instanceId: relay ? 'relay-a' : 'server-a',
       clientId,
-      transport: 'ssh',
-      accessCredentialId: `credential-${clientId}`,
-      authority: 'owner-equivalent',
-      surface: 'desktop-full',
-    },
+      connectionScope: `credential-${clientId}`,
+      surface: 'desktop',
+    }),
     capabilities: Object.values(AgentDeckCapability),
     limits: {
       maxFrameBytes: 1024 * 1024,

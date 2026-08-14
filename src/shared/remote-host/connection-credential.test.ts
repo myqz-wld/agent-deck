@@ -12,13 +12,14 @@ const HOST_KEY = 'AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBw
 
 function credential() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: 'agent-deck-remote-connection-credential',
     label: 'Production',
     purpose: 'client',
-    topology: 'server-core',
+    topology: 'full',
     instanceId: 'instance-a',
     credentialId: 'desktop-a',
+    connectionScope: 'scope-desktop-a',
     endpoint: { hostname: 'core.example.test', port: 22, username: 'agentdeck' },
     hostKeys: [{ algorithm: 'ssh-ed25519', publicKey: HOST_KEY }],
     identity: { algorithm: 'ssh-ed25519', privateKey: PRIVATE_KEY },
@@ -27,12 +28,14 @@ function credential() {
 
 function currentCredential(
   purpose: 'client' | 'worker',
-  topology: 'relay' | 'server-core' = 'relay',
+  topology: 'relay' | 'full' = 'relay',
 ) {
+  const { connectionScope: _connectionScope, ...base } = credential();
   return {
-    ...credential(),
+    ...base,
     topology,
     purpose,
+    ...(purpose === 'client' ? { connectionScope: 'scope-desktop-a' } : {}),
     ...(purpose === 'worker' ? { workerId: 'worker-a' } : {}),
   };
 }
@@ -40,24 +43,33 @@ function currentCredential(
 describe('remote connection credential', () => {
   it('parses the exact bundle and renders app-owned known_hosts', () => {
     const parsed = parseRemoteConnectionCredential(credential());
-    expect(parsed).toMatchObject({ topology: 'server-core', instanceId: 'instance-a' });
+    expect(parsed).toMatchObject({
+      schemaVersion: 3,
+      topology: 'full',
+      instanceId: 'instance-a',
+      connectionScope: 'scope-desktop-a',
+    });
     expect(renderRemoteConnectionKnownHosts(parsed)).toBe(
       `core.example.test ssh-ed25519 ${HOST_KEY}\n`,
     );
   });
 
-  it('rejects the pre-release v1 credential shape', () => {
-    const { purpose: _purpose, ...legacy } = credential();
-    expect(() => parseRemoteConnectionCredential({ ...legacy, schemaVersion: 1 }))
+  it('rejects every retired credential schema', () => {
+    expect(() => parseRemoteConnectionCredential({ ...credential(), schemaVersion: 2 }))
       .toThrow('schemaVersion is unsupported');
   });
 
   it('accepts a purpose-locked Client credential for Full or Relay', () => {
-    const full = parseRemoteConnectionCredential(currentCredential('client', 'server-core'));
+    const full = parseRemoteConnectionCredential(currentCredential('client', 'full'));
     const relay = parseRemoteConnectionCredential(currentCredential('client'));
 
-    expect(full).toMatchObject({ schemaVersion: 2, purpose: 'client', topology: 'server-core' });
-    expect(relay).toMatchObject({ schemaVersion: 2, purpose: 'client', topology: 'relay' });
+    expect(full).toMatchObject({
+      schemaVersion: 3,
+      purpose: 'client',
+      topology: 'full',
+      connectionScope: 'scope-desktop-a',
+    });
+    expect(relay).toMatchObject({ schemaVersion: 3, purpose: 'client', topology: 'relay' });
     expect(isRemoteConnectionClientCredential(full)).toBe(true);
     expect(isRemoteConnectionWorkerCredential(full)).toBe(false);
   });
@@ -88,15 +100,26 @@ describe('remote connection credential', () => {
       ...credential(), identity: { algorithm: 'ssh-ed25519', privateKey: 'secret' },
     })).toThrow('identity');
     expect(() => parseRemoteConnectionCredential({
-      ...currentCredential('client', 'server-core'),
+      ...currentCredential('client', 'full'),
       workerId: 'worker-a',
     })).toThrow('unexpected');
     expect(() => parseRemoteConnectionCredential({
-      ...currentCredential('worker', 'server-core'),
+      ...currentCredential('worker', 'full'),
     })).toThrow('Relay topology');
     expect(() => parseRemoteConnectionCredential({
       ...currentCredential('worker'),
       workerId: undefined,
     })).toThrow('invalid');
+    expect(() => parseRemoteConnectionCredential({
+      ...currentCredential('client', 'full'),
+      topology: 'server-core',
+    })).toThrow('topology');
+    expect(() => parseRemoteConnectionCredential({
+      ...currentCredential('client', 'full'),
+      connectionScope: undefined,
+    })).toThrow('invalid');
+    expect(() => parseRemoteConnectionCredential({
+      ...credential(), schemaVersion: 2, topology: 'server-core',
+    })).toThrow('schemaVersion');
   });
 });

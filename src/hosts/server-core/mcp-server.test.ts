@@ -18,17 +18,9 @@ const roots: string[] = [];
 
 function session(id: string, cwd: string, lifecycle: SessionRecord['lifecycle'] = 'active') {
   return {
-    id,
-    agentId: 'codex-cli',
-    cwd,
-    title: id,
-    source: 'sdk',
-    lifecycle,
-    activity: 'working',
-    startedAt: 1,
-    lastEventAt: 1,
-    endedAt: null,
-    archivedAt: null,
+    id, agentId: 'codex-cli', cwd, title: id,
+    source: 'sdk', lifecycle, activity: 'working',
+    startedAt: 1, lastEventAt: 1, endedAt: null, archivedAt: null,
   } satisfies SessionRecord;
 }
 
@@ -143,15 +135,15 @@ function harness() {
     source: { eventRevision: 2, rebuildAfterRevision: 0 },
     checkpoint: { id: null, throughRevision: 0, formatVersion: 1, refreshed: false },
     metrics: { estimatedPromptTokens: 100, checkpointTokens: 0, rawTailTokens: 50,
-      includedUserMessages: 1, truncatedBoundaryMessages: 0,
-      rawRetentionCeilingTokens: 64_000, elapsedMs: 1 },
+      includedUserMessages: 1, truncatedBoundaryMessages: 0, rawRetentionCeilingTokens: 64_000,
+      elapsedMs: 1 },
     warnings: [], revision: 2,
     target: {
       adapterId: 'codex-cli' as const, workingDirectory: 'project-a',
       capabilityRevision: 'revision-a',
       options: { approvalPolicy: null, claudeCodeSandbox: null, codexSandbox: null,
-        grokSandbox: null, model: null, permissionMode: null, provider: 'openai',
-        sessionMode: null, thinking: null },
+        grokSandbox: null, model: null, permissionMode: null, provider: 'openai', sessionMode: null,
+        thinking: null },
     },
   }));
   const tasks = new ServerCoreSessionTaskReadRepository(() => database, { warn: vi.fn() });

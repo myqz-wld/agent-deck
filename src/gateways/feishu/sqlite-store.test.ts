@@ -13,7 +13,12 @@ const binding: FeishuGatewayBinding = {
   instanceId: 'instance-1',
   topology: 'relay',
 };
-const enrolled = { openId: 'ou_owner_1', credentialId: 'credential_1', status: 'active' as const };
+const enrolled = {
+  openId: 'ou_owner_1',
+  credentialId: 'credential_1',
+  connectionScope: 'credential_1',
+  status: 'active' as const,
+};
 
 function databasePath(): string {
   return join(realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-feishu-db-'))), 'metadata.sqlite3');
@@ -253,11 +258,13 @@ describe('production metadata-only SQLite store', () => {
     expect(() => store.reconcileCredentials([{
       openId: enrolled.openId,
       credentialId: 'credential_other',
+      connectionScope: 'credential_other',
       status: 'active',
     }])).toThrow(expect.objectContaining({ code: 'identity_conflict' }));
     expect(() => store.reconcileCredentials([{
       openId: 'ou_owner_other',
       credentialId: enrolled.credentialId,
+      connectionScope: enrolled.connectionScope,
       status: 'active',
     }])).toThrow(expect.objectContaining({ code: 'identity_conflict' }));
     store.close();

@@ -1,15 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { AuthenticatedClientAccessContext, CoreMethod, JsonObject } from '@contracts/index';
+import {
+  issueRemoteOwnerGrantClaim,
+  type AuthenticatedClientAccessContext,
+  type CoreMethod,
+  type JsonObject,
+} from '@contracts/index';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import type { AgentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import type { AgentDeckMessage, SessionRecord } from '@shared/types';
 import { ServerCoreSessionMetadataRuntime } from './session-metadata-runtime';
 
 const access: AuthenticatedClientAccessContext = {
-  kind: 'authenticated-client', topology: 'server-core', instanceId: 'instance-a',
-  clientId: 'desktop-a', transport: 'ssh', accessCredentialId: 'credential-a',
-  authority: 'owner-equivalent', surface: 'desktop-full',
+  kind: 'authenticated-client', topology: 'full', instanceId: 'instance-a',
+  clientId: 'desktop-a', transport: 'ssh', connectionScope: 'credential-a',
+  authority: 'owner-equivalent', surface: 'desktop',
+  grant: issueRemoteOwnerGrantClaim('desktop'),
 };
 
 function input(method: CoreMethod, params: JsonObject): DaemonRequestInput {

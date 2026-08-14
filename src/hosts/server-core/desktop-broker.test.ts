@@ -1,4 +1,7 @@
-import type { AuthenticatedClientAccessContext } from '@contracts/index';
+import {
+  issueRemoteOwnerGrantClaim,
+  type AuthenticatedClientAccessContext,
+} from '@contracts/index';
 import { describe, expect, it } from 'vitest';
 
 import { ServerCoreDesktopBroker } from './desktop-broker';
@@ -9,13 +12,14 @@ function access(
 ): AuthenticatedClientAccessContext {
   return {
     kind: 'authenticated-client',
-    topology: 'server-core',
+    topology: 'full',
     instanceId: 'instance-a',
     clientId,
     transport: 'ssh',
-    accessCredentialId: credentialId,
+    connectionScope: credentialId,
     authority: 'owner-equivalent',
-    surface: 'desktop-full',
+    surface: 'desktop',
+    grant: issueRemoteOwnerGrantClaim('desktop'),
   };
 }
 

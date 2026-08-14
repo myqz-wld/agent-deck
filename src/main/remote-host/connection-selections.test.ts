@@ -4,13 +4,14 @@ import { RemoteHostConnectionSelections } from './connection-selections';
 
 const PRIVATE_KEY = '-----BEGIN OPENSSH PRIVATE KEY-----\nQUFBQQ==\n-----END OPENSSH PRIVATE KEY-----\n';
 const CREDENTIAL = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   kind: 'agent-deck-remote-connection-credential',
   label: 'Production',
   purpose: 'client',
   topology: 'relay',
   instanceId: 'instance-a',
   credentialId: 'desktop-a',
+  connectionScope: 'scope-desktop-a',
   endpoint: { hostname: 'relay.example.test', port: 22, username: 'agentdeck' },
   hostKeys: [{ algorithm: 'ssh-ed25519', publicKey: 'AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH' }],
   identity: { algorithm: 'ssh-ed25519', privateKey: PRIVATE_KEY },
@@ -39,11 +40,11 @@ describe('RemoteHostConnectionSelections', () => {
   });
 
   it('rejects Worker credentials at the Electron Client import boundary', () => {
+    const { connectionScope: _connectionScope, ...workerCredential } = CREDENTIAL;
     const selections = new RemoteHostConnectionSelections({
       createId: () => 'opaque-selection',
       readFile: () => ({
-        ...CREDENTIAL,
-        schemaVersion: 2,
+        ...workerCredential,
         purpose: 'worker',
         credentialId: 'worker-credential-a',
         workerId: 'worker-a',

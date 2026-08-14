@@ -11,6 +11,7 @@ import { preflightNodeNativeSqlite } from './sqlite-preflight';
 import type {
   DaemonAccessContextFactory,
   DaemonConnectionAdmission,
+  DaemonConnectionCredential,
   DaemonConnectionLimits,
   DaemonCoreRuntime,
   DaemonListener,
@@ -27,6 +28,7 @@ export interface DaemonHostOptions {
   readonly authoritativeCoreId?: string;
   readonly listener?: DaemonListener | null;
   readonly defaultAccessContextFactory?: DaemonAccessContextFactory;
+  readonly defaultCredential?: DaemonConnectionCredential;
   readonly connectionLimits?: Partial<DaemonConnectionLimits>;
   readonly sqlitePreflight?: () => unknown | Promise<unknown>;
   readonly credentialCheckTimeoutMs?: number;
@@ -77,8 +79,9 @@ export class DaemonHost {
     if (this.stateValue !== 'idle') {
       throw new Error(`Cannot start daemon host from ${this.stateValue}`);
     }
-    if (this.listener && !this.options.defaultAccessContextFactory) {
-      throw new Error('A listening daemon requires a transport-created AccessContext factory');
+    if (this.listener &&
+        (!this.options.defaultAccessContextFactory || !this.options.defaultCredential)) {
+      throw new Error('A listening daemon requires transport-created access and credential context');
     }
 
     this.stateValue = 'starting';
@@ -133,6 +136,11 @@ export class DaemonHost {
   }
 
   private createConnection(admission: DaemonConnectionAdmission): DaemonProtocolConnection {
+    const credential = admission.credential ?? this.options.defaultCredential;
+    if (!credential) {
+      admission.stream.destroy();
+      throw new Error('Daemon connection is missing Server-private credential identity');
+    }
     const connection = new DaemonProtocolConnection({
       instanceId: this.options.paths.instanceId,
       appVersion: this.options.appVersion,
@@ -141,13 +149,18 @@ export class DaemonHost {
       admission,
       limits: this.options.connectionLimits,
       now: this.options.now,
-      assertCredentialActive: (access, signal) => this.credentials.assertActive(
-        access.accessCredentialId,
-        access.surface,
-        signal,
-      ),
-      onAuthenticated: (authenticated, access) => {
-        this.credentials.register(authenticated, access);
+      assertCredentialActive: (access, signal) => {
+        if (access.surface !== credential.surface) {
+          return Promise.reject(new Error('Credential surface does not match access claim'));
+        }
+        return this.credentials.assertActive(
+          credential.credentialId,
+          credential.surface,
+          signal,
+        );
+      },
+      onAuthenticated: (authenticated) => {
+        this.credentials.register(authenticated, credential);
       },
       onClose: (closed) => {
         this.credentials.unregister(closed);
@@ -159,11 +172,11 @@ export class DaemonHost {
   }
 
   async assertCredentialActive(
-    accessCredentialId: string,
+    credentialId: string,
     accessSurface: DaemonClientAccessSurface,
     signal?: AbortSignal,
   ): Promise<void> {
-    await this.credentials.assertActive(accessCredentialId, accessSurface, signal);
+    await this.credentials.assertActive(credentialId, accessSurface, signal);
   }
 
   async stop(reason = 'daemon-stopped'): Promise<void> {

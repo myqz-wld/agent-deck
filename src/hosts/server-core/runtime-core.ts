@@ -79,8 +79,8 @@ export interface ServerCoreRuntimeMetadataPort {
     revision: number,
   ): void;
   setSubscribed(
-    accessCredentialId: string,
-    accessSurface: 'desktop-full' | 'feishu-session-console',
+    connectionScope: string,
+    accessSurface: 'desktop' | 'feishu',
     sessionId: string,
     subscribed: boolean,
   ): void;
@@ -393,7 +393,7 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
       params.sessionId,
       async () => {
         this.options.metadata.setSubscribed(
-          input.access.accessCredentialId,
+          input.access.connectionScope,
           input.access.surface,
           params.sessionId,
           params.subscribed,
@@ -411,7 +411,7 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
     invoke: () => Promise<(revision: number) => JsonObject>,
   ): Promise<DaemonRequestResult> {
     const identity: ServerCoreMutationIdentity = {
-      accessCredentialId: input.access.accessCredentialId,
+      connectionScope: input.access.connectionScope,
       accessSurface: input.access.surface,
       idempotencyKey: input.idempotencyKey!,
       method: input.method,

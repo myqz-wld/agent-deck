@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   AgentDeckCapability,
+  issueRemoteOwnerAccessContext,
   type AgentDeckClient,
   type AgentDeckEventEnvelope,
   type AgentDeckSubscription,
@@ -31,7 +32,7 @@ function standaloneProfile(id = 'local'): ElectronHostProfile {
 
 function remoteProfile(
   id: string,
-  topology: 'relay' | 'server-core',
+  topology: 'relay' | 'full',
 ): RemoteElectronHostProfile {
   const instanceId = topology === 'relay' ? `relay-${id}` : `server-${id}`;
   return {
@@ -68,7 +69,7 @@ function standaloneHello(clientId: string): HostHello {
       transport: 'local-ipc',
       accessCredentialId: null,
       authority: 'local-owner',
-      surface: 'desktop-full',
+      surface: 'desktop',
     },
     capabilities: [AgentDeckCapability.SessionsRead],
     limits: {
@@ -94,16 +95,13 @@ function remoteHello(profile: RemoteElectronHostProfile): HostHello {
       location: relay ? 'local-worker' : 'server-appliance',
       generation: relay ? 7 : null,
     },
-    access: {
-      kind: 'authenticated-client',
+    access: issueRemoteOwnerAccessContext({
       topology: profile.topology,
       instanceId,
       clientId: profile.clientId,
-      transport: 'ssh',
-      accessCredentialId: `credential-${profile.id}`,
-      authority: 'owner-equivalent',
-      surface: 'desktop-full',
-    },
+      connectionScope: `credential-${profile.id}`,
+      surface: 'desktop',
+    }),
     capabilities: [AgentDeckCapability.SessionsRead],
     limits: {
       maxFrameBytes: 1024,
@@ -170,13 +168,13 @@ describe('ElectronHostRegistry', () => {
   it('models Standalone, Server Core, and Relay as explicit selectable profiles', () => {
     const profiles = [
       standaloneProfile(),
-      remoteProfile('server', 'server-core'),
+      remoteProfile('server', 'full'),
       remoteProfile('relay', 'relay'),
     ] as const;
     const { registry } = fakeRegistry(profiles);
     expect(registry.listProfiles().map(({ topology }) => topology)).toEqual([
       'standalone',
-      'server-core',
+      'full',
       'relay',
     ]);
     expect(registry.listStates().map(({ status }) => status)).toEqual([
@@ -187,7 +185,7 @@ describe('ElectronHostRegistry', () => {
   });
 
   it('owns independent client lifecycle, navigation, cursor, and host-qualified cache scopes', async () => {
-    const server = remoteProfile('server', 'server-core');
+    const server = remoteProfile('server', 'full');
     const relay = remoteProfile('relay', 'relay');
     const { registry, clients } = fakeRegistry([server, relay]);
     const states: string[] = [];
@@ -231,7 +229,7 @@ describe('ElectronHostRegistry', () => {
   });
 
   it('keeps window close separate from transport stop and never owns remote Core lifecycle', async () => {
-    const server = remoteProfile('server', 'server-core');
+    const server = remoteProfile('server', 'full');
     const relay = remoteProfile('relay', 'relay');
     const { registry, clients } = fakeRegistry([server, relay]);
     await Promise.all([registry.connect(server.id), registry.connect(relay.id)]);

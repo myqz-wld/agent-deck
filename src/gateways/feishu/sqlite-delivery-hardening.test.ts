@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import type { FeishuGatewayBinding } from '@gateways/im';
-import { FEISHU_METADATA_SCHEMA_VERSION } from './sqlite-schema';
 import { SqliteFeishuGatewayStore } from './sqlite-store';
 
 const binding: FeishuGatewayBinding = {
@@ -13,14 +12,22 @@ const binding: FeishuGatewayBinding = {
   instanceId: 'instance-1',
   topology: 'relay',
 };
-const enrolled = { openId: 'ou_owner_1', credentialId: 'credential_1', status: 'active' as const };
+const enrolled = {
+  openId: 'ou_owner_1',
+  credentialId: 'credential_1',
+  connectionScope: 'credential_1',
+  status: 'active' as const,
+};
 
 function databasePath(): string {
   return join(realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-feishu-hardening-'))), 'db.sqlite3');
 }
 
-function open(path = databasePath()): SqliteFeishuGatewayStore {
-  const store = new SqliteFeishuGatewayStore(path, binding);
+function open(
+  path = databasePath(),
+  storeBinding: FeishuGatewayBinding = binding,
+): SqliteFeishuGatewayStore {
+  const store = new SqliteFeishuGatewayStore(path, storeBinding);
   store.reconcileCredentials([enrolled]);
   return store;
 }
@@ -103,25 +110,29 @@ CREATE TABLE health (
 PRAGMA user_version = 1;
 `;
 
-function seedLegacyV1(path: string): void {
+function seedLegacyV1(
+  path: string,
+  storeBinding: FeishuGatewayBinding = binding,
+  storedTopology: 'relay' | 'server-core' = 'relay',
+): void {
   const db = new Database(path);
   db.exec(LEGACY_V1);
   db.prepare(`INSERT INTO credentials VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(
-      binding.appId,
-      binding.tenantKey,
+      storeBinding.appId,
+      storeBinding.tenantKey,
       enrolled.openId,
-      binding.instanceId,
+      storeBinding.instanceId,
       enrolled.credentialId,
-      binding.topology,
+      storedTopology,
       enrolled.status,
       'owner-equivalent',
     );
   db.prepare(`INSERT INTO contexts VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(binding.instanceId, enrolled.credentialId, 'oc_chat_1', enrolled.openId, null, 1);
+    .run(storeBinding.instanceId, enrolled.credentialId, 'oc_chat_1', enrolled.openId, null, 1);
   db.prepare(`INSERT INTO deliveries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(
-      binding.instanceId,
+      storeBinding.instanceId,
       'legacy-safe',
       enrolled.credentialId,
       'oc_chat_1',
@@ -136,7 +147,7 @@ function seedLegacyV1(path: string): void {
   chmodSync(path, 0o600);
 }
 
-describe('SQLite delivery horizon and migration', () => {
+describe('SQLite delivery horizon and schema boundary', () => {
   it('never resends a safe invocation after restart beyond the one-hour provider horizon', () => {
     const path = databasePath();
     const first = open(path);
@@ -193,25 +204,20 @@ describe('SQLite delivery horizon and migration', () => {
     repeated.close();
   });
 
-  it('migrates v1 metadata fail-closed without inventing a fresh provider horizon', () => {
+  it('rejects retired metadata without mutating it', () => {
     const path = databasePath();
-    seedLegacyV1(path);
-    const store = open(path);
-    expect(store.getContext(binding.instanceId, enrolled.credentialId, 'oc_chat_1')).toMatchObject({
-      chatType: 'group',
-    });
-    expect(store.getDelivery(binding.instanceId, 'legacy-safe')).toMatchObject({
-      transportSafety: 'safe',
-      transportIdempotencyExpiresAt: 2,
-    });
-    expect(store.claimDelivery(input('legacy-safe', 10), 3, 10)).toMatchObject({
-      state: 'exhausted',
-      record: { attempts: 1 },
-    });
-    store.close();
+    const fullBinding = { ...binding, topology: 'full' as const };
+    seedLegacyV1(path, fullBinding, 'server-core');
+    expect(() => open(path, fullBinding)).toThrow(
+      expect.objectContaining({ code: 'invalid_configuration' }),
+    );
 
     const db = new Database(path, { readonly: true });
-    expect(db.pragma('user_version', { simple: true })).toBe(FEISHU_METADATA_SCHEMA_VERSION);
+    expect(db.pragma('user_version', { simple: true })).toBe(1);
+    expect(db.prepare(`SELECT topology FROM credentials`).get()).toEqual({
+      topology: 'server-core',
+    });
+    expect(db.pragma('foreign_key_check')).toEqual([]);
     db.close();
   });
 

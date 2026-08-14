@@ -1,11 +1,12 @@
 import { vi } from 'vitest';
-import type {
-  AuthenticatedClientAccessContext,
-  CoreMethod,
-  JsonObject,
-  JsonValue,
-  PendingRequestDto,
-  SessionConsoleAttachmentInput,
+import {
+  issueRemoteOwnerAccessContext,
+  type AuthenticatedClientAccessContext,
+  type CoreMethod,
+  type JsonObject,
+  type JsonValue,
+  type PendingRequestDto,
+  type SessionConsoleAttachmentInput,
 } from '@contracts/index';
 import type { DaemonRequestInput } from '@hosts/daemon';
 import type { AgentAdapter } from '@main/adapters/types';
@@ -22,16 +23,13 @@ import type {
 } from './runtime-metadata-store';
 import type { ServerCoreMcpHandOffPort } from './mcp-handoff-port';
 
-export const runtimeCoreAccess: AuthenticatedClientAccessContext = {
-  kind: 'authenticated-client',
-  topology: 'server-core',
+export const runtimeCoreAccess: AuthenticatedClientAccessContext = issueRemoteOwnerAccessContext({
+  topology: 'full',
   instanceId: 'instance-a',
   clientId: 'client-a',
-  transport: 'ssh',
-  accessCredentialId: 'credential-a',
-  authority: 'owner-equivalent',
-  surface: 'desktop-full',
-};
+  connectionScope: 'credential-a',
+  surface: 'desktop',
+});
 
 export function runtimeCoreRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
@@ -86,7 +84,7 @@ export class FakeRuntimeCoreMetadata implements ServerCoreRuntimeMetadataPort {
     _now?: number,
     expectedRevision?: number,
   ): ServerCoreMutationClaim {
-    const key = `${identity.accessCredentialId}\u0000${identity.accessSurface}\u0000${identity.idempotencyKey}`;
+    const key = `${identity.connectionScope}\u0000${identity.accessSurface}\u0000${identity.idempotencyKey}`;
     const current = this.ledger.get(key);
     if (current) {
       if (
@@ -110,7 +108,7 @@ export class FakeRuntimeCoreMetadata implements ServerCoreRuntimeMetadataPort {
     result: JsonValue,
     revision: number,
   ): void {
-    const key = `${identity.accessCredentialId}\u0000${identity.accessSurface}\u0000${identity.idempotencyKey}`;
+    const key = `${identity.connectionScope}\u0000${identity.accessSurface}\u0000${identity.idempotencyKey}`;
     const row = this.ledger.get(key);
     if (!row) throw new Error('claim missing');
     row.result = result;
@@ -119,7 +117,7 @@ export class FakeRuntimeCoreMetadata implements ServerCoreRuntimeMetadataPort {
 
   setSubscribed(
     credential: string,
-    surface: 'desktop-full' | 'feishu-session-console',
+    surface: 'desktop' | 'feishu',
     sessionId: string,
     subscribed: boolean,
   ): void {

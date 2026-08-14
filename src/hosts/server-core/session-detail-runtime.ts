@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import {
   AgentDeckClientErrorCode,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   isJsonObject,
   isJsonValue,
   parseSessionFileChangeGetParams,
@@ -174,7 +174,7 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
 
   async execute(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     if (!isSessionDetailMethod(input.method)) return this.base.execute(input);
-    if (!isCoreMethodAllowed(input.access.surface, input.method)) {
+    if (!isCoreMethodGranted(input.access, input.method)) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Request rejected');
     }
     if (input.signal.aborted) {

@@ -31,7 +31,7 @@ describe('RemoteHostProfileStore', () => {
     const document = store.load();
 
     expect(document).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       sourceMode: 'local',
       selectedRemoteProfileId: null,
       profiles: [{
@@ -44,98 +44,52 @@ describe('RemoteHostProfileStore', () => {
     expect(backend.writes).toHaveLength(1);
   });
 
-  it('migrates the endpoint-based v1 document while keeping secrets main-only', () => {
+  it('loads only the current profile document without rewriting it', () => {
     const backend = new MemoryBackend({
-      schemaVersion: 1,
-      activeProfileId: 'server-a',
+      schemaVersion: 4,
+      sourceMode: 'remote',
+      selectedRemoteProfileId: 'server-a',
       profiles: [
-        { id: 'local', label: '本机', topology: 'standalone', clientId: 'client-local' },
-        {
-          id: 'server-a',
-          label: '生产 Core',
-          topology: 'server-core',
-          clientId: 'client-server-a',
-          endpoint: {
-            hostname: 'core.example.test',
-            port: 22,
-            username: 'agentdeck',
-            expectedInstanceId: 'server-instance',
-          },
-          identityFile: '/private/keys/agent-deck',
-          knownHostsFile: '/private/trust/known_hosts',
-        },
-      ],
-    });
-    const store = new RemoteHostProfileStore(backend, ids());
-
-    const document = store.load();
-
-    expect(document.schemaVersion).toBe(3);
-    expect(document.sourceMode).toBe('remote');
-    expect(document.selectedRemoteProfileId).toBe('server-a');
-    expect(document.profiles[1]).toMatchObject({
-      ssh: {
-        identityFile: '/private/keys/agent-deck',
-        knownHostsFile: '/private/trust/known_hosts',
-      },
-    });
-    expect(backend.writes).toHaveLength(1);
-    expect(backend.writes[0]?.schemaVersion).toBe(3);
-  });
-
-  it('migrates v2 selection into independent source mode and last remote profile', () => {
-    const profiles = [
       { id: 'local', label: '本机', topology: 'standalone', clientId: 'client-local' },
       {
         id: 'server-a',
         label: '生产 Core',
-        topology: 'server-core',
+        topology: 'full',
         clientId: 'client-server-a',
         ssh: {
           id: 'server-a',
           label: '生产 Core',
-          topology: 'server-core',
+          topology: 'full',
           hostname: 'core.example.test',
           port: 22,
           username: 'agentdeck',
           identityFile: '/private/key',
           knownHostsFile: '/private/known_hosts',
-          expectedAccessCredentialId: 'desktop-a',
+          expectedConnectionScope: 'scope-desktop-a',
         },
       },
-    ];
-    const local = new RemoteHostProfileStore(new MemoryBackend({
-      schemaVersion: 2,
-      selectedProfileId: 'local',
-      profiles,
-    }), ids()).load();
-    const remote = new RemoteHostProfileStore(new MemoryBackend({
-      schemaVersion: 2,
-      selectedProfileId: 'server-a',
-      profiles,
-    }), ids()).load();
-
-    expect(local).toMatchObject({
-      schemaVersion: 3,
-      sourceMode: 'local',
-      selectedRemoteProfileId: 'server-a',
+      ],
     });
-    expect(remote).toMatchObject({
-      schemaVersion: 3,
+    expect(new RemoteHostProfileStore(backend, ids()).load()).toMatchObject({
+      schemaVersion: 4,
       sourceMode: 'remote',
       selectedRemoteProfileId: 'server-a',
       profiles: [
         expect.anything(),
-        { ssh: { expectedAccessCredentialId: 'desktop-a' } },
+        { topology: 'full', ssh: { expectedConnectionScope: 'scope-desktop-a' } },
       ],
     });
+    expect(backend.writes).toHaveLength(0);
   });
 
   it('fails closed for unknown schemas, duplicate ids, or a missing Standalone profile', () => {
     const invalid = [
       { schemaVersion: 99, selectedProfileId: 'x', profiles: [] },
+      { schemaVersion: 1, activeProfileId: 'x', profiles: [] },
+      { schemaVersion: 2, selectedProfileId: 'x', profiles: [] },
+      { schemaVersion: 3, sourceMode: 'local', selectedRemoteProfileId: null, profiles: [] },
       {
-        schemaVersion: 3,
+        schemaVersion: 4,
         sourceMode: 'local',
         selectedRemoteProfileId: null,
         profiles: [
@@ -144,7 +98,7 @@ describe('RemoteHostProfileStore', () => {
         ],
       },
       {
-        schemaVersion: 3,
+        schemaVersion: 4,
         sourceMode: 'remote',
         selectedRemoteProfileId: 'remote',
         profiles: [{
@@ -160,6 +114,15 @@ describe('RemoteHostProfileStore', () => {
             knownHostsFile: '/private/known_hosts',
           },
         }],
+      },
+      {
+        schemaVersion: 4,
+        sourceMode: 'local',
+        selectedRemoteProfileId: null,
+        profiles: [
+          { id: 'local', label: '本机', topology: 'standalone', clientId: 'client-local' },
+          { id: 'old', label: '旧值', topology: 'server-core', clientId: 'client-old' },
+        ],
       },
     ];
 

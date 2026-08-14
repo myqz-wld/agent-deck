@@ -1,0 +1,62 @@
+import type { CoreMethod } from '@contracts/index';
+
+/** Business methods with a reachable entry in the current Remote Desktop product. */
+export const REMOTE_DESKTOP_PRODUCT_METHODS = Object.freeze([
+  'session.console.list',
+  'session.console.get',
+  'session.console.capabilities',
+  'workspace.directory.list',
+  'workspace.directory.create',
+  'session.archive',
+  'session.unarchive',
+  'session.reactivate',
+  'session.delete',
+  'project.list',
+  'session.console.create',
+  'session.presentation.list',
+  'session.messages.list',
+  'session.outgoing.list',
+  'session.outgoing.remove',
+  'session.history',
+  'session.events.list',
+  'session.summaries.list',
+  'session.file-changes.list',
+  'session.file-changes.get',
+  'session.file-changes.final-diff',
+  'session.assets.image-chunk.read',
+  'session.tasks.list',
+  'usage.tokens.get',
+  'usage.providers.get',
+  'node.configuration.get',
+  'node.hook.projection.get',
+  'node.assets.catalog.list',
+  'node.assets.content',
+  'node.assets.convention',
+  'issues.list',
+  'issues.get',
+  'issues.update',
+  'issues.soft-delete',
+  'issues.undelete',
+  'issues.resolve-in-new-session',
+  'session.send',
+  'session.interrupt',
+  'session.steer',
+  'pending.list',
+  'pending.index.list',
+  'pending.respond',
+  'plan.review.start',
+  'plan.review.ask',
+  'plan.review.feedback',
+  'session.runtime.get',
+  'session.runtime.update',
+  'session.context.get',
+  'session.input.capabilities',
+  'session.handoff.preview',
+  'session.handoff.commit',
+] as const satisfies readonly CoreMethod[]);
+
+const DIRECTORY = new Set<CoreMethod>(REMOTE_DESKTOP_PRODUCT_METHODS);
+
+export function isRemoteDesktopProductMethod(method: CoreMethod): boolean {
+  return DIRECTORY.has(method);
+}

@@ -8,13 +8,22 @@ import {
 } from './bridge-admission';
 
 const CLIENT: BridgeAdmission = {
-  version: 1,
-  topology: 'server-core',
+  version: 2,
+  topology: 'full',
   role: 'client',
   instanceId: 'tenant-a',
   credentialId: 'ssh-credential-a',
-  surface: 'desktop-full',
+  connectionScope: 'scope-ssh-credential-a',
+  surface: 'desktop',
 };
+
+function legacyFrame(value: unknown): Uint8Array {
+  const payload = new TextEncoder().encode(JSON.stringify(value));
+  const frame = new Uint8Array(4 + payload.byteLength);
+  new DataView(frame.buffer).setUint32(0, payload.byteLength, false);
+  frame.set(payload, 4);
+  return frame;
+}
 
 describe('private bridge admission framing', () => {
   it('preserves fragmented admission and coalesced opaque transport bytes', () => {
@@ -38,7 +47,7 @@ describe('private bridge admission framing', () => {
     ).toThrow('Unknown admission field');
     expect(() =>
       encodeBridgeAdmission({
-        version: 1,
+        version: 2,
         topology: 'relay',
         role: 'worker',
         instanceId: CLIENT.instanceId,
@@ -47,14 +56,42 @@ describe('private bridge admission framing', () => {
     ).toThrow('Missing admission field: workerId');
     expect(() =>
       encodeBridgeAdmission({
-        version: 1,
-        topology: 'server-core',
+        version: 2,
+        topology: 'full',
         role: 'worker',
         instanceId: CLIENT.instanceId,
         credentialId: CLIENT.credentialId,
         workerId: 'worker-a',
       } as unknown as BridgeAdmission),
     ).toThrow('Worker admission requires Relay');
+  });
+
+  it('rejects retired admission versions and vocabulary', () => {
+    expect(() => new BridgeAdmissionDecoder().push(legacyFrame({
+      version: 1,
+      topology: 'server-core',
+      role: 'client',
+      instanceId: 'tenant-a',
+      credentialId: 'legacy-desktop-a',
+      surface: 'desktop-full',
+    }))).toThrow('Unsupported bridge admission version');
+    expect(() => encodeBridgeAdmission({
+      version: 1,
+      topology: 'server-core',
+      role: 'client',
+      instanceId: 'tenant-a',
+      credentialId: 'legacy-desktop-a',
+      surface: 'desktop-full',
+    } as unknown as BridgeAdmission)).toThrow('Unsupported bridge admission version');
+    expect(() => new BridgeAdmissionDecoder().push(legacyFrame({
+      version: 2,
+      topology: 'full',
+      role: 'client',
+      instanceId: 'tenant-a',
+      credentialId: 'legacy-desktop-a',
+      connectionScope: 'scope-a',
+      surface: 'desktop-full',
+    }))).toThrow('Client admission surface is invalid');
   });
 
   it('rejects an oversized declaration before retaining its body', () => {

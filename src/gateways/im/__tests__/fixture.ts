@@ -1,5 +1,6 @@
 import {
   CORE_METHOD_METADATA,
+  issueRemoteOwnerAccessContext,
   type AgentDeckClient,
   type AgentDeckEventEnvelope,
   type AgentDeckRequestOptions,
@@ -37,7 +38,8 @@ export const credential: EnrolledFeishuCredential = {
   openId: 'open-1',
   instanceId: 'instance-1',
   credentialId: 'credential-1',
-  topology: 'server-core',
+  connectionScope: 'credential-1',
+  topology: 'full',
   status: 'active',
   authority: 'owner-equivalent',
 };
@@ -93,16 +95,13 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
         location: input.topology === 'relay' ? 'local-worker' : 'server-appliance',
         generation: input.topology === 'relay' ? 1 : null,
       },
-      access: {
-        kind: 'authenticated-client',
+      access: issueRemoteOwnerAccessContext({
         topology: input.topology,
         instanceId: input.instanceId,
         clientId: input.clientId,
-        transport: 'feishu',
-        accessCredentialId: input.credentialId,
-        authority: 'owner-equivalent',
-        surface: 'feishu-session-console',
-      },
+        connectionScope: input.credentialId,
+        surface: 'feishu',
+      }),
       capabilities,
       limits: {
         maxFrameBytes: 64_000,

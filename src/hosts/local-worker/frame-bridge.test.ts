@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import { issueRemoteOwnerGrantClaim } from '@contracts/index';
 
 import {
   emptyRoutePayload,
-  encodeRelayRouteFrame,
   RelayRouteFrameError,
   type RelayRouteFrame,
 } from '@protocol/relay';
@@ -32,8 +32,9 @@ function inbound(
     payload: options.payload ?? emptyRoutePayload(),
     creditBytes: options.creditBytes ?? null,
     resetCode: options.resetCode ?? null,
-    accessCredentialId: kind === 'open' ? 'client-credential-a' : null,
-    accessSurface: kind === 'open' ? 'desktop-full' : null,
+    connectionScope: kind === 'open' ? 'client-credential-a' : null,
+    accessSurface: kind === 'open' ? 'desktop' : null,
+    accessGrant: kind === 'open' ? issueRemoteOwnerGrantClaim('desktop') : null,
   };
 }
 
@@ -72,10 +73,12 @@ describe('local Worker generic Core frame bridge', () => {
     expect(writes.map((payload) => new TextDecoder().decode(payload))).toEqual([
       'ordinary-core-frame',
     ]);
-    expect(accesses).toEqual([{
-      accessCredentialId: 'client-credential-a',
-      surface: 'desktop-full',
-    }]);
+    expect(accesses).toEqual([
+      expect.objectContaining({
+        connectionScope: 'client-credential-a',
+        surface: 'desktop',
+      }),
+    ]);
     expect(emitted).toEqual([
       expect.objectContaining({ kind: 'data', sequence: 0 }),
       expect.objectContaining({
@@ -218,21 +221,20 @@ describe('local Worker generic Core frame bridge', () => {
 
   it('rejects an in-memory route body above negotiated maxFrameBytes before Core write', () => {
     const write = vi.fn(() => true);
-    const data = inbound('frame-limit', 1, 'data', { payload: new Uint8Array(32) });
-    const exactBodyBytes = encodeRelayRouteFrame(data).byteLength - 4;
+    const data = inbound('frame-limit', 1, 'data', { payload: new Uint8Array(1_024) });
     const bridge = new LocalWorkerFrameBridge(
       'instance-a',
       3,
       { open: () => ({ write, closeInput: vi.fn(), reset: vi.fn() }) },
       vi.fn(),
       {
-        initialCreditBytes: 64,
-        maxCreditBytes: 64,
-        maxOutputQueueBytesPerStream: 64,
-        maxOutputQueueBytesTotal: 64,
+        initialCreditBytes: 2_048,
+        maxCreditBytes: 2_048,
+        maxOutputQueueBytesPerStream: 2_048,
+        maxOutputQueueBytesTotal: 2_048,
         maxOutputQueueFramesPerStream: 4,
         maxOutputQueueFramesTotal: 4,
-        maxFrameBytes: exactBodyBytes - 1,
+        maxFrameBytes: 512,
       },
     );
     bridge.accept(inbound('frame-limit', 0, 'open'));

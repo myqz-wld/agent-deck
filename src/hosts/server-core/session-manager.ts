@@ -114,7 +114,7 @@ function isHandOffBuffered(event: AgentEvent): boolean {
 }
 
 /**
- * Provider-facing SessionManager for one Server Core process. It keeps desktop-only teams,
+ * Provider-facing SessionManager for one Server Core process. It keeps client-facing teams,
  * Browser, worktree, and renderer state outside the runtime while preserving durable session
  * identity, SDK claim fencing, lifecycle epochs, and event persistence.
  */

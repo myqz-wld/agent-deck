@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type {
-  AuthenticatedClientAccessContext,
-  CoreMethod,
-  JsonObject,
-  JsonValue,
+import {
+  issueRemoteOwnerGrantClaim,
+  type AuthenticatedClientAccessContext,
+  type CoreMethod,
+  type JsonObject,
+  type JsonValue,
 } from '@contracts/index';
 import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-capabilities.fixture';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
@@ -20,13 +21,14 @@ import type {
 
 const desktop: AuthenticatedClientAccessContext = {
   kind: 'authenticated-client',
-  topology: 'server-core',
+  topology: 'full',
   instanceId: 'instance-a',
   clientId: 'desktop-a',
   transport: 'ssh',
-  accessCredentialId: 'credential-a',
+  connectionScope: 'credential-a',
   authority: 'owner-equivalent',
-  surface: 'desktop-full',
+  surface: 'desktop',
+  grant: issueRemoteOwnerGrantClaim('desktop'),
 };
 
 function issue(overrides: Partial<IssueRecord> = {}): IssueRecord {
@@ -216,7 +218,7 @@ describe('ServerCoreIssueRuntime', () => {
     expect(update).toHaveBeenCalledOnce();
   });
 
-  it('rejects stale mutations and never exposes Issue methods to Feishu', async () => {
+  it('rejects stale mutations and grants Feishu the same Issue reads', async () => {
     const { runtime, update } = harness();
     await expect(runtime.execute(request('issues.update', {
       issueId: 'issue-a', patch: { status: 'resolved' },
@@ -226,8 +228,13 @@ describe('ServerCoreIssueRuntime', () => {
     expect(update).not.toHaveBeenCalled();
     await expect(runtime.execute({
       ...request('issues.get', { issueId: 'issue-a' }),
-      access: { ...desktop, transport: 'feishu', surface: 'feishu-session-console' },
-    } as DaemonRequestInput)).rejects.toMatchObject({ code: 'access_denied' });
+      access: {
+        ...desktop,
+        transport: 'feishu',
+        surface: 'feishu',
+        grant: issueRemoteOwnerGrantClaim('feishu'),
+      },
+    } as DaemonRequestInput)).resolves.toMatchObject({ result: { issue: { id: 'issue-a' } } });
   });
 
   it('creates and links one idempotent resolution session inside the Core', async () => {

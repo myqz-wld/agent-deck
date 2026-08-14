@@ -22,7 +22,7 @@ if grep -Fq 'HealthCmd=["CMD"' "$template"; then
   fail 'Podman health argv must begin with the executable, not a Dockerfile CMD marker'
 fi
 
-for surface in desktop-full feishu-session-console; do
+for surface in desktop feishu; do
   grep -Fq "command=\"/opt/agent-deck/bin/agent-deck-full-bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface $surface\"" "$key_fixture" ||
     fail "authorized key does not bind the exact host bridge, instance, credential, and $surface surface"
 done
@@ -63,8 +63,8 @@ if grep -Fq '"sessionCreationCatalog"' "$full_dir/server-core.config.example.jso
   fail 'Server Core config still contains the retired manual session catalog'
 fi
 for required in \
-  '"surface": "desktop-full"' \
-  '"surface": "feishu-session-console"' \
+  '"surface": "desktop"' \
+  '"surface": "feishu"' \
   '"status": "active"'; do
   grep -Fq "$required" "$credential_fixture" ||
     fail "credential fixture lost $required"

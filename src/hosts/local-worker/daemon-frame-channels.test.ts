@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { JsonObject, JsonValue } from '@contracts/index';
+import {
+  issueRemoteOwnerGrantClaim,
+  type JsonObject,
+  type JsonValue,
+} from '@contracts/index';
 import type { DaemonCoreRuntime } from '@hosts/daemon';
 import {
   CURRENT_PROTOCOL_VERSION,
@@ -13,7 +17,7 @@ import { createLocalWorkerDaemonFrameChannels } from './daemon-frame-channels';
 
 function runtime(): DaemonCoreRuntime {
   return {
-    supportedMethods: ['system.health'],
+    supportedMethods: ['session.console.list'],
     start: async () => undefined,
     stop: async () => undefined,
     currentRevision: () => 7,
@@ -53,8 +57,9 @@ describe('Local Worker daemon frame channels', () => {
       close: () => { closes += 1; },
       reset: () => { resets += 1; },
     }, {
-      accessCredentialId: 'desktop-a',
-      surface: 'desktop-full',
+      connectionScope: 'desktop-a',
+      surface: 'desktop',
+      grant: issueRemoteOwnerGrantClaim('desktop'),
     });
 
     expect(channel.write(encodeJsonFrame({
@@ -85,15 +90,15 @@ describe('Local Worker daemon frame channels', () => {
         instanceId: 'instance-a',
         clientId: 'desktop-client-a',
         transport: 'ssh',
-        accessCredentialId: 'desktop-a',
-        surface: 'desktop-full',
+        connectionScope: 'desktop-a',
+        surface: 'desktop',
       },
     });
 
     expect(channel.write(encodeJsonFrame({
       type: 'request',
       requestId: 'request-health-a',
-      method: 'system.health',
+      method: 'session.console.list',
       params: {},
       idempotencyKey: null,
       expectedRevision: null,

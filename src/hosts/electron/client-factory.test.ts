@@ -17,11 +17,11 @@ describe('Electron host production client boundary', () => {
       id: 'remote-a',
       label: 'Remote A',
       clientId: 'desktop-a',
-      topology: 'server-core',
+      topology: 'full',
       ssh: {
         id: 'remote-a',
         label: 'Remote A',
-        topology: 'server-core',
+        topology: 'full',
         hostname: 'core.example.test',
         port: 22,
         username: 'agent-deck',

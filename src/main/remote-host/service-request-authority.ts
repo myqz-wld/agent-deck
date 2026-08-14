@@ -6,6 +6,7 @@ import type {
 } from '@shared/remote-host';
 import { RemoteHostPublicError } from './errors';
 import { remoteHostMutationId } from './mutation-identity';
+import { isRemoteDesktopProductMethod } from './product-method-directory';
 import {
   RemoteHostScopeEpochs,
   type RemoteHostScopedClient,
@@ -82,6 +83,12 @@ export class RemoteHostRequestAuthority {
   ): RemoteHostScopedClient {
     this.assertActive();
     const source = this.options.source();
+    if (![method, ...additionalMethods].every(isRemoteDesktopProductMethod)) {
+      throw new RemoteHostPublicError(
+        'capability_unavailable',
+        '远程 Core 不支持此操作。',
+      );
+    }
     if (source.mode !== 'remote' || source.selectedProfileId !== profileId) {
       throw new RemoteHostPublicError('stale_scope', '当前主机已切换，请重试。');
     }

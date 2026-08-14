@@ -1,4 +1,4 @@
-import { assertProtocolMessageEnvelope, type ProtocolMessage } from '@protocol/messages';
+import { parseProtocolMessageEnvelope, type ProtocolMessage } from '@protocol/messages';
 
 import type { ConnectionContext } from './connection-context';
 import { isHostKeyFailure } from './errors';
@@ -11,8 +11,7 @@ export function decodeSshStdout(
 ): void {
   const bytes = toSshStreamBytes(chunk);
   for (const value of context.decoder.push(bytes)) {
-    assertProtocolMessageEnvelope(value);
-    onMessage(value as ProtocolMessage);
+    onMessage(parseProtocolMessageEnvelope(value));
     if (context.terminated) break;
   }
 }

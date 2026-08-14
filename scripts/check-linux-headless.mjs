@@ -174,11 +174,29 @@ async function verifyRelayBundleForcedCommands() {
       });
       if (accepted !== true) fail('Relay bundle rejected a packaged forced command');
     }
-    if (JSON.stringify(admissions) !== JSON.stringify([
-      { version: 1, topology: 'relay', role: 'worker', instanceId: 'instance-a', credentialId: 'credential-a', workerId: 'worker-a' },
-      { version: 1, topology: 'relay', role: 'client', instanceId: 'instance-a', credentialId: 'credential-a', surface: 'desktop-full' },
-      { version: 1, topology: 'relay', role: 'client', instanceId: 'instance-a', credentialId: 'credential-a', surface: 'feishu-session-console' },
-    ])) fail('Relay bundle admission handshake drifted from the packaged key fixtures');
+    const [workerAdmission, desktopAdmission, feishuAdmission] = admissions;
+    const expectedWorkerAdmission = {
+      version: 2,
+      topology: 'relay',
+      role: 'worker',
+      instanceId: 'instance-a',
+      credentialId: 'credential-a',
+      workerId: 'worker-a',
+    };
+    const clientAdmissionMatches = (admission, surface) =>
+      admission?.version === 2 && admission.topology === 'relay' &&
+      admission.role === 'client' && admission.instanceId === 'instance-a' &&
+      admission.credentialId === 'credential-a' && admission.surface === surface &&
+      typeof admission.connectionScope === 'string' &&
+      admission.connectionScope.startsWith('scope-') &&
+      admission.connectionScope !== admission.credentialId;
+    if (
+      admissions.length !== 3 ||
+      JSON.stringify(workerAdmission) !== JSON.stringify(expectedWorkerAdmission) ||
+      !clientAdmissionMatches(desktopAdmission, 'desktop') ||
+      !clientAdmissionMatches(feishuAdmission, 'feishu') ||
+      desktopAdmission.connectionScope !== feishuAdmission.connectionScope
+    ) fail('Relay bundle admission handshake drifted from the packaged key fixtures');
   } finally {
     await new Promise((resolveClose) => server.close(() => resolveClose()));
     rmSync(root, { recursive: true, force: true });
@@ -197,25 +215,29 @@ function verifyIssuedConnectionBundles() {
     const fullAuthority = resolve(root, 'full-credentials.json');
     const fullOutput = resolve(root, 'full.agentdeck-connection');
     writeFileSync(fullAuthority, `${JSON.stringify({
-      schemaVersion: 1, instanceId: 'instance-a', credentials: [],
+      schemaVersion: 2, instanceId: 'instance-a', credentials: [],
     })}\n`, { mode: 0o600 });
     run(process.execPath, [
       resolve(outputRoot, 'server-core/index.mjs'), 'issue-connection',
-      '--instance', 'instance-a', '--credential', 'desktop-full-a',
+      '--instance', 'instance-a', '--credential', 'desktop-a',
       '--label', 'Full production', '--hostname', 'full.example.test',
       '--port', '22', '--username', 'agentdeck', '--host-key', hostKey,
       '--credential-file', fullAuthority, '--authorized-keys', authorizedKeys,
       '--output', fullOutput,
     ]);
     const full = JSON.parse(readFileSync(fullOutput, 'utf8'));
-    if (full.kind !== 'agent-deck-remote-connection-credential' ||
-        full.topology !== 'server-core' || full.instanceId !== 'instance-a' ||
+    if (full.schemaVersion !== 3 ||
+        full.kind !== 'agent-deck-remote-connection-credential' ||
+        full.topology !== 'full' || full.instanceId !== 'instance-a' ||
+        typeof full.connectionScope !== 'string' ||
+        !full.connectionScope.startsWith('scope-') ||
+        full.connectionScope === full.credentialId ||
         !String(full.identity?.privateKey).includes('OPENSSH PRIVATE KEY') ||
         (statSync(fullOutput).mode & 0o777) !== 0o600) {
       fail('Server Core bundle did not issue one exact private connection credential');
     }
-    if (!readFileSync(fullAuthority, 'utf8').includes('desktop-full-a') ||
-        !readFileSync(authorizedKeys, 'utf8').includes('--surface desktop-full')) {
+    if (!readFileSync(fullAuthority, 'utf8').includes('desktop-a') ||
+        !readFileSync(authorizedKeys, 'utf8').includes('--surface desktop')) {
       fail('Server Core issuance did not enroll the matching credential and forced key');
     }
 
@@ -246,12 +268,15 @@ function verifyIssuedConnectionBundles() {
     ]);
     const relayWorker = JSON.parse(readFileSync(relayWorkerOutput, 'utf8'));
     const relayClient = JSON.parse(readFileSync(relayClientOutput, 'utf8'));
-    if (relayWorker.schemaVersion !== 2 || relayWorker.purpose !== 'worker' ||
+    if (relayWorker.schemaVersion !== 3 || relayWorker.purpose !== 'worker' ||
         relayWorker.topology !== 'relay' || relayWorker.workerId !== 'worker-a' ||
         relayWorker.credentialId !== 'worker-credential-a' ||
         !String(relayWorker.identity?.privateKey).includes('OPENSSH PRIVATE KEY') ||
-        relayClient.schemaVersion !== 2 || relayClient.purpose !== 'client' ||
+        relayClient.schemaVersion !== 3 || relayClient.purpose !== 'client' ||
         relayClient.topology !== 'relay' || relayClient.credentialId !== 'desktop-relay-a' ||
+        typeof relayClient.connectionScope !== 'string' ||
+        !relayClient.connectionScope.startsWith('scope-') ||
+        relayClient.connectionScope === relayClient.credentialId ||
         relayClient.workerId !== undefined ||
         !String(relayClient.identity?.privateKey).includes('OPENSSH PRIVATE KEY') ||
         (statSync(relayWorkerOutput).mode & 0o777) !== 0o600 ||
@@ -259,7 +284,7 @@ function verifyIssuedConnectionBundles() {
         !readFileSync(relayConfig, 'utf8').includes('"kind": "ssh-client"') ||
         !readFileSync(relayConfig, 'utf8').includes('"kind": "relay-worker"') ||
         !readFileSync(authorizedKeys, 'utf8').includes('/run/user/1001/') ||
-        !readFileSync(authorizedKeys, 'utf8').includes('--surface desktop-full') ||
+        !readFileSync(authorizedKeys, 'utf8').includes('--surface desktop') ||
         !readFileSync(authorizedKeys, 'utf8').includes('--worker worker-a')) {
       fail('Relay bundle did not separately issue exact Client and Worker credentials');
     }
@@ -514,7 +539,8 @@ const feishuBundle = filesUnder(resolve(outputRoot, 'feishu'))
   .map((file) => readFileSync(file, 'utf8')).join('\n');
 for (const required of [
   'WSClient',
-  'feishu-session-console',
+  'Remote Owner Product v1',
+  'connectionScope',
   'check-abi',
   'better-sqlite3',
 ]) {
@@ -594,11 +620,11 @@ const credentialFixture = JSON.parse(readFileSync(
   'utf8',
 ));
 if (
-  credentialFixture.schemaVersion !== 1 ||
+  credentialFixture.schemaVersion !== 2 ||
   credentialFixture.instanceId !== 'instance-a' ||
   JSON.stringify(credentialFixture.credentials) !== JSON.stringify([
-    { credentialId: 'desktop-credential-a', surface: 'desktop-full', status: 'active' },
-    { credentialId: 'feishu-credential-a', surface: 'feishu-session-console', status: 'active' },
+    { credentialId: 'desktop-credential-a', surface: 'desktop', status: 'active' },
+    { credentialId: 'feishu-credential-a', surface: 'feishu', status: 'active' },
   ])
 ) fail('Server Core credential fixture drifted from the live lifecycle contract');
 await verifyRelayBundleForcedCommands();
@@ -678,10 +704,10 @@ const fullClientKey = readFileSync(
   'utf8',
 );
 if (!fullClientKey.includes(
-  'command="/opt/agent-deck/bin/agent-deck-full-bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface desktop-full"',
+  'command="/opt/agent-deck/bin/agent-deck-full-bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface desktop"',
 )) fail('Server Core host bridge forced-command binding fixture is incomplete');
 if (!fullClientKey.includes(
-  'command="/opt/agent-deck/bin/agent-deck-full-bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface feishu-session-console"',
+  'command="/opt/agent-deck/bin/agent-deck-full-bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface feishu"',
 )) fail('Server Core Feishu forced-command binding fixture is incomplete');
 if (fullClientKey.includes('/run/agent-deck/')) {
   fail('Server Core forced command must not assume the named-volume socket is a host path');

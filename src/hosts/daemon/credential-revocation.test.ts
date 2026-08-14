@@ -1,4 +1,8 @@
-import type { AuthenticatedClientAccessContext, ClientHello } from '@contracts/index';
+import {
+  issueRemoteOwnerAccessContext,
+  type AuthenticatedClientAccessContext,
+  type ClientHello,
+} from '@contracts/index';
 import { describe, expect, it, vi } from 'vitest';
 
 import type {
@@ -53,14 +57,14 @@ class CredentialLifecycle implements DaemonCredentialLifecyclePort {
 
   deactivate(
     credentialId: string,
-    surface: 'desktop-full' | 'feishu-session-console',
+    surface: 'desktop' | 'feishu',
   ): void {
     this.inactive.add(key(credentialId, surface));
   }
 
   revoke(
     credentialId: string,
-    surface: 'desktop-full' | 'feishu-session-console',
+    surface: 'desktop' | 'feishu',
   ): void {
     this.deactivate(credentialId, surface);
     this.listener?.({
@@ -76,39 +80,35 @@ class CredentialLifecycle implements DaemonCredentialLifecyclePort {
       instanceId: 'tenant-a',
       processId: PROCESS_ID,
       accessCredentialId: credentialId,
-      accessSurface: 'desktop-full',
+      accessSurface: 'desktop',
     });
   }
 }
 
 function accessFor(
   credentialId: string,
-  surface: 'desktop-full' | 'feishu-session-console' = 'desktop-full',
+  surface: 'desktop' | 'feishu' = 'desktop',
 ): DaemonAccessContextFactory {
-  return (clientHello: ClientHello): AuthenticatedClientAccessContext => {
-    const common = {
-      kind: 'authenticated-client' as const,
-      topology: 'server-core' as const,
+  return (clientHello: ClientHello): AuthenticatedClientAccessContext =>
+    issueRemoteOwnerAccessContext({
+      topology: 'full',
       instanceId: 'tenant-a',
       clientId: clientHello.clientId,
-      accessCredentialId: credentialId,
-      authority: 'owner-equivalent' as const,
-    };
-    return surface === 'desktop-full'
-      ? { ...common, transport: 'ssh', surface }
-      : { ...common, transport: 'feishu', surface };
-  };
+      connectionScope: credentialId,
+      surface,
+    });
 }
 
 async function openConnection(
   host: ReturnType<typeof createHost>,
   credentialId: string,
   clientId: string,
-  surface: 'desktop-full' | 'feishu-session-console' = 'desktop-full',
+  surface: 'desktop' | 'feishu' = 'desktop',
 ) {
   const stream = new TestDuplex();
   const connection = host.accept({
     stream,
+    credential: { credentialId, surface },
     createAccessContext: accessFor(credentialId, surface),
   });
   stream.feed(hello(clientId));
@@ -141,7 +141,7 @@ describe('daemon credential revocation', () => {
     stream.feed({ type: 'subscribe', requestId: 'subscribe-a', afterRevision: 0 });
     await waitFor(() => Boolean(findMessage(stream, 'result', 'subscribe-a')), 'subscription');
 
-    credentials.revoke('credential-a', 'desktop-full');
+    credentials.revoke('credential-a', 'desktop');
     await expect(connection.whenClosed()).resolves.toBe('credential-revoked');
     expect(subscriptionState.signal?.aborted).toBe(true);
     expect(subscriptionClose).toHaveBeenCalledOnce();
@@ -178,7 +178,7 @@ describe('daemon credential revocation', () => {
     stream.feed(request('slow-request'));
     await waitFor(() => execute.mock.calls.length === 1, 'in-flight request');
 
-    credentials.revoke('credential-a', 'desktop-full');
+    credentials.revoke('credential-a', 'desktop');
     await expect(connection.whenClosed()).resolves.toBe('credential-revoked');
     expect(requestState.signal?.aborted).toBe(true);
     await host.stop();
@@ -198,10 +198,10 @@ describe('daemon credential revocation', () => {
       host,
       'credential-a',
       'feishu-a',
-      'feishu-session-console',
+      'feishu',
     );
 
-    credentials.revoke('credential-a', 'desktop-full');
+    credentials.revoke('credential-a', 'desktop');
     await expect(desktopA.connection.whenClosed()).resolves.toBe('credential-revoked');
     expect(desktopB.connection.isClosed).toBe(false);
     expect(feishuA.connection.isClosed).toBe(false);
@@ -230,12 +230,13 @@ describe('daemon credential revocation', () => {
     const stream = new TestDuplex();
     const connection = host.accept({
       stream,
+      credential: { credentialId: 'credential-race', surface: 'desktop' },
       createAccessContext: accessFor('credential-race'),
     });
     stream.feed(hello('race-client'));
     await waitFor(() => credentials.checks.length === 1, 'credential pull');
 
-    credentials.revoke('credential-race', 'desktop-full');
+    credentials.revoke('credential-race', 'desktop');
     resolveCheck(true);
     await waitFor(
       () => Boolean(findMessage(stream, 'error', 'hello-race-client')),
@@ -261,8 +262,8 @@ describe('daemon credential revocation', () => {
     await host.start();
     const requestClient = await openConnection(host, 'credential-request', 'request-client');
     const subscribeClient = await openConnection(host, 'credential-subscribe', 'subscribe-client');
-    credentials.deactivate('credential-request', 'desktop-full');
-    credentials.deactivate('credential-subscribe', 'desktop-full');
+    credentials.deactivate('credential-request', 'desktop');
+    credentials.deactivate('credential-subscribe', 'desktop');
 
     requestClient.stream.feed(request('missed-request'));
     subscribeClient.stream.feed({
@@ -309,7 +310,7 @@ describe('daemon credential revocation', () => {
     const revoke = vi.spyOn(connection, 'revokeCredential');
     await connection.shutdown('client-closed');
 
-    credentials.revoke('credential-closed', 'desktop-full');
+    credentials.revoke('credential-closed', 'desktop');
     expect(revoke).not.toHaveBeenCalled();
     expect(host.connectionCount).toBe(0);
     await host.stop();
@@ -345,11 +346,11 @@ describe('daemon credential revocation', () => {
       instanceId: 'tenant-a',
       processId: PROCESS_ID,
       accessCredentialId: 'credential-after-stop',
-      accessSurface: 'desktop-full',
+      accessSurface: 'desktop',
     });
     await expect(registry.assertActive(
       'credential-after-stop',
-      'desktop-full',
+      'desktop',
     )).rejects.toMatchObject({ code: 'revoked' });
   });
 
@@ -371,7 +372,7 @@ describe('daemon credential revocation', () => {
         },
       });
       await registry.start();
-      const operation = registry.assertActive('credential-timeout', 'desktop-full');
+      const operation = registry.assertActive('credential-timeout', 'desktop');
       const rejected = expect(operation).rejects.toMatchObject({ code: 'revoked' });
       await vi.advanceTimersByTimeAsync(10);
       await rejected;

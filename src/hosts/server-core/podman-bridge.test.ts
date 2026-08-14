@@ -15,7 +15,7 @@ import {
 function inspection(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify([{
     Id: 'a'.repeat(64),
-    Name: 'agent-deck-full-instance-a',
+    Name: 'agent-deck-server-core-instance-a',
     State: { Running: true, Status: 'running' },
     Config: { Labels: {
       'io.agent-deck.instance': 'instance-a',
@@ -123,20 +123,20 @@ describe('Full Server Core rootless Podman bridge', () => {
     await runServerCorePodmanBridge(host, {
       instanceId: 'instance-a',
       credentialId: 'credential-a',
-      surface: 'desktop-full',
+      surface: 'desktop',
       originalCommand: 'agent-deck-bridge',
       input: Readable.from([]),
       output: new PassThrough(),
     });
     expect(host.captures).toEqual([
       ['info', '--format=json'],
-      ['container', 'inspect', '--format=json', '--', 'agent-deck-full-instance-a'],
+      ['container', 'inspect', '--format=json', '--', 'agent-deck-server-core-instance-a'],
     ]);
     expect(host.streams).toEqual([[
       'exec', '-i', '--detach-keys=', '--', 'a'.repeat(64),
       '/opt/agent-deck/bin/agent-deckd', 'bridge-internal',
       '--instance', 'instance-a', '--credential', 'credential-a',
-      '--surface', 'desktop-full',
+      '--surface', 'desktop',
       '--socket', '/run/agent-deck/instance-a/agent-deckd.sock',
     ]]);
   });
@@ -145,14 +145,14 @@ describe('Full Server Core rootless Podman bridge', () => {
     const original = new FakeHost();
     await expect(runServerCorePodmanBridge(original, {
       instanceId: 'instance-a', credentialId: 'credential-a',
-      surface: 'desktop-full',
+      surface: 'desktop',
       originalCommand: 'agent-deck-bridge --other',
       input: Readable.from([]), output: new PassThrough(),
     })).rejects.toThrow('original command');
     expect(original.captures).toEqual([]);
 
     for (const tampered of [
-      inspection({ Name: 'agent-deck-full-other' }),
+      inspection({ Name: 'agent-deck-server-core-other' }),
       inspection({ State: { Running: false, Status: 'exited' } }),
       inspection({ Config: { Labels: {
         'io.agent-deck.instance': 'instance-a',
@@ -164,7 +164,7 @@ describe('Full Server Core rootless Podman bridge', () => {
       replaced.outputs[1] = tampered;
       await expect(runServerCorePodmanBridge(replaced, {
         instanceId: 'instance-a', credentialId: 'credential-a',
-        surface: 'desktop-full',
+        surface: 'desktop',
         originalCommand: 'agent-deck-bridge',
         input: Readable.from([]), output: new PassThrough(),
       })).rejects.toThrow('identity is not exact and running');
@@ -178,7 +178,7 @@ describe('Full Server Core rootless Podman bridge', () => {
       const host = new FakeHost();
       await expect(runServerCorePodmanBridge(host, {
         instanceId, credentialId: 'credential-a', originalCommand: 'agent-deck-bridge',
-        surface: 'desktop-full',
+        surface: 'desktop',
         input: Readable.from([]), output: new PassThrough(),
       })).rejects.toThrow('lowercase Linux instance label');
       expect(host.captures).toEqual([]);

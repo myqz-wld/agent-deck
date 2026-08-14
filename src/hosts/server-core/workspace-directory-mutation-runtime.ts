@@ -1,6 +1,6 @@
 import {
   AgentDeckClientErrorCode,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   parseWorkspaceDirectoryCreateParams,
   parseWorkspaceDirectoryCreateResult,
   type CoreMethod,
@@ -33,7 +33,7 @@ export interface ServerCoreWorkspaceDirectoryMutationRuntimeOptions {
   };
 }
 
-/** Desktop-only Workspace mutation; no absolute path crosses the contract. */
+/** Remote-owner Workspace mutation; no absolute path crosses the contract. */
 export class ServerCoreWorkspaceDirectoryMutationRuntime implements DaemonCoreRuntime {
   readonly supportedMethods: readonly CoreMethod[];
   readonly subscribe?: DaemonCoreRuntime['subscribe'];
@@ -59,7 +59,7 @@ export class ServerCoreWorkspaceDirectoryMutationRuntime implements DaemonCoreRu
 
   async execute(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     if (input.method !== 'workspace.directory.create') return this.base.execute(input);
-    if (!isCoreMethodAllowed(input.access.surface, input.method)) {
+    if (!isCoreMethodGranted(input.access, input.method)) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Request rejected');
     }
     if (input.signal.aborted) {

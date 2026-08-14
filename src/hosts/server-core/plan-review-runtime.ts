@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 import {
   AgentDeckClientErrorCode,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   isJsonValue,
   type CoreMethod,
   type JsonObject,
@@ -103,7 +103,7 @@ function replay(claim: ServerCoreMutationClaim): DaemonRequestResult | null {
   return { result: claim.result, revision: claim.revision };
 }
 
-/** Adds desktop-only Core-owned companion review operations around pending plan presentations. */
+/** Adds Remote-owner Core companion review operations around pending plan presentations. */
 export class ServerCorePlanReviewRuntime implements DaemonCoreRuntime {
   readonly supportedMethods: readonly CoreMethod[];
   readonly subscribe?: DaemonCoreRuntime['subscribe'];
@@ -133,7 +133,7 @@ export class ServerCorePlanReviewRuntime implements DaemonCoreRuntime {
 
   async execute(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     if (!planReviewMethod(input.method)) return this.base.execute(input);
-    if (!isCoreMethodAllowed(input.access.surface, input.method)) {
+    if (!isCoreMethodGranted(input.access, input.method)) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Request rejected');
     }
     if (input.signal.aborted) {
@@ -177,7 +177,7 @@ export class ServerCorePlanReviewRuntime implements DaemonCoreRuntime {
     invoke: () => Promise<JsonObject>,
   ): Promise<DaemonRequestResult> {
     const identity: ServerCoreMutationIdentity = {
-      accessCredentialId: input.access.accessCredentialId,
+      connectionScope: input.access.connectionScope,
       accessSurface: input.access.surface,
       idempotencyKey: input.idempotencyKey!,
       method: input.method,

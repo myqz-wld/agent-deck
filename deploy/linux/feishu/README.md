@@ -9,9 +9,10 @@ business queue.
 The Feishu process uses `/opt/agent-deck/bin/agent-deck-feishu`; the root-owned single-file bundle is
 `/opt/agent-deck/linux-headless/feishu/index.mjs`. `core-ssh.json` pins the topology, instance,
 hostname, host key file, and one private identity per active owner-equivalent Feishu credential. The
-server-side public key must use the `feishu-session-console` forced-command line from the matching
-Full or Relay `authorized-client-key-options.txt`. That surface cannot become an interactive shell,
-request a PTY, forward ports/agents/X11, or invoke desktop-only Core methods.
+server-side public key must use the `feishu` forced-command line from the matching Full or Relay
+`authorized-client-key-options.txt`. That surface cannot become an interactive shell, request a PTY,
+or forward ports, agents, or X11. Server maps both `desktop` and `feishu` to the same explicit
+Remote Owner Product v1 grant; their available interaction entry points remain product-specific.
 
 ## Provisioning
 

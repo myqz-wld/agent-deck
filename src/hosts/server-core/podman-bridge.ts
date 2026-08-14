@@ -92,7 +92,7 @@ export async function runServerCorePodmanBridge(
   const instanceId = requireLinuxInstanceId(options.instanceId, 'instance');
   const credentialId = requireStableToken(options.credentialId, 'credential');
   const surface = requireClientSurface(options.surface);
-  const containerName = `agent-deck-full-${instanceId}`;
+  const containerName = `agent-deck-server-core-${instanceId}`;
   parseRootlessInfo(await host.capture(['info', '--format=json']));
   const containerId = parseContainerIdentity(
     await host.capture([
@@ -129,7 +129,7 @@ export async function runServerCorePodmanBridge(
 }
 
 function requireClientSurface(value: string): BridgeClientSurface {
-  if (value !== 'desktop-full' && value !== 'feishu-session-console') {
+  if (value !== 'desktop' && value !== 'feishu') {
     throw new Error('Server Core client surface is invalid');
   }
   return value;

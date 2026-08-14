@@ -1,7 +1,7 @@
 import {
   AgentDeckClientErrorCode,
   isJsonValue,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   parseNodeAssetContentParams,
   parseNodeAssetConventionParams,
   parseNodeAssetListParams,
@@ -30,7 +30,7 @@ function isNodeAssetMethod(method: CoreMethod): method is NodeAssetMethod {
   return (SERVER_CORE_NODE_ASSET_METHODS as readonly CoreMethod[]).includes(method);
 }
 
-/** Desktop-only reads over the exact assets and conventions owned by this Worker/Core. */
+/** Remote-owner reads over the exact assets and conventions owned by this Worker/Core. */
 export class ServerCoreNodeAssetRuntime implements DaemonCoreRuntime {
   readonly supportedMethods: readonly CoreMethod[];
   readonly subscribe?: DaemonCoreRuntime['subscribe'];
@@ -57,7 +57,7 @@ export class ServerCoreNodeAssetRuntime implements DaemonCoreRuntime {
 
   async execute(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     if (!isNodeAssetMethod(input.method)) return this.base.execute(input);
-    if (!isCoreMethodAllowed(input.access.surface, input.method)) {
+    if (!isCoreMethodGranted(input.access, input.method)) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Request rejected');
     }
     if (input.signal.aborted) {

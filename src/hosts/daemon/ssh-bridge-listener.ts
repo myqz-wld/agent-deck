@@ -1,12 +1,17 @@
 import { Buffer } from 'node:buffer';
 import type { Duplex } from 'node:stream';
 
-import { AgentDeckClientErrorCode, type ClientHello } from '@contracts/index';
+import {
+  AgentDeckClientErrorCode,
+  issueRemoteOwnerAccessContext,
+  type ClientHello,
+} from '@contracts/index';
 import {
   BridgeAdmissionDecoder,
   type BridgeClientAdmission,
   type DecodedBridgeAdmission,
 } from '@protocol/index';
+import { deriveConnectionScope } from '@hosts/linux-runtime/connection-scope';
 
 import type { DaemonHost } from './host';
 import { DaemonRequestError, type DaemonListener } from './types';
@@ -138,7 +143,7 @@ export class DaemonSshBridgeListener {
     if (
       !this.started ||
       admission.role !== 'client' ||
-      admission.topology !== 'server-core' ||
+      admission.topology !== 'full' ||
       admission.instanceId !== this.options.instanceId
     ) {
       stream.destroy();
@@ -148,6 +153,10 @@ export class DaemonSshBridgeListener {
       this.options.host.accept({
         stream,
         label: `${admission.surface}:${admission.credentialId}`,
+        credential: {
+          credentialId: admission.credentialId,
+          surface: admission.surface,
+        },
         createAccessContext: (hello) => this.createAccess(admission, hello),
       });
       if (decoded.remainder.byteLength > 0) {
@@ -163,22 +172,27 @@ export class DaemonSshBridgeListener {
     admission: BridgeClientAdmission,
     hello: ClientHello,
   ) {
+    if (admission.connectionScope !== deriveConnectionScope(
+      admission.instanceId,
+      admission.credentialId,
+    )) {
+      throw new DaemonRequestError(
+        AgentDeckClientErrorCode.Revoked,
+        'SSH connection scope does not match its credential',
+      );
+    }
     if (!(await this.options.authorize(admission))) {
       throw new DaemonRequestError(
         AgentDeckClientErrorCode.Revoked,
         'SSH access credential is not active',
       );
     }
-    const common = {
-      kind: 'authenticated-client' as const,
-      topology: 'server-core' as const,
+    return issueRemoteOwnerAccessContext({
+      topology: 'full',
       instanceId: this.options.instanceId,
       clientId: hello.clientId,
-      accessCredentialId: admission.credentialId,
-      authority: 'owner-equivalent' as const,
-    };
-    return admission.surface === 'desktop-full'
-      ? { ...common, transport: 'ssh' as const, surface: 'desktop-full' as const }
-      : { ...common, transport: 'feishu' as const, surface: 'feishu-session-console' as const };
+      connectionScope: admission.connectionScope,
+      surface: admission.surface,
+    });
   }
 }

@@ -1,7 +1,7 @@
 export const DeploymentTopology = {
   Standalone: 'standalone',
-  ServerCore: 'server-core',
   Relay: 'relay',
+  Full: 'full',
 } as const;
 
 export type DeploymentTopology =
@@ -30,8 +30,8 @@ export const TOPOLOGY_DESCRIPTORS = {
     serverParticipates: false,
     serverExecutesAgents: false,
   },
-  [DeploymentTopology.ServerCore]: {
-    topology: DeploymentTopology.ServerCore,
+  [DeploymentTopology.Full]: {
+    topology: DeploymentTopology.Full,
     authoritativeCoreLocation: 'server-appliance',
     accessTransports: ['ssh', 'feishu'],
     serverParticipates: true,

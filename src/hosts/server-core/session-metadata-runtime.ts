@@ -1,7 +1,7 @@
 import {
   AgentDeckClientErrorCode,
   SESSION_MESSAGES_MAX_BODY_BYTES,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   parseSessionMessagesListParams,
   parseSessionMessagesListResult,
   type CoreMethod,
@@ -90,7 +90,7 @@ export class ServerCoreSessionMetadataRuntime implements DaemonCoreRuntime {
 
   execute(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     if (!isMetadataMethod(input.method)) return this.base.execute(input);
-    if (!isCoreMethodAllowed(input.access.surface, input.method)) {
+    if (!isCoreMethodGranted(input.access, input.method)) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Request rejected');
     }
     if (input.signal.aborted) {

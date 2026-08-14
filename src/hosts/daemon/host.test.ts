@@ -1,6 +1,11 @@
 import { Duplex } from 'node:stream';
 
-import type { ClientHello, JsonObject, JsonValue } from '@contracts/index';
+import {
+  issueRemoteOwnerAccessContext,
+  type ClientHello,
+  type JsonObject,
+  type JsonValue,
+} from '@contracts/index';
 import {
   CURRENT_PROTOCOL_VERSION,
   encodeJsonFrame,
@@ -53,7 +58,7 @@ function hello(clientId: string): JsonObject {
       protocolVersion: CURRENT_PROTOCOL_VERSION,
       appVersion: 'desktop-test',
       clientId,
-      requestedTopology: 'server-core',
+      requestedTopology: 'full',
     },
   };
 }
@@ -62,7 +67,7 @@ function request(requestId: string): JsonObject {
   return {
     type: 'request',
     requestId,
-    method: 'system.health',
+    method: 'session.console.list',
     params: {},
     idempotencyKey: null,
     expectedRevision: null,
@@ -71,16 +76,13 @@ function request(requestId: string): JsonObject {
 }
 
 function access(clientHello: ClientHello) {
-  return {
-    kind: 'authenticated-client' as const,
-    topology: 'server-core' as const,
+  return issueRemoteOwnerAccessContext({
+    topology: 'full',
     instanceId: 'tenant-a',
     clientId: clientHello.clientId,
-    transport: 'ssh' as const,
-    accessCredentialId: 'ssh-1',
-    authority: 'owner-equivalent' as const,
-    surface: 'desktop-full' as const,
-  };
+    connectionScope: 'ssh-1',
+    surface: 'desktop',
+  });
 }
 
 function hasMessage(stream: HostTestDuplex, type: string, requestId?: string): boolean {
@@ -99,9 +101,14 @@ const paths = resolveDaemonInstancePaths('tenant-a', {
   XDG_RUNTIME_DIR: '/run/user/1200',
 });
 
+const DEFAULT_CREDENTIAL = Object.freeze({
+  credentialId: 'ssh-1',
+  surface: 'desktop' as const,
+});
+
 function runtime(): DaemonCoreRuntime {
   return {
-    supportedMethods: ['system.health'],
+    supportedMethods: ['session.console.list'],
     start: async () => undefined,
     stop: async () => undefined,
     currentRevision: () => 0,
@@ -126,6 +133,7 @@ describe('daemon host lifecycle', () => {
       appVersion: 'test',
       runtime: core,
       credentialLifecycle: credentialLifecycle(),
+      defaultCredential: DEFAULT_CREDENTIAL,
       listener: null,
       sqlitePreflight: () => {
         throw new SqliteAbiPreflightError('native_load_failed', 'ABI mismatch');
@@ -162,17 +170,9 @@ describe('daemon host lifecycle', () => {
       appVersion: 'test',
       runtime: { ...runtime(), start, stop },
       credentialLifecycle: credentials,
+      defaultCredential: DEFAULT_CREDENTIAL,
       listener,
-      defaultAccessContextFactory: (hello) => ({
-        kind: 'authenticated-client',
-        topology: 'server-core',
-        instanceId: 'tenant-a',
-        clientId: hello.clientId,
-        transport: 'ssh',
-        accessCredentialId: 'ssh-1',
-        authority: 'owner-equivalent',
-        surface: 'desktop-full',
-      }),
+      defaultAccessContextFactory: access,
       sqlitePreflight: () => undefined,
     });
 
@@ -207,6 +207,7 @@ describe('daemon host lifecycle', () => {
       appVersion: 'test',
       runtime: { ...runtime(), stop },
       credentialLifecycle: credentialLifecycle(),
+      defaultCredential: DEFAULT_CREDENTIAL,
       listener,
       defaultAccessContextFactory: access,
       sqlitePreflight: () => undefined,
@@ -253,6 +254,7 @@ describe('daemon host lifecycle', () => {
       appVersion: 'test',
       runtime: core,
       credentialLifecycle: credentialLifecycle(),
+      defaultCredential: DEFAULT_CREDENTIAL,
       listener: null,
       sqlitePreflight: () => undefined,
     });
@@ -321,6 +323,7 @@ describe('daemon host lifecycle', () => {
       appVersion: 'test',
       runtime: core,
       credentialLifecycle: credentialLifecycle(),
+      defaultCredential: DEFAULT_CREDENTIAL,
       listener,
       defaultAccessContextFactory: access,
       sqlitePreflight: () => undefined,
@@ -353,6 +356,7 @@ describe('daemon host lifecycle', () => {
       appVersion: 'test',
       runtime: core,
       credentialLifecycle: credentialLifecycle(),
+      defaultCredential: DEFAULT_CREDENTIAL,
       listener: null,
       sqlitePreflight: () => undefined,
     });

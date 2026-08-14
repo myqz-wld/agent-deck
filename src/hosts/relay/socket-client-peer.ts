@@ -18,7 +18,8 @@ export interface RelaySocketClientPeerOptions {
   readonly clientId: string;
   readonly streamId: string;
   readonly credentialId: string;
-  readonly surface: 'desktop-full' | 'feishu-session-console';
+  readonly connectionScope: string;
+  readonly surface: 'desktop' | 'feishu';
   readonly stream: Duplex;
   readonly router: RelayStreamRouter;
   readonly onRouterChanged: () => void;
@@ -72,6 +73,7 @@ export class RelaySocketClientPeer {
       this.options.clientId,
       this.options.credentialId,
       this.options.surface,
+      this.options.connectionScope,
     );
     try {
       this.handle = this.bridge.open(this.options.streamId, {

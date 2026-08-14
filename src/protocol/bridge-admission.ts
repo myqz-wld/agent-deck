@@ -1,21 +1,22 @@
 const ADMISSION_PREFIX_BYTES = 4;
-const ADMISSION_VERSION = 1;
+const ADMISSION_VERSION = 2;
 const DEFAULT_MAX_ADMISSION_BYTES = 8 * 1024;
 const TOKEN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/$-]*$/;
 
-export type BridgeClientSurface = 'desktop-full' | 'feishu-session-console';
+export type BridgeClientSurface = 'desktop' | 'feishu';
 
 export type BridgeAdmission =
   | {
-      version: 1;
-      topology: 'server-core' | 'relay';
+      version: 2;
+      topology: 'full' | 'relay';
       role: 'client';
       instanceId: string;
       credentialId: string;
+      connectionScope: string;
       surface: BridgeClientSurface;
     }
   | {
-      version: 1;
+      version: 2;
       topology: 'relay';
       role: 'worker';
       instanceId: string;
@@ -98,14 +99,16 @@ export function assertBridgeAdmission(value: unknown): asserts value is BridgeAd
       'role',
       'instanceId',
       'credentialId',
+      'connectionScope',
       'surface',
     ]);
-    if (value.topology !== 'server-core' && value.topology !== 'relay') {
+    if (value.topology !== 'full' && value.topology !== 'relay') {
       throw new BridgeAdmissionError('admission_invalid', 'Client admission topology is invalid');
     }
-    if (value.surface !== 'desktop-full' && value.surface !== 'feishu-session-console') {
+    if (value.surface !== 'desktop' && value.surface !== 'feishu') {
       throw new BridgeAdmissionError('admission_invalid', 'Client admission surface is invalid');
     }
+    requireToken(value.connectionScope, 'connectionScope');
   } else {
     assertExactKeys(value, [
       'version',

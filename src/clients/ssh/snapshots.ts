@@ -1,4 +1,4 @@
-import type { ClientHello, HostHello } from '@contracts/index';
+import { copyRemoteOwnerGrantClaim, type ClientHello, type HostHello } from '@contracts/index';
 
 import type { SshConnectionState, SshHostProfile } from './types';
 
@@ -13,11 +13,14 @@ export function freezeClientHello(hello: ClientHello): ClientHello {
 }
 
 export function cloneHostHello(hello: HostHello): HostHello {
+  const access = hello.access.kind === 'authenticated-client'
+    ? { ...hello.access, grant: copyRemoteOwnerGrantClaim(hello.access.grant) }
+    : { ...hello.access };
   return {
     ...hello,
     protocolVersion: { ...hello.protocolVersion },
     authoritativeCore: { ...hello.authoritativeCore },
-    access: { ...hello.access },
+    access,
     capabilities: [...hello.capabilities],
     limits: { ...hello.limits },
   };

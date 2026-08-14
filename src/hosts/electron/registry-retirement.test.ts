@@ -15,7 +15,7 @@ import {
 describe('ElectronHostRegistry retirement barriers', () => {
   it('awaits incompatible binding cleanup before installing its replacement', async () => {
     const profile = standaloneProfile('incompatible-reconnect');
-    const mismatchedProfile = remoteProfile('mismatched', 'server-core');
+    const mismatchedProfile = remoteProfile('mismatched', 'full');
     const oldClient = new ControlledClient(remoteHello(mismatchedProfile));
     const replacement = new ControlledClient(standaloneHello(profile.clientId));
     const closeGate = deferred<void>();
@@ -43,7 +43,7 @@ describe('ElectronHostRegistry retirement barriers', () => {
 
   it('makes remove await an already-running incompatible retirement', async () => {
     const profile = standaloneProfile('incompatible-remove');
-    const mismatchedProfile = remoteProfile('mismatched-remove', 'server-core');
+    const mismatchedProfile = remoteProfile('mismatched-remove', 'full');
     const client = new ControlledClient(remoteHello(mismatchedProfile));
     const closeGate = deferred<void>();
     client.closeSpy.mockImplementation(() => closeGate.promise);
@@ -87,7 +87,7 @@ describe('ElectronHostRegistry retirement barriers', () => {
   });
 
   it('retires an internally incompatible transport before explicit reconnect', async () => {
-    const profile = remoteProfile('transport-incompatible', 'server-core');
+    const profile = remoteProfile('transport-incompatible', 'full');
     const oldClient = new ControlledClient(remoteHello(profile));
     const replacement = new ControlledClient(remoteHello(profile));
     const closeGate = deferred<void>();

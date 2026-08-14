@@ -1,5 +1,4 @@
 import Database from 'better-sqlite3';
-import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize } from 'node:path';
 
@@ -9,48 +8,13 @@ import {
   type SessionConsoleCreateResult,
 } from '@contracts/index';
 import type { DaemonInstancePaths } from '@hosts/daemon';
+import { initializeRuntimeMetadataSchema } from './runtime-metadata-schema';
 
-const SCHEMA_VERSION = 1;
 const MAX_PAYLOAD_BYTES = 64 * 1024;
 const MAX_REPLAY_EVENTS = 256;
 const CHANGE_RETENTION = 10_000;
 const IDEMPOTENCY_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
-
-const SCHEMA_SQL = `
-CREATE TABLE core_state (
-  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-  current_revision INTEGER NOT NULL CHECK(current_revision >= 0)
-) STRICT;
-CREATE TABLE change_log (
-  revision INTEGER PRIMARY KEY CHECK(revision > 0),
-  kind TEXT NOT NULL CHECK(length(kind) BETWEEN 1 AND 128),
-  entity_id TEXT CHECK(entity_id IS NULL OR length(entity_id) BETWEEN 1 AND 256),
-  payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
-  created_at INTEGER NOT NULL CHECK(created_at >= 0)
-) STRICT;
-CREATE TABLE mutation_ledger (
-  access_credential_id TEXT NOT NULL CHECK(length(access_credential_id) BETWEEN 1 AND 256),
-  access_surface TEXT NOT NULL CHECK(access_surface IN ('desktop-full', 'feishu-session-console')),
-  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 1 AND 512),
-  method TEXT NOT NULL CHECK(length(method) BETWEEN 1 AND 128),
-  request_fingerprint TEXT NOT NULL CHECK(length(request_fingerprint) = 64),
-  status TEXT NOT NULL CHECK(status IN ('invoking', 'completed')),
-  result_json TEXT CHECK(result_json IS NULL OR json_valid(result_json)),
-  revision INTEGER CHECK(revision IS NULL OR revision >= 0),
-  updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
-  PRIMARY KEY(access_credential_id, access_surface, idempotency_key)
-) STRICT;
-CREATE TABLE session_subscriptions (
-  access_credential_id TEXT NOT NULL CHECK(length(access_credential_id) BETWEEN 1 AND 256),
-  access_surface TEXT NOT NULL CHECK(access_surface IN ('desktop-full', 'feishu-session-console')),
-  session_id TEXT NOT NULL CHECK(length(session_id) BETWEEN 1 AND 256),
-  subscribed INTEGER NOT NULL CHECK(subscribed IN (0, 1)),
-  updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
-  PRIMARY KEY(access_credential_id, access_surface, session_id)
-) STRICT;
-INSERT INTO core_state(singleton, current_revision) VALUES (1, 0);
-`;
 
 export interface ServerCoreChangeRecord {
   readonly revision: number;
@@ -66,41 +30,12 @@ export type ServerCoreMutationClaim =
   | { readonly state: 'uncertain' };
 
 export interface ServerCoreMutationIdentity {
-  readonly accessCredentialId: string;
-  readonly accessSurface: 'desktop-full' | 'feishu-session-console';
+  readonly connectionScope: string;
+  readonly accessSurface: 'desktop' | 'feishu';
   readonly idempotencyKey: string;
   readonly method: string;
   readonly requestFingerprint: string;
 }
-
-interface SchemaRow {
-  type: string;
-  name: string;
-  tableName: string;
-  sql: string;
-}
-
-function schemaFingerprint(database: Database.Database): string {
-  const rows = database.prepare(`
-    SELECT type, name, tbl_name AS tableName, COALESCE(sql, '') AS sql
-      FROM sqlite_schema
-     WHERE name NOT LIKE 'sqlite_%'
-     ORDER BY type, name
-  `).all() as SchemaRow[];
-  return createHash('sha256').update(JSON.stringify(rows)).digest('hex');
-}
-
-function expectedFingerprint(): string {
-  const database = new Database(':memory:');
-  try {
-    database.exec(SCHEMA_SQL);
-    return schemaFingerprint(database);
-  } finally {
-    database.close();
-  }
-}
-
-const EXPECTED_FINGERPRINT = expectedFingerprint();
 
 function json(value: JsonValue): string {
   if (!isJsonValue(value)) throw new Error('Core metadata payload must be JSON');
@@ -161,17 +96,8 @@ export class ServerCoreRuntimeMetadataStore {
       database.pragma('journal_mode = WAL');
       database.pragma('foreign_keys = ON');
       database.pragma('trusted_schema = ON');
-      if (fresh) {
-        database.transaction(() => {
-          database.exec(SCHEMA_SQL);
-          database.pragma(`user_version = ${SCHEMA_VERSION}`);
-        })();
-        chmodSync(this.path, 0o600);
-      }
-      const version = database.pragma('user_version', { simple: true }) as number;
-      if (version !== SCHEMA_VERSION || schemaFingerprint(database) !== EXPECTED_FINGERPRINT) {
-        throw new Error('Core metadata schema is incompatible');
-      }
+      initializeRuntimeMetadataSchema(database, fresh);
+      if (fresh) chmodSync(this.path, 0o600);
       this.database = database;
       published = true;
       this.prune(Date.now());
@@ -269,9 +195,9 @@ export class ServerCoreRuntimeMetadataStore {
         `SELECT method, request_fingerprint AS fingerprint, status, result_json AS resultJson,
                 revision
            FROM mutation_ledger
-          WHERE access_credential_id = ? AND access_surface = ? AND idempotency_key = ?`,
+          WHERE connection_scope = ? AND access_surface = ? AND idempotency_key = ?`,
       ).get(
-        identity.accessCredentialId,
+        identity.connectionScope,
         identity.accessSurface,
         identity.idempotencyKey,
       ) as {
@@ -300,11 +226,11 @@ export class ServerCoreRuntimeMetadataStore {
       }
       this.db().prepare(
         `INSERT INTO mutation_ledger(
-           access_credential_id, access_surface, idempotency_key, method,
+           connection_scope, access_surface, idempotency_key, method,
            request_fingerprint, status, result_json, revision, updated_at
          ) VALUES (?, ?, ?, ?, ?, 'invoking', NULL, NULL, ?)`,
       ).run(
-        identity.accessCredentialId,
+        identity.connectionScope,
         identity.accessSurface,
         identity.idempotencyKey,
         identity.method,
@@ -328,13 +254,13 @@ export class ServerCoreRuntimeMetadataStore {
     const changed = this.db().prepare(
       `UPDATE mutation_ledger
           SET status = 'completed', result_json = ?, revision = ?, updated_at = ?
-        WHERE access_credential_id = ? AND access_surface = ? AND idempotency_key = ?
+        WHERE connection_scope = ? AND access_surface = ? AND idempotency_key = ?
           AND method = ? AND request_fingerprint = ? AND status = 'invoking'`,
     ).run(
       json(result),
       revision,
       now,
-      identity.accessCredentialId,
+      identity.connectionScope,
       identity.accessSurface,
       identity.idempotencyKey,
       identity.method,
@@ -368,10 +294,10 @@ export class ServerCoreRuntimeMetadataStore {
       const changed = this.db().prepare(
         `UPDATE mutation_ledger
             SET status = 'completed', result_json = ?, revision = ?, updated_at = ?
-          WHERE access_credential_id = ? AND access_surface = ? AND idempotency_key = ?
+          WHERE connection_scope = ? AND access_surface = ? AND idempotency_key = ?
             AND method = ? AND request_fingerprint = ? AND status = 'invoking'`,
       ).run(
-        json(value), revision, now, identity.accessCredentialId, identity.accessSurface,
+        json(value), revision, now, identity.connectionScope, identity.accessSurface,
         identity.idempotencyKey, identity.method, identity.requestFingerprint,
       );
       if (changed.changes !== 1) throw new Error('Session create mutation claim was lost');
@@ -408,10 +334,10 @@ export class ServerCoreRuntimeMetadataStore {
     this.validateMutationIdentity(identity);
     const changed = this.db().prepare(
       `DELETE FROM mutation_ledger
-        WHERE access_credential_id = ? AND access_surface = ? AND idempotency_key = ?
+        WHERE connection_scope = ? AND access_surface = ? AND idempotency_key = ?
           AND method = ? AND request_fingerprint = ? AND status = 'invoking'`,
     ).run(
-      identity.accessCredentialId,
+      identity.connectionScope,
       identity.accessSurface,
       identity.idempotencyKey,
       identity.method,
@@ -421,32 +347,32 @@ export class ServerCoreRuntimeMetadataStore {
   }
 
   setSubscribed(
-    accessCredentialId: string,
-    accessSurface: 'desktop-full' | 'feishu-session-console',
+    connectionScope: string,
+    accessSurface: 'desktop' | 'feishu',
     sessionId: string,
     subscribed: boolean,
     now = Date.now(),
   ): void {
-    token(accessCredentialId, 'credential', 256);
+    token(connectionScope, 'credential', 256);
     token(sessionId, 'session', 256);
     this.db().prepare(
       `INSERT INTO session_subscriptions(
-         access_credential_id, access_surface, session_id, subscribed, updated_at
+         connection_scope, access_surface, session_id, subscribed, updated_at
        ) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(access_credential_id, access_surface, session_id) DO UPDATE SET
+       ON CONFLICT(connection_scope, access_surface, session_id) DO UPDATE SET
          subscribed = excluded.subscribed, updated_at = excluded.updated_at`,
-    ).run(accessCredentialId, accessSurface, sessionId, subscribed ? 1 : 0, now);
+    ).run(connectionScope, accessSurface, sessionId, subscribed ? 1 : 0, now);
   }
 
   isSubscribed(
-    accessCredentialId: string,
-    accessSurface: 'desktop-full' | 'feishu-session-console',
+    connectionScope: string,
+    accessSurface: 'desktop' | 'feishu',
     sessionId: string,
   ): boolean {
     return this.db().prepare(
       `SELECT subscribed FROM session_subscriptions
-        WHERE access_credential_id = ? AND access_surface = ? AND session_id = ?`,
-    ).pluck().get(accessCredentialId, accessSurface, sessionId) === 1;
+        WHERE connection_scope = ? AND access_surface = ? AND session_id = ?`,
+    ).pluck().get(connectionScope, accessSurface, sessionId) === 1;
   }
 
   private prune(now: number): void {
@@ -456,7 +382,7 @@ export class ServerCoreRuntimeMetadataStore {
   }
 
   private validateMutationIdentity(identity: ServerCoreMutationIdentity): void {
-    token(identity.accessCredentialId, 'mutation credential', 256);
+    token(identity.connectionScope, 'mutation credential', 256);
     token(identity.idempotencyKey, 'mutation idempotency key');
     token(identity.method, 'mutation method', 128);
     if (!/^[0-9a-f]{64}$/.test(identity.requestFingerprint)) {

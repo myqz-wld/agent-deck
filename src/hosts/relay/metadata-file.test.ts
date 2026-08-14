@@ -112,7 +112,7 @@ describe('Relay metadata file service', () => {
     });
     foreign.put('routes', {
       id: 'foreign-route', instanceId: 'foreign-instance', routeId: 'foreign-route',
-      accessCredentialId: 'foreign-client', accessSurface: 'desktop-full',
+      accessCredentialId: 'foreign-client', accessSurface: 'desktop',
       workerId: 'foreign-worker-id', generation: 1,
       status: 'open', updatedAt: 1,
     });

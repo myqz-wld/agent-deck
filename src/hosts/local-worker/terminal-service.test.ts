@@ -92,7 +92,7 @@ function fixture() {
   writeFileSync(runtimeModule, 'export {};\n', { mode: 0o644 });
   const credentialFile = join(root, 'worker.agentdeck-connection');
   writeFileSync(credentialFile, `${JSON.stringify({
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: 'agent-deck-remote-connection-credential',
     label: 'Production Relay',
     purpose: 'worker',

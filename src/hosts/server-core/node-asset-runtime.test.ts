@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import { mkdtempSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import type {
-  AuthenticatedClientAccessContext,
-  CoreMethod,
-  JsonValue,
+import {
+  issueRemoteOwnerGrantClaim,
+  type AuthenticatedClientAccessContext,
+  type CoreMethod,
+  type JsonValue,
 } from '@contracts/index';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import { resolveServerCoreProviderSettings } from './provider-settings';
@@ -63,13 +64,14 @@ function fixtures(): { contents: string; home: string; state: string } {
 
 const access: AuthenticatedClientAccessContext = {
   kind: 'authenticated-client',
-  topology: 'server-core',
+  topology: 'full',
   instanceId: 'instance-a',
   clientId: 'desktop-a',
   transport: 'ssh',
-  accessCredentialId: 'credential-a',
+  connectionScope: 'credential-a',
   authority: 'owner-equivalent',
-  surface: 'desktop-full',
+  surface: 'desktop',
+  grant: issueRemoteOwnerGrantClaim('desktop'),
 };
 
 function input(method: CoreMethod, params: Record<string, JsonValue>): DaemonRequestInput {
@@ -144,7 +146,7 @@ describe('ServerCoreNodeAssetRuntime', () => {
       execute: () => { throw new Error('unexpected base request'); },
     };
     const runtime = new ServerCoreNodeAssetRuntime(base, catalog!, () => 7);
-    const listed = await runtime.execute(input('node.assets.list', {}));
+    const listed = await runtime.execute(input('node.assets.catalog.list', {}));
     expect(listed.result).toMatchObject({ revision: 1 });
     const assets = (listed.result as { assets: Array<{
       adapterId: string;

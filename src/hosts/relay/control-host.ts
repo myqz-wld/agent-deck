@@ -4,6 +4,7 @@ import {
   BridgeAdmissionDecoder,
   type DecodedBridgeAdmission,
 } from '@protocol/index';
+import { deriveConnectionScope } from '@hosts/linux-runtime/connection-scope';
 
 import type { RelayStreamRouter } from './router';
 import { RelaySocketClientPeer } from './socket-client-peer';
@@ -159,15 +160,22 @@ export class RelayControlHost {
     }
     try {
       if (admission.role === 'client') {
-        const expectedKind = admission.surface === 'desktop-full' ? 'ssh-client' : 'feishu';
+        const expectedKind = admission.surface === 'desktop' ? 'ssh-client' : 'feishu';
         if (credential.kind !== expectedKind) {
           throw new Error('Credential does not match its provisioned client surface');
+        }
+        if (admission.connectionScope !== deriveConnectionScope(
+          admission.instanceId,
+          admission.credentialId,
+        )) {
+          throw new Error('Connection scope does not match its provisioned credential');
         }
         const clientId = `relay-client-${connectionId}`;
         const peer = new RelaySocketClientPeer({
           clientId,
           streamId: `relay-stream-${connectionId}`,
           credentialId: admission.credentialId,
+          connectionScope: admission.connectionScope,
           surface: admission.surface,
           stream,
           router: this.options.router,

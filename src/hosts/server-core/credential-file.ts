@@ -27,7 +27,7 @@ export interface ServerCoreCredentialRecord {
 }
 
 export interface ServerCoreCredentialDocument {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly instanceId: string;
   readonly credentials: readonly ServerCoreCredentialRecord[];
 }
@@ -42,7 +42,7 @@ export interface ServerCoreCredentialFileOptions {
 }
 
 function surface(value: unknown): DaemonClientAccessSurface {
-  if (value !== 'desktop-full' && value !== 'feishu-session-console') {
+  if (value !== 'desktop' && value !== 'feishu') {
     throw new Error('credential surface is invalid');
   }
   return value;
@@ -75,7 +75,9 @@ export function parseServerCoreCredentialDocument(
     ['credentials', 'instanceId', 'schemaVersion'],
     'credential document',
   );
-  if (object.schemaVersion !== 1) throw new Error('credential schemaVersion must be 1');
+  if (object.schemaVersion !== 2) {
+    throw new Error('credential schemaVersion is unsupported');
+  }
   const instanceId = requireLinuxInstanceId(object.instanceId);
   if (instanceId !== expectedInstanceId) throw new Error('credential instance does not match');
   if (!Array.isArray(object.credentials) || object.credentials.length > MAX_CREDENTIALS) {
@@ -87,7 +89,7 @@ export function parseServerCoreCredentialDocument(
     throw new Error('credential identities must be unique');
   }
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
     instanceId,
     credentials: Object.freeze(credentials),
   });
