@@ -20,6 +20,9 @@ revocation while Worker/Core retains business data and mechanically enforces imm
   command families.
 - Made Relay and Full use the same server-control contracts while keeping their own authority
   adapters and data ownership.
+- Split Relay's immutable schema-v2 runtime config from its mutable credential authority. The
+  service mounts the exact per-instance config directory read-only, polls a separate mode-0600
+  `authority.json`, and observes atomic Server CLI issue/revoke changes without a restart.
 - Kept `surface` as a Server-assigned channel classification, but resolved Desktop and Feishu to
   the identical explicit `Remote Owner Product v1` grants.
 - Removed pre-release topology and credential compatibility: current writers and readers accept
@@ -54,7 +57,7 @@ revocation while Worker/Core retains business data and mechanically enforces imm
 
 - Focused behavior/security suites passed 21 files / 156 tests; expiry/deletion coverage passed 2
   files / 23 tests.
-- The complete suite passed 962 files / 6,105 tests; 2 files / 3 tests remained skipped behind
+- The complete suite passed 963 files / 6,110 tests; 2 files / 3 tests remained skipped behind
   existing opt-in guards.
 - `pnpm typecheck`, `pnpm build`, `pnpm verify:linux-headless`, `pnpm check:deployment`, and the
   Full, Relay, Feishu, and Manager static checks passed.
@@ -74,13 +77,15 @@ below 500 lines; generated lockfiles are exempt.
 
 ## Relay live acceptance and external boundary
 
-- An authorized ARM64 Ubuntu Relay host passed the official check/dry-run/upgrade/verify flow,
-  exact managed-unit restart, metadata-v2 clean break, canonical Desktop forced command, and
-  idempotent connection issue/rotate/revoke verification. Relay remained healthy while its Worker
-  route was offline; no local process was terminated.
+- An authorized ARM64 Ubuntu Relay host passed the official check/dry-run/verify flow and the
+  one-way pre-release clean break to generation 15 (`git-4fd970044463`). The installed schema-v2
+  config and unit match the manager record, the separate credential authority is healthy, and the
+  transition journal is clear. Relay remained healthy while its Worker route was offline; no local
+  process was terminated.
 - The installed server CLI passed `connections verify|list`, disposable credential lifecycle
-  acceptance, and `feishu check|status`. The Feishu runtime is installed and verified, while the
-  service correctly remains inactive without app credentials.
+  acceptance, live authority projection without a Relay restart, and `feishu check|status`. The
+  Feishu runtime is installed and verified, while the service correctly remains inactive without
+  app credentials.
 - No authorized Full host, EL9-family systemd host, or tenant-installed Feishu app credentials were
   available. Full live deployment and real Feishu message/card/pair/delete/reconnect/revocation/load
   acceptance remain explicit external checks.
