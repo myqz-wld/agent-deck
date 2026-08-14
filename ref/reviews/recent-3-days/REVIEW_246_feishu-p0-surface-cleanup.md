@@ -1,5 +1,5 @@
 ---
-review_id: 245
+review_id: 246
 reviewed_at: 2026-08-13
 baseline_commit: c2a0a1ea4077d67fcfc1ea242d7caae7600b0222
 expired: false
@@ -8,7 +8,7 @@ skipped_expired:
     reason: "Final record and index maintenance is mechanical evidence derived from the reviewed tree."
 ---
 
-# REVIEW_245_feishu-p0-surface-cleanup: Dormant product surface removal
+# REVIEW_246_feishu-p0-surface-cleanup: Dormant product surface removal
 
 ## Scope and method
 

@@ -37,7 +37,9 @@ import {
   handleRegistryEvent,
   handleRegistryTransportState,
 } from './registry-observers';
-import { copyHostProfile, copyHostState, freezeHostProfile } from './registry-snapshots';
+import {
+  copyHostProfile, copyHostState, freezeHostProfile, sameHostState,
+} from './registry-snapshots';
 import { ElectronRegistryLifecycleGate } from './registry-lifecycle-gate';
 
 export type ElectronHostClientFactory = (
@@ -477,7 +479,9 @@ export class ElectronHostRegistry {
   }
 
   private updateState(entry: RegistryEntry, patch: Partial<ElectronHostState>): void {
-    entry.state = { ...entry.state, ...patch };
+    const next = { ...entry.state, ...patch };
+    if (sameHostState(entry.state, next)) return;
+    entry.state = next;
     for (const listener of this.stateListeners) {
       try {
         listener(copyHostState(entry.state));

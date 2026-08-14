@@ -34,6 +34,8 @@ import {
   installWebFrameMainDisposedFileFilter,
   shouldDropClaudeCanUseToolShadowedNoise,
   installClaudeCanUseToolShadowedFileFilter,
+  shouldDropExpectedRemoteHostStaleScopeNoise,
+  installExpectedRemoteHostStaleScopeFileFilter,
 } from '../logger';
 import { emitProcessStartupRecord } from '../process-startup';
 
@@ -276,6 +278,40 @@ describe('main logger.ts (Plan §Step 3.5.1, mock-mediated 折中)', () => {
       expect(hooks).toHaveLength(1);
       expect(hooks[0]({ data: [warning] }, () => undefined, 'file')).toBe(false);
       const consoleMessage = { data: [warning] };
+      expect(hooks[0](consoleMessage, () => undefined, 'console')).toBe(consoleMessage);
+    });
+  });
+
+  describe('expected remote-host stale scope file filter', () => {
+    const handler = "Error occurred in handler for 'remote-host:node-assets-list':";
+    const staleScope = Object.assign(new Error('当前主机或会话已切换，请重试。'), {
+      name: 'RemoteHostPublicError',
+      code: 'stale_scope',
+    });
+
+    it('requires both the remote-host handler prefix and exact public error code', () => {
+      expect(shouldDropExpectedRemoteHostStaleScopeNoise({ data: [handler, staleScope] }))
+        .toBe(true);
+      expect(shouldDropExpectedRemoteHostStaleScopeNoise({ data: [handler] })).toBe(false);
+      expect(shouldDropExpectedRemoteHostStaleScopeNoise({ data: [staleScope] })).toBe(false);
+      expect(shouldDropExpectedRemoteHostStaleScopeNoise({
+        data: [handler, Object.assign(new Error('failed'), {
+          name: 'RemoteHostPublicError',
+          code: 'internal_error',
+        })],
+      })).toBe(false);
+    });
+
+    it('drops only the persisted copy and keeps the development console visible', () => {
+      (log as unknown as { hooks: unknown[] }).hooks = [];
+      installExpectedRemoteHostStaleScopeFileFilter();
+      installExpectedRemoteHostStaleScopeFileFilter();
+      const hooks = (log as unknown as {
+        hooks: ((m: { data: unknown[] }, t: unknown, n?: string) => unknown)[];
+      }).hooks;
+      expect(hooks).toHaveLength(1);
+      expect(hooks[0]({ data: [handler, staleScope] }, () => undefined, 'file')).toBe(false);
+      const consoleMessage = { data: [handler, staleScope] };
       expect(hooks[0](consoleMessage, () => undefined, 'console')).toBe(consoleMessage);
     });
   });
