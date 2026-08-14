@@ -4,7 +4,7 @@ import type { AgentDeckMessage } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import log from '@renderer/utils/logger';
-import { relativeTime } from '../TeamDetail/helpers';
+import { relativeTime } from '../session-presentation';
 import { ArrowRightIcon, ReplyIcon } from '../icons';
 import { MessageStatusBadge } from '../MessageStatusBadge';
 import { safeErrorData } from '../activity-feed/viewers/safe-error-data';

@@ -1,7 +1,7 @@
 import { useState, type JSX, type MouseEvent } from 'react';
 
 import type { SessionRecord } from '@shared/types';
-import { lifecycleLabel } from './TeamDetail/helpers';
+import { lifecycleLabel } from './session-presentation';
 import { PushpinIcon } from './icons';
 import { HistorySessionActionsMenu } from './HistorySessionActionsMenu';
 import { SessionContextUsageChip } from './SessionContextUsageChip';

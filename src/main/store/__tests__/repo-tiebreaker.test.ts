@@ -1,8 +1,8 @@
 /**
  * REVIEW_91（Batch G4）回归测试 — 同毫秒 ts 排序 tie-breaker。
  *
- * 双 reviewer（claude + codex）独立共识：event-repo 的 findTeamEvents /
- * findLatestAssistantMessage 与 summary-repo 的 listForSession /
+ * 双 reviewer（claude + codex）独立共识：event-repo 的 findLatestAssistantMessage 与
+ * summary-repo 的 listForSession /
  * latestForSession / latestForSessions 都缺 `id` 二级键，同毫秒 ts 下 SQLite 返回顺序不稳定。
  *
  * 复发主题：本项目 deep review 已在 team-repo（G2）/ message-repo（G3）/ event-formatter（E2）
@@ -140,33 +140,6 @@ describe.skipIf(!bindingAvailable)('REVIEW_91 tie-breaker / event-repo', () => {
     expect(mod.eventRepo.maxEventId('sess-A')).toBeNull();
   });
 
-  it('findTeamEvents 同毫秒按 id DESC（跨 session 聚合稳定）', () => {
-    // 直接 SQL seed team + active members（绕过 team-repo 的「至少 1 lead」guard，
-    // findTeamEvents 只读 listActiveMembers → 直查 agent_deck_team_members left_at IS NULL）。
-    insertSession(testDb, 'sess-B');
-    const teamId = 'team-tiebreak-0001';
-    testDb
-      .prepare(`INSERT INTO agent_deck_teams (id, name, created_at) VALUES (?, 'tb', 1000)`)
-      .run(teamId);
-    testDb
-      .prepare(
-        `INSERT INTO agent_deck_team_members (team_id, session_id, role, joined_at) VALUES (?, ?, ?, 1000)`,
-      )
-      .run(teamId, 'sess-A', 'lead');
-    testDb
-      .prepare(
-        `INSERT INTO agent_deck_team_members (team_id, session_id, role, joined_at) VALUES (?, ?, ?, 1000)`,
-      )
-      .run(teamId, 'sess-B', 'teammate');
-
-    // 同毫秒插两条（不同 session），id 更大者应排在最近（DESC 首位）
-    const idEarly = insertGenericEvent(testDb, 'sess-A', 'team-task-created', 9000, 'early');
-    const idLate = insertGenericEvent(testDb, 'sess-B', 'team-task-created', 9000, 'late');
-    const rows = mod.eventRepo.findTeamEvents(teamId, 50);
-    // DESC：id 最大（最晚插入）在数组首位
-    expect(rows[0].id).toBe(Math.max(idEarly, idLate));
-    expect(rows[0].id).toBe(idLate);
-  });
 });
 
 describe.skipIf(!bindingAvailable)('REVIEW_91 tie-breaker / summary-repo', () => {

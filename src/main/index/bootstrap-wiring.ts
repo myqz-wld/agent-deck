@@ -13,7 +13,7 @@ import { rememberSessionFocusRequest } from '../session-focus-request';
 import { IpcEvent } from '@shared/ipc-channels';
 import type { AppSettings } from '@shared/types/settings/app-settings';
 
-import { makeDebouncedTeamSender, makeSafeSend, TOOL_DISPLAY_NAME } from './_deps';
+import { makeDebouncedKeyedSender, makeSafeSend, TOOL_DISPLAY_NAME } from './_deps';
 import log from '@main/utils/logger';
 import { safeDiagnostic } from '@main/utils/safe-diagnostic';
 import { getProcessRunId } from '@main/utils/run-context';
@@ -207,27 +207,8 @@ export function initWiring(settings: AppSettings): void {
     }
   });
 
-  // Team and message changes are debounced before renderer invalidation.
-  const teamChangedSender = makeDebouncedTeamSender<{ kind: string; teamId: string; payload: unknown }>(
-    IpcEvent.AgentDeckTeamChanged,
-    safeSend,
-    (item) => `${item.kind}:${item.teamId}`,
-  );
-  eventBus.on('agent-deck-team-created', (team) =>
-    teamChangedSender({ kind: 'created', teamId: team.id, payload: team }),
-  );
-  eventBus.on('agent-deck-team-updated', (team) =>
-    teamChangedSender({ kind: 'updated', teamId: team.id, payload: team }),
-  );
-  eventBus.on('agent-deck-team-deleted', (p) =>
-    teamChangedSender({ kind: 'deleted', teamId: p.id, payload: p }),
-  );
-  eventBus.on('agent-deck-team-member-changed', (p) =>
-    teamChangedSender({ kind: `member-${p.kind}`, teamId: p.teamId, payload: p }),
-  );
-
   // Message identity, not optional team membership, determines debounce grouping.
-  const messageChangedSender = makeDebouncedTeamSender<{ kind: string; teamId: string | null; messageId: string; payload: unknown }>(
+  const messageChangedSender = makeDebouncedKeyedSender<{ kind: string; teamId: string | null; messageId: string; payload: unknown }>(
     IpcEvent.AgentDeckMessageChanged,
     safeSend,
     (item) => `${item.kind}:${item.messageId}`,

@@ -157,7 +157,7 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
       states: [{
         ...remote.states[0]!,
         status: 'connected',
-        capabilities: ['teams', 'issues', 'usage'],
+        capabilities: ['sessions.read', 'issues', 'usage'],
       }],
     };
     getSnapshot.mockResolvedValue(remote);
@@ -187,7 +187,7 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
         recovery: null,
         authoritativeCoreId: 'core-a',
         workerGeneration: 1,
-        capabilities: ['teams'],
+        capabilities: ['sessions.read'],
         eventRevision: 1,
         error: null,
       }],
@@ -223,7 +223,7 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
         recovery: null,
         authoritativeCoreId: 'core-a',
         workerGeneration: 1,
-        capabilities: ['teams'],
+        capabilities: ['sessions.read'],
         eventRevision: 1,
         error: null,
       }],
@@ -243,7 +243,7 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
     getSnapshot.mockResolvedValue(connected);
     connectRemoteHost.mockResolvedValue({
       ...reconnected,
-      states: [{ ...connected.states[0]!, capabilities: ['teams', 'issues', 'usage'] }],
+      states: [{ ...connected.states[0]!, capabilities: ['sessions.read', 'issues', 'usage'] }],
     });
     window.api.setRemoteHostSourceMode = vi.fn()
       .mockResolvedValueOnce(local)

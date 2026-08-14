@@ -60,8 +60,6 @@ import type {
   RemoteHostSessionInputCapabilitiesDto,
   RemoteHostSessionMessagesDto,
   RemoteHostSessionMessagesRequestDto,
-  RemoteHostSessionPermissionsDto,
-  RemoteHostSessionPermissionsRequestDto,
   RemoteHostSessionOutgoingDto,
   RemoteHostSessionOutgoingRemoveDto,
   RemoteHostSessionOutgoingRemoveRequestDto,
@@ -76,15 +74,6 @@ import type {
   RemoteHostSummaryRequestDto,
   RemoteHostTaskListDto,
   RemoteHostTaskListRequestDto,
-  RemoteHostTeamAddMemberDto,
-  RemoteHostTeamAddMemberResultDto,
-  RemoteHostTeamGetDto,
-  RemoteHostTeamListDto,
-  RemoteHostTeamListRequestDto,
-  RemoteHostTeamMutationResultDto,
-  RemoteHostTeamMutationTargetDto,
-  RemoteHostTeamShutdownResultDto,
-  RemoteHostTeamTargetDto,
   RemoteHostUsageProviderDto,
   RemoteHostUsageProviderRequestDto,
   RemoteHostUsageTokenDto,
@@ -194,24 +183,6 @@ export const remoteHostApi = {
     request: RemoteHostTaskListRequestDto,
   ): Promise<RemoteHostTaskListDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.TasksList, request),
-  listRemoteHostTeams: (
-    request: RemoteHostTeamListRequestDto,
-  ): Promise<RemoteHostTeamListDto> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.TeamsList, request),
-  getRemoteHostTeam: (request: RemoteHostTeamTargetDto): Promise<RemoteHostTeamGetDto> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.TeamGet, request),
-  archiveRemoteHostTeam: (
-    request: RemoteHostTeamMutationTargetDto,
-  ): Promise<RemoteHostTeamMutationResultDto> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.TeamArchive, request),
-  addRemoteHostTeamMember: (
-    request: RemoteHostTeamAddMemberDto,
-  ): Promise<RemoteHostTeamAddMemberResultDto> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.TeamAddMember, request),
-  shutdownRemoteHostTeamTeammates: (
-    request: RemoteHostTeamMutationTargetDto,
-  ): Promise<RemoteHostTeamShutdownResultDto> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.TeamShutdownTeammates, request),
   getRemoteHostTokenUsage: (
     request: RemoteHostUsageTokenRequestDto,
   ): Promise<RemoteHostUsageTokenDto> =>
@@ -294,10 +265,6 @@ export const remoteHostApi = {
     request: RemoteHostSessionTargetDto,
   ): Promise<RemoteHostSessionInputCapabilitiesDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.SessionInputCapabilities, request),
-  getRemoteHostSessionPermissions: (
-    request: RemoteHostSessionPermissionsRequestDto,
-  ): Promise<RemoteHostSessionPermissionsDto> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionPermissionsGet, request),
   listRemoteHostSessionMessages: (
     request: RemoteHostSessionMessagesRequestDto,
   ): Promise<RemoteHostSessionMessagesDto> =>

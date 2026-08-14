@@ -1,14 +1,11 @@
 import {
   parseSessionMessagesListResult,
-  parseSessionPermissionsGetResult,
   parseSessionOutgoingListResult,
   parseSessionOutgoingRemoveResult,
 } from '@contracts/index';
 import type {
   RemoteHostSessionMessagesDto,
   RemoteHostSessionMessagesRequestDto,
-  RemoteHostSessionPermissionsDto,
-  RemoteHostSessionPermissionsRequestDto,
   RemoteHostSessionOutgoingDto,
   RemoteHostSessionOutgoingRemoveDto,
   RemoteHostSessionOutgoingRemoveRequestDto,
@@ -26,22 +23,6 @@ export class RemoteHostSessionMetadataController {
     private readonly request: RemoteHostScopedRequest,
     private readonly mutationId: (operation: string, profileId: string, intentId: string) => string,
   ) {}
-
-  permissions(
-    request: RemoteHostSessionPermissionsRequestDto,
-  ): Promise<RemoteHostSessionPermissionsDto> {
-    return this.request(request.profileId, 'session.permissions.get', async (scope) => {
-      const parsed = parseSessionPermissionsGetResult(await scope.client.request(
-        'session.permissions.get',
-        { sessionId: request.sessionId },
-        { deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS },
-      ));
-      if (parsed.sessionId !== request.sessionId || parsed.adapterId !== request.adapterId) {
-        throw new Error('Remote session permission identity changed');
-      }
-      return parsed;
-    });
-  }
 
   messages(request: RemoteHostSessionMessagesRequestDto): Promise<RemoteHostSessionMessagesDto> {
     return this.request(request.profileId, 'session.messages.list', async (scope) =>

@@ -102,35 +102,9 @@ export const IpcInvoke = {
   /** Claude / Codex 订阅窗口用量快照（数据 tab）。 */
   ProviderUsageSnapshot: 'provider-usage:snapshot',
 
-  // Agent Deck universal team backend.
-  /** 列出 active team（默认隐藏 archived）。返回 AgentDeckTeam[]（裸，不含 members）。 */
-  AgentDeckTeamList: 'agent-deck-team:list',
-  /** 拉一个 team 完整 snapshot：含 members + 最近 messages。返回 null = team 不存在。 */
-  AgentDeckTeamGet: 'agent-deck-team:get',
-  /** Team snapshot with members, recent events, tasks, and recent messages. */
-  AgentDeckTeamGetFull: 'agent-deck-team:get-full',
-  /** 显式建 team（UI / CLI 入口）。args: { name, metadata? }，返回 AgentDeckTeam。 */
-  AgentDeckTeamCreate: 'agent-deck-team:create',
-  /** 归档 team（标 archived_at；不删数据）。已 enqueued pending message 仍投递完成。 */
-  AgentDeckTeamArchive: 'agent-deck-team:archive',
-  /** 取消归档（如有 active 同名 team 抛错）。args: teamId。 */
-  AgentDeckTeamUnarchive: 'agent-deck-team:unarchive',
-  /** 加 member 到 team。args: { teamId, sessionId, role, displayName? }。 */
-  AgentDeckTeamAddMember: 'agent-deck-team:add-member',
-  /** member 离开 team（写 left_at；不删 row）。args: { teamId, sessionId }。 */
-  AgentDeckTeamRemoveMember: 'agent-deck-team:remove-member',
-  /** Close active teammate members without closing the lead. */
-  AgentDeckTeamShutdownAllTeammates: 'agent-deck-team:shutdown-all-teammates',
-  /** 显式发 cross-adapter team message。args: { teamId, fromSessionId, toSessionId, body }。 */
-  AgentDeckTeamSendMessage: 'agent-deck-team:send-message',
-  /** 拉一个 team 的近期消息流（默认 100 条 ORDER BY sent_at DESC）。 */
-  AgentDeckMessageListByTeam: 'agent-deck-message:list-by-team',
+  // Session collaboration message projection.
   /** List cross-session messages sent or received by one session. */
   AgentDeckMessageListBySession: 'agent-deck-message:list-by-session',
-  /** 显式 cancel 一条 pending / delivering message。args: { messageId, reason? }。 */
-  AgentDeckMessageCancel: 'agent-deck-message:cancel',
-  /** 拉指定 team 的 SQLite tasks（替代老 TaskListByTeam）。args: teamId。 */
-  TaskListByTeam: 'task:list-by-team',
 
   // Assets library.
   AssetsListBundled: 'assets:list-bundled',
@@ -182,11 +156,6 @@ export const RemoteHostIpcInvoke = {
   EventsList: 'remote-host:events-list',
   SummariesList: 'remote-host:summaries-list',
   TasksList: 'remote-host:tasks-list',
-  TeamsList: 'remote-host:teams-list',
-  TeamGet: 'remote-host:team-get',
-  TeamArchive: 'remote-host:team-archive',
-  TeamAddMember: 'remote-host:team-add-member',
-  TeamShutdownTeammates: 'remote-host:team-shutdown-teammates',
   UsageTokensGet: 'remote-host:usage-tokens-get',
   UsageProvidersGet: 'remote-host:usage-providers-get',
   NodeConfigurationGet: 'remote-host:node-configuration-get',
@@ -211,7 +180,6 @@ export const RemoteHostIpcInvoke = {
   SessionSteer: 'remote-host:session-steer',
   SessionContextGet: 'remote-host:session-context-get',
   SessionInputCapabilities: 'remote-host:session-input-capabilities',
-  SessionPermissionsGet: 'remote-host:session-permissions-get',
   SessionMessagesList: 'remote-host:session-messages-list',
   SessionOutgoingList: 'remote-host:session-outgoing-list',
   SessionOutgoingRemove: 'remote-host:session-outgoing-remove',
@@ -251,9 +219,6 @@ export const IpcEvent = {
   /** Redacted invalidation signal; renderer refreshes typed business snapshots via invoke. */
   RemoteHostChanged: 'event:remote-host-changed',
 
-  // Agent Deck universal team backend events.
-  /** team 增删改 / member 改：聚合数组 payload，16ms debounce + per-team 累加。 */
-  AgentDeckTeamChanged: 'event:agent-deck-team-changed',
   /** message 入队 / 状态变迁：聚合数组 payload，16ms debounce + per-message 累加。 */
   AgentDeckMessageChanged: 'event:agent-deck-message-changed',
 } as const;

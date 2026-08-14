@@ -239,32 +239,6 @@ export const eventRepo = {
   },
 
   /**
-   * plan team-cohesion-fix-20260513 Phase C：按 teamId 拉 team 内所有 active 成员的最近 events，
-   * 跨 adapter 聚合（claude-code / codex-cli）。TeamDetail 事件流 section 用。
-   *
-   * v014 drop sessions.team_name 后，原 `s.team_name = ?` JOIN 已不可用。改走 universal team
-   * backend：先 listActiveMembers(teamId) 拿 sessionIds，再 events.session_id IN (...) 查询。
-   *
-   * 不再过滤 kind（原仅 team-task-created/completed/teammate-idle），返回完整事件流让 UI
-   * 自己做分类 / 折叠（小 kind 太多时 UI 端可考虑虚拟列表）。limit 防长 team 一次拉上千条。
-   * leftAt 非空（已退出）的成员不算在内（与 ActiveMembers 语义一致）。
-   */
-  findTeamEvents(teamId: string, limit = 100): (AgentEvent & { id: number })[] {
-    // 跨多 session IN 查询，同毫秒 ts 跨 session 碰撞概率更高（多个 teammate 并发 emit），
-    // 缺 tie-breaker → TeamDetail 事件流刷新跳序。加 `id DESC`（与 listForSession F3 同款，
-    // REVIEW_91 双 reviewer 独立共识）。
-    const rows = getDb()
-      .prepare(
-        `SELECT e.* FROM events e
-         JOIN agent_deck_team_members m ON m.session_id = e.session_id
-         WHERE m.team_id = ? AND m.left_at IS NULL
-         ORDER BY e.ts DESC, e.id DESC LIMIT ?`,
-      )
-      .all(teamId, limit) as Row[];
-    return rowsToEvents(rows);
-  },
-
-  /**
    * 找最近一条「Claude 自己说的话」（kind = message AND role = assistant AND error 非真）。
    * summarizer 第二层兜底用：LLM 失败时拿这条作为「Claude 当前在做什么」的近似。
    *

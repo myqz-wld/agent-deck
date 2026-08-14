@@ -32,8 +32,6 @@ import type {
   RemoteHostSessionInputCapabilitiesDto,
   RemoteHostSessionMessagesDto,
   RemoteHostSessionMessagesRequestDto,
-  RemoteHostSessionPermissionsDto,
-  RemoteHostSessionPermissionsRequestDto,
   RemoteHostSessionRenameDto,
   RemoteHostSessionOutgoingDto,
   RemoteHostSessionOutgoingRemoveDto,
@@ -62,7 +60,7 @@ import {
 import { RemoteHostDetailReader } from './service-detail-reader';
 import { RemoteHostIssueController } from './service-issues';
 import { RemoteHostPlanReviewController } from './service-plan-review';
-import { RemoteHostTeamController, RemoteHostUsageController } from './service-teams-usage';
+import { RemoteHostUsageController } from './service-usage';
 import { RemoteHostNodeConfigurationController } from './service-node-configuration';
 import { RemoteHostNodeAssetController } from './service-node-assets';
 import { RemoteHostSessionMutationController } from './service-session-mutations';
@@ -94,7 +92,7 @@ export interface RemoteHostServiceOptions {
 export class RemoteHostService {
   readonly detail: RemoteHostDetailReader; readonly issues: RemoteHostIssueController;
   readonly planReviews: RemoteHostPlanReviewController;
-  readonly teams: RemoteHostTeamController; readonly usage: RemoteHostUsageController;
+  readonly usage: RemoteHostUsageController;
   readonly nodeConfiguration: RemoteHostNodeConfigurationController;
   readonly nodeAssets: RemoteHostNodeAssetController;
   readonly handoff: RemoteHostSessionHandOffController;
@@ -148,7 +146,6 @@ export class RemoteHostService {
       (scope) => this.requestAuthority.assertScope(scope),
       mutationId,
     );
-    this.teams = new RemoteHostTeamController(requestScoped, mutationId);
     this.usage = new RemoteHostUsageController(requestScoped);
     this.nodeConfiguration = new RemoteHostNodeConfigurationController(requestScoped);
     this.nodeAssets = new RemoteHostNodeAssetController(requestScoped);
@@ -398,12 +395,6 @@ export class RemoteHostService {
     request: RemoteHostSessionTargetDto,
   ): Promise<RemoteHostSessionInputCapabilitiesDto> {
     return this.sessionState.inputCapabilities(request);
-  }
-
-  async getSessionPermissions(
-    request: RemoteHostSessionPermissionsRequestDto,
-  ): Promise<RemoteHostSessionPermissionsDto> {
-    return this.sessionMetadata.permissions(request);
   }
 
   async listSessionMessages(

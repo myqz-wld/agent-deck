@@ -35,11 +35,10 @@ const message: AgentDeckMessage = {
   deliveryLeaseToSessionId: null, replyToMessageId: null,
 };
 
-function harness(sessionOverrides: Partial<SessionRecord> = {}) {
+function harness() {
   const rows = new Map([
     ['session-a', session('session-a', {
       codexApprovalPolicy: 'never', codexSandbox: 'workspace-write', networkAccessEnabled: false,
-      ...sessionOverrides,
     })],
     ['session-b', session('session-b', { title: 'B sk-titlemarker123' })],
   ]);
@@ -57,53 +56,6 @@ function harness(sessionOverrides: Partial<SessionRecord> = {}) {
 }
 
 describe('ServerCoreSessionMetadataRuntime', () => {
-  it('projects effective permissions only from the durable session record', async () => {
-    const response = await harness().execute(input('session.permissions.get', {
-      sessionId: 'session-a',
-    }));
-    expect(response.result).toEqual({
-      sessionId: 'session-a', adapterId: 'codex-cli',
-      effective: {
-        adapterId: 'codex-cli', approvalPolicy: 'never', approvalPolicySource: 'session',
-        sandbox: 'workspace-write', sandboxSource: 'session',
-      },
-      workspace: { read: 'allowed', write: 'allowed', network: 'denied' },
-      rules: { state: 'unavailable', items: [], omittedCount: 0, truncated: false },
-      revision: 7,
-    });
-  });
-
-  it.each([
-    [true, 'allowed'],
-    [false, 'denied'],
-    [null, 'provider-default'],
-  ] as const)('projects the persisted Codex network decision %s', async (value, network) => {
-    const response = await harness({ networkAccessEnabled: value }).execute(input('session.permissions.get', {
-      sessionId: 'session-a',
-    }));
-    expect(response.result).toMatchObject({ workspace: { network } });
-  });
-
-  it.each([
-    ['workspace-write', 'allowed'],
-    ['strict', 'denied'],
-    ['off', 'provider-default'],
-  ] as const)('projects Claude %s workspace write authority as %s', async (sandbox, write) => {
-    const response = await harness({
-      agentId: 'claude-code',
-      permissionMode: 'default',
-      claudeCodeSandbox: sandbox,
-    }).execute(input('session.permissions.get', { sessionId: 'session-a' }));
-    expect(response.result).toMatchObject({
-      adapterId: 'claude-code',
-      workspace: {
-        read: sandbox === 'off' ? 'provider-default' : 'allowed',
-        write,
-        network: sandbox === 'off' ? 'provider-default' : 'denied',
-      },
-    });
-  });
-
   it('returns a bounded redacted Cross-session projection', async () => {
     const response = await harness().execute(input('session.messages.list', {
       sessionId: 'session-a', limit: 100,

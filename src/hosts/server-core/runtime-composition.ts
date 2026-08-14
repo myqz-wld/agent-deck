@@ -46,7 +46,6 @@ import { installServerCoreProviderHooks } from './provider-hook-runtime';
 import { ServerCoreProviderEventBus } from './provider-event-bus';
 import { appendServerCoreChangeSafely, createServerCoreSessionManagerObserver } from './session-manager-observer';
 import { ServerCorePlanReviewRuntime } from './plan-review-runtime';
-import { ServerCoreTeamRuntime } from './team-runtime';
 import { ServerCoreUsageRuntime } from './usage-runtime';
 import { ServerCoreNodeConfigurationRuntime } from './node-configuration-runtime';
 import { ServerCoreNodeHookProjectionState } from './node-hook-projection-state';
@@ -426,20 +425,7 @@ export function createServerCoreRuntimeWithOverrides(
     sessionConsole: sessionConsoleAuthority,
     rollbackSession: rollbackCreatedSession,
   });
-  const teamRuntime = new ServerCoreTeamRuntime(issueRuntime, {
-    workspaceRoot,
-    privateRoots,
-    teams: agentDeckTeamRepo,
-    messages: agentDeckMessageRepo,
-    sessions: repositories.sessions,
-    events: repositories.events,
-    tasks: repositories.tasks,
-    closeSession: (sessionId) => repositories.sessionManager.close(sessionId),
-    notifyMembershipChanged: (sessionId) =>
-      repositories.sessionManager.notifyTeamMembershipChanged(sessionId),
-    metadata,
-  });
-  const usageRuntime = new ServerCoreUsageRuntime(teamRuntime, {
+  const usageRuntime = new ServerCoreUsageRuntime(issueRuntime, {
     tokenUsage: tokenUsageRepo,
     registry,
     currentRevision: () => metadata.currentRevision(),

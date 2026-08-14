@@ -204,11 +204,6 @@ describe('RemoteHostService lifecycle admission', () => {
       profileId: context.firstProfile.id,
       limit: 20,
     })).rejects.toMatchObject({ code: 'not_connected' });
-    await expect(context.service.teams.list({
-      profileId: context.firstProfile.id,
-      includeArchived: false,
-      limit: 20,
-    })).rejects.toMatchObject({ code: 'not_connected' });
     await expect(context.service.issues.list({
       profileId: context.firstProfile.id,
       statuses: [],

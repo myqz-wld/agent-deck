@@ -7,21 +7,17 @@ const SESSION_LIFECYCLE_RESOURCES = [
   'session-list',
   'session-detail',
   'pending',
-  'teams',
 ] as const satisfies readonly RemoteHostResourceKind[];
 const SESSION_EVENT_RESOURCES = [
   'session-list',
   'session-detail',
-  'teams',
 ] as const satisfies readonly RemoteHostResourceKind[];
-const DETAIL_AND_TEAMS = [
+const DETAIL_RESOURCES = [
   'session-detail',
-  'teams',
 ] as const satisfies readonly RemoteHostResourceKind[];
 const PENDING_RESOURCES = [
   'pending',
   'session-detail',
-  'teams',
 ] as const satisfies readonly RemoteHostResourceKind[];
 
 /** Maps the open-ended Core event namespace into a bounded desktop refresh allowlist. */
@@ -37,7 +33,7 @@ export function remoteHostResourcesForCoreEvent(
     return PENDING_RESOURCES;
   }
   if (eventKind.startsWith('task.') || eventKind.startsWith('message.')) {
-    return DETAIL_AND_TEAMS;
+    return DETAIL_RESOURCES;
   }
   if (eventKind.startsWith('summary.')) {
     return ['session-list', 'session-detail'];

@@ -3,12 +3,10 @@
  *
  * 拆分历史：从 src/main/store/agent-deck-team-repo.ts 抽出（CHANGELOG_82 / plan
  * deep-review-and-split-20260513 H2 Step 2.2）。
- *
- * 依赖：member-query.listAllMembers（getWithMembers 用）。
  */
 
 import type { Database } from 'better-sqlite3';
-import type { AgentDeckTeam, AgentDeckTeamArchiveReason, AgentDeckTeamMember } from '@shared/types';
+import type { AgentDeckTeam, AgentDeckTeamArchiveReason } from '@shared/types';
 
 import {
   TeamInvariantError,
@@ -17,7 +15,6 @@ import {
   type ListTeamsOptions,
   type TeamRow,
 } from './types';
-import type { MemberQueryHelpers } from './member-query';
 
 export interface TeamCrudHelpers {
   /**
@@ -36,7 +33,6 @@ export interface TeamCrudHelpers {
   ensureByName(name: string, metadata?: Record<string, unknown>): AgentDeckTeam;
   get(teamId: string): AgentDeckTeam | null;
   getByActiveName(name: string): AgentDeckTeam | null;
-  getWithMembers(teamId: string): (AgentDeckTeam & { members: AgentDeckTeamMember[] }) | null;
   list(opts?: ListTeamsOptions): AgentDeckTeam[];
   /** 标 archived_at = now() + archive_reason；不删行。reason 默认 'user-action'。 */
   archive(teamId: string, opts?: { reason?: AgentDeckTeamArchiveReason }): AgentDeckTeam | null;
@@ -51,7 +47,6 @@ export interface TeamCrudHelpers {
 
 export function createTeamCrudHelpers(
   db: Database,
-  memberQuery: Pick<MemberQueryHelpers, 'listAllMembers'>,
 ): TeamCrudHelpers {
   function create(input: CreateTeamInput): AgentDeckTeam {
     const name = (input.name ?? '').trim();
@@ -127,15 +122,6 @@ export function createTeamCrudHelpers(
     return row ? teamRowToRecord(row) : null;
   }
 
-  function getWithMembers(
-    teamId: string,
-  ): (AgentDeckTeam & { members: AgentDeckTeamMember[] }) | null {
-    const team = get(teamId);
-    if (!team) return null;
-    const members = memberQuery.listAllMembers(teamId);
-    return { ...team, members };
-  }
-
   function list(opts?: ListTeamsOptions): AgentDeckTeam[] {
     const activeOnly = opts?.activeOnly ?? true;
     const limit = Math.max(1, Math.min(opts?.limit ?? 100, 500));
@@ -208,7 +194,6 @@ export function createTeamCrudHelpers(
     ensureByName,
     get,
     getByActiveName,
-    getWithMembers,
     list,
     archive,
     unarchive,

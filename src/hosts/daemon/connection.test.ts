@@ -19,7 +19,7 @@ describe('daemon framed connection', () => {
   it('gates additive capabilities on the negotiated protocol minor', async () => {
     const runtime = createRuntime({
       supportedMethods: [
-        'teams.list', 'usage.tokens.get', 'node.configuration.get', 'node.assets.list',
+        'session.list', 'usage.tokens.get', 'node.configuration.get', 'node.assets.list',
         'node.assets.catalog.list',
         'session.context.get', 'session.input.capabilities', 'session.handoff.preview',
         'node.hook.projection.get', 'node.hook.projection.install',
@@ -35,7 +35,7 @@ describe('daemon framed connection', () => {
     expect(findMessage(legacy, 'hello-result')).toMatchObject({
       hello: {
         protocolVersion: { major: 2, minor: 0 },
-        capabilities: ['teams'],
+        capabilities: ['sessions.read'],
       },
     });
     const current = new TestDuplex();
@@ -45,7 +45,7 @@ describe('daemon framed connection', () => {
     expect(findMessage(current, 'hello-result')).toMatchObject({
       hello: {
         protocolVersion: { major: 2, minor: 1 },
-        capabilities: ['teams', 'usage'],
+        capabilities: ['sessions.read', 'usage'],
       },
     });
     const latest = new TestDuplex();
@@ -55,7 +55,7 @@ describe('daemon framed connection', () => {
     expect(findMessage(latest, 'hello-result')).toMatchObject({
       hello: {
         protocolVersion: { major: 2, minor: 2 },
-        capabilities: ['teams', 'usage', 'node.configuration', 'node.assets'],
+        capabilities: ['sessions.read', 'usage', 'node.configuration', 'node.assets'],
       },
     });
     const newest = new TestDuplex();
@@ -66,7 +66,7 @@ describe('daemon framed connection', () => {
       hello: {
         protocolVersion: { major: 2, minor: 3 },
         capabilities: [
-          'teams', 'usage', 'node.configuration', 'node.assets',
+          'sessions.read', 'usage', 'node.configuration', 'node.assets',
           'sessions.context.read', 'sessions.input.read', 'sessions.handoff',
         ],
       },
@@ -79,7 +79,7 @@ describe('daemon framed connection', () => {
       hello: {
         protocolVersion: { major: 2, minor: 4 },
         capabilities: [
-          'teams', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
+          'sessions.read', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
           'sessions.context.read', 'sessions.input.read', 'sessions.handoff',
           'node.hooks.read', 'node.hooks.write',
         ],
@@ -96,7 +96,7 @@ describe('daemon framed connection', () => {
       hello: {
         protocolVersion: { major: 2, minor: 5 },
         capabilities: [
-          'teams', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
+          'sessions.read', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
           'sessions.context.read', 'sessions.input.read', 'sessions.handoff',
           'node.hooks.read', 'node.hooks.write',
           'workspace.directory.write', 'sessions.history.write',
@@ -114,7 +114,7 @@ describe('daemon framed connection', () => {
       hello: {
         protocolVersion: { major: 2, minor: 6 },
         capabilities: [
-          'teams', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
+          'sessions.read', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
           'sessions.context.read', 'sessions.input.read', 'sessions.handoff',
           'node.hooks.read', 'node.hooks.write',
           'workspace.directory.write', 'sessions.history.write', 'sessions.reactivate',

@@ -4,14 +4,9 @@ import {
   isCoreMethodAllowed,
   parseSessionMessagesListParams,
   parseSessionMessagesListResult,
-  parseSessionPermissionsGetParams,
-  parseSessionPermissionsGetResult,
   type CoreMethod,
   type JsonValue,
   type SessionMessageDto,
-  type SessionPermissionProjection,
-  type SessionPermissionsGetResult,
-  type SessionWorkspacePermissionProjection,
 } from '@contracts/index';
 import {
   DaemonRequestError,
@@ -27,7 +22,6 @@ import { redactRemoteSensitiveText } from './remote-sensitive-data';
 
 export const SERVER_CORE_SESSION_METADATA_METHODS = Object.freeze([
   'session.messages.list',
-  'session.permissions.get',
 ] as const satisfies readonly CoreMethod[]);
 
 type MetadataMethod = (typeof SERVER_CORE_SESSION_METADATA_METHODS)[number];
@@ -70,78 +64,7 @@ function requireSession(
   return record;
 }
 
-function permissionProjection(record: SessionRecord): SessionPermissionProjection {
-  if (record.agentId === 'claude-code') {
-    return {
-      adapterId: 'claude-code',
-      permissionMode: record.permissionMode ?? 'default',
-      permissionModeSource: record.permissionMode == null ? 'provider-default' : 'session',
-      sandbox: record.claudeCodeSandbox ?? 'provider-default',
-      sandboxSource: record.claudeCodeSandbox == null ? 'provider-default' : 'session',
-    };
-  }
-  if (record.agentId === 'codex-cli') {
-    return {
-      adapterId: 'codex-cli',
-      approvalPolicy: record.codexApprovalPolicy ?? 'provider-default',
-      approvalPolicySource: record.codexApprovalPolicy == null ? 'provider-default' : 'session',
-      sandbox: record.codexSandbox ?? 'provider-default',
-      sandboxSource: record.codexSandbox == null ? 'provider-default' : 'session',
-    };
-  }
-  if (record.agentId === 'grok-build') {
-    return {
-      adapterId: 'grok-build',
-      sessionMode: record.sessionMode ?? 'default',
-      sessionModeSource: record.sessionMode == null ? 'provider-default' : 'session',
-      sandbox: record.grokSandbox ?? 'provider-default',
-      sandboxSource: record.grokSandbox == null ? 'provider-default' : 'session',
-    };
-  }
-  throw new DaemonRequestError(
-    AgentDeckClientErrorCode.CapabilityUnavailable,
-    'Effective permission projection is unavailable for this adapter',
-  );
-}
-
-function workspaceProjection(
-  effective: SessionPermissionProjection,
-  networkAccessEnabled: boolean | null | undefined,
-): SessionWorkspacePermissionProjection {
-  if (effective.adapterId === 'claude-code') {
-    if (effective.sandbox === 'strict') {
-      return { read: 'allowed', write: 'denied', network: 'denied' };
-    }
-    if (effective.sandbox === 'workspace-write') {
-      return { read: 'allowed', write: 'allowed', network: 'denied' };
-    }
-  }
-  if (effective.adapterId === 'codex-cli') {
-    const network = networkAccessEnabled === true
-      ? 'allowed'
-      : networkAccessEnabled === false
-        ? 'denied'
-        : 'provider-default';
-    if (effective.sandbox === 'read-only') {
-      return { read: 'allowed', write: 'denied', network };
-    }
-    if (effective.sandbox === 'workspace-write' || effective.sandbox === 'danger-full-access') {
-      return { read: 'allowed', write: 'allowed', network };
-    }
-    return { read: 'provider-default', write: 'provider-default', network };
-  }
-  if (effective.adapterId === 'grok-build') {
-    if (effective.sandbox === 'read-only') {
-      return { read: 'allowed', write: 'denied', network: 'provider-default' };
-    }
-    if (effective.sandbox === 'workspace') {
-      return { read: 'allowed', write: 'allowed', network: 'provider-default' };
-    }
-  }
-  return { read: 'provider-default', write: 'provider-default', network: 'provider-default' };
-}
-
-/** Desktop-only, path-free projections for detail Permissions and Cross-session tabs. */
+/** Path-free projection for the session detail Cross-session tab. */
 export class ServerCoreSessionMetadataRuntime implements DaemonCoreRuntime {
   readonly supportedMethods: readonly CoreMethod[];
   readonly subscribe?: DaemonCoreRuntime['subscribe'];
@@ -173,25 +96,7 @@ export class ServerCoreSessionMetadataRuntime implements DaemonCoreRuntime {
     if (input.signal.aborted) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.Cancelled, 'Request was cancelled');
     }
-    return Promise.resolve(input.method === 'session.permissions.get'
-      ? this.permissions(input)
-      : this.messages(input));
-  }
-
-  private permissions(input: DaemonRequestInput): DaemonRequestResult {
-    const params = parseSessionPermissionsGetParams(input.params);
-    const record = requireSession(this.options.sessions, params.sessionId);
-    const revision = this.options.currentRevision();
-    const effective = permissionProjection(record);
-    const result: SessionPermissionsGetResult = parseSessionPermissionsGetResult({
-      sessionId: record.id,
-      adapterId: effective.adapterId,
-      effective,
-      workspace: workspaceProjection(effective, record.networkAccessEnabled),
-      rules: { state: 'unavailable', items: [], omittedCount: 0, truncated: false },
-      revision,
-    });
-    return { result: result as unknown as JsonValue, revision };
+    return Promise.resolve(this.messages(input));
   }
 
   private messages(input: DaemonRequestInput): DaemonRequestResult {

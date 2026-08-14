@@ -80,8 +80,8 @@ export const taskCreateHandler = withMcpGuard(
       // （codex SDK 子进程 SessionDetail 渲染 team-task-* event 未实证）
       // CHANGELOG_165 修法: 加 `args.teamId` 第二守卫 (truthy check 也覆盖 null/undefined),
       // personal task skip ingest — kind 名 `team-task-created` 与 personal task 语义不符,
-      // 且 v024 plan 把 personal task 升为 first-class default 后这条 event 在 ActivityFeed /
-      // TeamDetail EventsSection 里全是噪声(尤其 task_create 比 task_update 触发频繁,泛滥更严重)。
+      // 且 v024 plan 把 personal task 升为 first-class default 后这条 event 在 ActivityFeed
+      // 里全是噪声(尤其 task_create 比 task_update 触发频繁,泛滥更严重)。
       // eventBus.emit('task-changed') 不受影响仍发,UI TasksSection / task_list 实时性不丢。
       if (ctx.caller.transport === 'in-process' && created.teamId) {
         // v024 plan Round 1 MED-2 + Round 3 MED-3 修法:teamName 取自 created.teamId lookup

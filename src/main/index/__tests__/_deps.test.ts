@@ -3,7 +3,7 @@
  * (index/ facade 拆分)零测试覆盖,本文件补 _deps.ts 纯可测逻辑回归测试。
  *
  * 范围(可纯单测的部分):
- * - makeDebouncedTeamSender: 16ms debounce 累加 + per-key dedup(同 key 后值覆盖) +
+ * - makeDebouncedKeyedSender: 16ms debounce 累加 + per-key dedup(同 key 后值覆盖) +
  *   leading-skip(timer 在飞时不重起) + trailing-flush(timer fire 后清空 + 再来新 item 起新 timer) +
  *   空 pending 不 send 守门
  * - createInitialBootstrapState: 全字段 null 初值
@@ -16,12 +16,12 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
 import {
-  makeDebouncedTeamSender,
+  makeDebouncedKeyedSender,
   createInitialBootstrapState,
   TOOL_DISPLAY_NAME,
 } from '../_deps';
 
-describe('makeDebouncedTeamSender', () => {
+describe('makeDebouncedKeyedSender', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -32,7 +32,7 @@ describe('makeDebouncedTeamSender', () => {
   it('16ms debounce 内多个 item 合并为一次 send;同 key 后值覆盖前值', () => {
     const sent: string[][] = [];
     const send = (_ch: string, items: { id: string }[]) => sent.push(items.map((i) => i.id));
-    const sender = makeDebouncedTeamSender<{ key: string; id: string }>(
+    const sender = makeDebouncedKeyedSender<{ key: string; id: string }>(
       'ch',
       send,
       (i) => i.key,
@@ -50,7 +50,7 @@ describe('makeDebouncedTeamSender', () => {
   it('leading-skip:timer 在飞期间不重起 timer(单次 setTimeout)', () => {
     const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
     const send = vi.fn();
-    const sender = makeDebouncedTeamSender<{ key: string }>('ch', send, (i) => i.key);
+    const sender = makeDebouncedKeyedSender<{ key: string }>('ch', send, (i) => i.key);
 
     sender({ key: 'a' });
     sender({ key: 'b' });
@@ -64,7 +64,7 @@ describe('makeDebouncedTeamSender', () => {
   it('trailing-flush:fire 后清空 pending,再来新 item 起新 timer 再 flush', () => {
     const sent: string[][] = [];
     const send = (_ch: string, items: { id: string }[]) => sent.push(items.map((i) => i.id));
-    const sender = makeDebouncedTeamSender<{ key: string; id: string }>('ch', send, (i) => i.key);
+    const sender = makeDebouncedKeyedSender<{ key: string; id: string }>('ch', send, (i) => i.key);
 
     sender({ key: 'a', id: 'a1' });
     vi.advanceTimersByTime(16);
@@ -80,7 +80,7 @@ describe('makeDebouncedTeamSender', () => {
     // 直接构造场景:正常用法 pending 不会空(set 后才起 timer),此处验证守门存在性 —
     // 即使 timer fire 时 pending 空(理论 race)也不会 send 空数组。
     const send = vi.fn();
-    const sender = makeDebouncedTeamSender<{ key: string }>('ch', send, (i) => i.key);
+    const sender = makeDebouncedKeyedSender<{ key: string }>('ch', send, (i) => i.key);
     sender({ key: 'a' });
     vi.advanceTimersByTime(16);
     expect(send).toHaveBeenCalledTimes(1); // 正常 flush 一次

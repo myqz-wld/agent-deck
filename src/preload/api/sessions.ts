@@ -8,6 +8,7 @@
 import { ipcRenderer } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
 import type {
+  AgentDeckMessage,
   FileFinalDiffResult,
   FileChangePage,
   FileChangePayload,
@@ -71,6 +72,13 @@ export const sessionsApi = {
     ipcRenderer.invoke(IpcInvoke.SessionLatestSummaries, ids),
   listSessionTasks: (id: string): Promise<{ tasks: TaskRecord[] }> =>
     ipcRenderer.invoke(IpcInvoke.SessionListTasks, id),
+  /** 拉某 session 涉及的跨会话消息。 */
+  listAgentDeckMessagesBySession: (input: {
+    sessionId: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<AgentDeckMessage[]> =>
+    ipcRenderer.invoke(IpcInvoke.AgentDeckMessageListBySession, input),
 
   handOffPrepare: (
     request: SessionHandOffPrepareRequest,

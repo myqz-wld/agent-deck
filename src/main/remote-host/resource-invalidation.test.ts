@@ -8,14 +8,14 @@ describe('Remote host resource invalidation', () => {
     ['usage.tokens.changed', ['usage']],
     ['issue.updated', ['issues']],
     ['node.hook.updated', ['node-configuration']],
-    ['pending.responded', ['pending', 'session-detail', 'teams']],
-    ['plan.review.feedback', ['pending', 'session-detail', 'teams']],
-    ['task.updated', ['session-detail', 'teams']],
-    ['message.updated', ['session-detail', 'teams']],
+    ['pending.responded', ['pending', 'session-detail']],
+    ['plan.review.feedback', ['pending', 'session-detail']],
+    ['task.updated', ['session-detail']],
+    ['message.updated', ['session-detail']],
     ['summary.added', ['session-list', 'session-detail']],
-    ['session.updated', ['session-list', 'session-detail', 'pending', 'teams']],
-    ['event.persisted', ['session-list', 'session-detail', 'teams']],
-    ['team.member-added', ['session-list', 'session-detail', 'teams']],
+    ['session.updated', ['session-list', 'session-detail', 'pending']],
+    ['event.persisted', ['session-list', 'session-detail']],
+    ['team.member-added', ['session-list', 'session-detail']],
   ] as const)('maps %s to bounded resource lanes', (kind, expected) => {
     expect(remoteHostResourcesForCoreEvent(kind)).toEqual(expected);
   });

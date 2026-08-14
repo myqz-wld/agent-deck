@@ -93,12 +93,7 @@ function shouldExposeFileChange(rec: FileChangeRecord): boolean {
 }
 
 function readCodexChangeKind(value: unknown): string | undefined {
-  if (typeof value === 'string') return value;
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    const type = (value as { type?: unknown }).type;
-    return typeof type === 'string' ? type : undefined;
-  }
-  return undefined;
+  return typeof value === 'string' ? value : undefined;
 }
 
 function insertSnapshotBlob(

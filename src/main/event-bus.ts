@@ -82,7 +82,7 @@ export interface EventMap {
    * MessageLifecycleScheduler GC 删超期 terminal 消息后（plan message-retention-and-index-20260602
    * §D7）：每轮 batchHardDelete 后 deletedCount>0 emit 一次 { count }。bootstrap-wiring 桥到同一
    * IpcEvent.AgentDeckMessageChanged（合成固定 messageId 'purged:gc' 走 debounce 合并），renderer
-   * （MessagesPanel / TeamDetail 订阅 onAgentDeckMessageChanged）整体重拉刷掉已删消息。
+   * （MessagesPanel 订阅 onAgentDeckMessageChanged）整体重拉刷掉已删消息。
    */
   'agent-deck-message-purged': [{ count: number }];
   /**

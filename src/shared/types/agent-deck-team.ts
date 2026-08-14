@@ -23,7 +23,7 @@ export type AgentDeckTeamMemberRole = 'lead' | 'teammate';
  * - 'last-lead-closed'   — manager.markClosed/close 路径 _leaveAllActiveTeams 触发
  * - 'last-lead-deleted'  — manager.delete 路径 leaveTeam 触发
  * - 'scheduler'          — team-lifecycle-scheduler D7 主动清理
- * - 'user-action'        — 用户在 TeamDetail 「归档」按钮显式归档
+ * - 'user-action'        — owner 管理入口显式归档
  *
  * unarchive 联动（manager._unarchiveTeamsForRevivedLead）只对 'last-lead-archived' 反向复活，
  * 其他保持归档（避免覆盖用户主动归档语义）。
@@ -48,7 +48,7 @@ export interface AgentDeckTeamMember {
   leftAt: number | null;
 }
 
-/** Team 元信息。`getWithMembers` 聚合时 members 字段非空，裸 list 时省略。 */
+/** Team 元信息。成员通过独立的 membership 查询读取。 */
 export interface AgentDeckTeam {
   id: string;
   /** 用户可见名；active 内 unique（部分索引落地，§2.2）；归档后允许重名 */
@@ -62,7 +62,7 @@ export interface AgentDeckTeam {
    *   'last-lead-closed'   — 自动归档（lead session close / markClosed 触发）
    *   'last-lead-deleted'  — 自动归档（lead session delete 触发）
    *   'scheduler'          — D7 主动归档（长期无活动）
-   *   'user-action'        — 用户在 TeamDetail 主动归档
+   *   'user-action'        — owner 管理入口主动归档
    *   null                 — 未归档
    * unarchive 联动（manager._unarchiveTeamsForRevivedLead）只对 'last-lead-archived' 反向复活，
    * 其他保留归档（避免覆盖用户主动归档语义）。
@@ -74,8 +74,6 @@ export interface AgentDeckTeam {
    * SQLite CHECK(json_valid(metadata)) 兜底，防误塞非 JSON。
    */
   metadata: Record<string, unknown>;
-  /** 由 repo.getWithMembers 聚合返回；裸 team list 不带 */
-  members?: AgentDeckTeamMember[];
 }
 
 /**

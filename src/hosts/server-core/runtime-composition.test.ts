@@ -184,8 +184,6 @@ describe('concrete Server Core runtime composition', () => {
       'server-core-session-lifecycle',
     );
     expect(bootstrap.runtime.supportedMethods).toEqual(expect.arrayContaining([
-      'teams.list',
-      'teams.get',
       'usage.tokens.get',
       'usage.providers.get',
       'node.configuration.get',
