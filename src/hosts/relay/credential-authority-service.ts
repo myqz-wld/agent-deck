@@ -1,13 +1,12 @@
 import { readPrivateJsonFile } from '@hosts/linux-runtime/config-file';
 import { requirePositiveInteger } from '@hosts/linux-runtime/validation';
 
-import type { RelayHeadlessConfig } from './headless-config';
-import { parseRelayHeadlessConfig } from './headless-config';
+import { parseRelayCredentialAuthority } from './credential-authority';
 import type { CredentialMetadata, RelayMetadataStore } from './metadata';
 
 export interface RelayCredentialAuthorityServiceOptions {
-  readonly config: RelayHeadlessConfig;
-  readonly configFile: string;
+  readonly instanceId: string;
+  readonly authorityFile: string;
   readonly metadata: RelayMetadataStore;
   readonly pollIntervalMs?: number;
   readonly readConfig?: () => Promise<unknown>;
@@ -30,7 +29,7 @@ export class RelayCredentialAuthorityService {
       'Relay credential poll interval',
       60_000,
     );
-    this.readConfig = options.readConfig ?? (() => readPrivateJsonFile(options.configFile));
+    this.readConfig = options.readConfig ?? (() => readPrivateJsonFile(options.authorityFile));
     this.now = options.now ?? Date.now;
   }
 
@@ -55,8 +54,7 @@ export class RelayCredentialAuthorityService {
   }
 
   async refresh(): Promise<void> {
-    const current = parseRelayHeadlessConfig(await this.readConfig());
-    this.assertStaticBinding(current);
+    const current = parseRelayCredentialAuthority(await this.readConfig(), this.options.instanceId);
     const configured = new Set(current.credentials.map((entry) => entry.credentialId));
     if (this.options.metadata.rows('credentials').some(
       (entry) => !configured.has(entry.credentialId),
@@ -76,17 +74,6 @@ export class RelayCredentialAuthorityService {
       if (this.operation === operation) this.operation = null;
     });
     this.operation = operation;
-  }
-
-  private assertStaticBinding(current: RelayHeadlessConfig): void {
-    const expected = this.options.config;
-    if (
-      current.instanceId !== expected.instanceId ||
-      current.tickIntervalMs !== expected.tickIntervalMs ||
-      current.plumbingModule !== expected.plumbingModule
-    ) {
-      throw new Error('Relay authority changed non-credential runtime configuration');
-    }
   }
 
   private revokeAll(): void {

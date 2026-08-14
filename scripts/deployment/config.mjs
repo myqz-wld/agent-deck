@@ -114,6 +114,30 @@ function parseSecrets(value) {
   };
 }
 
+function parseRelayRuntime(value, instanceId) {
+  const runtime = object(value, 'runtimeConfig');
+  exactKeys(runtime, [
+    'authorityFile', 'instanceId', 'plumbingModule', 'schemaVersion', 'tickIntervalMs',
+  ], 'runtimeConfig');
+  if (runtime.schemaVersion !== 2) fail('runtimeConfig.schemaVersion 必须为 2。');
+  if (runtime.instanceId !== instanceId) {
+    fail('runtimeConfig.instanceId 必须与 instance.id 完全一致。');
+  }
+  const authorityFile = absolutePath(runtime.authorityFile, 'runtimeConfig.authorityFile');
+  if (authorityFile !== `/etc/agent-deck-relay/${instanceId}/authority.json`) {
+    fail('runtimeConfig.authorityFile 必须是实例容器内的固定 authority.json 路径。');
+  }
+  return {
+    schemaVersion: 2,
+    instanceId,
+    tickIntervalMs: positiveInteger(runtime.tickIntervalMs, 'runtimeConfig.tickIntervalMs', 60_000),
+    plumbingModule: runtime.plumbingModule === null
+      ? null
+      : absolutePath(runtime.plumbingModule, 'runtimeConfig.plumbingModule'),
+    authorityFile,
+  };
+}
+
 export async function loadServerConfig(path, topology, repoRoot) {
   const loaded = await readTrustedJson(path, '部署配置');
   const config = object(loaded.value, '部署配置');
@@ -174,7 +198,9 @@ export async function loadServerConfig(path, topology, repoRoot) {
   if (runtimeObject.instanceId !== parsed.instance.id) {
     fail('runtimeConfig.instanceId 必须与 instance.id 完全一致。');
   }
-  parsed.runtimeConfig = runtimeObject;
+  parsed.runtimeConfig = topology === 'relay'
+    ? parseRelayRuntime(runtimeObject, parsed.instance.id)
+    : runtimeObject;
   if (topology === 'full') {
     const credentials = await readTrustedJson(
       parsed.secrets.credentialsFile,

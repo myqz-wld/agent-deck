@@ -7,12 +7,33 @@ describe('Relay headless instance config', () => {
     'rejects non-exact Linux instance %s',
     (instanceId) => {
       expect(() => parseRelayHeadlessConfig({
-        schemaVersion: 1,
+        schemaVersion: 2,
         instanceId,
         tickIntervalMs: 1_000,
         plumbingModule: null,
-        credentials: [],
+        authorityFile: `/etc/agent-deck-relay/${instanceId}/authority.json`,
       })).toThrow('lowercase Linux instance label');
     },
   );
+
+  it('requires the exact separate per-instance authority path', () => {
+    expect(() => parseRelayHeadlessConfig({
+      schemaVersion: 2,
+      instanceId: 'instance-a',
+      tickIntervalMs: 1_000,
+      plumbingModule: null,
+      authorityFile: '/etc/agent-deck-relay/instance-b/authority.json',
+    })).toThrow('exact per-instance container path');
+  });
+
+  it('rejects embedding mutable credentials in the immutable runtime config', () => {
+    expect(() => parseRelayHeadlessConfig({
+      schemaVersion: 2,
+      instanceId: 'instance-a',
+      tickIntervalMs: 1_000,
+      plumbingModule: null,
+      authorityFile: '/etc/agent-deck-relay/instance-a/authority.json',
+      credentials: [],
+    })).toThrow('missing or extra fields');
+  });
 });

@@ -118,8 +118,7 @@ function fixture(topology: 'relay' | 'full') {
   const appSecretFile = join(root, 'source-app-secret');
   const originalAuthority = topology === 'relay'
     ? {
-        schemaVersion: 1, instanceId: 'instance-a', tickIntervalMs: 1_000,
-        plumbingModule: null, credentials: [],
+        schemaVersion: 1, instanceId: 'instance-a', credentials: [],
       }
     : { schemaVersion: 3, instanceId: 'instance-a', credentials: [] };
   writeFileSync(authorityFile, `${JSON.stringify(originalAuthority)}\n`, { mode: 0o600 });

@@ -2,7 +2,11 @@ import {
   readTrustedTextFile,
   type TrustedTextFile,
 } from '@hosts/linux-runtime/connection-credential-issuer';
-import { parseRelayHeadlessConfig } from '@hosts/relay/headless-config';
+import {
+  encodeRelayCredentialAuthority,
+  parseRelayCredentialAuthority,
+} from '@hosts/relay/credential-authority';
+import type { CredentialMetadata } from '@hosts/relay/metadata';
 import { parseServerCoreCredentialDocument } from '@hosts/server-core/credential-file';
 
 import type { ServerControlConfig } from './config';
@@ -26,8 +30,11 @@ export interface LoadedConnectionAuthority {
   readonly encode: (records: readonly ManagedClientCredential[]) => string;
 }
 
-function relayCredential(entry: ReturnType<typeof parseRelayHeadlessConfig>['credentials'][number]) {
+function relayCredential(
+  entry: ReturnType<typeof parseRelayCredentialAuthority>['credentials'][number],
+): CredentialMetadata {
   return {
+    id: entry.credentialId,
     credentialId: entry.credentialId,
     instanceId: entry.instanceId,
     kind: entry.kind,
@@ -43,10 +50,7 @@ function loadRelay(
   config: ServerControlConfig,
   authorityFile: TrustedTextFile,
 ): Omit<LoadedConnectionAuthority, 'authorizedKeysFile' | 'authorityFile'> {
-  const document = parseRelayHeadlessConfig(JSON.parse(authorityFile.text));
-  if (document.instanceId !== config.instanceId) {
-    throw new Error('Relay authority instance mismatch');
-  }
+  const document = parseRelayCredentialAuthority(JSON.parse(authorityFile.text), config.instanceId);
   const records = document.credentials
     .filter((entry) => entry.kind !== 'relay-worker')
     .map((entry): ManagedClientCredential => Object.freeze({
@@ -61,12 +65,13 @@ function loadRelay(
   const encode = (next: readonly ManagedClientCredential[]): string => {
     const byId = new Map(next.map((entry) => [entry.credentialId, entry]));
     const emitted = new Set<string>();
-    const credentials = document.credentials.map((entry) => {
+    const credentials: CredentialMetadata[] = document.credentials.map((entry) => {
       if (entry.kind === 'relay-worker') return relayCredential(entry);
       const replacement = byId.get(entry.credentialId);
       if (!replacement) throw new Error('connection authority cannot delete credential history');
       emitted.add(replacement.credentialId);
       return {
+        id: replacement.credentialId,
         credentialId: replacement.credentialId,
         instanceId: config.instanceId,
         kind: replacement.surface === 'feishu' ? 'feishu' : 'ssh-client',
@@ -80,6 +85,7 @@ function loadRelay(
     for (const entry of next) {
       if (emitted.has(entry.credentialId)) continue;
       credentials.push({
+        id: entry.credentialId,
         credentialId: entry.credentialId,
         instanceId: config.instanceId,
         kind: entry.surface === 'feishu' ? 'feishu' : 'ssh-client',
@@ -90,15 +96,7 @@ function loadRelay(
         revokedAt: entry.revokedAt,
       });
     }
-    const encoded = `${JSON.stringify({
-      schemaVersion: 1,
-      instanceId: document.instanceId,
-      tickIntervalMs: document.tickIntervalMs,
-      plumbingModule: document.plumbingModule,
-      credentials,
-    }, null, 2)}\n`;
-    parseRelayHeadlessConfig(JSON.parse(encoded));
-    return encoded;
+    return encodeRelayCredentialAuthority(document.instanceId, credentials);
   };
   return {
     records: Object.freeze(records),

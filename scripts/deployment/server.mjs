@@ -23,6 +23,7 @@ const remoteScripts = Object.freeze({
   evidence: join(deploymentRoot, 'remote-evidence.sh'),
   verify: join(deploymentRoot, 'remote-verify.sh'),
   fullSecrets: join(deploymentRoot, 'remote-full-secrets.sh'),
+  relayAuthority: join(deploymentRoot, 'remote-relay-authority.sh'),
 });
 
 function remoteIdentity(config) {
@@ -262,6 +263,20 @@ async function installFullSecrets(config) {
   }
 }
 
+async function ensureRelayAuthority(config, mode) {
+  if (config.topology !== 'relay') return;
+  const result = await runRemoteScript(
+    config.ssh,
+    remoteScripts.relayAuthority,
+    [mode, config.service.user, String(config.service.uid), config.service.home, config.instance.id],
+    { timeoutMs: 120_000 },
+  );
+  const output = result.stdout.trim();
+  if (output !== 'RELAY_AUTHORITY_CREATED' && output !== 'RELAY_AUTHORITY_READY') {
+    throw new Error('Relay connection authority 初始化返回了未知结果。');
+  }
+}
+
 async function verify(config, expectedImage = '-') {
   const result = await runRemoteScript(
     config.ssh,
@@ -299,6 +314,7 @@ async function deploy(config) {
     const current = existing.versions.find((version) => version.version === release.version);
     if (!current) throw new Error('现有实例缺少当前 release 记录。');
     if (config.topology === 'full') await installFullSecrets(config);
+    else await ensureRelayAuthority(config, 'create');
     await installEvidence(config, {
       generation: existing.generation,
       version: existing.currentVersion,
@@ -318,6 +334,7 @@ async function deploy(config) {
   const plan = await runManager(config, 'plan-create', request);
   await runManager(config, 'create', request);
   if (config.topology === 'full') await installFullSecrets(config);
+  else await ensureRelayAuthority(config, 'create');
   const state = await runManager(config, 'describe', selector(config));
   const current = state.versions.find((version) => version.version === release.version);
   if (!current || current.unitSha256 !== unitSha256 || current.image !== image) {
@@ -338,6 +355,7 @@ async function upgrade(config) {
   if (state.currentVersion === release.version) {
     throw new Error('目标实例已经运行当前 Git release；无需 upgrade。');
   }
+  await ensureRelayAuthority(config, 'verify');
   await ensureRelayRunningForCutover(config, state);
   const request = upgradeRequest(config, release, image, state);
   const plan = await runManager(config, 'plan-upgrade', request);
@@ -356,6 +374,7 @@ async function rollback(config) {
   await verifyRepository(config, { build: false });
   await remoteCheck(config);
   const state = await runManager(config, 'describe', selector(config));
+  await ensureRelayAuthority(config, 'verify');
   if (!state.previousVersion) throw new Error('目标实例没有可恢复的 previousVersion。');
   const request = {
     ...selector(config),

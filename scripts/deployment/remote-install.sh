@@ -68,6 +68,8 @@ required=(
   deploy/linux/relay/agent-deck-relay@.container
   deploy/linux/relay/preflight.sh
   deploy/linux/relay/Containerfile
+  deploy/linux/relay/relay.config.example.json
+  deploy/linux/relay/relay-authority.example.json
   deploy/linux/full/server-control.config.example.json
   deploy/linux/relay/server-control.config.example.json
   deploy/linux/feishu/README.md
@@ -263,6 +265,10 @@ install_root_file "$release_root/deploy/linux/full/server-control.config.example
   /opt/agent-deck/share/full/server-control.config.example.json 0444
 install_root_file "$release_root/deploy/linux/relay/server-control.config.example.json" \
   /opt/agent-deck/share/relay/server-control.config.example.json 0444
+install_root_file "$release_root/deploy/linux/relay/relay.config.example.json" \
+  /opt/agent-deck/share/relay/relay.config.example.json 0444
+install_root_file "$release_root/deploy/linux/relay/relay-authority.example.json" \
+  /opt/agent-deck/share/relay/relay-authority.example.json 0444
 for feishu_example in \
   README.md config.example.json core-ssh.example.json connect.request.example.json \
   disconnect.request.example.json credential-rotate.request.example.json; do

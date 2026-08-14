@@ -198,18 +198,17 @@ export function verifyIssuedConnectionBundles() {
   try {
     writeFileSync(hostKey, 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH host\n', { mode: 0o644 });
     writeFileSync(authorizedKeys, '', { mode: 0o600 });
-    const relayConfig = resolve(root, 'relay-config.json');
+    const relayAuthority = resolve(root, 'relay-authority.json');
     const relayWorkerOutput = resolve(root, 'relay-worker.agentdeck-connection');
-    writeFileSync(relayConfig, `${JSON.stringify({
-      schemaVersion: 1, instanceId: 'instance-a', tickIntervalMs: 1000,
-      plumbingModule: null, credentials: [],
+    writeFileSync(relayAuthority, `${JSON.stringify({
+      schemaVersion: 1, instanceId: 'instance-a', credentials: [],
     })}\n`, { mode: 0o600 });
     run(process.execPath, [
       resolve(outputRoot, 'relay/index.mjs'), 'issue-worker-connection',
       '--instance', 'instance-a', '--credential', 'worker-credential-a',
       '--worker', 'worker-a', '--label', 'Relay production',
       '--hostname', 'relay.example.test', '--port', '22', '--username', 'agentdeck',
-      '--host-key', hostKey, '--config', relayConfig, '--authorized-keys', authorizedKeys,
+      '--host-key', hostKey, '--authority', relayAuthority, '--authorized-keys', authorizedKeys,
       '--runtime-uid', '1001', '--output', relayWorkerOutput,
     ]);
     const relayWorker = JSON.parse(readFileSync(relayWorkerOutput, 'utf8'));
@@ -218,7 +217,7 @@ export function verifyIssuedConnectionBundles() {
         relayWorker.credentialId !== 'worker-credential-a' ||
         !String(relayWorker.identity?.privateKey).includes('OPENSSH PRIVATE KEY') ||
         (statSync(relayWorkerOutput).mode & 0o777) !== 0o600 ||
-        !readFileSync(relayConfig, 'utf8').includes('"kind": "relay-worker"') ||
+        !readFileSync(relayAuthority, 'utf8').includes('"kind": "relay-worker"') ||
         !readFileSync(authorizedKeys, 'utf8').includes('/run/user/1001/') ||
         !readFileSync(authorizedKeys, 'utf8').includes('--worker worker-a')) {
       fail('Relay bundle did not issue one exact Worker credential');

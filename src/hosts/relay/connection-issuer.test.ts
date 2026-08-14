@@ -19,22 +19,20 @@ afterEach(() => {
 function fixture(credentials: readonly Record<string, unknown>[] = []) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-relay-issue-')));
   roots.push(root);
-  const config = join(root, 'config.json');
+  const authority = join(root, 'authority.json');
   const authorizedKeys = join(root, 'authorized_keys');
   const hostKey = join(root, 'ssh_host_ed25519_key.pub');
-  writeFileSync(config, `${JSON.stringify({
+  writeFileSync(authority, `${JSON.stringify({
     schemaVersion: 1,
     instanceId: 'instance-a',
-    tickIntervalMs: 1000,
-    plumbingModule: null,
     credentials,
   })}\n`, { mode: 0o600 });
   writeFileSync(authorizedKeys, '', { mode: 0o600 });
   writeFileSync(hostKey, HOST_KEY, { mode: 0o644 });
-  chmodSync(config, 0o600);
+  chmodSync(authority, 0o600);
   chmodSync(authorizedKeys, 0o600);
   chmodSync(hostKey, 0o644);
-  return { root, config, authorizedKeys, hostKey };
+  return { root, authority, authorizedKeys, hostKey };
 }
 
 function common(fixturePaths: ReturnType<typeof fixture>, output: string) {
@@ -45,7 +43,7 @@ function common(fixturePaths: ReturnType<typeof fixture>, output: string) {
     '--port': '2222',
     '--username': 'agentdeck',
     '--host-key': fixturePaths.hostKey,
-    '--config': fixturePaths.config,
+    '--authority': fixturePaths.authority,
     '--authorized-keys': fixturePaths.authorizedKeys,
     '--runtime-uid': '1001',
     '--output': output,
@@ -71,7 +69,7 @@ describe('Relay connection issuance', () => {
       credentialId: 'worker-credential-a',
       workerId: 'worker-a',
     });
-    const updated = JSON.parse(readFileSync(paths.config, 'utf8')) as {
+    const updated = JSON.parse(readFileSync(paths.authority, 'utf8')) as {
       credentials: Array<Record<string, unknown>>;
     };
     expect(updated.credentials).toEqual([
@@ -98,7 +96,7 @@ describe('Relay connection issuance', () => {
       '--worker': 'worker-b',
     })).toThrow('one active Worker');
 
-    const updated = JSON.parse(readFileSync(paths.config, 'utf8')) as {
+    const updated = JSON.parse(readFileSync(paths.authority, 'utf8')) as {
       credentials: Array<{ kind: string }>;
     };
     expect(updated.credentials.map((entry) => entry.kind)).toEqual(['relay-worker']);

@@ -33,8 +33,6 @@ function fixture(topology: 'relay' | 'full') {
     ? {
         schemaVersion: 1,
         instanceId: 'instance-a',
-        tickIntervalMs: 1_000,
-        plumbingModule: null,
         credentials: [],
       }
     : { schemaVersion: 3, instanceId: 'instance-a', credentials: [] };
@@ -198,8 +196,6 @@ describe('Relay Worker authority isolation', () => {
     writeFileSync(test.authorityFile, `${JSON.stringify({
       schemaVersion: 1,
       instanceId: 'instance-a',
-      tickIntervalMs: 1_000,
-      plumbingModule: null,
       credentials: [{
         credentialId: 'worker-a',
         instanceId: 'instance-a',

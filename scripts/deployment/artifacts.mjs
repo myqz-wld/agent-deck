@@ -21,6 +21,8 @@ const RELEASE_FILES = [
   'deploy/linux/relay/agent-deck-relay@.container',
   'deploy/linux/relay/preflight.sh',
   'deploy/linux/relay/Containerfile',
+  'deploy/linux/relay/relay.config.example.json',
+  'deploy/linux/relay/relay-authority.example.json',
   'deploy/linux/full/server-control.config.example.json',
   'deploy/linux/relay/server-control.config.example.json',
   'deploy/linux/feishu/README.md',
