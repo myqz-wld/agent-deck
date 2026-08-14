@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-08-06 | `PLAN_31_linux-remote-core-foundation.md` | completed with follow-up | Deliver Remote Core, Relay/Worker, Feishu, and Workspace foundations | CHANGELOG_565 / PLAN_32 |
 | 2026-08-03 | `PLAN_30_context-window-observation-unification.md` | completed | Unify observed context capacity across continuations | CHANGELOG_430 / REVIEW_212 |
 | 2026-07-31 | `PLAN_29_review-208-defect-remediation.md` | completed | Close all fifteen defects confirmed by REVIEW_208 | CHANGELOG_427 / REVIEW_209 |
 | 2026-07-31 | `PLAN_28_compatibility-and-defect-audit.md` | completed | Clean internal compatibility seams and audit functional defects | REVIEW_208 / PLAN_29 |
@@ -33,9 +34,3 @@ This bucket contains only plans that currently belong to this mutually exclusive
 | 2026-07-21 | `PLAN_15_plan-review-pending-queue-composer.md` | completed | Isolate review, queue pending input, and expand the composer | CHANGELOG_379 / REVIEW_165 |
 | 2026-07-15 | `PLAN_14_checkpoint-patch-reduction.md` | completed | Let the LLM emit semantic patches while code owns checkpoint state | REVIEW_163 |
 | 2026-07-15 | `PLAN_13_history-search-case-insensitive.md` | completed | Rebuild History FTS case-insensitively while fully offline | CHANGELOG_374 |
-| 2026-07-14 | `PLAN_12_handoff-ownership-plan-review-hardening.md` | completed | Preserve current-owner authority and harden plan-review lifecycle | CHANGELOG_366 / REVIEW_161 |
-| 2026-07-14 | `PLAN_11_automatic-continuation-checkpoints.md` | completed | Keep continuation state fresh without unbounded growth | CHANGELOG_365 / REVIEW_160 |
-| 2026-07-14 | `PLAN_10_present-plan-deep-review.md` | completed | Retain blocking plan gates and add isolated contextual review | CHANGELOG_364 / REVIEW_159 |
-| 2026-07-14 | `PLAN_9_runtime-controls-handoff-context.md` | completed | Auto-save runtime controls and restore hand-off coverage | CHANGELOG_363 / REVIEW_158 |
-| 2026-07-12 | `PLAN_8_core-snapshot-ui-copy-review.md` | completed | Audit core snapshots and simplify user-facing copy | REVIEW_154 |
-| 2026-07-12 | `PLAN_7_storage-maintenance-worker-provider-compaction.md` | completed | Isolate live storage maintenance and restore compact generation | CHANGELOG_362 / REVIEW_153 |
