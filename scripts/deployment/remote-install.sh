@@ -33,21 +33,23 @@ else
 fi
 
 release_root="$(/usr/bin/mktemp -d /tmp/agent-deck-release.XXXXXX)"
-runtime_extract="$(/usr/bin/mktemp -d /tmp/agent-deck-feishu-runtime.XXXXXX)"
 runtime_stage=''
 cleanup() {
   if [[ "$runtime_stage" == /opt/agent-deck/feishu-runtime/.install.* ]]; then
     /usr/bin/sudo -n /bin/rm -rf -- "$runtime_stage"
   fi
-  /bin/rm -rf -- "$runtime_extract"
   /bin/rm -rf -- "$release_root"
-  /bin/rm -f -- "$archive"
+  if [[ "$archive" == /tmp/agent-deck-release-*.tgz ]]; then
+    /bin/rm -f -- "$archive"
+  fi
 }
 trap cleanup EXIT
 /usr/bin/tar -xzf "$archive" -C "$release_root" --no-same-owner --no-same-permissions
 if [[ -n "$(/usr/bin/find "$release_root" -type l -print -quit)" ]]; then
   fail 'release archive 包含符号链接'
 fi
+/bin/rm -f -- "$archive"
+archive=''
 /bin/chmod -R u=rwX,go=rX "$release_root"
 
 required=(
@@ -136,22 +138,29 @@ mapfile -t runtime_checksum_lines < "$runtime_checksum"
   fail 'Feishu 运行时大小不匹配'
 [[ "$(/usr/bin/sha256sum -- "$runtime_artifact" | /usr/bin/cut -d ' ' -f 1)" == \
   "$runtime_digest" ]] || fail 'Feishu 运行时 digest 不匹配'
-/usr/bin/tar -xzf "$runtime_artifact" -C "$runtime_extract" \
-  --no-same-owner --no-same-permissions
-if [[ -n "$(/usr/bin/find "$runtime_extract" ! -type d ! -type f -print -quit)" ]]; then
-  fail 'Feishu 运行时包含不允许的文件类型'
+if [[ "$runtime_architecture" == amd64 ]]; then
+  unused_runtime_architecture=arm64
+else
+  unused_runtime_architecture=amd64
 fi
-for runtime_path in bin/node app/index.mjs runtime.json SHA256SUMS; do
-  [[ -f "$runtime_extract/$runtime_path" && ! -L "$runtime_extract/$runtime_path" ]] ||
-    fail "Feishu 运行时缺少 $runtime_path"
-done
-(
-  cd "$runtime_extract"
-  /usr/bin/sha256sum --check --strict SHA256SUMS >/dev/null
-) || fail 'Feishu 运行时内部 checksum 无效'
-/bin/chmod 0755 "$runtime_extract/bin/node"
-"$runtime_extract/bin/node" - "$runtime_extract/runtime.json" \
-  "$runtime_architecture" "$runtime_base_image" <<'NODE' || fail 'Feishu 运行时清单或 ABI 无效'
+/bin/rm -rf -- "$release_root/build/feishu-runtime/linux-$unused_runtime_architecture"
+
+validate_runtime_tree() {
+  local root=$1 runtime_path
+  if [[ -n "$(/usr/bin/find "$root" ! -type d ! -type f -print -quit)" ]]; then
+    fail 'Feishu 运行时包含不允许的文件类型'
+  fi
+  for runtime_path in bin/node app/index.mjs runtime.json SHA256SUMS; do
+    [[ -f "$root/$runtime_path" && ! -L "$root/$runtime_path" ]] ||
+      fail "Feishu 运行时缺少 $runtime_path"
+  done
+  (
+    cd "$root"
+    /usr/bin/sha256sum --check --strict SHA256SUMS >/dev/null
+  ) || fail 'Feishu 运行时内部 checksum 无效'
+  /bin/chmod 0755 "$root/bin/node"
+  "$root/bin/node" - "$root/runtime.json" \
+    "$runtime_architecture" "$runtime_base_image" <<'NODE' || fail 'Feishu 运行时清单或 ABI 无效'
 const fs = require('node:fs');
 const [path, architecture, baseImage] = process.argv.slice(2);
 const expectedNodeArch = architecture === 'amd64' ? 'x64' : 'arm64';
@@ -175,6 +184,7 @@ const db = new Database(':memory:');
 db.prepare('select 1').get();
 db.close();
 NODE
+}
 
 [[ "$(/usr/bin/id -u "$service_user")" == "$service_uid" ]] || fail 'service user/uid 不匹配'
 service_group="$(/usr/bin/id -gn "$service_user")"
@@ -278,7 +288,13 @@ if [[ ! -e "$runtime_target" ]]; then
     /opt/agent-deck/feishu-runtime/.install.XXXXXX)"
   [[ "$runtime_stage" == /opt/agent-deck/feishu-runtime/.install.* ]] ||
     fail 'Feishu 运行时暂存目录无效'
-  /usr/bin/sudo -n /bin/cp -a -- "$runtime_extract/." "$runtime_stage/"
+  installer_uid="$(/usr/bin/id -u)"
+  installer_gid="$(/usr/bin/id -g)"
+  /usr/bin/sudo -n /bin/chown "$installer_uid:$installer_gid" -- "$runtime_stage"
+  /usr/bin/sudo -n /bin/chmod 0700 -- "$runtime_stage"
+  /usr/bin/tar -xzf "$runtime_artifact" -C "$runtime_stage" \
+    --no-same-owner --no-same-permissions
+  validate_runtime_tree "$runtime_stage"
   /usr/bin/sudo -n /bin/chown -R root:root -- "$runtime_stage"
   /usr/bin/sudo -n /usr/bin/find "$runtime_stage" -type d -exec /bin/chmod 0755 {} +
   /usr/bin/sudo -n /usr/bin/find "$runtime_stage" -type f -exec /bin/chmod 0644 {} +
@@ -294,6 +310,7 @@ fi
   cd "$runtime_target"
   /usr/bin/sha256sum --check --strict SHA256SUMS >/dev/null
 ) || fail '已安装 Feishu 运行时校验失败'
+/bin/rm -rf -- "$release_root/build/feishu-runtime"
 pointer_source="$release_root/feishu-runtime-pointer"
 printf '%s\n' "$runtime_digest" > "$pointer_source"
 install_runtime_pointer() {
