@@ -12,14 +12,20 @@ export interface FeishuServiceResult {
   readonly exitCode: 0 | 1;
 }
 
+export interface FeishuServiceControlPort {
+  start(): Promise<void>;
+  close(): Promise<void>;
+}
+
 const SYSTEM_PROCESS: FeishuServiceProcessPort = {
   on: (signal, listener) => process.on(signal, listener),
   off: (signal, listener) => process.off(signal, listener),
 };
 
-export async function runFeishuService(
-  createRuntime: (onFatal: () => void) => FeishuGatewayRuntimePort,
+export async function runFeishuService<T extends FeishuGatewayRuntimePort>(
+  createRuntime: (onFatal: () => void) => T,
   processPort: FeishuServiceProcessPort = SYSTEM_PROCESS,
+  createControl?: (runtime: T, onFatal: () => void) => FeishuServiceControlPort,
 ): Promise<FeishuServiceResult> {
   let resolveTerminal!: (reason: FeishuServiceResult['reason']) => void;
   let terminalReason: FeishuServiceResult['reason'] | null = null;
@@ -36,13 +42,24 @@ export async function runFeishuService(
   processPort.on('SIGINT', onSigint);
   processPort.on('SIGTERM', onSigterm);
   let runtime: FeishuGatewayRuntimePort | null = null;
+  let control: FeishuServiceControlPort | null = null;
   try {
     runtime = createRuntime(() => requestTerminal('fatal'));
     await runtime.start();
+    control = createControl?.(runtime as T, () => requestTerminal('fatal')) ?? null;
+    await control?.start();
     const reason = await terminal;
-    await runtime.close();
+    const closed = await Promise.allSettled([control?.close(), runtime.close()]);
+    if (closed.some((result) => result.status === 'rejected')) {
+      throw new Error('Feishu service cleanup failed');
+    }
     return { reason, exitCode: reason === 'fatal' ? 1 : 0 };
   } catch (error) {
+    try {
+      await control?.close();
+    } catch {
+      // Runtime cleanup below remains mandatory.
+    }
     try {
       await runtime?.close();
     } catch {

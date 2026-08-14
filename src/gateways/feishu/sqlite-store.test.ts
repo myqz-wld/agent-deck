@@ -17,6 +17,7 @@ const enrolled = {
   openId: 'ou_owner_1',
   credentialId: 'credential_1',
   connectionScope: 'credential_1',
+  replacesCredentialId: null,
   status: 'active' as const,
 };
 
@@ -75,7 +76,10 @@ describe('production metadata-only SQLite store', () => {
     const tables = (db.prepare(
       `SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
     ).all() as Array<{ name: string }>).map((row) => row.name);
-    expect(tables).toEqual(['contexts', 'credentials', 'cursors', 'deliveries', 'health', 'subscriptions']);
+    expect(tables).toEqual([
+      'contexts', 'credentials', 'cursors', 'delete_confirmations', 'deliveries', 'health',
+      'pairing_codes', 'pairing_requests', 'subscriptions',
+    ]);
     db.close();
     expect(readFileSync(path).includes(Buffer.from('private business body'))).toBe(false);
   });
@@ -259,12 +263,14 @@ describe('production metadata-only SQLite store', () => {
       openId: enrolled.openId,
       credentialId: 'credential_other',
       connectionScope: 'credential_other',
+      replacesCredentialId: null,
       status: 'active',
     }])).toThrow(expect.objectContaining({ code: 'identity_conflict' }));
     expect(() => store.reconcileCredentials([{
       openId: 'ou_owner_other',
       credentialId: enrolled.credentialId,
       connectionScope: enrolled.connectionScope,
+      replacesCredentialId: null,
       status: 'active',
     }])).toThrow(expect.objectContaining({ code: 'identity_conflict' }));
     store.close();

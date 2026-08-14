@@ -16,6 +16,8 @@ export type FeishuCommand =
   | { kind: 'runtime-get' }
   | { kind: 'runtime-update'; expectedRevision: number; patch: JsonObject }
   | { kind: 'select'; sessionId: string }
+  | { kind: 'session-delete-confirm'; token: string }
+  | { kind: 'session-delete-prepare' }
   | { kind: 'send'; text: string }
   | { kind: 'sessions'; cursor?: string }
   | { kind: 'subscribe'; subscribed: boolean };
@@ -95,6 +97,15 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
     return { kind: 'history', cursor: stableToken(cursor, 'cursor', 512) };
   }
   if (input === '/pending') return { kind: 'pending' };
+  if (input === '/delete') return { kind: 'session-delete-prepare' };
+  if (input.startsWith('/delete-confirm')) {
+    const [, confirmationToken] = exactArgument(
+      input,
+      /^\/delete-confirm ([A-Za-z0-9_-]{32})$/,
+      '/delete-confirm <confirmation-token>',
+    );
+    return { kind: 'session-delete-confirm', token: confirmationToken };
+  }
   if (input === '/runtime') return { kind: 'runtime-get' };
   if (input.startsWith('/runtime-set')) {
     const [, rawRevision, rawPatch] = exactArgument(
@@ -132,6 +143,8 @@ export const FEISHU_HELP_TEXT = [
   '/runtime — 查看 adapter runtime controls',
   '/runtime-set <revision> <JSON-patch> — 更新 runtime controls',
   '/pending — 查看仍在 pending 的请求',
+  '/delete — 预览并生成当前 session 的删除确认',
+  '/delete-confirm <confirmation-token> — 确认删除当前 session',
   '/subscribe 或 /unsubscribe — 管理当前 session 通知',
 ].join('\n');
 

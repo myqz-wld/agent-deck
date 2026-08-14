@@ -22,7 +22,7 @@ describe('Remote session-console request helpers', () => {
     const request = vi.fn(async () => ({
       session: {
         id: 'session-b', adapterId: 'codex-cli', title: 'Other', status: 'idle',
-        createdAt: 1, updatedAt: 2,
+        archived: false, createdAt: 1, updatedAt: 2,
       },
       revision: 2,
     }));

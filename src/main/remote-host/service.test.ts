@@ -1,123 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  AgentDeckCapability,
-  createPermissionPreviewDisplay,
-  type AgentDeckCapability as Capability,
-  type CoreMethodMap,
-} from '@contracts/index';
+import { createPermissionPreviewDisplay, type CoreMethodMap } from '@contracts/index';
 import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-capabilities.fixture';
-import { ElectronHostRegistry, type ElectronHostClientBinding } from '@hosts/electron';
-import { ControlledClient, deferred, remoteHello, remoteProfile, standaloneProfile } from '@hosts/electron/__tests__/registry-fixture';
-import type { SshConnectionState } from '@clients/ssh';
+import type { ElectronHostClientBinding } from '@hosts/electron';
+import { ControlledClient, deferred, remoteProfile } from '@hosts/electron/__tests__/registry-fixture';
 
-import type { RemoteHostProfileDocument } from './profile-document';
-import { RemoteHostProfileStore, type RemoteHostProfileBackend } from './profile-store';
-import { RemoteHostService } from './service';
 import { remoteHostPendingPresentationDigest } from './pending-response-policy';
 import {
-  MemoryCredentialMaterialStore,
-  testConnectionCredential,
-  testConnectionSelections,
-} from './test-connection-fixture';
-
-class MemoryBackend implements RemoteHostProfileBackend {
-  constructor(public value: RemoteHostProfileDocument) {}
-  read(): unknown { return structuredClone(this.value); }
-  write(value: RemoteHostProfileDocument): void { this.value = structuredClone(value); }
-}
-
-function fullHello(profile: ReturnType<typeof remoteProfile>) {
-  return {
-    ...remoteHello(profile),
-    capabilities: Object.values(AgentDeckCapability) as Capability[],
-  };
-}
-
-function expectedAuthority(profileId: string) {
-  return { authoritativeCoreId: `core-${profileId}`, workerGeneration: null };
-}
-
-function harness(bindings?: ElectronHostClientBinding[]) {
-  const local = standaloneProfile('local');
-  const remote = remoteProfile('server-a', 'full');
-  remote.ssh.identityFile = '/private/keys/desktop-key';
-  remote.ssh.knownHostsFile = '/private/trust/known_hosts';
-  const first = new ControlledClient(fullHello(remote));
-  const queue = bindings ?? [{ client: first }];
-  const registry = new ElectronHostRegistry({
-    appVersion: 'desktop-test',
-    createClient: () => queue.shift() as ElectronHostClientBinding,
-  });
-  const backend = new MemoryBackend({
-    schemaVersion: 4,
-    sourceMode: 'remote',
-    selectedRemoteProfileId: remote.id,
-    profiles: [local, remote],
-  });
-  let generated = 0;
-  const createId = () => `generated-${++generated}`;
-  const connections = testConnectionSelections(createId, (path) => path.includes('relay')
-    ? testConnectionCredential({
-        label: 'Relay', topology: 'relay', instanceId: 'relay-instance',
-        endpoint: { hostname: 'relay.example.test', port: 22, username: 'agentdeck' },
-      })
-    : testConnectionCredential({
-        label: 'Updated Core', instanceId: 'server-a',
-        endpoint: { hostname: 'new-core.example.test', port: 2222, username: 'agentdeck' },
-      }));
-  const materials = new MemoryCredentialMaterialStore();
-  const service = new RemoteHostService({
-    registry,
-    store: new RemoteHostProfileStore(backend, { create: createId }),
-    connections,
-    materials,
-    createId,
-  });
-  return { backend, connections, first, local, materials, registry, remote, service };
-}
-
-function observedHarness(topology: 'relay' | 'full') {
-  const local = standaloneProfile('local');
-  const remote = remoteProfile(`${topology}-observed`, topology);
-  const client = new ControlledClient(fullHello(remote));
-  let observer: ((state: SshConnectionState) => void) | null = null;
-  const registry = new ElectronHostRegistry({
-    appVersion: 'desktop-test',
-    createClient: () => ({
-      client,
-      observeTransport: (listener) => {
-        observer = listener;
-        return { close: vi.fn() };
-      },
-    }),
-  });
-  const backend = new MemoryBackend({
-    schemaVersion: 4,
-    sourceMode: 'remote',
-    selectedRemoteProfileId: remote.id,
-    profiles: [local, remote],
-  });
-  let generated = 0;
-  const createId = () => `observed-${++generated}`;
-  const service = new RemoteHostService({
-    registry,
-    store: new RemoteHostProfileStore(backend, { create: createId }),
-    connections: testConnectionSelections(createId),
-    materials: new MemoryCredentialMaterialStore(),
-    createId,
-  });
-  return {
-    client,
-    emit(state: SshConnectionState): void {
-      if (!observer) throw new Error('transport observer is not installed');
-      observer(state);
-    },
-    registry,
-    remote,
-    service,
-  };
-}
+  expectedAuthority,
+  fullHello,
+  observedRemoteHostServiceHarness as observedHarness,
+  remoteHostServiceHarness as harness,
+} from './service.test-fixture';
 
 describe('RemoteHostService', () => {
   it('redacts paths, client identity, access context, and raw transport errors', async () => {
@@ -260,7 +154,7 @@ describe('RemoteHostService', () => {
     vi.mocked(first.request).mockImplementation((async (method: keyof CoreMethodMap) => {
       switch (method) {
         case 'session.console.get':
-          return { session: { id: 's1', adapterId: 'codex-cli', title: null, status: 'active', createdAt: 1, updatedAt: 2 }, revision: 6 };
+          return { session: { id: 's1', adapterId: 'codex-cli', title: null, status: 'active', archived: false, createdAt: 1, updatedAt: 2 }, revision: 6 };
         case 'session.history':
           return { entries: [{ id: 'h1', sessionId: 's1', sequence: 1, role: 'user', content: 'hello', createdAt: 2 }], nextCursor: null, revision: 7 };
         case 'session.send':

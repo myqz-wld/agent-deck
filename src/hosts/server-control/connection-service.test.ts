@@ -47,7 +47,8 @@ function fixture(topology: 'relay' | 'full') {
   const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
   const gid = typeof process.getgid === 'function' ? process.getgid() : 0;
   const config: ServerControlConfig = {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    appVersion: '0.1.0',
     instanceId: 'instance-a',
     topology,
     authorityFile,

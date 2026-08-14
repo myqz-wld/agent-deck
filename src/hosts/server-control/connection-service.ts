@@ -3,6 +3,7 @@ import {
   prepareRemoteConnectionIssue,
   readTrustedTextFile,
   type CredentialIssueMutation,
+  type PrivateTextOutput,
 } from '@hosts/linux-runtime/connection-credential-issuer';
 import { parseRemoteConnectionCredential } from '@shared/remote-host';
 
@@ -106,17 +107,14 @@ function verifyNext(
   verifyManagedAuthorizedKeys(virtualAuthority(loaded, records, authorizedKeys), config);
 }
 
-function commit(
+export function commitServerConnectionTransaction(
   loaded: LoadedConnectionAuthority,
   authorityNext: string,
   authorizedKeysNext: string,
-  output?: {
-    readonly path: string;
-    readonly text: string;
-    readonly owner?: { readonly uid: number; readonly gid: number };
-  },
+  outputs: readonly PrivateTextOutput[] = [],
+  additionalMutations: readonly CredentialIssueMutation[] = [],
 ): void {
-  const mutations: CredentialIssueMutation[] = [];
+  const mutations: CredentialIssueMutation[] = [...additionalMutations];
   if (authorityNext !== loaded.authorityFile.text) {
     mutations.push({ current: loaded.authorityFile, next: authorityNext });
   }
@@ -126,18 +124,11 @@ function commit(
   if (mutations.length === 0) return;
   commitManagedTextTransaction({
     mutations,
-    ...(output ? {
-      output: {
-        path: output.path,
-        text: output.text,
-        mode: 0o600,
-        ...output.owner,
-      },
-    } : {}),
+    ...(outputs.length > 0 ? { outputs } : {}),
   });
 }
 
-function preparedRecord(input: {
+export function prepareServerConnectionRecord(input: {
   readonly config: ServerControlConfig;
   readonly credentialId: string;
   readonly surface: ServerConnectionSurface;
@@ -216,7 +207,7 @@ export class ServerConnectionService {
     if (loaded.allCredentialIds.has(request.credentialId)) {
       throw new Error('credentialId belongs to a non-client connection');
     }
-    const prepared = preparedRecord({
+    const prepared = prepareServerConnectionRecord({
       config: this.config,
       credentialId: request.credentialId,
       surface: request.surface,
@@ -230,13 +221,14 @@ export class ServerConnectionService {
       renderForcedClientKey(this.config, prepared.record),
     );
     verifyNext(loaded, this.config, records, authorizedKeys);
-    commit(loaded, loaded.encode(records), authorizedKeys, {
+    commitServerConnectionTransaction(loaded, loaded.encode(records), authorizedKeys, [{
       path: request.outputFile,
       text: request.surface === 'desktop'
         ? prepared.issue.encodedCredential
         : prepared.issue.credential.identity.privateKey,
-      owner: outputOwner(this.config, request.surface),
-    });
+      mode: 0o600,
+      ...outputOwner(this.config, request.surface),
+    }]);
     this.verify();
     return this.result('issued', prepared.record, request.outputFile);
   }
@@ -257,7 +249,7 @@ export class ServerConnectionService {
         ? 'already-revoked'
         : 'repaired-revocation';
       verifyNext(loaded, this.config, loaded.records, authorizedKeys);
-      commit(loaded, loaded.authorityFile.text, authorizedKeys);
+      commitServerConnectionTransaction(loaded, loaded.authorityFile.text, authorizedKeys);
       return this.result(status, existing);
     }
     const revoked = Object.freeze({
@@ -268,7 +260,7 @@ export class ServerConnectionService {
     const records = Object.freeze(loaded.records.map((entry) =>
       entry.credentialId === request.credentialId ? revoked : entry));
     verifyNext(loaded, this.config, records, authorizedKeys);
-    commit(loaded, loaded.encode(records), authorizedKeys);
+    commitServerConnectionTransaction(loaded, loaded.encode(records), authorizedKeys);
     this.verify();
     return this.result('revoked', revoked);
   }
@@ -294,7 +286,7 @@ export class ServerConnectionService {
       throw new Error('nextCredentialId is already registered');
     }
     const now = this.now();
-    const prepared = preparedRecord({
+    const prepared = prepareServerConnectionRecord({
       config: this.config,
       credentialId: request.nextCredentialId,
       surface: request.surface,
@@ -318,13 +310,14 @@ export class ServerConnectionService {
       renderForcedClientKey(this.config, prepared.record),
     );
     verifyNext(loaded, this.config, records, authorizedKeys);
-    commit(loaded, loaded.encode(records), authorizedKeys, {
+    commitServerConnectionTransaction(loaded, loaded.encode(records), authorizedKeys, [{
       path: request.outputFile,
       text: request.surface === 'desktop'
         ? prepared.issue.encodedCredential
         : prepared.issue.credential.identity.privateKey,
-      owner: outputOwner(this.config, request.surface),
-    });
+      mode: 0o600,
+      ...outputOwner(this.config, request.surface),
+    }]);
     this.verify();
     return this.result('rotated', prepared.record, request.outputFile, current.credentialId);
   }

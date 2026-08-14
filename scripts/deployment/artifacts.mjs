@@ -15,11 +15,32 @@ const RELEASE_FILES = [
   'resources/bin/agent-deck-relay-health-gate',
   'resources/bin/agent-deck-full-bridge',
   'resources/bin/agent-deck-server',
+  'resources/bin/agent-deck-feishu',
   'deploy/linux/full/agent-deck-full@.container.in',
   'deploy/linux/full/preflight.sh',
   'deploy/linux/relay/agent-deck-relay@.container',
   'deploy/linux/relay/preflight.sh',
   'deploy/linux/relay/Containerfile',
+  'deploy/linux/full/server-control.config.example.json',
+  'deploy/linux/relay/server-control.config.example.json',
+  'deploy/linux/feishu/README.md',
+  'deploy/linux/feishu/config.example.json',
+  'deploy/linux/feishu/core-ssh.example.json',
+  'deploy/linux/feishu/connect.request.example.json',
+  'deploy/linux/feishu/disconnect.request.example.json',
+  'deploy/linux/feishu/credential-rotate.request.example.json',
+  'deploy/linux/feishu/agent-deck-feishu.service',
+  'deploy/linux/feishu/agent-deck-feishu.sysusers',
+  'deploy/linux/feishu/agent-deck-feishu.tmpfiles',
+  'deploy/linux/feishu/preflight.sh',
+  ...['amd64', 'arm64'].flatMap((architecture) => {
+    const basename = `agent-deck-feishu-runtime-linux-${architecture}`;
+    return [
+      `build/feishu-runtime/linux-${architecture}/${basename}.tgz`,
+      `build/feishu-runtime/linux-${architecture}/${basename}.tgz.sha256`,
+      `build/feishu-runtime/linux-${architecture}/${basename}.json`,
+    ];
+  }),
 ];
 
 function managerConfig(config) {
@@ -94,6 +115,7 @@ export async function verifyRepository(config, options = {}) {
     ['bash', ['-n', 'deploy/linux/relay/preflight.sh']],
     ['bash', ['deploy/linux/full/static-check.sh']],
     ['bash', ['deploy/linux/relay/static-check.sh']],
+    ['bash', ['deploy/linux/feishu/static-check.sh']],
     ['bash', ['deploy/linux/manager/static-check.sh']],
   ];
   for (const [command, args] of scripts) {
@@ -108,6 +130,12 @@ export async function verifyRepository(config, options = {}) {
       cwd: config.repoRoot,
       timeoutMs: 300_000,
       maxOutputBytes: 8 * 1024 * 1024,
+      stream: options.stream === true,
+    });
+    await runCommand('/usr/bin/env', ['pnpm', 'build:feishu-runtime'], {
+      cwd: config.repoRoot,
+      timeoutMs: 1_200_000,
+      maxOutputBytes: 16 * 1024 * 1024,
       stream: options.stream === true,
     });
   }

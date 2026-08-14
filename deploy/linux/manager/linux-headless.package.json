@@ -40,7 +40,12 @@
     "providerSupervisorRuntimeMode": "0700",
     "wrapperShell": "/bin/bash",
     "emptyEnvironmentExecutable": "/usr/bin/env",
-    "artifactInspectionExecutables": ["/usr/bin/readlink", "/usr/bin/stat"]
+    "artifactInspectionExecutables": [
+      "/usr/bin/find",
+      "/usr/bin/readlink",
+      "/usr/bin/sha256sum",
+      "/usr/bin/stat"
+    ]
   },
   "installMapping": {
     "bundleRoot": "/opt/agent-deck/linux-headless",
@@ -65,9 +70,17 @@
     "providerSessionSupervisorCommand": "/opt/agent-deck/bin/agent-deck-provider-supervisor",
     "providerSessionSupervisorServiceTemplate": "/opt/agent-deck/share/provider-session/agent-deck-provider-supervisor.service.in",
     "providerSessionSupervisorDarwinTemplate": "Agent Deck.app/Contents/Resources/provider-session/com.agentdeck.provider-supervisor.plist.in",
-    "feishuBundle": "/opt/agent-deck/linux-headless/feishu/index.mjs",
     "feishuCommand": "/opt/agent-deck/bin/agent-deck-feishu",
     "feishuPreflight": "/opt/agent-deck/libexec/agent-deck-feishu-preflight",
+    "feishuRuntimeRoot": "/opt/agent-deck/feishu-runtime",
+    "feishuRuntimePointer": "/opt/agent-deck/feishu-runtime/active",
+    "feishuRuntimeDesiredPointer": "/opt/agent-deck/feishu-runtime/desired",
+    "feishuRuntimeReleasePattern": "/opt/agent-deck/feishu-runtime/releases/<sha256>",
+    "feishuRuntimeArchitectures": ["amd64", "arm64"],
+    "feishuRuntimeNodeVersion": "22.22.3",
+    "feishuRuntimeNodeAbi": 127,
+    "feishuRuntimeBetterSqlite3Version": "11.10.0",
+    "feishuServiceUnit": "/etc/systemd/system/agent-deck-feishu.service",
     "claudeExecutable": "/opt/agent-deck/providers/claude/claude",
     "codexExecutable": "/opt/agent-deck/providers/codex/codex",
     "grokExecutable": "/opt/agent-deck/providers/grok/grok",

@@ -9,6 +9,7 @@ import {
   type FeishuDeliveryRecord,
   type FeishuGatewayBinding,
   type FeishuGatewayStore,
+  type FeishuSessionDeleteConfirmation,
   type FeishuStableSubject,
   type FeishuSubscriptionRecord,
 } from '@gateways/im';
@@ -17,11 +18,16 @@ import {
   SqliteFeishuDeliveryStore,
   type SqliteDeliveryInput,
 } from './sqlite-delivery-store';
+import { SqliteFeishuDeleteConfirmationStore } from './sqlite-delete-confirmation-store';
+import { SqliteFeishuPairingStore } from './sqlite-pairing-store';
 import { validateFeishuConnectionHealth } from './health';
 import type {
   FeishuConfiguredCredential,
   FeishuConnectionHealth,
   FeishuHealthStore,
+  FeishuPairingCodeRecord,
+  FeishuPairingRequestRecord,
+  FeishuPairingStore,
 } from './types';
 
 function secureDatabaseFile(path: string): void {
@@ -62,9 +68,12 @@ function credential(row: Record<string, unknown>): EnrolledFeishuCredential {
   };
 }
 
-export class SqliteFeishuGatewayStore implements FeishuGatewayStore, FeishuHealthStore {
+export class SqliteFeishuGatewayStore implements
+FeishuGatewayStore, FeishuHealthStore, FeishuPairingStore {
   private readonly db: Database.Database;
   private readonly deliveryStore: SqliteFeishuDeliveryStore;
+  private readonly deleteConfirmationStore: SqliteFeishuDeleteConfirmationStore;
+  private readonly pairingStore: SqliteFeishuPairingStore;
 
   constructor(
     databasePath: string,
@@ -88,6 +97,8 @@ export class SqliteFeishuGatewayStore implements FeishuGatewayStore, FeishuHealt
         );
       }
       this.deliveryStore = new SqliteFeishuDeliveryStore(this.db);
+      this.deleteConfirmationStore = new SqliteFeishuDeleteConfirmationStore(this.db);
+      this.pairingStore = new SqliteFeishuPairingStore(this.db, this.binding);
     } catch (error) {
       this.db.close();
       throw error;
@@ -105,8 +116,14 @@ export class SqliteFeishuGatewayStore implements FeishuGatewayStore, FeishuHealt
         UNION SELECT instance_id FROM deliveries WHERE instance_id != ?
         UNION SELECT instance_id FROM cursors WHERE instance_id != ?
         UNION SELECT instance_id FROM health WHERE instance_id != ?
+        UNION SELECT instance_id FROM pairing_codes WHERE instance_id != ?
+        UNION SELECT instance_id FROM pairing_requests WHERE instance_id != ?
+        UNION SELECT instance_id FROM delete_confirmations WHERE instance_id != ?
         LIMIT 1
       `).get(
+        this.binding.instanceId,
+        this.binding.instanceId,
+        this.binding.instanceId,
         this.binding.instanceId,
         this.binding.instanceId,
         this.binding.instanceId,
@@ -115,11 +132,13 @@ export class SqliteFeishuGatewayStore implements FeishuGatewayStore, FeishuHealt
       if (foreignState) {
         throw new FeishuGatewayError('invalid_configuration', 'Stored instance binding is invalid');
       }
-      const rows = this.db.prepare(`SELECT * FROM credentials`).all() as Record<string, unknown>[];
+      let rows = this.db.prepare(`SELECT * FROM credentials`).all() as Record<string, unknown>[];
       if (rows.some((row) =>
         row.app_id !== this.binding.appId || row.tenant_key !== this.binding.tenantKey ||
         row.instance_id !== this.binding.instanceId || row.topology !== this.binding.topology
       )) throw new FeishuGatewayError('invalid_configuration', 'Stored credential binding is invalid');
+      this.rotateConfiguredCredential(rows, configured);
+      rows = this.db.prepare(`SELECT * FROM credentials`).all() as Record<string, unknown>[];
       const configuredIds = new Set(configured.map((item) => item.credentialId));
       for (const row of rows) {
         if (!configuredIds.has(row.credential_id as string)) {
@@ -130,11 +149,47 @@ export class SqliteFeishuGatewayStore implements FeishuGatewayStore, FeishuHealt
     }).immediate();
   }
 
+  private rotateConfiguredCredential(
+    rows: readonly Record<string, unknown>[],
+    configured: readonly FeishuConfiguredCredential[],
+  ): void {
+    if (configured.length !== 1 || configured[0]?.status !== 'active') return;
+    const next = configured[0];
+    if (rows.some((row) => row.credential_id === next.credentialId)) return;
+    const active = rows.filter((row) => row.status === 'active');
+    if (active.length !== 1) return;
+    const current = active[0];
+    if (
+      next.replacesCredentialId !== current.credential_id ||
+      next.openId !== current.open_id
+    ) {
+      throw new FeishuGatewayError(
+        'identity_conflict',
+        'Credential replacement does not match the durable active identity',
+      );
+    }
+    this.db.prepare(`
+      UPDATE credentials SET credential_id = ?, connection_scope = ?
+      WHERE instance_id = ? AND credential_id = ? AND status = 'active'
+    `).run(
+      next.credentialId,
+      next.connectionScope,
+      this.binding.instanceId,
+      current.credential_id,
+    );
+    this.db.prepare(`
+      UPDATE deliveries SET credential_id = ?
+      WHERE instance_id = ? AND credential_id = ?
+    `).run(next.credentialId, this.binding.instanceId, current.credential_id);
+    this.db.prepare(`
+      UPDATE pairing_requests SET credential_id = ?
+      WHERE instance_id = ? AND credential_id = ?
+    `).run(next.credentialId, this.binding.instanceId, current.credential_id);
+  }
+
   private upsertCredential(item: FeishuConfiguredCredential): void {
-    const byIdentity = this.resolveCredential({
-      appId: this.binding.appId,
-      tenantKey: this.binding.tenantKey,
-      openId: item.openId,
+    const byIdentity = item.openId === null ? null : this.resolveCredential({
+      appId: this.binding.appId, tenantKey: this.binding.tenantKey, openId: item.openId,
     });
     const byId = this.db.prepare(
       `SELECT * FROM credentials WHERE instance_id = ? AND credential_id = ?`,
@@ -145,7 +200,7 @@ export class SqliteFeishuGatewayStore implements FeishuGatewayStore, FeishuHealt
         byIdentity.connectionScope !== item.connectionScope
       )) ||
       (byId && (
-        byId.open_id !== item.openId ||
+        (item.openId !== null && byId.open_id !== null && byId.open_id !== item.openId) ||
         byId.connection_scope !== item.connectionScope
       ))
     ) throw new FeishuGatewayError('identity_conflict', 'Credential enrollment conflicts with durable identity');
@@ -154,8 +209,8 @@ export class SqliteFeishuGatewayStore implements FeishuGatewayStore, FeishuHealt
         app_id, tenant_key, open_id, instance_id, credential_id, connection_scope,
         topology, status, authority
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'owner-equivalent')
-      ON CONFLICT(app_id, tenant_key, open_id) DO UPDATE SET
-        connection_scope = excluded.connection_scope,
+      ON CONFLICT(instance_id, credential_id) DO UPDATE SET
+        open_id = CASE WHEN excluded.open_id IS NULL THEN credentials.open_id ELSE excluded.open_id END,
         status = excluded.status
     `).run(
       this.binding.appId,
@@ -188,7 +243,7 @@ export class SqliteFeishuGatewayStore implements FeishuGatewayStore, FeishuHealt
 
   listActiveCredentials(): readonly EnrolledFeishuCredential[] {
     return (this.db.prepare(
-      `SELECT * FROM credentials WHERE status = 'active' ORDER BY credential_id`,
+      `SELECT * FROM credentials WHERE status = 'active' AND open_id IS NOT NULL ORDER BY credential_id`,
     ).all() as Record<string, unknown>[]).map(credential);
   }
 
@@ -349,6 +404,50 @@ export class SqliteFeishuGatewayStore implements FeishuGatewayStore, FeishuHealt
         value.instanceId, value.credentialId, value.chatId, value.revision, value.updatedAt,
       );
     }).immediate();
+  }
+
+  createDeleteConfirmation(value: FeishuSessionDeleteConfirmation) {
+    return this.deleteConfirmationStore.create(value);
+  }
+
+  claimDeleteConfirmation(input: Parameters<FeishuGatewayStore['claimDeleteConfirmation']>[0]) {
+    return this.deleteConfirmationStore.claim(input);
+  }
+
+  releaseDeleteConfirmation(i: string, c: string, e: string, at: number): boolean {
+    return this.deleteConfirmationStore.release(i, c, e, at);
+  }
+
+  completeDeleteConfirmation(i: string, c: string, e: string, at: number): boolean {
+    return this.deleteConfirmationStore.complete(i, c, e, at);
+  }
+
+  getDeleteConfirmation(instanceId: string, confirmationId: string) {
+    return this.deleteConfirmationStore.get(instanceId, confirmationId);
+  }
+
+  pruneDeleteConfirmations(terminalBefore: number, now: number): number {
+    return this.deleteConfirmationStore.prune(terminalBefore, now);
+  }
+
+  createPairingCode(value: FeishuPairingCodeRecord) {
+    return this.pairingStore.createPairingCode(value);
+  }
+
+  consumePairingCode(input: Parameters<FeishuPairingStore['consumePairingCode']>[0]) {
+    return this.pairingStore.consumePairingCode(input);
+  }
+
+  listPairingRequests(status?: FeishuPairingRequestRecord['status']) {
+    return this.pairingStore.listPairingRequests(status);
+  }
+
+  decidePairingRequest(requestId: string, decision: 'approve' | 'reject', now: number) {
+    return this.pairingStore.decidePairingRequest(requestId, decision, now);
+  }
+
+  prunePairingMetadata(terminalBefore: number, now: number): number {
+    return this.pairingStore.prunePairingMetadata(terminalBefore, now);
   }
 
   pruneDeliveries(terminalBefore: number): number {

@@ -71,7 +71,7 @@ describe('SessionConsoleCoreDispatcher', () => {
       listSessions: () => ({
         sessions: [{
           id: 'session-1', adapterId: 'codex-cli', title: null, status: 'idle',
-          createdAt: 1, updatedAt: 2, cwd: '/private/workspace',
+          archived: false, createdAt: 1, updatedAt: 2, cwd: '/private/workspace',
         }],
         nextCursor: null,
         total: 1,

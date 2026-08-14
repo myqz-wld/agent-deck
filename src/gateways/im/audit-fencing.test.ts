@@ -114,7 +114,7 @@ describe('callback deadline and delivery generation fencing', () => {
     resolveList({
       sessions: [{
         id: 'session-1', adapterId: 'codex-cli', title: 'Session', status: 'idle',
-        createdAt: 1, updatedAt: 2,
+        archived: false, createdAt: 1, updatedAt: 2,
       }],
       nextCursor: null,
       total: 1,

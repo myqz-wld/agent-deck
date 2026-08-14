@@ -181,6 +181,12 @@ Render `server-control.config.example.json` and `connection-issue.request.exampl
 root-owned mode-0600 files before running the command. The Relay process polls the same authority
 file and applies credential issue/revoke/rotate changes fail-closed without a manual restart.
 
+The same installed Server CLI owns the Feishu sidecar lifecycle; the Worker never receives its
+connection directory or Feishu identity. After the Relay is healthy, follow
+`/opt/agent-deck/share/feishu/README.md` for the complete `feishu` command flow. The Server release
+installs the dedicated digest-pinned native runtime and service templates but does not enable the
+bot before `feishu connect` succeeds.
+
 Transfer each file only to its intended machine over an authenticated private channel and delete
 the transfer copy after terminal configuration or Electron import. One Relay accepts one active
 Worker identity and any number of independently revocable Client identities; deploy another

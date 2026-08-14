@@ -7,6 +7,7 @@ export * from './health';
 export * from './long-connection';
 export * from './mapper';
 export * from './nonce';
+export * from './pairing-event-handler';
 export * from './runtime';
 export * from './sdk';
 export * from './source-registry';

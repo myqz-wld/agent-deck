@@ -204,7 +204,7 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     expect(first).toEqual({
       sessions: [{
         id: 'live-a', adapterId: 'claude-code', title: 'title live-a',
-        status: 'active-idle', createdAt: 10, updatedAt: 20,
+        status: 'active-idle', archived: false, createdAt: 10, updatedAt: 20,
       }],
       nextCursor: 'v1:live:1',
       total: 2,

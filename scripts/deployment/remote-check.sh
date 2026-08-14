@@ -23,7 +23,9 @@ instance_id=${5:-}
 
 for executable in /usr/bin/node /usr/bin/podman /usr/bin/sudo /usr/bin/systemctl \
   /usr/bin/loginctl /usr/bin/install /usr/bin/tar /usr/bin/stat /usr/bin/readlink \
-  /usr/bin/mktemp /usr/bin/find /usr/bin/sed /usr/bin/sort /usr/bin/id /usr/bin/env; do
+  /usr/bin/mktemp /usr/bin/find /usr/bin/sed /usr/bin/sort /usr/bin/id /usr/bin/env \
+  /usr/bin/uname /usr/bin/sha256sum /usr/bin/cut /usr/bin/systemd-sysusers \
+  /usr/bin/systemd-tmpfiles; do
   [[ -x "$executable" && ! -L "$executable" ]] || fail "缺少非符号链接可执行文件 $executable"
 done
 /usr/bin/sudo -n true || fail 'SSH 管理用户缺少免交互 sudo'

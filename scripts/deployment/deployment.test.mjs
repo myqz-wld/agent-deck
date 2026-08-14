@@ -281,6 +281,16 @@ describe('deployment automation contracts', () => {
     }
   });
 
+  it('installs Feishu runtime releases through separate desired and active digest pointers', async () => {
+    const install = await readFile(join(repoRoot, 'scripts/deployment/remote-install.sh'), 'utf8');
+    const verify = await readFile(join(repoRoot, 'scripts/deployment/remote-verify.sh'), 'utf8');
+    expect(install).toContain('install_runtime_pointer desired');
+    expect(install).toContain('if [[ ! -e /opt/agent-deck/feishu-runtime/active ]]');
+    expect(install).toContain('/usr/bin/sha256sum --check --strict SHA256SUMS');
+    expect(verify).toContain('/opt/agent-deck/feishu-runtime/desired');
+    expect(verify).toContain('agent-deck-feishu check-abi');
+  });
+
   it('rejects a Worker workspace inside the Agent Deck repository', async () => {
     const root = await temporaryRoot();
     const credentialFile = join(root, 'worker.agentdeck-connection');

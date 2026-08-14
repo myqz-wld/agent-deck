@@ -9,7 +9,8 @@ import {
 } from '@hosts/linux-runtime/validation';
 
 export interface ServerControlConfig {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
+  readonly appVersion: string;
   readonly instanceId: string;
   readonly topology: RemoteHostRemoteTopology;
   readonly authorityFile: string;
@@ -48,6 +49,7 @@ export function parseServerControlConfig(value: unknown): ServerControlConfig {
   const object = requireObject(value, 'server control config');
   assertExactKeys(object, [
     'authorityFile',
+    'appVersion',
     'authorizedKeysFile',
     'endpoint',
     'feishuIdentityOwner',
@@ -56,7 +58,7 @@ export function parseServerControlConfig(value: unknown): ServerControlConfig {
     'schemaVersion',
     'topology',
   ], 'server control config');
-  if (object.schemaVersion !== 1) {
+  if (object.schemaVersion !== 2) {
     throw new Error('server control schemaVersion is unsupported');
   }
   if (object.topology !== 'relay' && object.topology !== 'full') {
@@ -86,7 +88,8 @@ export function parseServerControlConfig(value: unknown): ServerControlConfig {
     throw new Error('relayRuntimeUid does not match topology');
   }
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: 2,
+    appVersion: boundedText(object.appVersion, 'server control appVersion', 128),
     instanceId: requireLinuxInstanceId(object.instanceId),
     topology: object.topology,
     authorityFile: requireAbsolutePath(object.authorityFile, 'authorityFile'),

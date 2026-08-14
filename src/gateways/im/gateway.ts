@@ -139,6 +139,7 @@ export class FeishuSessionConsoleGateway {
   private async startOpen(): Promise<void> {
     assertStoreBoundToGateway(this.store, this.binding);
     this.store.pruneDeliveries(Math.max(0, this.clock.now() - this.limits.deliveryRetentionMs));
+    this.store.pruneDeleteConfirmations(Math.max(0, this.clock.now() - 86_400_000), this.clock.now());
     const contexts = this.store.listContexts();
     const chatCount = new Set(
       contexts.map((context) => `${context.credentialId}\u001f${context.chatId}`),

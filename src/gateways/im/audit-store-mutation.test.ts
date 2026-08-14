@@ -267,7 +267,7 @@ describe('credential recheck at Core mutation boundaries', () => {
     release({
       session: {
         id: 'session-1', adapterId: 'codex-cli', title: 'Session', status: 'idle',
-        createdAt: 1, updatedAt: 2,
+        archived: false, createdAt: 1, updatedAt: 2,
       },
       revision: 10,
     });

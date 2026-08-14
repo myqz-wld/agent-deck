@@ -12,7 +12,7 @@ import { createFeishuSshClientFactory } from './client-factory';
 import { parseFeishuCoreSshConfig } from './config';
 
 const GATEWAY: FeishuProductionConfig = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   topology: 'full',
   instanceId: 'tenant-a',
   appId: 'cli_1234567890abcdef',
@@ -20,11 +20,13 @@ const GATEWAY: FeishuProductionConfig = {
   stateDirectory: '/var/lib/agent-deck/feishu',
   appSecretFile: '/etc/agent-deck/feishu/app-secret',
   actionSecretFile: '/etc/agent-deck/feishu/action-secret',
+  managementSocketPath: '/run/agent-deck-feishu/control.sock',
   credentials: [
     {
       openId: 'open-a',
       credentialId: 'feishu-credential-a',
       connectionScope: 'scope-feishu-credential-a',
+      replacesCredentialId: null,
       status: 'active',
     },
   ],

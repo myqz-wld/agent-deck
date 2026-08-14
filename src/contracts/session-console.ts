@@ -35,6 +35,7 @@ export interface SessionConsoleSummaryDto {
   adapterId: string;
   title: string | null;
   status: string;
+  archived: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -185,7 +186,7 @@ export function parseSessionConsoleSummary(value: unknown): SessionConsoleSummar
   if (!isJsonObject(value)) fail('session');
   exactKeys(
     value,
-    ['adapterId', 'createdAt', 'id', 'status', 'title', 'updatedAt'],
+    ['adapterId', 'archived', 'createdAt', 'id', 'status', 'title', 'updatedAt'],
     'session',
   );
   return {
@@ -195,6 +196,9 @@ export function parseSessionConsoleSummary(value: unknown): SessionConsoleSummar
       ? null
       : text(value.title, 'session.title', SESSION_CONSOLE_MAX_TITLE_BYTES),
     status: token(value.status, 'session.status', SESSION_CONSOLE_MAX_ALIAS_BYTES),
+    archived: typeof value.archived === 'boolean'
+      ? value.archived
+      : fail('session.archived'),
     createdAt: revision(value.createdAt, 'session.createdAt'),
     updatedAt: revision(value.updatedAt, 'session.updatedAt'),
   };

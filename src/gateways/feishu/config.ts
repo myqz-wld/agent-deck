@@ -18,10 +18,12 @@ import type {
 const CONFIG_FIELDS = [
   'actionSecretFile', 'appId', 'appSecretFile', 'callbackWindowMs', 'credentials',
   'handshakeTimeoutMs', 'instanceId', 'pendingPresentationLifetimeMs',
-  'pingTimeoutSeconds', 'reconnectTimeoutMs', 'schemaVersion', 'shutdownTimeoutMs',
+  'managementSocketPath', 'pingTimeoutSeconds', 'reconnectTimeoutMs', 'schemaVersion', 'shutdownTimeoutMs',
   'startupTimeoutMs', 'stateDirectory', 'tenantKey', 'topology',
 ] as const;
-const CREDENTIAL_FIELDS = ['connectionScope', 'credentialId', 'openId', 'status'] as const;
+const CREDENTIAL_FIELDS = [
+  'connectionScope', 'credentialId', 'openId', 'replacesCredentialId', 'status',
+] as const;
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@/$-]*$/;
 const APP_ID = /^cli_[0-9a-fA-F]{16}$/;
 const INSTANCE_ID = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -126,30 +128,38 @@ function parseCredential(value: unknown): FeishuConfiguredCredential {
   exact(record, CREDENTIAL_FIELDS, 'credential');
   if (!['active', 'revoked'].includes(String(record.status))) fail('Credential status is invalid');
   const credentialId = token(record.credentialId, 'credential.credentialId');
+  const replacesCredentialId = record.replacesCredentialId === null
+    ? null
+    : token(record.replacesCredentialId, 'credential.replacesCredentialId');
+  if (replacesCredentialId === credentialId) {
+    fail('Credential replacement source must differ from credentialId');
+  }
   return {
-    openId: token(record.openId, 'credential.openId'),
+    openId: record.openId === null ? null : token(record.openId, 'credential.openId'),
     credentialId,
     connectionScope: token(record.connectionScope, 'credential.connectionScope'),
+    replacesCredentialId,
     status: record.status as FeishuConfiguredCredential['status'],
   };
 }
 
-function parseConfig(value: unknown): FeishuProductionConfig {
+export function parseFeishuProductionConfig(value: unknown): FeishuProductionConfig {
   const record = object(value, 'config');
   exact(record, CONFIG_FIELDS, 'config');
-  if (record.schemaVersion !== 2) {
+  if (record.schemaVersion !== 3) {
     fail('Config schemaVersion is unsupported');
   }
   const topology = record.topology === 'full' || record.topology === 'relay'
     ? record.topology
     : null;
   if (topology === null) fail('Topology is invalid');
-  if (!Array.isArray(record.credentials) || record.credentials.length > 1_000) {
+  if (!Array.isArray(record.credentials) || record.credentials.length !== 1) {
     fail('Credentials are outside the production bound');
   }
   const credentials = record.credentials.map(parseCredential);
   if (
-    new Set(credentials.map((item) => item.openId)).size !== credentials.length ||
+    new Set(credentials.filter((item) => item.openId !== null).map((item) => item.openId)).size !==
+      credentials.filter((item) => item.openId !== null).length ||
     new Set(credentials.map((item) => item.credentialId)).size !== credentials.length ||
     new Set(credentials.map((item) => item.connectionScope)).size !== credentials.length
   ) fail('Credential enrollment contains duplicates');
@@ -162,12 +172,13 @@ function parseConfig(value: unknown): FeishuProductionConfig {
   const stateDirectory = String(record.stateDirectory);
   const appSecretFile = String(record.appSecretFile);
   const actionSecretFile = String(record.actionSecretFile);
+  const managementSocketPath = String(record.managementSocketPath);
   if (
-    ![stateDirectory, appSecretFile, actionSecretFile].every(isAbsolute) ||
+    ![stateDirectory, appSecretFile, actionSecretFile, managementSocketPath].every(isAbsolute) ||
     new Set([appSecretFile, actionSecretFile]).size !== 2
   ) fail('Production paths must be absolute and distinct');
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     topology: topology as FeishuProductionTopology,
     instanceId,
     appId,
@@ -175,6 +186,7 @@ function parseConfig(value: unknown): FeishuProductionConfig {
     stateDirectory,
     appSecretFile,
     actionSecretFile,
+    managementSocketPath,
     credentials,
     callbackWindowMs: duration(
       record.callbackWindowMs,
@@ -199,7 +211,7 @@ export function loadFeishuProductionConfig(path: string): FeishuProductionConfig
   const bytes = protectedFile(path, 65_536);
   try {
     try {
-      return parseConfig(JSON.parse(bytes.toString('utf8')));
+      return parseFeishuProductionConfig(JSON.parse(bytes.toString('utf8')));
     } catch (error) {
       if (error instanceof FeishuGatewayError) throw error;
       return fail('Production config is not valid JSON');

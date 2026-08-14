@@ -25,6 +25,7 @@ import {
 } from './render';
 import { truncateUtf8 } from './redaction';
 import { assertAdapterOwnedRuntimePatch } from './runtime-policy';
+import { FeishuSessionDeleteController } from './session-delete';
 import type {
   ConnectedFeishuClient,
   EnrolledFeishuCredential,
@@ -54,8 +55,11 @@ function selectedSession(context: FeishuChatContext): string {
 
 export class FeishuCommandExecutor {
   private readonly subscriptionTails = new Map<string, Promise<void>>();
+  private readonly deleteController: FeishuSessionDeleteController;
 
-  constructor(private readonly options: FeishuCommandExecutorOptions) {}
+  constructor(private readonly options: FeishuCommandExecutorOptions) {
+    this.deleteController = new FeishuSessionDeleteController(options);
+  }
 
   async execute(
     command: FeishuCommand,
@@ -223,6 +227,18 @@ export class FeishuCommandExecutor {
         updatedAt: this.options.now(),
       });
       return { text: `已创建并选择 session ${sessionId}`, revision };
+    }
+    if (command.kind === 'session-delete-prepare') {
+      return this.deleteController.prepare(event, credential, context, connected, remaining);
+    }
+    if (command.kind === 'session-delete-confirm') {
+      return this.deleteController.confirm(
+        command.token,
+        event,
+        credential,
+        connected,
+        remaining,
+      );
     }
 
     const sessionId = selectedSession(context);

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { FeishuGatewayError } from '@gateways/im';
 
-export const FEISHU_METADATA_SCHEMA_VERSION = 3;
+export const FEISHU_METADATA_SCHEMA_VERSION = 4;
 
 const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   credentials: [
@@ -25,21 +25,34 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = Object.freeze
   health: [
     'instance_id', 'state', 'generation', 'reconnect_attempts', 'last_error_code', 'updated_at',
   ],
+  pairing_codes: [
+    'instance_id', 'code_id', 'code_hash', 'status', 'expires_at', 'created_at',
+    'consumed_at', 'consumed_event_id',
+  ],
+  pairing_requests: [
+    'instance_id', 'request_id', 'code_id', 'app_id', 'tenant_key', 'open_id', 'chat_id',
+    'display_name', 'status', 'credential_id', 'expires_at', 'created_at', 'decided_at',
+  ],
+  delete_confirmations: [
+    'instance_id', 'confirmation_id', 'token_hash', 'credential_id', 'chat_id', 'open_id',
+    'session_id', 'expected_archived', 'expected_updated_at', 'status', 'claim_event_id',
+    'claim_expires_at', 'expires_at', 'created_at', 'updated_at',
+  ],
 });
 
 const CURRENT_SCHEMA = `
 CREATE TABLE credentials (
   app_id TEXT NOT NULL,
   tenant_key TEXT NOT NULL,
-  open_id TEXT NOT NULL,
+  open_id TEXT,
   instance_id TEXT NOT NULL,
   credential_id TEXT NOT NULL,
   connection_scope TEXT NOT NULL,
   topology TEXT NOT NULL CHECK (topology IN ('relay', 'full')),
   status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
   authority TEXT NOT NULL CHECK (authority = 'owner-equivalent'),
-  PRIMARY KEY (app_id, tenant_key, open_id),
-  UNIQUE (instance_id, credential_id),
+  PRIMARY KEY (instance_id, credential_id),
+  UNIQUE (app_id, tenant_key, open_id),
   UNIQUE (instance_id, connection_scope)
 ) STRICT;
 CREATE TABLE contexts (
@@ -52,7 +65,7 @@ CREATE TABLE contexts (
   chat_type TEXT NOT NULL CHECK (chat_type IN ('group', 'p2p')),
   PRIMARY KEY (instance_id, credential_id, chat_id),
   FOREIGN KEY (instance_id, credential_id)
-    REFERENCES credentials(instance_id, credential_id) ON DELETE CASCADE
+    REFERENCES credentials(instance_id, credential_id) ON UPDATE CASCADE ON DELETE CASCADE
 ) STRICT;
 CREATE TABLE subscriptions (
   instance_id TEXT NOT NULL,
@@ -63,7 +76,7 @@ CREATE TABLE subscriptions (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (instance_id, credential_id, chat_id, session_id),
   FOREIGN KEY (instance_id, credential_id, chat_id)
-    REFERENCES contexts(instance_id, credential_id, chat_id) ON DELETE CASCADE
+    REFERENCES contexts(instance_id, credential_id, chat_id) ON UPDATE CASCADE ON DELETE CASCADE
 ) STRICT;
 CREATE TABLE deliveries (
   instance_id TEXT NOT NULL,
@@ -90,7 +103,7 @@ CREATE TABLE cursors (
   updated_at INTEGER NOT NULL,
   PRIMARY KEY (instance_id, credential_id, chat_id),
   FOREIGN KEY (instance_id, credential_id, chat_id)
-    REFERENCES contexts(instance_id, credential_id, chat_id) ON DELETE CASCADE
+    REFERENCES contexts(instance_id, credential_id, chat_id) ON UPDATE CASCADE ON DELETE CASCADE
 ) STRICT;
 CREATE TABLE health (
   instance_id TEXT PRIMARY KEY,
@@ -100,7 +113,59 @@ CREATE TABLE health (
   last_error_code TEXT,
   updated_at INTEGER NOT NULL
 ) STRICT;
-PRAGMA user_version = 3;
+CREATE TABLE pairing_codes (
+  instance_id TEXT NOT NULL,
+  code_id TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('active', 'consumed', 'expired')),
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  consumed_at INTEGER,
+  consumed_event_id TEXT,
+  PRIMARY KEY (instance_id, code_id),
+  UNIQUE (instance_id, code_hash)
+) STRICT;
+CREATE TABLE pairing_requests (
+  instance_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  code_id TEXT NOT NULL,
+  app_id TEXT NOT NULL,
+  tenant_key TEXT NOT NULL,
+  open_id TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  display_name TEXT,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'expired', 'rejected')),
+  credential_id TEXT,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  decided_at INTEGER,
+  PRIMARY KEY (instance_id, request_id),
+  UNIQUE (instance_id, code_id),
+  FOREIGN KEY (instance_id, code_id)
+    REFERENCES pairing_codes(instance_id, code_id) ON DELETE RESTRICT
+) STRICT;
+CREATE TABLE delete_confirmations (
+  instance_id TEXT NOT NULL,
+  confirmation_id TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  credential_id TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  open_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  expected_archived INTEGER NOT NULL CHECK (expected_archived IN (0, 1)),
+  expected_updated_at INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'executing', 'completed', 'expired')),
+  claim_event_id TEXT,
+  claim_expires_at INTEGER,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (instance_id, confirmation_id),
+  UNIQUE (instance_id, token_hash),
+  FOREIGN KEY (instance_id, credential_id)
+    REFERENCES credentials(instance_id, credential_id) ON UPDATE CASCADE ON DELETE CASCADE
+) STRICT;
+PRAGMA user_version = 4;
 `;
 
 function schemaFingerprint(database: Database.Database): string {

@@ -6,9 +6,12 @@ import type {
   FeishuCursorRecord,
   FeishuDeliveryRecord,
   FeishuGatewayStore,
+  FeishuSessionDeleteClaim,
+  FeishuSessionDeleteConfirmation,
   FeishuStableSubject,
   FeishuSubscriptionRecord,
 } from './types';
+import { InMemoryFeishuDeleteConfirmationStore } from './delete-confirmation-store';
 
 function subjectKey(subject: FeishuStableSubject): string {
   return `${subject.appId}\u001f${subject.tenantKey}\u001f${subject.openId}`;
@@ -49,6 +52,29 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
   private readonly subscriptions = new Map<string, FeishuSubscriptionRecord>();
   private readonly deliveries = new Map<string, FeishuDeliveryRecord>();
   private readonly cursors = new Map<string, FeishuCursorRecord>();
+  private readonly deleteConfirmations = new InMemoryFeishuDeleteConfirmationStore(
+    (confirmation) => {
+      const key = contextKey(
+        confirmation.instanceId,
+        confirmation.credentialId,
+        confirmation.chatId,
+      );
+      const context = this.contexts.get(key);
+      if (context?.activeSessionId === confirmation.sessionId) {
+        this.contexts.set(key, {
+          ...context,
+          activeSessionId: null,
+          updatedAt: confirmation.updatedAt,
+        });
+      }
+      this.subscriptions.delete(subscriptionKey(
+        confirmation.instanceId,
+        confirmation.credentialId,
+        confirmation.chatId,
+        confirmation.sessionId,
+      ));
+    },
+  );
 
   enroll(credential: EnrolledFeishuCredential): void {
     const key = subjectKey(credential);
@@ -414,6 +440,33 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
     this.cursors.set(key, { ...cursor });
   }
 
+  createDeleteConfirmation(confirmation: FeishuSessionDeleteConfirmation) {
+    return this.deleteConfirmations.create(confirmation);
+  }
+
+  claimDeleteConfirmation(input: Parameters<FeishuGatewayStore['claimDeleteConfirmation']>[0]):
+  FeishuSessionDeleteClaim {
+    return this.deleteConfirmations.claim(input);
+  }
+
+  releaseDeleteConfirmation(instanceId: string, confirmationId: string, eventId: string,
+    updatedAt: number): boolean {
+    return this.deleteConfirmations.release(instanceId, confirmationId, eventId, updatedAt);
+  }
+
+  completeDeleteConfirmation(instanceId: string, confirmationId: string, eventId: string,
+    updatedAt: number): boolean {
+    return this.deleteConfirmations.complete(instanceId, confirmationId, eventId, updatedAt);
+  }
+
+  getDeleteConfirmation(instanceId: string, confirmationId: string) {
+    return this.deleteConfirmations.get(instanceId, confirmationId);
+  }
+
+  pruneDeleteConfirmations(terminalBefore: number, now: number): number {
+    return this.deleteConfirmations.prune(terminalBefore, now);
+  }
+
   pruneDeliveries(terminalBefore: number): number {
     if (!Number.isSafeInteger(terminalBefore) || terminalBefore < 0) {
       throw new FeishuGatewayError('invalid_configuration', 'Delivery retention cutoff is invalid');
@@ -440,6 +493,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
       subscriptions: [...this.subscriptions.values()],
       deliveries: [...this.deliveries.values()],
       cursors: [...this.cursors.values()],
+      deleteConfirmations: this.deleteConfirmations.values(),
     });
   }
 }

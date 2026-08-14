@@ -1,0 +1,11 @@
+{
+  "name": "agent-deck-feishu-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": "22.22.3"
+  },
+  "dependencies": {
+    "better-sqlite3": "11.10.0"
+  }
+}

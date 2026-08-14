@@ -16,6 +16,7 @@ const enrolled = {
   openId: 'ou_owner_1',
   credentialId: 'credential_1',
   connectionScope: 'credential_1',
+  replacesCredentialId: null,
   status: 'active' as const,
 };
 

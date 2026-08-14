@@ -4,6 +4,7 @@ import { loadFeishuProductionConfig } from '@gateways/feishu/config';
 import type { FeishuAuditSink } from '@gateways/feishu/types';
 
 import { createFeishuSshClientFactory } from './client-factory';
+import { FeishuManagementServer } from './management-server';
 import { runFeishuService } from './service';
 import {
   assertFeishuCoreSshTrustFiles,
@@ -46,12 +47,25 @@ async function run(argv: readonly string[]): Promise<number> {
   preflightNodeNativeSqlite();
   await assertFeishuCoreSshTrustFiles(ssh);
   const { createLoadedFeishuRuntime } = await import('@gateways/feishu/runtime');
-  return (await runFeishuService((onFatal) => createLoadedFeishuRuntime(gateway, {
-    appVersion: ssh.appVersion,
-    clientFactory,
-    auditSink,
-    onFatal,
-  }))).exitCode;
+  return (await runFeishuService(
+    (onFatal) => createLoadedFeishuRuntime(gateway, {
+      appVersion: ssh.appVersion,
+      clientFactory,
+      auditSink,
+      onFatal,
+    }),
+    undefined,
+    (runtime, onFatal) => new FeishuManagementServer({
+      socketPath: gateway.managementSocketPath,
+      instanceId: gateway.instanceId,
+      topology: gateway.topology,
+      target: runtime.managementTarget(),
+      coreStatus: () => runtime.coreStatus(),
+      verifyCore: () => runtime.verifyCore(),
+      now: () => Date.now(),
+      onFatal,
+    }),
+  )).exitCode;
 }
 
 const entrypointArgv = process.argv.slice(2);
