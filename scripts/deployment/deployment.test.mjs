@@ -292,6 +292,9 @@ describe('deployment automation contracts', () => {
     expect(install).toContain('install_runtime_pointer desired');
     expect(install).toContain('if [[ ! -e /opt/agent-deck/feishu-runtime/active ]]');
     expect(install).toContain('/usr/bin/sha256sum --check --strict SHA256SUMS');
+    expect(install).toContain('/bin/rm -f -- "$archive"');
+    expect(install).toContain('-C "$runtime_stage"');
+    expect(install).not.toContain('runtime_extract');
     expect(verify).toContain('/opt/agent-deck/feishu-runtime/desired');
     expect(verify).toContain('agent-deck-feishu check-abi');
   });
