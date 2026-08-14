@@ -7,14 +7,11 @@ import {
 } from './version';
 
 describe('protocol version negotiation', () => {
-  it('advertises Remote session reactivation as protocol 2.6', () => {
-    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 6 });
+  it('advertises canonical Server access claims as protocol 2.7', () => {
+    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 7 });
   });
-  it('selects the lower additive minor version for the same major', () => {
-    expect(negotiateProtocolVersion({ major: 1, minor: 2 }, { major: 1, minor: 5 })).toEqual({
-      major: 1,
-      minor: 2,
-    });
+  it('accepts only one exact protocol contract', () => {
+    expect(negotiateProtocolVersion({ major: 2, minor: 7 })).toEqual({ major: 2, minor: 7 });
   });
 
   it('rejects a major mismatch before ordinary calls', () => {
@@ -27,9 +24,9 @@ describe('protocol version negotiation', () => {
     );
   });
 
-  it('rejects clients older than the configured compatible minor floor', () => {
+  it('rejects minor skew before ordinary calls', () => {
     expect(() =>
-      negotiateProtocolVersion({ major: 1, minor: 1 }, { major: 1, minor: 4 }, 2),
-    ).toThrowError('older than the host minimum');
+      negotiateProtocolVersion({ major: 2, minor: 6 }, { major: 2, minor: 7 }),
+    ).toThrowError('Protocol version mismatch');
   });
 });

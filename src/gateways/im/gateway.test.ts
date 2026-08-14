@@ -80,7 +80,8 @@ describe('FeishuSessionConsoleGateway identity and chat state', () => {
       openId: 'open-2',
       instanceId: 'instance-1',
       credentialId: 'credential-2',
-      topology: 'server-core',
+      connectionScope: 'credential-2',
+      topology: 'full',
       status: 'active',
       authority: 'owner-equivalent',
     });
@@ -134,7 +135,7 @@ describe('FeishuSessionConsoleGateway identity and chat state', () => {
       const client = new FakeCoreClient(input);
       client.hello.access = {
         ...client.hello.access,
-        accessCredentialId: 'wrong-credential',
+        connectionScope: 'wrong-credential',
       } as typeof client.hello.access;
       return client;
     };
@@ -203,14 +204,14 @@ describe('Feishu session-console methods', () => {
       instanceId: 'instance-1',
       credentialId: 'credential-1',
       clientId: 'client-1',
-      topology: 'server-core' as const,
+      topology: 'full' as const,
     };
     const client = new FakeCoreClient(input, []);
     expect(() => assertFeishuMethod(client.hello, 'system.health')).toThrowError(
-      /outside the fixed Feishu/,
+      /outside the Server-issued Feishu grant/,
     );
     expect(() => assertFeishuMethod(client.hello, 'session.list')).toThrowError(
-      /outside the fixed Feishu/,
+      /outside the Server-issued Feishu grant/,
     );
     expect(() => assertFeishuMethod(client.hello, 'session.console.list')).toThrowError(
       /does not advertise/,

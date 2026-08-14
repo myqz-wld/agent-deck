@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type {
-  AuthenticatedClientAccessContext,
-  CoreMethod,
-  JsonObject,
-  JsonValue,
+import {
+  issueRemoteOwnerGrantClaim,
+  type AuthenticatedClientAccessContext,
+  type CoreMethod,
+  type JsonObject,
+  type JsonValue,
 } from '@contracts/index';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import type {
@@ -16,9 +17,10 @@ import type { SessionRecord } from '@shared/types';
 import { ServerCoreSessionHistoryMutationRuntime } from './session-history-mutation-runtime';
 
 const desktop: AuthenticatedClientAccessContext = {
-  kind: 'authenticated-client', topology: 'server-core', instanceId: 'instance-a',
-  clientId: 'desktop-a', transport: 'ssh', accessCredentialId: 'credential-a',
-  authority: 'owner-equivalent', surface: 'desktop-full',
+  kind: 'authenticated-client', topology: 'full', instanceId: 'instance-a',
+  clientId: 'desktop-a', transport: 'ssh', connectionScope: 'credential-a',
+  authority: 'owner-equivalent', surface: 'desktop',
+  grant: issueRemoteOwnerGrantClaim('desktop'),
 };
 
 function request(
@@ -179,15 +181,16 @@ describe('ServerCoreSessionHistoryMutationRuntime', () => {
     expect(state.metadata.releaseMutationClaim).toHaveBeenCalledOnce();
   });
 
-  it('denies the Feishu surface before claiming an intent', async () => {
+  it('allows Feishu session deletion through the same idempotent grant', async () => {
     const state = harness(record());
     const feishu = {
       ...desktop, clientId: 'feishu-a', transport: 'feishu' as const,
-      surface: 'feishu-session-console' as const,
+      surface: 'feishu' as const,
+      grant: issueRemoteOwnerGrantClaim('feishu'),
     };
     await expect(Promise.resolve().then(() => state.runtime.execute(request('session.delete', {
       sessionId: 'session-a', expectedArchived: false, expectedUpdatedAt: 2,
-    }, 'intent-feishu', feishu)))).rejects.toMatchObject({ code: 'access_denied' });
-    expect(state.metadata.claimMutation).not.toHaveBeenCalled();
+    }, 'intent-feishu', feishu)))).resolves.toBeDefined();
+    expect(state.metadata.claimMutation).toHaveBeenCalledOnce();
   });
 });

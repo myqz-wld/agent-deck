@@ -32,7 +32,7 @@ export function claimServerCoreMutation(
     );
   }
   const identity: ServerCoreMutationIdentity = {
-    accessCredentialId: input.access.accessCredentialId,
+    connectionScope: input.access.connectionScope,
     accessSurface: input.access.surface,
     idempotencyKey: input.idempotencyKey,
     method: input.method,

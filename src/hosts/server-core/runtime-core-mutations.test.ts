@@ -264,7 +264,7 @@ describe('ServerCoreDaemonRuntime mutations and subscriptions', () => {
       result: { subscribed: true, revision: 1 }, revision: 1,
     });
     await runtime.execute(request);
-    expect(metadata.subscriptions.get('credential-a:desktop-full:session-a')).toBe(true);
+    expect(metadata.subscriptions.get('credential-a:desktop:session-a')).toBe(true);
     expect(metadata.changes).toHaveLength(1);
   });
 });

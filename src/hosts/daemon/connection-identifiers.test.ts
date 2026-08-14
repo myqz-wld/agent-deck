@@ -30,7 +30,7 @@ describe('daemon protocol identifier validation', () => {
     const now = 10_000;
     const host = createHost(
       createRuntime({
-        supportedMethods: ['system.health', 'session.create'],
+        supportedMethods: ['session.console.list', 'session.send'],
         execute,
       }),
       {},
@@ -44,7 +44,7 @@ describe('daemon protocol identifier validation', () => {
 
     stream.feed({ ...request('revision-none'), expectedRevision: 1 });
     stream.feed({
-      ...request('idempotency-too-long', 'session.create'),
+      ...request('idempotency-too-long', 'session.send'),
       idempotencyKey: 'é'.repeat(257),
     });
     for (const requestId of ['revision-none', 'idempotency-too-long']) {

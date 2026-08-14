@@ -5,7 +5,7 @@ export * from './current-api-classification';
 export * from './desktop-broker';
 export * from './mcp-presentation';
 export * from './json';
-export * from './method-surface';
+export * from './grant-policy';
 export * from './methods';
 export * from './node-configuration';
 export * from './node-assets';

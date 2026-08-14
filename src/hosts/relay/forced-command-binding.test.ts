@@ -6,7 +6,7 @@ const flags = {
   '--instance': 'instance-a',
   '--credential': 'credential-a',
   '--worker': 'worker-a',
-  '--surface': 'desktop-full',
+  '--surface': 'desktop',
   '--socket': '/run/user/1001/agent-deck-relay/instance-a/control.sock',
 };
 
@@ -14,7 +14,7 @@ describe('Relay forced-command binding', () => {
   it('binds Worker identity and the exact host-visible per-instance socket', () => {
     expect(resolveRelayForcedCommandBinding('worker', flags, 1001)).toEqual({
       admission: {
-        version: 1,
+        version: 2,
         topology: 'relay',
         role: 'worker',
         instanceId: 'instance-a',
@@ -40,14 +40,15 @@ describe('Relay forced-command binding', () => {
   it('binds the provisioned Feishu surface independently from a desktop key', () => {
     expect(resolveRelayForcedCommandBinding('client', {
       ...flags,
-      '--surface': 'feishu-session-console',
+      '--surface': 'feishu',
     }, 1001).admission).toEqual({
-      version: 1,
+      version: 2,
       topology: 'relay',
       role: 'client',
       instanceId: 'instance-a',
       credentialId: 'credential-a',
-      surface: 'feishu-session-console',
+      connectionScope: expect.stringMatching(/^scope-/u),
+      surface: 'feishu',
     });
   });
 

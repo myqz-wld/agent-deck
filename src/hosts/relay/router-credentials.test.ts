@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import {
+  issueRemoteOwnerGrantClaim,
+  type RemoteOwnerGrantClaim,
+} from '@contracts/index';
+import { deriveConnectionScope } from '@hosts/linux-runtime/connection-scope';
+
 import { RelayMetadataStore, type CredentialMetadata } from './metadata';
 import { emptyRoutePayload, type RelayRouteFrame } from '@protocol/relay';
 import { RelayRouterError, RelayStreamRouter } from './router';
@@ -37,8 +43,9 @@ function frame(
     payload: kind === 'data' ? new Uint8Array([7]) : emptyRoutePayload(),
     creditBytes: null,
     resetCode: null,
-    accessCredentialId: null,
+    connectionScope: null,
     accessSurface: null,
+    accessGrant: null,
   };
 }
 
@@ -179,7 +186,7 @@ describe('Relay live credential enforcement', () => {
       router.registerClient(
         'wrong-surface',
         'feishu-credential-a',
-        'desktop-full',
+        'desktop',
       ),
     ).toThrowError(expect.objectContaining<Partial<RelayRouterError>>({
       code: 'credential_invalid',
@@ -188,7 +195,7 @@ describe('Relay live credential enforcement', () => {
     router.registerClient(
       'feishu-client-a',
       'feishu-credential-a',
-      'feishu-session-console',
+      'feishu',
     );
     expect(router.routeFromClient(
       'feishu-client-a',
@@ -197,8 +204,8 @@ describe('Relay live credential enforcement', () => {
     expect(router.drainWorker()?.frames).toEqual([
       expect.objectContaining({
         kind: 'open',
-        accessCredentialId: 'feishu-credential-a',
-        accessSurface: 'feishu-session-console',
+        connectionScope: deriveConnectionScope('instance-a', 'feishu-credential-a'),
+        accessSurface: 'feishu',
       }),
     ]);
   });
@@ -209,7 +216,7 @@ describe('Relay live credential enforcement', () => {
     router.registerClient(
       'feishu-client-a',
       'feishu-credential-a',
-      'feishu-session-console',
+      'feishu',
     );
     metadata.put('credentials', credential('feishu-credential-a', 'ssh-client'));
 
@@ -220,5 +227,53 @@ describe('Relay live credential enforcement', () => {
     expect(router.takeClientDisconnects()).toEqual([
       { clientId: 'feishu-client-a', reason: 'resync_required' },
     ]);
+  });
+
+  it('fences active and queued streams when the Server grant revision changes', () => {
+    const metadata = new RelayMetadataStore();
+    metadata.put('instances', {
+      id: 'instance-a',
+      instanceId: 'instance-a',
+      topology: 'relay',
+      createdAt: 0,
+    });
+    metadata.put('credentials', credential('worker-credential-a', 'relay-worker'));
+    metadata.put('credentials', credential('client-credential-a', 'ssh-client'));
+    let grant: RemoteOwnerGrantClaim = issueRemoteOwnerGrantClaim('desktop');
+    const router = new RelayStreamRouter(
+      'instance-a',
+      metadata,
+      undefined,
+      0,
+      () => grant,
+    );
+    expect(router.attachWorker({
+      type: 'attach',
+      instanceId: 'instance-a',
+      workerId: 'worker-a',
+      credentialId: 'worker-credential-a',
+      mode: 'register',
+      generation: null,
+      expectedGeneration: null,
+    }, 'connection-1', 1).accepted).toBe(true);
+    router.registerClient('client-a', 'client-credential-a');
+    router.routeFromClient(
+      'client-a',
+      frame('client-to-worker', 'grant-reduced', 0, 'open'),
+    );
+
+    grant = Object.freeze({
+      ...grant,
+      policyRevision: grant.policyRevision + 1,
+      productMethods: Object.freeze(grant.productMethods.slice(1)),
+    });
+
+    expect(router.drainWorkerFor('connection-1')?.frames).toEqual([
+      expect.objectContaining({ kind: 'reset', resetCode: 'cancelled' }),
+    ]);
+    expect(router.takeClientDisconnects()).toEqual([
+      { clientId: 'client-a', reason: 'resync_required' },
+    ]);
+    expect(router.streamCount()).toBe(0);
   });
 });

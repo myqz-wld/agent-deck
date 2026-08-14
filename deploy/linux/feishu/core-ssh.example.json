@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "topology": "relay",
   "instanceId": "replace-with-authoritative-instance-id",
   "appVersion": "0.1.0",
@@ -11,6 +11,7 @@
   "credentials": [
     {
       "credentialId": "replace-with-core-credential-id",
+      "connectionScope": "replace-with-connection-scope-from-server",
       "identityFile": "/etc/agent-deck-feishu/core-credential.key"
     }
   ]

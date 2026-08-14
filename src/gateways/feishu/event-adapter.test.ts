@@ -52,7 +52,7 @@ function fixture(handle: (event: unknown) => Promise<FeishuCallbackResult>) {
     appId: APP_ID,
     tenantKey: TENANT_KEY,
     instanceId: 'instance_1',
-    topology: 'server-core',
+    topology: 'full',
   }, {
     now: () => NOW,
     setTimer: () => ({ cancel: () => undefined }),

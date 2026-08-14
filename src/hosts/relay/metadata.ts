@@ -168,7 +168,7 @@ export interface RouteMetadata {
   instanceId: string;
   routeId: string;
   accessCredentialId: string;
-  accessSurface: 'desktop-full' | 'feishu-session-console';
+  accessSurface: 'desktop' | 'feishu';
   workerId: string;
   generation: number;
   status: 'open' | 'closed' | 'fenced';
@@ -318,7 +318,7 @@ function validateRow(table: RelayMetadataTable, value: unknown): RelayMetadataRo
         throw new RelayMetadataError('routes.id must equal routeId');
       }
       stableTokenField(value, 'accessCredentialId');
-      enumField(value, 'accessSurface', ['desktop-full', 'feishu-session-console']);
+      enumField(value, 'accessSurface', ['desktop', 'feishu']);
       stableTokenField(value, 'workerId');
       integerField(value, 'generation', 1);
       enumField(value, 'status', ['open', 'closed', 'fenced']);
@@ -436,7 +436,7 @@ export class RelayMetadataStore {
   }
 
   exportSnapshot(): string {
-    return JSON.stringify({ version: 1, tables: this.tables });
+    return JSON.stringify({ version: 2, tables: this.tables });
   }
 
   static fromSnapshot(snapshot: string): RelayMetadataStore {
@@ -448,7 +448,7 @@ export class RelayMetadataStore {
         error instanceof Error ? error.message : 'Relay metadata snapshot is invalid JSON',
       );
     }
-    if (!isRecord(decoded) || decoded.version !== 1 || !isRecord(decoded.tables)) {
+    if (!isRecord(decoded) || decoded.version !== 2 || !isRecord(decoded.tables)) {
       throw new RelayMetadataError('Relay metadata snapshot has an invalid envelope');
     }
     const envelopeFields = new Set(['version', 'tables']);

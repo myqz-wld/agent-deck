@@ -1,23 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { AuthenticatedClientAccessContext } from '@contracts/index';
+import {
+  issueRemoteOwnerAccessContext,
+  type AuthenticatedClientAccessContext,
+} from '@contracts/index';
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
 import type { AuthoritativeSessionConsolePort } from '@core/session-console';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 
 import { SessionConsoleDaemonRuntime } from './session-console-runtime';
 
-function access(topology: 'server-core' | 'relay'): AuthenticatedClientAccessContext {
-  return {
-    kind: 'authenticated-client',
+function access(topology: 'full' | 'relay'): AuthenticatedClientAccessContext {
+  return issueRemoteOwnerAccessContext({
     topology,
     instanceId: 'instance-a',
     clientId: 'client-a',
-    transport: 'ssh',
-    accessCredentialId: 'credential-a',
-    authority: 'owner-equivalent',
-    surface: 'desktop-full',
-  };
+    connectionScope: 'credential-a',
+    surface: 'desktop',
+  });
 }
 
 function authority(): AuthoritativeSessionConsolePort {
@@ -45,7 +45,7 @@ function authority(): AuthoritativeSessionConsolePort {
 function request(
   method: DaemonRequestInput['method'],
   params: DaemonRequestInput['params'],
-  topology: 'server-core' | 'relay',
+  topology: 'full' | 'relay',
 ): DaemonRequestInput {
   return {
     access: access(topology),
@@ -60,7 +60,7 @@ function request(
 }
 
 describe('SessionConsoleDaemonRuntime', () => {
-  it.each(['server-core', 'relay'] as const)(
+  it.each(['full', 'relay'] as const)(
     'injects the same cwd-free authoritative surface for %s access',
     async (topology) => {
       const execute = vi.fn(async () => ({ result: null, revision: 2 }));
@@ -73,10 +73,14 @@ describe('SessionConsoleDaemonRuntime', () => {
       };
       const runtime = new SessionConsoleDaemonRuntime(base, authority());
 
-      await expect(runtime.execute(request('project.resolve', { alias: 'a' }, topology)))
+      await expect(runtime.execute(request('project.list', { limit: 10 }, topology)))
         .resolves.toEqual({
           result: {
-            project: { projectId: 'project-a', projectRef: 'opaque-a', alias: 'a', title: 'A' },
+            projects: [{
+              projectId: 'project-a', projectRef: 'opaque-a', alias: 'a', title: 'A',
+            }],
+            nextCursor: null,
+            total: 1,
             revision: 4,
           },
           revision: 4,
@@ -98,7 +102,7 @@ describe('SessionConsoleDaemonRuntime', () => {
     };
     const runtime = new SessionConsoleDaemonRuntime(base, authority());
     expect(runtime.subscribe).toBeUndefined();
-    await expect(runtime.execute(request('system.health', {}, 'server-core')))
+    await expect(runtime.execute(request('system.health', {}, 'full')))
       .resolves.toEqual({ result: { ok: true }, revision: 2 });
     expect(runtime.supportedMethods).toContain('session.console.create');
     expect(runtime.supportedMethods).toContain('session.console.capabilities');
@@ -119,7 +123,7 @@ describe('SessionConsoleDaemonRuntime', () => {
     await expect(runtime.execute(request(
       'session.console.list',
       { limit: 10, cwd: '/private' } as never,
-      'server-core',
+      'full',
     ))).rejects.toMatchObject({ message: 'Request rejected' });
     expect(listSessions).not.toHaveBeenCalled();
   });

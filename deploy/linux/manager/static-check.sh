@@ -78,7 +78,7 @@ if grep -Eq 'options\.(systemd|podman)\?\.environment' "$adapter_root/production
 fi
 
 full_key="$repo_root/deploy/linux/full/authorized-client-key-options.txt"
-for surface in desktop-full feishu-session-console; do
+for surface in desktop feishu; do
   grep -Fq "command=\"/opt/agent-deck/bin/agent-deck-full-bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface $surface\"" "$full_key" ||
     fail "Full SSH key must dispatch through the exact host Podman bridge for $surface"
 done

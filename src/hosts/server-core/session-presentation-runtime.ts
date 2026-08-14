@@ -6,7 +6,7 @@ import {
   PENDING_INDEX_MAX_REQUESTS_PER_PAGE,
   SESSION_PRESENTATION_MAX_CONTEXT_ROWS,
   SESSION_PRESENTATION_MAX_TEXT_BYTES,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   parsePendingIndexListParams,
   parsePendingIndexListResult,
   parseSessionPresentationListParams,
@@ -191,7 +191,7 @@ function projectSession(
   };
 }
 
-/** Desktop-only typed list and aggregate Pending projection. */
+/** Remote-owner typed list and aggregate Pending projection. */
 export class ServerCoreSessionPresentationRuntime implements DaemonCoreRuntime {
   readonly supportedMethods: readonly CoreMethod[];
   readonly subscribe?: DaemonCoreRuntime['subscribe'];
@@ -217,7 +217,7 @@ export class ServerCoreSessionPresentationRuntime implements DaemonCoreRuntime {
 
   execute(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     if (!isPresentationMethod(input.method)) return this.base.execute(input);
-    if (!isCoreMethodAllowed(input.access.surface, input.method)) {
+    if (!isCoreMethodGranted(input.access, input.method)) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Request rejected');
     }
     if (input.signal.aborted) {

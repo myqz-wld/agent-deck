@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   parseProjectListResult,
+  issueRemoteOwnerGrantClaim,
   type AuthenticatedClientAccessContext,
 } from '@contracts/index';
 import type { DaemonInstancePaths } from '@hosts/daemon';
@@ -59,13 +60,14 @@ function input(base: string, runtimeOptions: ServerCoreRuntimeFactoryInput['runt
 
 const access: AuthenticatedClientAccessContext = {
   kind: 'authenticated-client',
-  topology: 'server-core',
+  topology: 'full',
   instanceId: INSTANCE_ID,
   clientId: 'desktop-a',
   transport: 'ssh',
-  accessCredentialId: 'credential-a',
+  connectionScope: 'credential-a',
   authority: 'owner-equivalent',
-  surface: 'desktop-full',
+  surface: 'desktop',
+  grant: issueRemoteOwnerGrantClaim('desktop'),
 };
 
 afterEach(() => {
@@ -84,7 +86,7 @@ describe('concrete Server Core runtime composition', () => {
     );
     projectedProvider.mcpHttpEnabled = false;
     writeFileSync(join(providerHome, LOCAL_WORKER_DESKTOP_STATE_PATH), JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       providerSettings: projectedProvider,
       sessionLifecycle: {
         schemaVersion: 1,
@@ -155,11 +157,11 @@ describe('concrete Server Core runtime composition', () => {
     const credentialFile = join(secretDirectory, 'credentials.json');
     mkdirSync(secretDirectory, { recursive: true, mode: 0o700 });
     writeFileSync(credentialFile, JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       instanceId: INSTANCE_ID,
       credentials: [{
         credentialId: 'credential-a',
-        surface: 'desktop-full',
+        surface: 'desktop',
         status: 'active',
       }],
     }), { mode: 0o600 });
@@ -198,7 +200,7 @@ describe('concrete Server Core runtime composition', () => {
         instanceId: INSTANCE_ID,
         processId: PROCESS_ID,
         accessCredentialId: 'credential-a',
-        accessSurface: 'desktop-full',
+        accessSurface: 'desktop',
       },
       signal: new AbortController().signal,
     })).resolves.toBe(true);

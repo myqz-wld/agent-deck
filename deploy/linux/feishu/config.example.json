@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "topology": "relay",
   "instanceId": "replace-with-authoritative-instance-id",
   "appId": "cli_0000000000000000",
@@ -11,6 +11,7 @@
     {
       "openId": "ou_replace_with_stable_open_id",
       "credentialId": "replace-with-core-credential-id",
+      "connectionScope": "replace-with-connection-scope-from-server",
       "status": "active"
     }
   ],

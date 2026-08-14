@@ -1,6 +1,6 @@
 import {
   AgentDeckClientErrorCode,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   isJsonValue,
   parseDesktopBrokerNextParams,
   parseDesktopBrokerRespondParams,
@@ -63,7 +63,7 @@ export class ServerCoreDesktopBrokerRuntime implements DaemonCoreRuntime {
 
   async execute(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     if (!isDesktopBrokerMethod(input.method)) return this.base.execute(input);
-    if (!isCoreMethodAllowed(input.access.surface, input.method)) {
+    if (!isCoreMethodGranted(input.access, input.method)) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Request rejected');
     }
     if (input.signal.aborted) {

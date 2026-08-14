@@ -13,9 +13,9 @@ export interface SshHostProfile {
   username: string;
   identityFile: string;
   knownHostsFile: string;
-  accessSurface?: 'desktop-full' | 'feishu-session-console';
+  accessSurface?: 'desktop' | 'feishu';
   expectedInstanceId?: string;
-  expectedAccessCredentialId?: string;
+  expectedConnectionScope?: string;
   hostKeyAlias?: string;
   hostKeyFingerprint?: string;
   sshBinary?: string;

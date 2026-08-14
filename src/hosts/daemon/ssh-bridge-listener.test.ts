@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import type { Duplex } from 'node:stream';
 
 import { encodeBridgeAdmission, encodeJsonFrame } from '@protocol/index';
+import { deriveConnectionScope } from '@hosts/linux-runtime/connection-scope';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -34,15 +35,16 @@ class FakeListener implements DaemonListener {
 
 function coalescedClientBytes(
   credentialId = 'ssh-credential-a',
-  surface: 'desktop-full' | 'feishu-session-console' = 'desktop-full',
+  surface: 'desktop' | 'feishu' = 'desktop',
   clientId = 'desktop-bridge',
 ): Uint8Array {
   const admission = encodeBridgeAdmission({
-    version: 1,
-    topology: 'server-core',
+    version: 2,
+    topology: 'full',
     role: 'client',
     instanceId: 'tenant-a',
     credentialId,
+    connectionScope: deriveConnectionScope('tenant-a', credentialId),
     surface,
   });
   const clientHello = encodeJsonFrame(hello(clientId));
@@ -75,7 +77,7 @@ describe('daemon SSH forced-command admission', () => {
         instanceId: 'tenant-a',
         access: {
           clientId: 'desktop-bridge',
-          accessCredentialId: 'ssh-credential-a',
+          connectionScope: deriveConnectionScope('tenant-a', 'ssh-credential-a'),
           authority: 'owner-equivalent',
         },
       },
@@ -107,12 +109,13 @@ describe('daemon SSH forced-command admission', () => {
     listener.connect(mismatch);
     mismatch.feedBytes(
       encodeBridgeAdmission({
-        version: 1,
-        topology: 'server-core',
+        version: 2,
+        topology: 'full',
         role: 'client',
         instanceId: 'tenant-b',
         credentialId: 'ssh-credential-b',
-        surface: 'desktop-full',
+        connectionScope: deriveConnectionScope('tenant-b', 'ssh-credential-b'),
+        surface: 'desktop',
       }),
     );
     await waitFor(() => mismatch.destroyed, 'mismatched admission close');
@@ -137,22 +140,22 @@ describe('daemon SSH forced-command admission', () => {
     listener.connect(stream);
     stream.feedBytes(coalescedClientBytes(
       'feishu-credential-a',
-      'feishu-session-console',
+      'feishu',
       'feishu-client-a',
     ));
 
     await waitFor(() => Boolean(findMessage(stream, 'hello-result')), 'Feishu bridge hello');
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({
       credentialId: 'feishu-credential-a',
-      surface: 'feishu-session-console',
+      surface: 'feishu',
     }));
     expect(findMessage(stream, 'hello-result')).toMatchObject({
       hello: {
         access: {
           clientId: 'feishu-client-a',
-          accessCredentialId: 'feishu-credential-a',
+          connectionScope: deriveConnectionScope('tenant-a', 'feishu-credential-a'),
           transport: 'feishu',
-          surface: 'feishu-session-console',
+          surface: 'feishu',
         },
       },
     });

@@ -4,8 +4,8 @@ import { parseFeishuCoreSshConfig } from './config';
 
 function validConfig() {
   return {
-    schemaVersion: 1,
-    topology: 'server-core',
+    schemaVersion: 2,
+    topology: 'full',
     instanceId: 'tenant-a',
     appVersion: '0.1.0',
     hostname: 'core.example.test',
@@ -16,6 +16,7 @@ function validConfig() {
     credentials: [
       {
         credentialId: 'feishu-credential-a',
+        connectionScope: 'scope-feishu-credential-a',
         identityFile: '/etc/agent-deck/feishu/credential-a.key',
       },
     ],
@@ -31,6 +32,25 @@ describe('Feishu Core SSH config', () => {
     expect(() => parseFeishuCoreSshConfig({ ...validConfig(), instanceId: 'Tenant-A' })).toThrow(
       'lowercase Linux instance label',
     );
+  });
+
+  it('rejects retired schema and topology spellings', () => {
+    const current = validConfig();
+    const legacy = {
+      ...current,
+      schemaVersion: 1,
+      topology: 'server-core',
+      credentials: current.credentials.map(({ connectionScope: _scope, ...entry }) => entry),
+    };
+
+    expect(() => parseFeishuCoreSshConfig(legacy)).toThrow('schemaVersion');
+    expect(() => parseFeishuCoreSshConfig({ ...legacy, topology: 'full' })).toThrow(
+      'schemaVersion',
+    );
+    expect(() => parseFeishuCoreSshConfig({
+      ...current,
+      topology: 'server-core',
+    })).toThrow('topology');
   });
 
   it('rejects ambiguous identities and unsafe OpenSSH profile values', () => {

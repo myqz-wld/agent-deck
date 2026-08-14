@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { issueRemoteOwnerGrantClaim } from '@contracts/index';
+import { deriveConnectionScope } from '@hosts/linux-runtime/connection-scope';
 
 import {
   encodeWorkerWireMessage,
@@ -125,8 +127,9 @@ describe('restricted Worker attachment peer', () => {
       payload: emptyRoutePayload(),
       creditBytes: null,
       resetCode: null,
-      accessCredentialId: null,
+      connectionScope: null,
       accessSurface: null,
+      accessGrant: null,
     };
     router.routeFromClient('client-a', open);
     router.routeFromClient('client-a', {
@@ -141,8 +144,9 @@ describe('restricted Worker attachment peer', () => {
     const decoder = new WorkerWireDecoder();
     const authorizedOpen = {
       ...open,
-      accessCredentialId: 'client-credential-a',
-      accessSurface: 'desktop-full' as const,
+      connectionScope: deriveConnectionScope('instance-a', 'client-credential-a'),
+      accessSurface: 'desktop' as const,
+      accessGrant: issueRemoteOwnerGrantClaim('desktop'),
     };
     expect(delivered.flatMap((chunk) => decoder.push(chunk))).toEqual([
       { type: 'route', frame: authorizedOpen },
@@ -164,16 +168,18 @@ describe('restricted Worker attachment peer', () => {
       payload: emptyRoutePayload(),
       creditBytes: null,
       resetCode: null,
-      accessCredentialId: null,
+      connectionScope: null,
       accessSurface: null,
+      accessGrant: null,
     };
     router.routeFromClient('client-a', open);
     const wireBytes = workerWireMessageBytes({
       type: 'route',
       frame: {
         ...open,
-        accessCredentialId: 'client-credential-a',
-        accessSurface: 'desktop-full',
+        connectionScope: deriveConnectionScope('instance-a', 'client-credential-a'),
+        accessSurface: 'desktop',
+        accessGrant: issueRemoteOwnerGrantClaim('desktop'),
       },
     });
     expect(peer.drain(wireBytes - 1)).toEqual([]);

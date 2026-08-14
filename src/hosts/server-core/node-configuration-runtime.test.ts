@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type {
-  AuthenticatedClientAccessContext,
-  CoreMethod,
-  JsonValue,
-  NodeConfigurationAdapterId,
-  NodeHookProjectionState,
+import {
+  issueRemoteOwnerGrantClaim,
+  type AuthenticatedClientAccessContext,
+  type CoreMethod,
+  type JsonValue,
+  type NodeConfigurationAdapterId,
+  type NodeHookProjectionState,
 } from '@contracts/index';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import type { AgentAdapter } from '@main/adapters/types';
@@ -17,13 +18,14 @@ import { resolveServerCoreSessionLifecycleSettings } from './session-lifecycle-o
 
 const access: AuthenticatedClientAccessContext = {
   kind: 'authenticated-client',
-  topology: 'server-core',
+  topology: 'full',
   instanceId: 'instance-a',
   clientId: 'desktop-a',
   transport: 'ssh',
-  accessCredentialId: 'credential-a',
+  connectionScope: 'credential-a',
   authority: 'owner-equivalent',
-  surface: 'desktop-full',
+  surface: 'desktop',
+  grant: issueRemoteOwnerGrantClaim('desktop'),
 };
 
 function base(): DaemonCoreRuntime {

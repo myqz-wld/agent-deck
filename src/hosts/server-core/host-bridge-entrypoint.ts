@@ -32,7 +32,7 @@ async function run(argv: readonly string[]): Promise<void> {
 }
 
 function requireClientSurface(value: string): BridgeClientSurface {
-  if (value !== 'desktop-full' && value !== 'feishu-session-console') {
+  if (value !== 'desktop' && value !== 'feishu') {
     throw new Error('Server Core client surface is invalid');
   }
   return value;

@@ -1,11 +1,11 @@
 import {
   AgentDeckClientErrorCode,
-  type AuthenticatedClientAccessContext,
 } from '@contracts/index';
 
 import { DaemonRequestError } from './types';
+import type { DaemonConnectionCredential } from './types';
 
-export type DaemonClientAccessSurface = AuthenticatedClientAccessContext['surface'];
+export type DaemonClientAccessSurface = DaemonConnectionCredential['surface'];
 
 export interface DaemonCredentialIdentity {
   readonly instanceId: string;
@@ -71,8 +71,8 @@ function validIdentity(identity: unknown): identity is DaemonCredentialIdentity 
     typeof identity.accessCredentialId === 'string' &&
     identity.accessCredentialId.length > 0 &&
     'accessSurface' in identity &&
-    (identity.accessSurface === 'desktop-full' ||
-      identity.accessSurface === 'feishu-session-console')
+    (identity.accessSurface === 'desktop' ||
+      identity.accessSurface === 'feishu')
   );
 }
 
@@ -224,9 +224,9 @@ export class DaemonCredentialRegistry {
 
   register(
     connection: DaemonCredentialIndexedConnection,
-    access: AuthenticatedClientAccessContext,
+    credential: DaemonConnectionCredential,
   ): void {
-    const key = identityKey(this.identity(access.accessCredentialId, access.surface));
+    const key = identityKey(this.identity(credential.credentialId, credential.surface));
     if (!this.active || this.revokedKeys.has(key)) throw revoked();
     const previous = this.reverse.get(connection);
     if (previous && previous !== key) throw revoked();

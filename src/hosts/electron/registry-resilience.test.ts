@@ -90,7 +90,7 @@ describe('ElectronHostRegistry resilience boundaries', () => {
 
   it('validates HostHello locally and isolates state/selection/event observers', async () => {
     const invalidProfile = standaloneProfile('invalid');
-    const invalidRemote = remoteProfile('different', 'server-core');
+    const invalidRemote = remoteProfile('different', 'full');
     const invalidClient = new ControlledClient(remoteHello(invalidRemote));
     const invalidRegistry = new ElectronHostRegistry({
       appVersion: 'desktop-test',

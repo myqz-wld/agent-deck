@@ -6,7 +6,7 @@ import type { SshHostProfile } from './types';
 const PROFILE: Readonly<SshHostProfile> = Object.freeze({
   id: 'remote-a',
   label: 'Remote A',
-  topology: 'server-core',
+  topology: 'full',
   hostname: 'remote.example.test',
   port: 22,
   username: 'agentdeck',

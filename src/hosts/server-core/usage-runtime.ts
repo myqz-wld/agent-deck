@@ -1,6 +1,6 @@
 import {
   AgentDeckClientErrorCode,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   isJsonValue,
   parseUsageProviderParams,
   parseUsageProviderResult,
@@ -64,7 +64,7 @@ function localDay(now: Date): string {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
-/** Desktop-only token ledger and provider quota reads for the authoritative Core. */
+/** Remote-owner token ledger and provider quota reads for the authoritative Core. */
 export class ServerCoreUsageRuntime implements DaemonCoreRuntime {
   readonly supportedMethods: readonly CoreMethod[];
   readonly subscribe?: DaemonCoreRuntime['subscribe'];
@@ -96,7 +96,7 @@ export class ServerCoreUsageRuntime implements DaemonCoreRuntime {
 
   async execute(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     if (!usageMethod(input.method)) return this.base.execute(input);
-    if (!isCoreMethodAllowed(input.access.surface, input.method)) {
+    if (!isCoreMethodGranted(input.access, input.method)) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Request rejected');
     }
     if (input.signal.aborted) {

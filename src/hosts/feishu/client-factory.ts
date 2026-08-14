@@ -29,17 +29,18 @@ export function createFeishuSshClientFactory(
       'Feishu Gateway and Core SSH bindings do not match',
     );
   }
-  const active = new Set(
+  const active = new Map(
     gateway.credentials
       .filter((credential) => credential.status === 'active')
-      .map((credential) => credential.credentialId),
+      .map((credential) => [credential.credentialId, credential.connectionScope]),
   );
   const identities = new Map(
-    ssh.credentials.map((credential) => [credential.credentialId, credential.identityFile]),
+    ssh.credentials.map((credential) => [credential.credentialId, credential]),
   );
   if (
     active.size !== identities.size ||
-    [...active].some((credentialId) => !identities.has(credentialId))
+    [...active].some(([credentialId, connectionScope]) =>
+      identities.get(credentialId)?.connectionScope !== connectionScope)
   ) {
     throw new FeishuGatewayError(
       'invalid_configuration',
@@ -47,10 +48,10 @@ export function createFeishuSshClientFactory(
     );
   }
   return (input) => {
-    const identityFile = identities.get(input.credentialId);
+    const identity = identities.get(input.credentialId);
     if (
       input.instanceId !== gateway.instanceId || input.topology !== gateway.topology ||
-      !active.has(input.credentialId) || !identityFile
+      !active.has(input.credentialId) || !identity
     ) {
       throw new FeishuGatewayError('access_denied', 'Feishu Core credential is not active');
     }
@@ -61,11 +62,11 @@ export function createFeishuSshClientFactory(
       hostname: ssh.hostname,
       port: ssh.port,
       username: ssh.username,
-      identityFile,
+      identityFile: identity.identityFile,
       knownHostsFile: ssh.knownHostsFile,
-      accessSurface: 'feishu-session-console',
+      accessSurface: 'feishu',
       expectedInstanceId: input.instanceId,
-      expectedAccessCredentialId: input.credentialId,
+      expectedConnectionScope: identity.connectionScope,
       ...(ssh.hostKeyAlias === null ? {} : { hostKeyAlias: ssh.hostKeyAlias }),
       sshBinary: '/usr/bin/ssh',
     }, options);

@@ -5,7 +5,7 @@ import {
   type ElectronHostProfile,
 } from '@hosts/electron';
 
-export const REMOTE_HOST_PROFILE_SCHEMA_VERSION = 3;
+export const REMOTE_HOST_PROFILE_SCHEMA_VERSION = 4;
 const MAX_PROFILES = 50;
 
 export interface RemoteHostProfileDocument {
@@ -13,11 +13,6 @@ export interface RemoteHostProfileDocument {
   sourceMode: RemoteHostSourceMode;
   selectedRemoteProfileId: string | null;
   profiles: ElectronHostProfile[];
-}
-
-export interface ParsedRemoteHostProfileDocument {
-  document: RemoteHostProfileDocument;
-  migrated: boolean;
 }
 
 function record(value: unknown, field: string): Record<string, unknown> {
@@ -46,13 +41,13 @@ function positiveInteger(value: unknown, field: string): number {
 }
 
 function topology(value: unknown): ElectronHostProfile['topology'] {
-  if (value === 'standalone' || value === 'server-core' || value === 'relay') return value;
+  if (value === 'standalone' || value === 'relay' || value === 'full') return value;
   throw new Error('Invalid persisted remote host field: topology');
 }
 
 function parseSshProfile(
   raw: Record<string, unknown>,
-  identity: { id: string; label: string; topology: 'server-core' | 'relay' },
+  identity: { id: string; label: string; topology: 'full' | 'relay' },
 ): SshHostProfile {
   const ssh = record(raw.ssh, 'profile.ssh');
   const profile: SshHostProfile = {
@@ -65,10 +60,10 @@ function parseSshProfile(
     ...(optionalText(ssh.expectedInstanceId, 'profile.ssh.expectedInstanceId')
       ? { expectedInstanceId: optionalText(ssh.expectedInstanceId, 'profile.ssh.expectedInstanceId') }
       : {}),
-    ...(optionalText(ssh.expectedAccessCredentialId, 'profile.ssh.expectedAccessCredentialId')
-      ? { expectedAccessCredentialId: optionalText(
-          ssh.expectedAccessCredentialId,
-          'profile.ssh.expectedAccessCredentialId',
+    ...(optionalText(ssh.expectedConnectionScope, 'profile.ssh.expectedConnectionScope')
+      ? { expectedConnectionScope: optionalText(
+          ssh.expectedConnectionScope,
+          'profile.ssh.expectedConnectionScope',
         ) }
       : {}),
     ...(optionalText(ssh.hostKeyAlias, 'profile.ssh.hostKeyAlias')
@@ -101,33 +96,6 @@ function parseProfile(value: unknown): ElectronHostProfile {
       };
   validateElectronHostProfile(profile);
   return profile;
-}
-
-function migrateV1Profile(value: unknown): ElectronHostProfile {
-  const raw = record(value, 'profile');
-  const id = text(raw.id, 'profile.id');
-  const label = text(raw.label, 'profile.label');
-  const clientId = optionalText(raw.clientId, 'profile.clientId') ?? `electron-${id}`;
-  const kind = topology(raw.topology);
-  if (kind === 'standalone') return parseProfile({ id, label, clientId, topology: kind });
-  const endpoint = raw.endpoint === undefined ? raw : record(raw.endpoint, 'profile.endpoint');
-  return parseProfile({
-    id,
-    label,
-    clientId,
-    topology: kind,
-    ssh: {
-      hostname: endpoint.hostname,
-      port: endpoint.port,
-      username: endpoint.username,
-      identityFile: raw.identityFile,
-      knownHostsFile: raw.knownHostsFile,
-      expectedInstanceId: endpoint.expectedInstanceId,
-      expectedAccessCredentialId: endpoint.expectedAccessCredentialId,
-      hostKeyAlias: endpoint.hostKeyAlias,
-      hostKeyFingerprint: endpoint.hostKeyFingerprint,
-    },
-  });
 }
 
 function normalizeDocument(
@@ -164,53 +132,21 @@ function normalizeDocument(
   };
 }
 
-function migrateSelection(
-  profiles: ElectronHostProfile[],
-  selectedProfileId: string,
-): Pick<RemoteHostProfileDocument, 'selectedRemoteProfileId' | 'sourceMode'> {
-  const selected = profiles.find((profile) => profile.id === selectedProfileId);
-  if (!selected) throw new Error('Persisted remote host profile selection is invalid');
-  if (selected.topology !== 'standalone') {
-    return { sourceMode: 'remote', selectedRemoteProfileId: selected.id };
-  }
-  const lastRemote = profiles.find((profile) => profile.topology !== 'standalone')?.id ?? null;
-  return { sourceMode: 'local', selectedRemoteProfileId: lastRemote };
-}
-
 export function parseRemoteHostProfileDocument(
   value: unknown,
-): ParsedRemoteHostProfileDocument {
+): RemoteHostProfileDocument {
   const raw = record(value, 'document');
-  if (raw.schemaVersion === REMOTE_HOST_PROFILE_SCHEMA_VERSION) {
-    if (!Array.isArray(raw.profiles)) throw new Error('Invalid persisted remote host profiles');
-    return {
-      document: normalizeDocument(
-        raw.profiles.map(parseProfile),
-        text(raw.sourceMode, 'sourceMode') as RemoteHostSourceMode,
-        raw.selectedRemoteProfileId === null
-          ? null
-          : text(raw.selectedRemoteProfileId, 'selectedRemoteProfileId'),
-      ),
-      migrated: false,
-    };
+  if (raw.schemaVersion !== REMOTE_HOST_PROFILE_SCHEMA_VERSION) {
+    throw new Error('Unsupported persisted remote host profile schema');
   }
-  if (raw.schemaVersion === 2 || raw.schemaVersion === 1) {
-    if (!Array.isArray(raw.profiles)) throw new Error('Invalid persisted remote host profiles');
-    const profiles = raw.schemaVersion === 1
-      ? raw.profiles.map(migrateV1Profile)
-      : raw.profiles.map(parseProfile);
-    const selected = raw.selectedProfileId ?? raw.activeProfileId;
-    const selection = migrateSelection(profiles, text(selected, 'selectedProfileId'));
-    return {
-      document: normalizeDocument(
-        profiles,
-        selection.sourceMode,
-        selection.selectedRemoteProfileId,
-      ),
-      migrated: true,
-    };
-  }
-  throw new Error('Unsupported persisted remote host profile schema');
+  if (!Array.isArray(raw.profiles)) throw new Error('Invalid persisted remote host profiles');
+  return normalizeDocument(
+    raw.profiles.map(parseProfile),
+    text(raw.sourceMode, 'sourceMode') as RemoteHostSourceMode,
+    raw.selectedRemoteProfileId === null
+      ? null
+      : text(raw.selectedRemoteProfileId, 'selectedRemoteProfileId'),
+  );
 }
 
 export function copyRemoteHostProfileDocument(

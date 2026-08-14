@@ -28,6 +28,7 @@ export interface FeishuStableSubject {
 export interface EnrolledFeishuCredential extends FeishuStableSubject {
   instanceId: string;
   credentialId: string;
+  connectionScope: string;
   topology: Exclude<DeploymentTopology, 'standalone'>;
   status: 'active' | 'revoked';
   authority: 'owner-equivalent';

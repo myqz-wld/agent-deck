@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 
 import {
   AgentDeckCapability,
+  issueRemoteOwnerAccessContext,
   type AgentDeckClient,
   type AgentDeckEventEnvelope,
   type AgentDeckSubscription,
@@ -19,7 +20,7 @@ export function standaloneProfile(id = 'local'): ElectronHostProfile {
 
 export function remoteProfile(
   id: string,
-  topology: 'relay' | 'server-core',
+  topology: 'relay' | 'full',
 ): RemoteElectronHostProfile {
   const instanceId = topology === 'relay' ? `relay-${id}` : `server-${id}`;
   return {
@@ -56,7 +57,7 @@ export function standaloneHello(clientId: string): HostHello {
       transport: 'local-ipc',
       accessCredentialId: null,
       authority: 'local-owner',
-      surface: 'desktop-full',
+      surface: 'desktop',
     },
     capabilities: [AgentDeckCapability.SessionsRead],
     limits: {
@@ -86,16 +87,13 @@ export function remoteHello(
       generation: relay ? 1 : null,
       ...overrides,
     },
-    access: {
-      kind: 'authenticated-client',
+    access: issueRemoteOwnerAccessContext({
       topology: profile.topology,
       instanceId,
       clientId: profile.clientId,
-      transport: 'ssh',
-      accessCredentialId: `credential-${profile.id}`,
-      authority: 'owner-equivalent',
-      surface: 'desktop-full',
-    },
+      connectionScope: `credential-${profile.id}`,
+      surface: 'desktop',
+    }),
     capabilities: [AgentDeckCapability.SessionsRead],
     limits: {
       maxFrameBytes: 1024,

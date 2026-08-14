@@ -1,7 +1,7 @@
 import type { RemoteHostRemoteTopology } from './types';
 
 export const REMOTE_CONNECTION_CREDENTIAL_KIND = 'agent-deck-remote-connection-credential';
-export const REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION = 2;
+export const REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION = 3;
 
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 const SAFE_HOST = /^[A-Za-z0-9._:-]+$/;
@@ -42,26 +42,27 @@ interface RemoteConnectionCredentialBase {
   };
 }
 
-export interface RemoteConnectionClientCredentialV2 extends RemoteConnectionCredentialBase {
+export interface RemoteConnectionClientCredentialV3 extends RemoteConnectionCredentialBase {
   schemaVersion: typeof REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION;
   purpose: 'client';
   topology: RemoteHostRemoteTopology;
+  connectionScope: string;
 }
 
-export interface RemoteConnectionWorkerCredentialV2 extends RemoteConnectionCredentialBase {
+export interface RemoteConnectionWorkerCredentialV3 extends RemoteConnectionCredentialBase {
   schemaVersion: typeof REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION;
   purpose: 'worker';
   topology: 'relay';
   workerId: string;
 }
 
-export type RemoteConnectionCredentialV2 =
-  | RemoteConnectionClientCredentialV2
-  | RemoteConnectionWorkerCredentialV2;
+export type RemoteConnectionCredentialV3 =
+  | RemoteConnectionClientCredentialV3
+  | RemoteConnectionWorkerCredentialV3;
 
-export type RemoteConnectionCredential = RemoteConnectionCredentialV2;
+export type RemoteConnectionCredential = RemoteConnectionCredentialV3;
 
-export type RemoteConnectionClientCredential = RemoteConnectionClientCredentialV2;
+export type RemoteConnectionClientCredential = RemoteConnectionClientCredentialV3;
 
 function record(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -168,31 +169,42 @@ function parseBase(raw: Record<string, unknown>): RemoteConnectionCredentialBase
   };
 }
 
-function parseCurrentCredential(
-  raw: Record<string, unknown>,
-): RemoteConnectionCredentialV2 {
-  if (raw.topology !== 'server-core' && raw.topology !== 'relay') {
+function parseCredential(raw: Record<string, unknown>): RemoteConnectionCredentialV3 {
+  const topology = raw.topology === 'full' || raw.topology === 'relay'
+    ? raw.topology
+    : null;
+  if (topology === null) {
     throw new Error('connection credential topology is invalid');
   }
   if (raw.purpose !== 'client' && raw.purpose !== 'worker') {
     throw new Error('connection credential purpose is invalid');
   }
-  if (raw.purpose === 'worker' && raw.topology !== 'relay') {
+  if (raw.purpose === 'worker' && topology !== 'relay') {
     throw new Error('Worker connection credentials require Relay topology');
   }
   const expected = [
     'credentialId', 'endpoint', 'hostKeys', 'identity', 'instanceId', 'kind',
     'label', 'purpose', 'schemaVersion', 'topology',
     ...(raw.purpose === 'worker' ? ['workerId'] : []),
+    ...(raw.purpose === 'client' ? ['connectionScope'] : []),
   ];
   exactKeys(raw, expected, 'connection credential');
   const base = parseBase(raw);
   if (raw.purpose === 'client') {
+    const connectionScope = boundedText(
+      raw.connectionScope,
+      'connection credential connectionScope',
+      160,
+    );
+    if (!STABLE_TOKEN.test(connectionScope)) {
+      throw new Error('connection credential connectionScope is invalid');
+    }
     return {
       ...base,
       schemaVersion: REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION,
       purpose: 'client',
-      topology: raw.topology,
+      topology,
+      connectionScope,
     };
   }
   const workerId = boundedText(raw.workerId, 'connection credential workerId', 160);
@@ -211,12 +223,12 @@ export function parseRemoteConnectionCredential(value: unknown): RemoteConnectio
   if (raw.schemaVersion !== REMOTE_CONNECTION_CREDENTIAL_SCHEMA_VERSION) {
     throw new Error('connection credential schemaVersion is unsupported');
   }
-  return parseCurrentCredential(raw);
+  return parseCredential(raw);
 }
 
 export function isRemoteConnectionWorkerCredential(
   credential: RemoteConnectionCredential,
-): credential is RemoteConnectionWorkerCredentialV2 {
+): credential is RemoteConnectionWorkerCredentialV3 {
   return credential.purpose === 'worker';
 }
 

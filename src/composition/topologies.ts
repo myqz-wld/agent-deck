@@ -74,7 +74,7 @@ export function createServerCoreComposition(
   options: ServerCoreCompositionOptions,
 ): AgentDeckComposition {
   return Object.freeze({
-    topology: DeploymentTopology.ServerCore,
+    topology: DeploymentTopology.Full,
     role: 'server-core-host' as const,
     components: Object.freeze([
       daemonHostComponent(options.host),

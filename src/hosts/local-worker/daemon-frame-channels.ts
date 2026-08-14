@@ -3,6 +3,7 @@ import { Duplex } from 'node:stream';
 
 import {
   DeploymentTopology,
+  issueRemoteOwnerAccessContext,
   type AuthenticatedClientAccessContext,
   type ClientHello,
 } from '@contracts/index';
@@ -94,17 +95,14 @@ function accessContext(
   hello: ClientHello,
   access: CoreFrameAccessContext,
 ): AuthenticatedClientAccessContext {
-  const common = {
-    kind: 'authenticated-client' as const,
+  return issueRemoteOwnerAccessContext({
     topology: DeploymentTopology.Relay,
     instanceId,
     clientId: hello.clientId,
-    accessCredentialId: access.accessCredentialId,
-    authority: 'owner-equivalent' as const,
-  };
-  return access.surface === 'desktop-full'
-    ? { ...common, transport: 'ssh', surface: 'desktop-full' }
-    : { ...common, transport: 'feishu', surface: 'feishu-session-console' };
+    connectionScope: access.connectionScope,
+    surface: access.surface,
+    policyRevision: access.grant.policyRevision,
+  });
 }
 
 export function createLocalWorkerDaemonFrameChannels(

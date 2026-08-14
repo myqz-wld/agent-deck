@@ -46,8 +46,9 @@ function frame(
     payload: options.payload ?? emptyRoutePayload(),
     creditBytes: null,
     resetCode: options.resetCode ?? null,
-    accessCredentialId: null,
+    connectionScope: null,
     accessSurface: null,
+    accessGrant: null,
   };
 }
 
@@ -93,7 +94,7 @@ function onlineRouter(routerLimits: RelayRouterLimits): RelayStreamRouter {
 
 describe('Relay hard queue bounds', () => {
   it('disconnects only the slow client when its per-stream queue is full', () => {
-    const payload = new Uint8Array(128).fill(7);
+    const payload = new Uint8Array(512).fill(7);
     const sample = frame('worker-to-client', 'slow-stream', 0, 'data', { payload });
     const wireBytes = relayRouteFrameWireBytes(sample, { maxFrameBytes: 4096 });
     const router = onlineRouter(
@@ -185,6 +186,7 @@ describe('Relay hard queue bounds', () => {
     );
     router.registerClient('client-a', 'credential-a');
     router.routeFromClient('client-a', frame('client-to-worker', 'target-stream', 0, 'open'));
+    router.drainWorker();
     router.routeFromClient('client-a', frame('client-to-worker', 'filler-stream', 0, 'open'));
     router.drainWorker();
     router.routeFromWorker('connection-1', filler);
@@ -216,6 +218,7 @@ describe('Relay hard queue bounds', () => {
     );
     router.registerClient('client-a', 'credential-a');
     router.routeFromClient('client-a', frame('client-to-worker', 'target-stream', 0, 'open'));
+    router.drainWorker();
     router.routeFromClient('client-a', frame('client-to-worker', 'filler-stream', 0, 'open'));
     router.drainWorker();
     expect(router.routeFromClient('client-a', filler).accepted).toBe(true);
@@ -246,6 +249,7 @@ describe('Relay hard queue bounds', () => {
     );
     router.registerClient('client-a', 'credential-a');
     router.routeFromClient('client-a', frame('client-to-worker', 'target-stream', 0, 'open'));
+    router.drainWorker();
     router.routeFromClient('client-a', frame('client-to-worker', 'filler-stream', 0, 'open'));
     router.drainWorker();
     router.routeFromClient('client-a', filler);

@@ -48,8 +48,8 @@ export function validateSshHostHello(
   );
   assertBoundedSingleLine(hello.access.clientId, 'hello.access.clientId', SSH_TEXT_LIMITS.clientId);
   if (hello.topology !== profile.topology) throw new Error('Host topology mismatch');
-  const expectedSurface = profile.accessSurface ?? 'desktop-full';
-  const expectedTransport = expectedSurface === 'desktop-full' ? 'ssh' : 'feishu';
+  const expectedSurface = profile.accessSurface ?? 'desktop';
+  const expectedTransport = expectedSurface === 'desktop' ? 'ssh' : 'feishu';
   if (
     hello.access.kind !== 'authenticated-client' ||
     hello.access.transport !== expectedTransport ||
@@ -62,8 +62,8 @@ export function validateSshHostHello(
     throw new Error(`Expected instance ${profile.expectedInstanceId}`);
   }
   if (
-    profile.expectedAccessCredentialId &&
-    hello.access.accessCredentialId !== profile.expectedAccessCredentialId
+    profile.expectedConnectionScope &&
+    hello.access.connectionScope !== profile.expectedConnectionScope
   ) {
     throw new Error('Host access credential does not match the pinned SSH identity');
   }

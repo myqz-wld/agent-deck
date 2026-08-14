@@ -1,10 +1,11 @@
 import { Duplex } from 'node:stream';
 
-import type {
-  AuthenticatedClientAccessContext,
-  ClientHello,
-  JsonObject,
-  JsonValue,
+import {
+  issueRemoteOwnerAccessContext,
+  type AuthenticatedClientAccessContext,
+  type ClientHello,
+  type JsonObject,
+  type JsonValue,
 } from '@contracts/index';
 import {
   CURRENT_PROTOCOL_VERSION,
@@ -72,7 +73,7 @@ export async function waitFor(predicate: () => boolean, label: string): Promise<
 
 export function hello(
   clientId: string,
-  requestedTopology = 'server-core',
+  requestedTopology = 'full',
   protocolVersion: ClientHello['protocolVersion'] = CURRENT_PROTOCOL_VERSION,
 ): JsonObject {
   return {
@@ -87,7 +88,7 @@ export function hello(
   };
 }
 
-export function request(requestId: string, method = 'system.health'): JsonObject {
+export function request(requestId: string, method = 'session.console.list'): JsonObject {
   return {
     type: 'request',
     requestId,
@@ -100,23 +101,20 @@ export function request(requestId: string, method = 'system.health'): JsonObject
 }
 
 export function sshAccess(clientHello: ClientHello): AuthenticatedClientAccessContext {
-  return {
-    kind: 'authenticated-client',
-    topology: 'server-core',
+  return issueRemoteOwnerAccessContext({
+    topology: 'full',
     instanceId: 'tenant-a',
     clientId: clientHello.clientId,
-    transport: 'ssh',
-    accessCredentialId: 'ssh-credential-1',
-    authority: 'owner-equivalent',
-    surface: 'desktop-full',
-  };
+    connectionScope: 'ssh-credential-1',
+    surface: 'desktop',
+  });
 }
 
 export function createRuntime(
   overrides: Partial<DaemonCoreRuntime> = {},
 ): DaemonCoreRuntime {
   return {
-    supportedMethods: ['system.health'],
+    supportedMethods: ['session.console.list'],
     start: async () => undefined,
     stop: async () => undefined,
     currentRevision: () => 0,
@@ -146,6 +144,7 @@ export function createHost(
     appVersion: '0.1.0-test',
     runtime,
     credentialLifecycle,
+    defaultCredential: { credentialId: 'ssh-credential-1', surface: 'desktop' },
     listener: null,
     connectionLimits: limits,
     sqlitePreflight: () => ({ runtimeAbi: 'test' }),

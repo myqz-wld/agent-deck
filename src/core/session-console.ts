@@ -13,7 +13,7 @@ import {
   parseSessionConsoleListResult,
   parseWorkspaceDirectoryListParams,
   parseWorkspaceDirectoryListResult,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   type AccessContext,
   type CoreMethod,
   type ProjectListParams,
@@ -126,7 +126,7 @@ export class SessionConsoleCoreDispatcher {
     params: unknown,
     context: SessionConsoleExecutionContext,
   ): Promise<SessionConsoleDispatchResult> {
-    if (!isCoreMethodAllowed(context.access.surface, method)) {
+    if (!isCoreMethodGranted(context.access, method)) {
       throw new SessionConsoleDispatchError(
         `Access surface cannot invoke ${method}`,
       );

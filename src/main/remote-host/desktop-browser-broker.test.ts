@@ -30,7 +30,7 @@ describe('RemoteHostDesktopBrowserBroker', () => {
     let state: ElectronHostState = {
       profileId: 'profile-a',
       clientId: 'desktop-a',
-      topology: 'server-core',
+      topology: 'full',
       status: 'connected',
       instanceId: 'instance-a',
       authoritativeCoreId: 'core-a',
@@ -86,7 +86,7 @@ describe('RemoteHostDesktopBrowserBroker', () => {
 
   it('disposes only the session named by a terminal Core event', async () => {
     const state: ElectronHostState = {
-      profileId: 'profile-a', clientId: 'desktop-a', topology: 'server-core',
+      profileId: 'profile-a', clientId: 'desktop-a', topology: 'full',
       status: 'connected', instanceId: 'instance-a', authoritativeCoreId: 'core-a',
       workerGeneration: 1, capabilities: [AgentDeckCapability.Browser],
       eventRevision: 0, error: null,
@@ -128,7 +128,7 @@ describe('RemoteHostDesktopBrowserBroker', () => {
 
   it('expires a slow browser operation on the relative lease and drops its late result', async () => {
     const state: ElectronHostState = {
-      profileId: 'profile-a', clientId: 'desktop-a', topology: 'server-core',
+      profileId: 'profile-a', clientId: 'desktop-a', topology: 'full',
       status: 'connected', instanceId: 'instance-a', authoritativeCoreId: 'core-a',
       workerGeneration: 1, capabilities: [AgentDeckCapability.Browser],
       eventRevision: 0, error: null,

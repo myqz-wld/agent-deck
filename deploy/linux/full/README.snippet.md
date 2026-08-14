@@ -133,7 +133,7 @@ the short named-volume path; no symlink or engine-socket projection is used. Sta
 proves this lifecycle is declared and parseable. Rootless-Podman/Full live acceptance remains a
 real Linux host gate.
 `authorized-client-key-options.txt` is the narrow host bridge provisioning fixture. Replace every
-identity/key placeholder, choose the exact `desktop-full` or `feishu-session-console` line for that
+identity/key placeholder, choose the exact `desktop` or `feishu` line for that
 credential, keep the forced command exact, and run sshd under the same rootless
 service account that owns the Full Quadlet. The requested SSH command must be exactly
 `agent-deck-bridge`; no host socket pathname is used.

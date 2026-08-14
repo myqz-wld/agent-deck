@@ -1,14 +1,13 @@
 import { createHash } from 'node:crypto';
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 import { FeishuGatewayError } from '@gateways/im';
 
-export const FEISHU_METADATA_SCHEMA_VERSION = 2;
-const SCHEMA_FINGERPRINT = 'f31d64f0d2d9f7de24b6f47d346efeb1a8d3c83a7c8380420a527ab0809e0447';
+export const FEISHU_METADATA_SCHEMA_VERSION = 3;
 
 const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   credentials: [
-    'app_id', 'tenant_key', 'open_id', 'instance_id', 'credential_id', 'topology',
-    'status', 'authority',
+    'app_id', 'tenant_key', 'open_id', 'instance_id', 'credential_id', 'connection_scope',
+    'topology', 'status', 'authority',
   ],
   contexts: [
     'instance_id', 'credential_id', 'chat_id', 'open_id', 'active_session_id', 'updated_at',
@@ -28,18 +27,20 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = Object.freeze
   ],
 });
 
-const SCHEMA_V1 = `
+const CURRENT_SCHEMA = `
 CREATE TABLE credentials (
   app_id TEXT NOT NULL,
   tenant_key TEXT NOT NULL,
   open_id TEXT NOT NULL,
   instance_id TEXT NOT NULL,
   credential_id TEXT NOT NULL,
-  topology TEXT NOT NULL CHECK (topology IN ('relay', 'server-core')),
+  connection_scope TEXT NOT NULL,
+  topology TEXT NOT NULL CHECK (topology IN ('relay', 'full')),
   status TEXT NOT NULL CHECK (status IN ('active', 'revoked')),
   authority TEXT NOT NULL CHECK (authority = 'owner-equivalent'),
   PRIMARY KEY (app_id, tenant_key, open_id),
-  UNIQUE (instance_id, credential_id)
+  UNIQUE (instance_id, credential_id),
+  UNIQUE (instance_id, connection_scope)
 ) STRICT;
 CREATE TABLE contexts (
   instance_id TEXT NOT NULL,
@@ -48,6 +49,7 @@ CREATE TABLE contexts (
   open_id TEXT NOT NULL,
   active_session_id TEXT,
   updated_at INTEGER NOT NULL,
+  chat_type TEXT NOT NULL CHECK (chat_type IN ('group', 'p2p')),
   PRIMARY KEY (instance_id, credential_id, chat_id),
   FOREIGN KEY (instance_id, credential_id)
     REFERENCES credentials(instance_id, credential_id) ON DELETE CASCADE
@@ -76,6 +78,8 @@ CREATE TABLE deliveries (
   transport_safety TEXT CHECK (transport_safety IN ('safe', 'unknown')),
   attempt_deadline_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
+  transport_idempotency_expires_at INTEGER
+    CHECK (transport_idempotency_expires_at IS NULL OR transport_idempotency_expires_at >= 0),
   PRIMARY KEY (instance_id, event_id)
 ) STRICT;
 CREATE TABLE cursors (
@@ -96,18 +100,37 @@ CREATE TABLE health (
   last_error_code TEXT,
   updated_at INTEGER NOT NULL
 ) STRICT;
-PRAGMA user_version = 1;
+PRAGMA user_version = 3;
 `;
 
-const MIGRATION_V2 = `
-ALTER TABLE contexts ADD COLUMN chat_type TEXT NOT NULL DEFAULT 'group'
-  CHECK (chat_type IN ('group', 'p2p'));
-ALTER TABLE deliveries ADD COLUMN transport_idempotency_expires_at INTEGER
-  CHECK (transport_idempotency_expires_at IS NULL OR transport_idempotency_expires_at >= 0);
-UPDATE deliveries SET transport_idempotency_expires_at = updated_at
-  WHERE transport_safety = 'safe';
-PRAGMA user_version = 2;
-`;
+function schemaFingerprint(database: Database.Database): string {
+  const definitions = (database.prepare(`
+    SELECT type, name, tbl_name, sql FROM sqlite_schema
+    WHERE name NOT LIKE 'sqlite_autoindex_%' ORDER BY type, name
+  `).all() as Array<{ type: string; name: string; tbl_name: string; sql: string | null }>)
+    .map((entry) => ({
+      ...entry,
+      sql: entry.sql?.replace(/\s+/gu, ' ').trim() ?? null,
+    }));
+  return createHash('sha256').update(JSON.stringify(definitions), 'utf8').digest('hex');
+}
+
+function expectedFingerprint(): string {
+  const database = new Database(':memory:');
+  try {
+    database.exec(CURRENT_SCHEMA);
+    return schemaFingerprint(database);
+  } finally {
+    database.close();
+  }
+}
+
+let schemaFingerprintCache: string | null = null;
+
+function expectedSchemaFingerprint(): string {
+  schemaFingerprintCache ??= expectedFingerprint();
+  return schemaFingerprintCache;
+}
 
 function fail(): never {
   throw new FeishuGatewayError(
@@ -141,18 +164,7 @@ function verifyExactSchema(db: Database.Database): void {
     LIMIT 1
   `).get();
   if (unexpected) fail();
-  const definitions = (db.prepare(`
-    SELECT type, name, tbl_name, sql FROM sqlite_schema
-    WHERE name NOT LIKE 'sqlite_autoindex_%' ORDER BY type, name
-  `).all() as Array<{ type: string; name: string; tbl_name: string; sql: string | null }>)
-    .map((entry) => ({
-      ...entry,
-      sql: entry.sql?.replace(/\s+/gu, ' ').trim() ?? null,
-    }));
-  const fingerprint = createHash('sha256')
-    .update(JSON.stringify(definitions), 'utf8')
-    .digest('hex');
-  if (fingerprint !== SCHEMA_FINGERPRINT) fail();
+  if (schemaFingerprint(db) !== expectedSchemaFingerprint()) fail();
 }
 
 export function initializeFeishuMetadataSchema(db: Database.Database): void {
@@ -160,7 +172,7 @@ export function initializeFeishuMetadataSchema(db: Database.Database): void {
   if (version === 0) {
     if (tableNames(db).length !== 0) fail();
     try {
-      db.exec(`BEGIN IMMEDIATE;${SCHEMA_V1}COMMIT;`);
+      db.exec(`BEGIN IMMEDIATE;${CURRENT_SCHEMA}COMMIT;`);
     } catch {
       try {
         db.exec('ROLLBACK');
@@ -169,20 +181,7 @@ export function initializeFeishuMetadataSchema(db: Database.Database): void {
       }
       fail();
     }
-    version = 1;
-  }
-  if (version === 1) {
-    try {
-      db.exec(`BEGIN IMMEDIATE;${MIGRATION_V2}COMMIT;`);
-    } catch {
-      try {
-        db.exec('ROLLBACK');
-      } catch {
-        // The original fixed migration failure is authoritative.
-      }
-      fail();
-    }
-    version = 2;
+    version = FEISHU_METADATA_SCHEMA_VERSION;
   }
   if (version !== FEISHU_METADATA_SCHEMA_VERSION) {
     fail();

@@ -55,9 +55,16 @@ export type DaemonAccessContextFactory = (
   hello: ClientHello,
 ) => Promise<AuthenticatedClientAccessContext> | AuthenticatedClientAccessContext;
 
+/** Server-private credential identity. It is never copied into the Core access context. */
+export interface DaemonConnectionCredential {
+  readonly credentialId: string;
+  readonly surface: AuthenticatedClientAccessContext['surface'];
+}
+
 export interface DaemonConnectionAdmission {
   readonly stream: Duplex;
   readonly createAccessContext: DaemonAccessContextFactory;
+  readonly credential?: DaemonConnectionCredential;
   readonly label?: string;
 }
 

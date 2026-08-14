@@ -1,9 +1,10 @@
 import type { DeploymentTopology } from './topology';
+import type { RemoteOwnerGrantClaim } from './grant-policy';
 
 export const AccessSurface = {
-  DesktopFull: 'desktop-full',
-  FeishuSessionConsole: 'feishu-session-console',
-  RelayWorkerAttach: 'relay-worker-attach',
+  Desktop: 'desktop',
+  Feishu: 'feishu',
+  RelayWorker: 'relay-worker',
 } as const;
 
 export type AccessSurface = (typeof AccessSurface)[keyof typeof AccessSurface];
@@ -18,7 +19,7 @@ export interface StandaloneAccessContext {
   transport: 'local-ipc';
   accessCredentialId: null;
   authority: 'local-owner';
-  surface: 'desktop-full';
+  surface: 'desktop';
 }
 
 interface AuthenticatedClientAccessContextBase {
@@ -26,20 +27,21 @@ interface AuthenticatedClientAccessContextBase {
   topology: Exclude<DeploymentTopology, 'standalone'>;
   instanceId: string;
   clientId: string;
-  accessCredentialId: string;
+  connectionScope: string;
   authority: 'owner-equivalent';
+  grant: RemoteOwnerGrantClaim;
 }
 
 export interface AuthenticatedSshAccessContext
   extends AuthenticatedClientAccessContextBase {
   transport: 'ssh';
-  surface: 'desktop-full';
+  surface: 'desktop';
 }
 
 export interface AuthenticatedFeishuAccessContext
   extends AuthenticatedClientAccessContextBase {
   transport: 'feishu';
-  surface: 'feishu-session-console';
+  surface: 'feishu';
 }
 
 export type AuthenticatedClientAccessContext =
@@ -55,7 +57,7 @@ export interface RelayWorkerAccessContext {
   accessCredentialId: string;
   credentialKind: 'relay-worker';
   authority: 'worker-attach-only';
-  surface: 'relay-worker-attach';
+  surface: 'relay-worker';
   workerId: string;
   generation: number;
 }

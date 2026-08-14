@@ -35,13 +35,14 @@ function fixture(purpose: 'client' | 'worker' = 'worker') {
   writeFileSync(runtimeModule, 'export {};\n', { mode: 0o644 });
   const credentialFile = join(root, `${purpose}.agentdeck-connection`);
   writeFileSync(credentialFile, `${JSON.stringify({
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: 'agent-deck-remote-connection-credential',
     label: 'Production Relay',
     purpose,
     topology: 'relay',
     instanceId: 'instance-a',
     credentialId: `${purpose}-credential-a`,
+    ...(purpose === 'client' ? { connectionScope: `scope-${purpose}-credential-a` } : {}),
     ...(purpose === 'worker' ? { workerId: 'worker-a' } : {}),
     endpoint: { hostname: 'relay.example.test', port: 22, username: 'agentdeck' },
     hostKeys: [{ algorithm: 'ssh-ed25519', publicKey: HOST_KEY }],

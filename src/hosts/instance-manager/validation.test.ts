@@ -177,7 +177,7 @@ describe('LinuxInstanceManager validation and plans', () => {
       instanceId: 'tenant-a',
       version: 'v1',
       image: DIGEST_A,
-      runtimeConfig: { mode: 'server-core' },
+      runtimeConfig: { mode: 'full' },
       fullResources: FULL_RESOURCES,
     });
 

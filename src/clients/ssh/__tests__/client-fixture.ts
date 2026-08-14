@@ -17,7 +17,7 @@ import {
 
 export function profile(
   id = 'server-profile',
-  topology: 'relay' | 'server-core' = 'server-core',
+  topology: 'relay' | 'full' = 'full',
 ): SshHostProfile {
   return {
     id,
@@ -35,7 +35,7 @@ export function profile(
 export function makeClient(
   harness: FakeSpawnHarness,
   id = 'server-profile',
-  topology: 'relay' | 'server-core' = 'server-core',
+  topology: 'relay' | 'full' = 'full',
   extra: ConstructorParameters<typeof SshAgentDeckClient>[1] = {},
 ): SshAgentDeckClient {
   return new SshAgentDeckClient(profile(id, topology), {
@@ -50,7 +50,7 @@ export async function completeConnect(
   client: SshAgentDeckClient,
   harness: FakeSpawnHarness,
   clientId: string,
-  topology: 'relay' | 'server-core' = 'server-core',
+  topology: 'relay' | 'full' = 'full',
   helloOverrides: Partial<HostHello> = {},
 ): Promise<FakeSshProcess> {
   const connected = client.connect(makeClientHello(clientId, topology));

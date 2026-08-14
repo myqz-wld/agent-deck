@@ -31,13 +31,13 @@ function requirePositiveInteger(value: number, field: string): void {
 export function validateSshHostProfile(profile: Readonly<SshHostProfile>): void {
   requireText(profile.id, 'profile.id', SSH_TEXT_LIMITS.profileId);
   requireText(profile.label, 'profile.label', SSH_TEXT_LIMITS.profileLabel);
-  if (profile.topology !== 'server-core' && profile.topology !== 'relay') {
+  if (profile.topology !== 'full' && profile.topology !== 'relay') {
     throw new SshTransportError('invalid_profile', 'SSH profiles require a remote topology');
   }
   if (
     profile.accessSurface !== undefined &&
-    profile.accessSurface !== 'desktop-full' &&
-    profile.accessSurface !== 'feishu-session-console'
+    profile.accessSurface !== 'desktop' &&
+    profile.accessSurface !== 'feishu'
   ) {
     throw new SshTransportError('invalid_profile', 'profile.accessSurface is invalid');
   }
@@ -86,10 +86,10 @@ export function validateSshHostProfile(profile: Readonly<SshHostProfile>): void 
       SSH_TEXT_LIMITS.instanceId,
     );
   }
-  if (profile.expectedAccessCredentialId !== undefined) {
+  if (profile.expectedConnectionScope !== undefined) {
     requireText(
-      profile.expectedAccessCredentialId,
-      'profile.expectedAccessCredentialId',
+      profile.expectedConnectionScope,
+      'profile.expectedConnectionScope',
       SSH_TEXT_LIMITS.accessCredentialId,
     );
   }

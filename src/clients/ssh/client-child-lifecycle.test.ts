@@ -22,7 +22,7 @@ describe('SshAgentDeckClient local child shutdown', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'forced-close', 'server-core', {
+      const client = makeClient(harness, 'forced-close', 'full', {
         timing: {
           pingIntervalMs: 0,
           pongTimeoutMs: 0,
@@ -46,7 +46,7 @@ describe('SshAgentDeckClient local child shutdown', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'stuck-close', 'server-core', {
+      const client = makeClient(harness, 'stuck-close', 'full', {
         timing: {
           pingIntervalMs: 0,
           pongTimeoutMs: 0,

@@ -20,7 +20,7 @@ describe('deployment topology contract', () => {
   });
 
   it('runs the authoritative Core on the server only in Server Core mode', () => {
-    const topology = getTopologyDescriptor(DeploymentTopology.ServerCore);
+    const topology = getTopologyDescriptor(DeploymentTopology.Full);
 
     expect(topology).toMatchObject({
       authoritativeCoreLocation: 'server-appliance',

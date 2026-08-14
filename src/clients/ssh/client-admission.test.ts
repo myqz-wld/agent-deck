@@ -58,7 +58,7 @@ describe('SshAgentDeckClient terminal admission and bounds', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'reconnected-observer', 'server-core', {
+      const client = makeClient(harness, 'reconnected-observer', 'full', {
         reconnect: { initialDelayMs: 10, maxDelayMs: 10, multiplier: 1, maxAttempts: 1 },
       });
       const firstProcess = await completeConnect(
@@ -107,7 +107,7 @@ describe('SshAgentDeckClient terminal admission and bounds', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'exhaustion', 'server-core', {
+      const client = makeClient(harness, 'exhaustion', 'full', {
         reconnect: { initialDelayMs: 10, maxDelayMs: 10, multiplier: 1, maxAttempts: 1 },
       });
       const firstProcess = await completeConnect(client, harness, 'desktop-exhaustion');
@@ -155,7 +155,7 @@ describe('SshAgentDeckClient terminal admission and bounds', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'long-deadline', 'server-core', { now: () => 1_000 });
+      const client = makeClient(harness, 'long-deadline', 'full', { now: () => 1_000 });
       const process = await completeConnect(client, harness, 'desktop-long-deadline');
       process.takeWrittenMessages();
       const result = client.request('system.health', {}, {
@@ -184,22 +184,22 @@ describe('SshAgentDeckClient terminal admission and bounds', () => {
     const tooLongProfileId = 'p'.repeat(SSH_TEXT_LIMITS.profileId + 1);
     expect(() => new SshAgentDeckClient(profile(tooLongProfileId))).toThrowError('profile.id');
     expect(() =>
-      makeClient(new FakeSpawnHarness(), 'timer-bound', 'server-core', {
+      makeClient(new FakeSpawnHarness(), 'timer-bound', 'full', {
         timing: { handshakeTimeoutMs: MAX_NODE_TIMER_DELAY_MS + 1 },
       }),
     ).toThrowError('handshakeTimeoutMs');
     expect(() =>
-      makeClient(new FakeSpawnHarness(), 'reconnect-bound', 'server-core', {
+      makeClient(new FakeSpawnHarness(), 'reconnect-bound', 'full', {
         reconnect: { maxDelayMs: MAX_NODE_TIMER_DELAY_MS + 1 },
       }),
     ).toThrowError('maxDelayMs');
     expect(() =>
-      makeClient(new FakeSpawnHarness(), 'heartbeat-bound', 'server-core', {
+      makeClient(new FakeSpawnHarness(), 'heartbeat-bound', 'full', {
         timing: { pingIntervalMs: MAX_NODE_TIMER_DELAY_MS + 1, pongTimeoutMs: 1 },
       }),
     ).toThrowError('pingIntervalMs');
     expect(() =>
-      makeClient(new FakeSpawnHarness(), 'shutdown-bound', 'server-core', {
+      makeClient(new FakeSpawnHarness(), 'shutdown-bound', 'full', {
         timing: { childExitGraceMs: MAX_NODE_TIMER_DELAY_MS + 1 },
       }),
     ).toThrowError('childExitGraceMs');
@@ -208,18 +208,18 @@ describe('SshAgentDeckClient terminal admission and bounds', () => {
     const client = makeClient(harness, 'transactional-cursor');
     await expect(
       client.connect({
-        ...makeClientHello('c'.repeat(SSH_TEXT_LIMITS.clientId + 1), 'server-core', 99),
+        ...makeClientHello('c'.repeat(SSH_TEXT_LIMITS.clientId + 1), 'full', 99),
       }),
     ).rejects.toMatchObject({ code: 'incompatible_handshake' });
     expect(client.lastEventRevision).toBe(0);
     expect(harness.calls).toHaveLength(0);
 
-    const connected = client.connect(makeClientHello('desktop-transactional', 'server-core', 3));
+    const connected = client.connect(makeClientHello('desktop-transactional', 'full', 3));
     const process = harness.latest;
     process.emitMessage({
       type: 'hello-result',
       requestId: helloRequestId(process),
-      hello: makeHostHello('desktop-transactional', 'server-core', { eventRevision: 3 }),
+      hello: makeHostHello('desktop-transactional', 'full', { eventRevision: 3 }),
     } as unknown as JsonValue);
     await connected;
     expect(client.lastEventRevision).toBe(3);
@@ -250,7 +250,7 @@ describe('SshAgentDeckClient terminal admission and bounds', () => {
     process.emitMessage({
       type: 'hello-result',
       requestId: helloRequestId(process),
-      hello: makeHostHello('desktop-host-baseline', 'server-core', { eventRevision: 514 }),
+      hello: makeHostHello('desktop-host-baseline', 'full', { eventRevision: 514 }),
     } as unknown as JsonValue);
     await connected;
     expect(client.lastEventRevision).toBe(514);

@@ -1,6 +1,6 @@
 import {
   AgentDeckClientErrorCode,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
   parseSessionHistoryMutationParams,
   parseSessionHistoryMutationResult,
   type CoreMethod,
@@ -57,7 +57,7 @@ function isHistoryMutation(method: CoreMethod): method is HistoryMutationMethod 
   return (SERVER_CORE_SESSION_HISTORY_MUTATION_METHODS as readonly CoreMethod[]).includes(method);
 }
 
-/** Desktop-only history lifecycle mutations with row-CAS and Core idempotency. */
+/** Remote-owner history lifecycle mutations with row-CAS and Core idempotency. */
 export class ServerCoreSessionHistoryMutationRuntime implements DaemonCoreRuntime {
   readonly supportedMethods: readonly CoreMethod[];
   readonly subscribe?: DaemonCoreRuntime['subscribe'];
@@ -83,7 +83,7 @@ export class ServerCoreSessionHistoryMutationRuntime implements DaemonCoreRuntim
 
   execute(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     if (!isHistoryMutation(input.method)) return this.base.execute(input);
-    if (!isCoreMethodAllowed(input.access.surface, input.method)) {
+    if (!isCoreMethodGranted(input.access, input.method)) {
       throw new DaemonRequestError(AgentDeckClientErrorCode.AccessDenied, 'Request rejected');
     }
     if (input.signal.aborted) {

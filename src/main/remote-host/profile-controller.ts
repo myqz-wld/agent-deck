@@ -272,7 +272,7 @@ export class RemoteHostProfileController {
         identityFile: material.identityFile,
         knownHostsFile: material.knownHostsFile,
         expectedInstanceId: credential.instanceId,
-        expectedAccessCredentialId: credential.credentialId,
+        expectedConnectionScope: credential.connectionScope,
         hostKeyFingerprint: connectionHostKeyFingerprint(credential),
       },
     };

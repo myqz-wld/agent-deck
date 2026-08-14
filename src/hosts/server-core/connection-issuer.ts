@@ -42,7 +42,7 @@ export function issueServerCoreConnection(
   }
   const issue = prepareRemoteConnectionIssue({
     purpose: 'client',
-    topology: 'server-core',
+    topology: 'full',
     instanceId,
     credentialId,
     label: flags['--label'],
@@ -53,19 +53,19 @@ export function issueServerCoreConnection(
     outputFile: flags['--output'],
   });
   const authorityNext = `${JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     instanceId,
     credentials: [
       ...document.credentials,
-      { credentialId, surface: 'desktop-full', status: 'active' },
+      { credentialId, surface: 'desktop', status: 'active' },
     ],
   }, null, 2)}\n`;
   parseServerCoreCredentialDocument(JSON.parse(authorityNext), instanceId);
   const forcedKey = [
-    'restrict,command="/opt/agent-deck/bin/agent-deck-full-bridge',
+    'restrict,command="/opt/agent-deck/bin/agent-deck-server-core-bridge',
     `--instance ${instanceId}`,
     `--credential ${credentialId}`,
-    '--surface desktop-full",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty',
+    '--surface desktop",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty',
     issue.publicKey,
   ].join(' ');
   commitRemoteConnectionIssue({

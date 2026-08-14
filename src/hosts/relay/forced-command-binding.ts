@@ -4,6 +4,7 @@ import {
   requireLinuxInstanceId,
   requireStableToken,
 } from '@hosts/linux-runtime/validation';
+import { deriveConnectionScope } from '@hosts/linux-runtime/connection-scope';
 
 export interface RelayForcedCommandBinding {
   readonly admission: BridgeAdmission;
@@ -33,7 +34,7 @@ export function resolveRelayForcedCommandBinding(
   }
   const admission: BridgeAdmission = role === 'worker'
     ? {
-        version: 1,
+        version: 2,
         topology: 'relay',
         role: 'worker',
         instanceId,
@@ -41,12 +42,13 @@ export function resolveRelayForcedCommandBinding(
         workerId: workerId as string,
       }
     : {
-        version: 1,
+        version: 2,
         topology: 'relay',
         role: 'client',
         instanceId,
         credentialId,
-        surface: surface as 'desktop-full' | 'feishu-session-console',
+        connectionScope: deriveConnectionScope(instanceId, credentialId),
+        surface: surface as 'desktop' | 'feishu',
       };
   return Object.freeze({
     admission,
@@ -59,8 +61,8 @@ export function resolveRelayForcedCommandBinding(
 
 function requireClientSurface(
   value: string | undefined,
-): 'desktop-full' | 'feishu-session-console' {
-  if (value !== 'desktop-full' && value !== 'feishu-session-console') {
+): 'desktop' | 'feishu' {
+  if (value !== 'desktop' && value !== 'feishu') {
     throw new Error('Relay client surface is invalid');
   }
   return value;

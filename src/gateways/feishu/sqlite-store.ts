@@ -55,6 +55,7 @@ function credential(row: Record<string, unknown>): EnrolledFeishuCredential {
     openId: row.open_id as string,
     instanceId: row.instance_id as string,
     credentialId: row.credential_id as string,
+    connectionScope: row.connection_scope as string,
     topology: row.topology as EnrolledFeishuCredential['topology'],
     status: row.status as EnrolledFeishuCredential['status'],
     authority: 'owner-equivalent',
@@ -139,20 +140,30 @@ export class SqliteFeishuGatewayStore implements FeishuGatewayStore, FeishuHealt
       `SELECT * FROM credentials WHERE instance_id = ? AND credential_id = ?`,
     ).get(this.binding.instanceId, item.credentialId) as Record<string, unknown> | undefined;
     if (
-      (byIdentity && byIdentity.credentialId !== item.credentialId) ||
-      (byId && byId.open_id !== item.openId)
+      (byIdentity && (
+        byIdentity.credentialId !== item.credentialId ||
+        byIdentity.connectionScope !== item.connectionScope
+      )) ||
+      (byId && (
+        byId.open_id !== item.openId ||
+        byId.connection_scope !== item.connectionScope
+      ))
     ) throw new FeishuGatewayError('identity_conflict', 'Credential enrollment conflicts with durable identity');
     this.db.prepare(`
       INSERT INTO credentials (
-        app_id, tenant_key, open_id, instance_id, credential_id, topology, status, authority
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'owner-equivalent')
-      ON CONFLICT(app_id, tenant_key, open_id) DO UPDATE SET status = excluded.status
+        app_id, tenant_key, open_id, instance_id, credential_id, connection_scope,
+        topology, status, authority
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'owner-equivalent')
+      ON CONFLICT(app_id, tenant_key, open_id) DO UPDATE SET
+        connection_scope = excluded.connection_scope,
+        status = excluded.status
     `).run(
       this.binding.appId,
       this.binding.tenantKey,
       item.openId,
       this.binding.instanceId,
       item.credentialId,
+      item.connectionScope,
       this.binding.topology,
       item.status,
     );

@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type {
-  AuthenticatedClientAccessContext,
-  CoreMethod,
-  JsonObject,
+import {
+  issueRemoteOwnerGrantClaim,
+  type AuthenticatedClientAccessContext,
+  type CoreMethod,
+  type JsonObject,
 } from '@contracts/index';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import type { AgentAdapter } from '@main/adapters/types';
@@ -12,9 +13,10 @@ import type { SessionRecord, SessionTeamMembership, SummaryRecord } from '@share
 import { ServerCoreSessionPresentationRuntime } from './session-presentation-runtime';
 
 const access: AuthenticatedClientAccessContext = {
-  kind: 'authenticated-client', topology: 'server-core', instanceId: 'instance-a',
-  clientId: 'desktop-a', transport: 'ssh', accessCredentialId: 'credential-a',
-  authority: 'owner-equivalent', surface: 'desktop-full',
+  kind: 'authenticated-client', topology: 'full', instanceId: 'instance-a',
+  clientId: 'desktop-a', transport: 'ssh', connectionScope: 'credential-a',
+  authority: 'owner-equivalent', surface: 'desktop',
+  grant: issueRemoteOwnerGrantClaim('desktop'),
 };
 
 function record(id: string, overrides: Partial<SessionRecord> = {}): SessionRecord {

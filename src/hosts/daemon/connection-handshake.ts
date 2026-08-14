@@ -4,7 +4,9 @@ import {
   CORE_METHOD_METADATA,
   DeploymentTopology,
   getTopologyDescriptor,
-  isCoreMethodAllowed,
+  isCoreMethodGranted,
+  copyRemoteOwnerGrantClaim,
+  assertRemoteOwnerGrantForSurface,
   type AgentDeckCapability as Capability,
   type AuthenticatedClientAccessContext,
   type CoreMethod,
@@ -17,7 +19,7 @@ export function normalizeDaemonAccessContext(
   created: AuthenticatedClientAccessContext,
   clientId: string,
   instanceId: string,
-  topology: Exclude<DeploymentTopology, 'standalone'> = DeploymentTopology.ServerCore,
+  topology: Exclude<DeploymentTopology, 'standalone'> = DeploymentTopology.Full,
 ): AuthenticatedClientAccessContext {
   if (
     created.kind !== 'authenticated-client' ||
@@ -25,35 +27,45 @@ export function normalizeDaemonAccessContext(
     created.instanceId !== instanceId ||
     created.clientId !== clientId ||
     created.authority !== 'owner-equivalent' ||
-    !created.accessCredentialId
+    !created.connectionScope
   ) {
     throw new DaemonRequestError(
       AgentDeckClientErrorCode.AccessDenied,
       'Transport-created AccessContext does not match this daemon connection',
     );
   }
-  if (created.transport === 'ssh' && created.surface === 'desktop-full') {
+  try {
+    assertRemoteOwnerGrantForSurface(created.grant, created.surface);
+  } catch {
+    throw new DaemonRequestError(
+      AgentDeckClientErrorCode.AccessDenied,
+      'Server-issued grant does not match the admitted surface',
+    );
+  }
+  if (created.transport === 'ssh' && created.surface === 'desktop') {
     return Object.freeze({
       kind: 'authenticated-client',
       topology,
       instanceId,
       clientId,
       transport: 'ssh',
-      accessCredentialId: created.accessCredentialId,
+      connectionScope: created.connectionScope,
       authority: 'owner-equivalent',
-      surface: 'desktop-full',
+      surface: 'desktop',
+      grant: copyRemoteOwnerGrantClaim(created.grant),
     });
   }
-  if (created.transport === 'feishu' && created.surface === 'feishu-session-console') {
+  if (created.transport === 'feishu' && created.surface === 'feishu') {
     return Object.freeze({
       kind: 'authenticated-client',
       topology,
       instanceId,
       clientId,
       transport: 'feishu',
-      accessCredentialId: created.accessCredentialId,
+      connectionScope: created.connectionScope,
       authority: 'owner-equivalent',
-      surface: 'feishu-session-console',
+      surface: 'feishu',
+      grant: copyRemoteOwnerGrantClaim(created.grant),
     });
   }
   throw new DaemonRequestError(
@@ -66,42 +78,12 @@ function capabilities(
   access: AuthenticatedClientAccessContext,
   supportedMethods: ReadonlySet<CoreMethod>,
   replayAvailable: boolean,
-  protocolVersion: HostHello['protocolVersion'],
 ): readonly Capability[] {
   const result = new Set<Capability>();
   for (const method of supportedMethods) {
-    if (isCoreMethodAllowed(access.surface, method)) {
+    if (isCoreMethodGranted(access, method)) {
       const capability = CORE_METHOD_METADATA[method].capability;
-      const minimumMinor = capability === AgentDeckCapability.Usage
-        ? 1
-        : capability === AgentDeckCapability.SessionReactivate
-          ? 6
-          : capability === AgentDeckCapability.NodeAssets ||
-              capability === AgentDeckCapability.NodeConfiguration
-            ? 2
-            : capability === AgentDeckCapability.SessionContextRead ||
-                capability === AgentDeckCapability.SessionInputRead ||
-                capability === AgentDeckCapability.SessionHandOff
-              ? 3
-              : capability === AgentDeckCapability.SessionHistoryWrite ||
-                  capability === AgentDeckCapability.WorkspaceDirectoryWrite
-                ? 5
-                : capability === AgentDeckCapability.NodeHooksRead ||
-                    capability === AgentDeckCapability.NodeHooksWrite ||
-                    capability === AgentDeckCapability.NodeAssetsBound ||
-                    capability === AgentDeckCapability.SessionPresentationRead ||
-                    capability === AgentDeckCapability.SessionMessagesRead ||
-                    capability === AgentDeckCapability.SessionOutgoingRead ||
-                    capability === AgentDeckCapability.SessionOutgoingWrite ||
-                    capability === AgentDeckCapability.PendingIndexRead
-                  ? 4
-                  : 0;
-      if (
-        protocolVersion.major > 2 ||
-        (protocolVersion.major === 2 && protocolVersion.minor >= minimumMinor)
-      ) {
-        result.add(capability);
-      }
+      result.add(capability);
     }
   }
   if (replayAvailable) result.add(AgentDeckCapability.Replay);
@@ -123,7 +105,7 @@ export interface CreateDaemonHostHelloInput {
 }
 
 export function createDaemonHostHello(input: CreateDaemonHostHelloInput): HostHello {
-  const topology = input.topology ?? DeploymentTopology.ServerCore;
+  const topology = input.topology ?? DeploymentTopology.Full;
   return {
     protocolVersion: input.protocolVersion,
     appVersion: input.appVersion,
@@ -139,7 +121,6 @@ export function createDaemonHostHello(input: CreateDaemonHostHelloInput): HostHe
       input.access,
       input.supportedMethods,
       input.replayAvailable,
-      input.protocolVersion,
     ),
     limits: {
       maxFrameBytes: input.limits.maxFrameBytes,

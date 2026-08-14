@@ -7,6 +7,7 @@ import {
   type RelayRouteFrame,
 } from '@protocol/index';
 import { describe, expect, it } from 'vitest';
+import { deriveConnectionScope } from '@hosts/linux-runtime/connection-scope';
 
 import { TestDuplex, waitFor } from '../daemon/connection-test-helpers';
 import { RelayControlHost } from './control-host';
@@ -43,7 +44,7 @@ function router(): RelayStreamRouter {
 
 function workerAdmission(): Uint8Array {
   return encodeBridgeAdmission({
-    version: 1,
+    version: 2,
     topology: 'relay',
     role: 'worker',
     instanceId: 'instance-a',
@@ -54,14 +55,15 @@ function workerAdmission(): Uint8Array {
 
 function clientAdmission(
   credentialId = 'client-credential',
-  surface: 'desktop-full' | 'feishu-session-console' = 'desktop-full',
+  surface: 'desktop' | 'feishu' = 'desktop',
 ): Uint8Array {
   return encodeBridgeAdmission({
-    version: 1,
+    version: 2,
     topology: 'relay',
     role: 'client',
     instanceId: 'instance-a',
     credentialId,
+    connectionScope: deriveConnectionScope('instance-a', credentialId),
     surface,
   });
 }
@@ -108,8 +110,8 @@ describe('private Relay control host', () => {
     expect(data).toMatchObject({ type: 'route', frame: { payload: requestBytes } });
     if (!open || open.type !== 'route') throw new Error('missing open route');
     expect(open.frame).toMatchObject({
-      accessCredentialId: 'client-credential',
-      accessSurface: 'desktop-full',
+      connectionScope: deriveConnectionScope('instance-a', 'client-credential'),
+      accessSurface: 'desktop',
     });
 
     const response: RelayRouteFrame = {
@@ -122,8 +124,9 @@ describe('private Relay control host', () => {
       payload: Buffer.from('opaque-core-response'),
       creditBytes: null,
       resetCode: null,
-      accessCredentialId: null,
+      connectionScope: null,
       accessSurface: null,
+      accessGrant: null,
     };
     worker.feedBytes(encodeWorkerWireMessage({ type: 'route', frame: response }));
     await waitFor(() => client.writes.length > 0, 'opaque response');
@@ -149,7 +152,7 @@ describe('private Relay control host', () => {
     host.start();
     const client = new TestDuplex(1024 * 1024);
     host.accept(client);
-    client.feedBytes(clientAdmission('feishu-credential', 'desktop-full'));
+    client.feedBytes(clientAdmission('feishu-credential', 'desktop'));
     await waitFor(() => client.destroyed, 'surface mismatch close');
     expect(host.clientCount).toBe(0);
     host.stop();

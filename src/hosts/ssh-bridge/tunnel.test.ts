@@ -22,12 +22,13 @@ describe('restricted SSH client bridge tunnel', () => {
 
     const running = runSshClientBridgeTunnel({
       admission: {
-        version: 1,
-        topology: 'server-core',
+        version: 2,
+        topology: 'full',
         role: 'client',
         instanceId: 'tenant-a',
         credentialId: 'ssh-credential-a',
-        surface: 'desktop-full',
+        connectionScope: 'scope-ssh-credential-a',
+        surface: 'desktop',
       },
       socketPath: '/run/agent-deck/tenant-a/agent-deckd.sock',
       originalCommand: SSH_BRIDGE_ORIGINAL_COMMAND,
@@ -41,7 +42,7 @@ describe('restricted SSH client bridge tunnel', () => {
 
     const decoded = new BridgeAdmissionDecoder().push(Buffer.concat(upstream));
     expect(decoded?.admission).toMatchObject({
-      topology: 'server-core',
+      topology: 'full',
       instanceId: 'tenant-a',
       credentialId: 'ssh-credential-a',
     });
@@ -54,12 +55,13 @@ describe('restricted SSH client bridge tunnel', () => {
     await expect(
       runSshClientBridgeTunnel({
         admission: {
-          version: 1,
+          version: 2,
           topology: 'relay',
           role: 'client',
           instanceId: 'tenant-a',
           credentialId: 'ssh-credential-a',
-          surface: 'desktop-full',
+          connectionScope: 'scope-ssh-credential-a',
+          surface: 'desktop',
         },
         socketPath: '/run/agent-deck-relay/tenant-a/control.sock',
         originalCommand: 'sh',
@@ -75,12 +77,13 @@ describe('restricted SSH client bridge tunnel', () => {
     await expect(
       runSshClientBridgeTunnel({
         admission: {
-          version: 1,
-          topology: 'server-core',
+          version: 2,
+          topology: 'full',
           role: 'client',
           instanceId: 'tenant-a',
           credentialId: 'ssh-credential-a',
-          surface: 'desktop-full',
+          connectionScope: 'scope-ssh-credential-a',
+          surface: 'desktop',
         },
         socketPath: '/run/agent-deck/../other.sock',
         originalCommand: SSH_BRIDGE_ORIGINAL_COMMAND,

@@ -10,12 +10,13 @@ import {
 
 export interface FeishuSshCredentialConfig {
   readonly credentialId: string;
+  readonly connectionScope: string;
   readonly identityFile: string;
 }
 
 export interface FeishuCoreSshConfig {
-  readonly schemaVersion: 1;
-  readonly topology: 'relay' | 'server-core';
+  readonly schemaVersion: 2;
+  readonly topology: 'relay' | 'full';
   readonly instanceId: string;
   readonly appVersion: string;
   readonly hostname: string;
@@ -28,14 +29,23 @@ export interface FeishuCoreSshConfig {
 
 function credential(value: unknown): FeishuSshCredentialConfig {
   const object = requireObject(value, 'core SSH credential');
-  assertExactKeys(object, ['credentialId', 'identityFile'], 'core SSH credential');
+  assertExactKeys(
+    object,
+    ['connectionScope', 'credentialId', 'identityFile'],
+    'core SSH credential',
+  );
+  const credentialId = requireStableToken(object.credentialId, 'credentialId');
   return Object.freeze({
-    credentialId: requireStableToken(object.credentialId, 'credentialId'),
+    credentialId,
+    connectionScope: requireStableToken(object.connectionScope, 'connectionScope'),
     identityFile: requireAbsolutePath(object.identityFile, 'identityFile'),
   });
 }
 
-function validateProfile(config: FeishuCoreSshConfig, identityFile: string): void {
+function validateProfile(
+  config: FeishuCoreSshConfig,
+  credential: FeishuSshCredentialConfig,
+): void {
   const profile: SshHostProfile = {
     id: 'feishu-config-check',
     label: 'Feishu Core',
@@ -43,10 +53,11 @@ function validateProfile(config: FeishuCoreSshConfig, identityFile: string): voi
     hostname: config.hostname,
     port: config.port,
     username: config.username,
-    identityFile,
+    identityFile: credential.identityFile,
     knownHostsFile: config.knownHostsFile,
-    accessSurface: 'feishu-session-console',
+    accessSurface: 'feishu',
     expectedInstanceId: config.instanceId,
+    expectedConnectionScope: credential.connectionScope,
     ...(config.hostKeyAlias === null ? {} : { hostKeyAlias: config.hostKeyAlias }),
     sshBinary: '/usr/bin/ssh',
   };
@@ -67,8 +78,13 @@ export function parseFeishuCoreSshConfig(value: unknown): FeishuCoreSshConfig {
     'topology',
     'username',
   ], 'Feishu Core SSH config');
-  if (object.schemaVersion !== 1) throw new Error('Feishu Core SSH schemaVersion must be 1');
-  if (object.topology !== 'server-core' && object.topology !== 'relay') {
+  if (object.schemaVersion !== 2) {
+    throw new Error('Feishu Core SSH schemaVersion is unsupported');
+  }
+  const topology = object.topology === 'full' || object.topology === 'relay'
+    ? object.topology
+    : null;
+  if (topology === null) {
     throw new Error('Feishu Core SSH topology is invalid');
   }
   if (!Array.isArray(object.credentials) || object.credentials.length > 1_000) {
@@ -77,7 +93,8 @@ export function parseFeishuCoreSshConfig(value: unknown): FeishuCoreSshConfig {
   const credentials = Object.freeze(object.credentials.map(credential));
   if (
     new Set(credentials.map((entry) => entry.credentialId)).size !== credentials.length ||
-    new Set(credentials.map((entry) => entry.identityFile)).size !== credentials.length
+    new Set(credentials.map((entry) => entry.identityFile)).size !== credentials.length ||
+    new Set(credentials.map((entry) => entry.connectionScope)).size !== credentials.length
   ) {
     throw new Error('Feishu Core SSH credentials contain duplicates');
   }
@@ -85,8 +102,8 @@ export function parseFeishuCoreSshConfig(value: unknown): FeishuCoreSshConfig {
     ? null
     : requireStableToken(object.hostKeyAlias, 'hostKeyAlias');
   const config: FeishuCoreSshConfig = Object.freeze({
-    schemaVersion: 1,
-    topology: object.topology,
+    schemaVersion: 2,
+    topology,
     instanceId: requireLinuxInstanceId(object.instanceId),
     appVersion: requireStableToken(object.appVersion, 'appVersion'),
     hostname: requireStableToken(object.hostname, 'hostname'),
@@ -96,6 +113,6 @@ export function parseFeishuCoreSshConfig(value: unknown): FeishuCoreSshConfig {
     hostKeyAlias,
     credentials,
   });
-  for (const entry of credentials) validateProfile(config, entry.identityFile);
+  for (const entry of credentials) validateProfile(config, entry);
   return config;
 }

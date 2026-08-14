@@ -1,4 +1,4 @@
-import type { JsonValue } from '@contracts/index';
+import { issueRemoteOwnerAccessContext, type JsonValue } from '@contracts/index';
 import type { FeishuProductionConfig } from '@gateways/feishu';
 import {
   FakeSpawnHarness,
@@ -12,8 +12,8 @@ import { createFeishuSshClientFactory } from './client-factory';
 import { parseFeishuCoreSshConfig } from './config';
 
 const GATEWAY: FeishuProductionConfig = {
-  schemaVersion: 1,
-  topology: 'server-core',
+  schemaVersion: 2,
+  topology: 'full',
   instanceId: 'tenant-a',
   appId: 'cli_1234567890abcdef',
   tenantKey: 'tenant-key',
@@ -21,7 +21,12 @@ const GATEWAY: FeishuProductionConfig = {
   appSecretFile: '/etc/agent-deck/feishu/app-secret',
   actionSecretFile: '/etc/agent-deck/feishu/action-secret',
   credentials: [
-    { openId: 'open-a', credentialId: 'feishu-credential-a', status: 'active' },
+    {
+      openId: 'open-a',
+      credentialId: 'feishu-credential-a',
+      connectionScope: 'scope-feishu-credential-a',
+      status: 'active',
+    },
   ],
   callbackWindowMs: 2_800,
   pendingPresentationLifetimeMs: 1_800_000,
@@ -34,8 +39,8 @@ const GATEWAY: FeishuProductionConfig = {
 
 function sshConfig() {
   return parseFeishuCoreSshConfig({
-    schemaVersion: 1,
-    topology: 'server-core',
+    schemaVersion: 2,
+    topology: 'full',
     instanceId: 'tenant-a',
     appVersion: '0.1.0',
     hostname: 'core.example.test',
@@ -46,25 +51,23 @@ function sshConfig() {
     credentials: [
       {
         credentialId: 'feishu-credential-a',
+        connectionScope: 'scope-feishu-credential-a',
         identityFile: '/etc/agent-deck/feishu/credential-a.key',
       },
     ],
   });
 }
 
-function feishuHello(clientId: string, credentialId = 'feishu-credential-a') {
-  return makeHostHello(clientId, 'server-core', {
+function feishuHello(clientId: string, connectionScope = 'scope-feishu-credential-a') {
+  return makeHostHello(clientId, 'full', {
     instanceId: 'tenant-a',
-    access: {
-      kind: 'authenticated-client',
-      topology: 'server-core',
+    access: issueRemoteOwnerAccessContext({
+      topology: 'full',
       instanceId: 'tenant-a',
       clientId,
-      transport: 'feishu',
-      accessCredentialId: credentialId,
-      authority: 'owner-equivalent',
-      surface: 'feishu-session-console',
-    },
+      connectionScope,
+      surface: 'feishu',
+    }),
   });
 }
 
@@ -81,7 +84,7 @@ describe('Feishu restricted SSH client factory', () => {
       instanceId: 'tenant-a',
       credentialId: 'feishu-credential-a',
       clientId,
-      topology: 'server-core',
+      topology: 'full',
     });
     const connected = client.connect(makeClientHello(clientId));
     const process = harness.latest;
@@ -107,7 +110,7 @@ describe('Feishu restricted SSH client factory', () => {
       instanceId: 'tenant-a',
       credentialId: 'unknown-credential',
       clientId: 'feishu-client-unknown',
-      topology: 'server-core',
+      topology: 'full',
     })).toThrow('not active');
 
     const clientId = 'feishu-client-mismatch';
@@ -115,7 +118,7 @@ describe('Feishu restricted SSH client factory', () => {
       instanceId: 'tenant-a',
       credentialId: 'feishu-credential-a',
       clientId,
-      topology: 'server-core',
+      topology: 'full',
     });
     const connecting = client.connect(makeClientHello(clientId));
     const process = harness.latest;

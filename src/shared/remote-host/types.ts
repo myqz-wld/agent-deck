@@ -40,7 +40,7 @@ import type {
 
 export * from './session-request-types';
 
-export type RemoteHostTopology = 'standalone' | 'server-core' | 'relay';
+export type RemoteHostTopology = 'standalone' | 'full' | 'relay';
 export type RemoteHostRemoteTopology = Exclude<RemoteHostTopology, 'standalone'>;
 export type RemoteHostSourceMode = 'local' | 'remote';
 

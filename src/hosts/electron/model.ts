@@ -17,7 +17,7 @@ export interface StandaloneElectronHostProfile extends ElectronHostProfileBase {
 }
 
 export interface RemoteElectronHostProfile extends ElectronHostProfileBase {
-  topology: 'relay' | 'server-core';
+  topology: 'relay' | 'full';
   ssh: SshHostProfile;
 }
 

@@ -33,7 +33,7 @@ function fixtureCommands(): FixtureCommand[] {
       role: 'worker',
       command: workerCommand,
       expectedAdmission: {
-        version: 1,
+        version: 2,
         topology: 'relay',
         role: 'worker',
         instanceId: 'instance-a',
@@ -45,24 +45,26 @@ function fixtureCommands(): FixtureCommand[] {
       role: 'client',
       command: desktopCommand,
       expectedAdmission: {
-        version: 1,
+        version: 2,
         topology: 'relay',
         role: 'client',
         instanceId: 'instance-a',
         credentialId: 'credential-a',
-        surface: 'desktop-full',
+        connectionScope: expect.stringMatching(/^scope-/u),
+        surface: 'desktop',
       },
     },
     {
       role: 'client',
       command: feishuCommand,
       expectedAdmission: {
-        version: 1,
+        version: 2,
         topology: 'relay',
         role: 'client',
         instanceId: 'instance-a',
         credentialId: 'credential-a',
-        surface: 'feishu-session-console',
+        connectionScope: expect.stringMatching(/^scope-/u),
+        surface: 'feishu',
       },
     },
   ];
@@ -86,7 +88,7 @@ describe('packaged Relay forced-command contract', () => {
   it('rejects the inverse surface schemas that caused the packaged outage', () => {
     expect(() => parseRelayForcedCommand([
       'attach', '--instance', 'instance-a', '--credential', 'credential-a',
-      '--surface', 'desktop-full', '--socket',
+      '--surface', 'desktop', '--socket',
       '/run/user/1001/agent-deck-relay/instance-a/control.sock',
       '--worker', 'worker-a',
     ])).toThrow('unknown or duplicate flag');

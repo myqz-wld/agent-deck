@@ -45,12 +45,12 @@ if grep -Eiq '"(appSecret|actionSecret|privateKey)"[[:space:]]*:' \
   "$gateway_example" "$core_example"; then
   fail 'inline secrets or private keys are forbidden'
 fi
-grep -Fq 'feishu-session-console' \
+grep -Fq -- '--surface feishu' \
   "$repo_root/deploy/linux/full/authorized-client-key-options.txt" ||
-  fail 'Full provisioning lacks a Feishu-only key surface'
-grep -Fq 'feishu-session-console' \
+  fail 'Full provisioning lacks the Feishu key surface'
+grep -Fq -- '--surface feishu' \
   "$repo_root/deploy/linux/relay/authorized-client-key-options.txt" ||
-  fail 'Relay provisioning lacks a Feishu-only key surface'
+  fail 'Relay provisioning lacks the Feishu key surface'
 grep -Fq 'exec /usr/bin/env -i' "$wrapper" || fail 'wrapper does not clear inherited environment'
 grep -Fq '/usr/bin/node /opt/agent-deck/linux-headless/feishu/index.mjs' "$wrapper" ||
   fail 'wrapper bundle path drifted'

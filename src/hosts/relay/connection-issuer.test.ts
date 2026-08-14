@@ -67,7 +67,7 @@ describe('Relay connection issuance', () => {
 
     const credential = parseRemoteConnectionCredential(JSON.parse(readFileSync(output, 'utf8')));
     expect(credential).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       purpose: 'client',
       topology: 'relay',
       credentialId: 'desktop-a',
@@ -82,7 +82,7 @@ describe('Relay connection issuance', () => {
     ]);
     const authorized = readFileSync(paths.authorizedKeys, 'utf8');
     expect(authorized).toContain('agent-deck-relay bridge');
-    expect(authorized).toContain('--surface desktop-full');
+    expect(authorized).toContain('--surface desktop');
     expect(authorized).not.toContain('agent-deck-relay attach');
     expect(authorized).not.toContain('OPENSSH PRIVATE KEY');
   });
@@ -99,7 +99,7 @@ describe('Relay connection issuance', () => {
 
     const credential = parseRemoteConnectionCredential(JSON.parse(readFileSync(output, 'utf8')));
     expect(credential).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       purpose: 'worker',
       topology: 'relay',
       credentialId: 'worker-credential-a',
@@ -116,7 +116,7 @@ describe('Relay connection issuance', () => {
     const authorized = readFileSync(paths.authorizedKeys, 'utf8');
     expect(authorized).toContain('agent-deck-relay attach');
     expect(authorized).toContain('--worker worker-a');
-    expect(authorized).not.toContain('--surface desktop-full');
+    expect(authorized).not.toContain('--surface desktop');
   });
 
   it('allows Clients beside one Worker but rejects a second active Worker', () => {

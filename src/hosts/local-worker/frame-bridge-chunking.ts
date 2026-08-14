@@ -40,8 +40,9 @@ export function resolveRelayOutputChunkBytes(options: RelayOutputChunkOptions): 
       payload: OUTPUT_CHUNK_PROBE.subarray(0, candidate),
       creditBytes: null,
       resetCode: null,
-      accessCredentialId: null,
+      connectionScope: null,
       accessSurface: null,
+      accessGrant: null,
     };
     try {
       assertRelayRouteFrame(frame, {

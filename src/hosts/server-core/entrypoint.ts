@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import { preflightNodeNativeSqlite } from '@hosts/daemon/sqlite-preflight';
 import { readPrivateJsonFile } from '@hosts/linux-runtime/config-file';
+import { deriveConnectionScope } from '@hosts/linux-runtime/connection-scope';
 import { runForcedCommandTunnel } from '@hosts/linux-runtime/forced-command';
 import { runCompositionService } from '@hosts/linux-runtime/service-runner';
 import {
@@ -53,11 +54,12 @@ async function bridge(
   }
   await runForcedCommandTunnel({
     admission: {
-      version: 1,
-      topology: 'server-core',
+      version: 2,
+      topology: 'full',
       role: 'client',
       instanceId,
       credentialId,
+      connectionScope: deriveConnectionScope(instanceId, credentialId),
       surface,
     },
     socketPath,
@@ -124,8 +126,8 @@ export async function runServerCoreEntrypoint(argv: readonly string[]): Promise<
   return result.exitCode;
 }
 
-function requireClientSurface(value: string): 'desktop-full' | 'feishu-session-console' {
-  if (value !== 'desktop-full' && value !== 'feishu-session-console') {
+function requireClientSurface(value: string): 'desktop' | 'feishu' {
+  if (value !== 'desktop' && value !== 'feishu') {
     throw new Error('Server Core client surface is invalid');
   }
   return value;

@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type {
-  AuthenticatedClientAccessContext,
-  JsonObject,
-  JsonValue,
+import {
+  issueRemoteOwnerGrantClaim,
+  type AuthenticatedClientAccessContext,
+  type JsonObject,
+  type JsonValue,
 } from '@contracts/index';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import type {
@@ -17,9 +18,10 @@ import type {
 import { ServerCoreWorkspaceDirectoryMutationRuntime } from './workspace-directory-mutation-runtime';
 
 const desktop: AuthenticatedClientAccessContext = {
-  kind: 'authenticated-client', topology: 'server-core', instanceId: 'instance-a',
-  clientId: 'desktop-a', transport: 'ssh', accessCredentialId: 'credential-a',
-  authority: 'owner-equivalent', surface: 'desktop-full',
+  kind: 'authenticated-client', topology: 'full', instanceId: 'instance-a',
+  clientId: 'desktop-a', transport: 'ssh', connectionScope: 'credential-a',
+  authority: 'owner-equivalent', surface: 'desktop',
+  grant: issueRemoteOwnerGrantClaim('desktop'),
 };
 const roots: string[] = [];
 
@@ -111,17 +113,18 @@ describe('ServerCoreWorkspaceDirectoryMutationRuntime', () => {
     expect(state.metadata.releaseMutationClaim).toHaveBeenCalledOnce();
   });
 
-  it('denies the Feishu surface before claiming an intent', async () => {
+  it('grants Feishu the same idempotent Workspace mutation', async () => {
     const state = harness();
     const feishu = {
       ...desktop, clientId: 'feishu-a', transport: 'feishu' as const,
-      surface: 'feishu-session-console' as const,
+      surface: 'feishu' as const,
+      grant: issueRemoteOwnerGrantClaim('feishu'),
     };
     await expect(state.runtime.execute(request(
       { parentDirectory: 'repo', name: 'denied' },
       'intent-feishu',
       feishu,
-    ))).rejects.toMatchObject({ code: 'access_denied' });
-    expect(state.metadata.claimMutation).not.toHaveBeenCalled();
+    ))).resolves.toBeDefined();
+    expect(state.metadata.claimMutation).toHaveBeenCalledOnce();
   });
 });

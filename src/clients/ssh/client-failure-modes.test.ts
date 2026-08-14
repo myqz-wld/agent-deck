@@ -14,7 +14,7 @@ import { completeConnect, hasMessageType, makeClient } from './__tests__/client-
 describe('SshAgentDeckClient protocol failure modes', () => {
   it('fails closed on host-key and handshake mismatches without automatic trust', async () => {
     const hostKeyHarness = new FakeSpawnHarness();
-    const hostKeyClient = makeClient(hostKeyHarness, 'host-key', 'server-core', {
+    const hostKeyClient = makeClient(hostKeyHarness, 'host-key', 'full', {
       reconnect: { maxAttempts: 8 },
     });
     const hostKeyConnect = hostKeyClient.connect(makeClientHello('desktop-host-key'));
@@ -102,7 +102,7 @@ describe('SshAgentDeckClient protocol failure modes', () => {
     vi.useFakeTimers();
     try {
       const harness = new FakeSpawnHarness();
-      const client = makeClient(harness, 'heartbeat', 'server-core', {
+      const client = makeClient(harness, 'heartbeat', 'full', {
         timing: { pingIntervalMs: 10, pongTimeoutMs: 5 },
         reconnect: { maxAttempts: 0 },
       });

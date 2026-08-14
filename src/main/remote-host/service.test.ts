@@ -35,7 +35,7 @@ function expectedAuthority(profileId: string) {
 
 function harness(bindings?: ElectronHostClientBinding[]) {
   const local = standaloneProfile('local');
-  const remote = remoteProfile('server-a', 'server-core');
+  const remote = remoteProfile('server-a', 'full');
   remote.ssh.identityFile = '/private/keys/desktop-key';
   remote.ssh.knownHostsFile = '/private/trust/known_hosts';
   const first = new ControlledClient(fullHello(remote));
@@ -45,7 +45,7 @@ function harness(bindings?: ElectronHostClientBinding[]) {
     createClient: () => queue.shift() as ElectronHostClientBinding,
   });
   const backend = new MemoryBackend({
-    schemaVersion: 3,
+    schemaVersion: 4,
     sourceMode: 'remote',
     selectedRemoteProfileId: remote.id,
     profiles: [local, remote],
@@ -72,7 +72,7 @@ function harness(bindings?: ElectronHostClientBinding[]) {
   return { backend, connections, first, local, materials, registry, remote, service };
 }
 
-function observedHarness(topology: 'relay' | 'server-core') {
+function observedHarness(topology: 'relay' | 'full') {
   const local = standaloneProfile('local');
   const remote = remoteProfile(`${topology}-observed`, topology);
   const client = new ControlledClient(fullHello(remote));
@@ -88,7 +88,7 @@ function observedHarness(topology: 'relay' | 'server-core') {
     }),
   });
   const backend = new MemoryBackend({
-    schemaVersion: 3,
+    schemaVersion: 4,
     sourceMode: 'remote',
     selectedRemoteProfileId: remote.id,
     profiles: [local, remote],
@@ -154,7 +154,7 @@ describe('RemoteHostService', () => {
       topology: 'relay',
       ssh: {
         expectedInstanceId: 'relay-instance',
-        expectedAccessCredentialId: 'desktop-a',
+        expectedConnectionScope: 'scope-desktop-a',
       },
     });
 
@@ -336,11 +336,11 @@ describe('RemoteHostService', () => {
   });
 
   it('does not probe an offline Server Core even if its error code is worker_offline', async () => {
-    const context = observedHarness('server-core');
+    const context = observedHarness('full');
     await context.service.connect(context.remote.id);
     context.emit({
       profileId: context.remote.id,
-      topology: 'server-core',
+      topology: 'full',
       status: 'offline',
       attempt: 1,
       hello: fullHello(context.remote),
@@ -387,7 +387,7 @@ describe('RemoteHostService', () => {
   });
 
   it('retires the old SSH binding and reconnects a replaced profile under a new scope', async () => {
-    const remote = remoteProfile('server-a', 'server-core');
+    const remote = remoteProfile('server-a', 'full');
     const first = new ControlledClient(fullHello(remote));
     const second = new ControlledClient(fullHello(remote));
     const context = harness([{ client: first }, { client: second }]);
@@ -414,7 +414,7 @@ describe('RemoteHostService', () => {
   });
 
   it('surfaces host-key incompatibility without leaking offending known_hosts paths', async () => {
-    const remote = remoteProfile('server-a', 'server-core');
+    const remote = remoteProfile('server-a', 'full');
     const client = new ControlledClient(fullHello(remote));
     let observe!: Parameters<NonNullable<ElectronHostClientBinding['observeTransport']>>[0];
     const binding: ElectronHostClientBinding = {
@@ -429,7 +429,7 @@ describe('RemoteHostService', () => {
 
     observe({
       profileId: context.remote.id,
-      topology: 'server-core',
+      topology: 'full',
       status: 'incompatible',
       attempt: 1,
       hello: fullHello(context.remote),

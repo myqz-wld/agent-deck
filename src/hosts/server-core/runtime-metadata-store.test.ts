@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -34,13 +34,72 @@ function store(instancePaths = paths()): ServerCoreRuntimeMetadataStore {
 
 function identity(overrides: Partial<ServerCoreMutationIdentity> = {}): ServerCoreMutationIdentity {
   return {
-    accessCredentialId: 'credential-a',
-    accessSurface: 'desktop-full',
+    connectionScope: 'credential-a',
+    accessSurface: 'desktop',
     idempotencyKey: 'mutation-a',
     method: 'session.send',
     requestFingerprint: 'a'.repeat(64),
     ...overrides,
   };
+}
+
+function createLegacyStore(instancePaths: DaemonInstancePaths): string {
+  mkdirSync(instancePaths.stateDirectory, { recursive: true });
+  const path = join(instancePaths.stateDirectory, 'server-core-runtime.db');
+  const database = new Database(path);
+  database.exec(`
+CREATE TABLE core_state (
+  singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+  current_revision INTEGER NOT NULL CHECK(current_revision >= 0)
+) STRICT;
+CREATE TABLE change_log (
+  revision INTEGER PRIMARY KEY CHECK(revision > 0),
+  kind TEXT NOT NULL CHECK(length(kind) BETWEEN 1 AND 128),
+  entity_id TEXT CHECK(entity_id IS NULL OR length(entity_id) BETWEEN 1 AND 256),
+  payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+  created_at INTEGER NOT NULL CHECK(created_at >= 0)
+) STRICT;
+CREATE TABLE mutation_ledger (
+  access_credential_id TEXT NOT NULL CHECK(length(access_credential_id) BETWEEN 1 AND 256),
+  access_surface TEXT NOT NULL CHECK(access_surface IN ('desktop-full', 'feishu-session-console')),
+  idempotency_key TEXT NOT NULL CHECK(length(idempotency_key) BETWEEN 1 AND 512),
+  method TEXT NOT NULL CHECK(length(method) BETWEEN 1 AND 128),
+  request_fingerprint TEXT NOT NULL CHECK(length(request_fingerprint) = 64),
+  status TEXT NOT NULL CHECK(status IN ('invoking', 'completed')),
+  result_json TEXT CHECK(result_json IS NULL OR json_valid(result_json)),
+  revision INTEGER CHECK(revision IS NULL OR revision >= 0),
+  updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
+  PRIMARY KEY(access_credential_id, access_surface, idempotency_key)
+) STRICT;
+CREATE TABLE session_subscriptions (
+  access_credential_id TEXT NOT NULL CHECK(length(access_credential_id) BETWEEN 1 AND 256),
+  access_surface TEXT NOT NULL CHECK(access_surface IN ('desktop-full', 'feishu-session-console')),
+  session_id TEXT NOT NULL CHECK(length(session_id) BETWEEN 1 AND 256),
+  subscribed INTEGER NOT NULL CHECK(subscribed IN (0, 1)),
+  updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
+  PRIMARY KEY(access_credential_id, access_surface, session_id)
+) STRICT;
+INSERT INTO core_state(singleton, current_revision) VALUES (1, 0);
+PRAGMA user_version = 1;
+  `);
+  const now = Date.now();
+  database.prepare(`
+    INSERT INTO mutation_ledger(
+      access_credential_id, access_surface, idempotency_key, method,
+      request_fingerprint, status, result_json, revision, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 'completed', ?, 4, ?)
+  `).run(
+    'credential-a', 'desktop-full', 'mutation-a', 'session.send',
+    'a'.repeat(64), JSON.stringify({ accepted: true }), now,
+  );
+  database.prepare(`
+    INSERT INTO session_subscriptions(
+      access_credential_id, access_surface, session_id, subscribed, updated_at
+    ) VALUES (?, ?, ?, 1, ?)
+  `).run('credential-a', 'feishu-session-console', 'session-a', now);
+  database.close();
+  chmodSync(path, 0o600);
+  return path;
 }
 
 afterEach(() => {
@@ -65,6 +124,19 @@ describe('ServerCoreRuntimeMetadataStore', () => {
       entityId: 'session-a',
       payload: { state: 'active' },
     }]);
+  });
+
+  it('rejects retired metadata schemas without mutating them', () => {
+    const instancePaths = paths();
+    const path = createLegacyStore(instancePaths);
+    expect(() => store(instancePaths)).toThrow('schema is incompatible');
+
+    const database = new Database(path, { readonly: true });
+    expect(database.pragma('user_version', { simple: true })).toBe(1);
+    expect(database.prepare(`PRAGMA table_info(mutation_ledger)`).all()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'access_credential_id' })]),
+    );
+    database.close();
   });
 
   it('publishes committed changes and makes unsubscribe exact', () => {
@@ -167,11 +239,11 @@ describe('ServerCoreRuntimeMetadataStore', () => {
 
   it('persists subscription state by credential and surface', () => {
     const metadata = store();
-    metadata.setSubscribed('credential-a', 'desktop-full', 'session-a', true, 10);
-    expect(metadata.isSubscribed('credential-a', 'desktop-full', 'session-a')).toBe(true);
-    expect(metadata.isSubscribed('credential-a', 'feishu-session-console', 'session-a')).toBe(false);
-    metadata.setSubscribed('credential-a', 'desktop-full', 'session-a', false, 11);
-    expect(metadata.isSubscribed('credential-a', 'desktop-full', 'session-a')).toBe(false);
+    metadata.setSubscribed('credential-a', 'desktop', 'session-a', true, 10);
+    expect(metadata.isSubscribed('credential-a', 'desktop', 'session-a')).toBe(true);
+    expect(metadata.isSubscribed('credential-a', 'feishu', 'session-a')).toBe(false);
+    metadata.setSubscribed('credential-a', 'desktop', 'session-a', false, 11);
+    expect(metadata.isSubscribed('credential-a', 'desktop', 'session-a')).toBe(false);
   });
 
   it('rejects oversized change payloads without advancing revision', () => {

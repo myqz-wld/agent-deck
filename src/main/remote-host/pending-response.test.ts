@@ -65,7 +65,7 @@ function pendingResult(
 
 function harness(capabilities = Object.values(AgentDeckCapability) as Capability[]) {
   const local = standaloneProfile('local');
-  const remote = remoteProfile('remote-pending', 'server-core');
+  const remote = remoteProfile('remote-pending', 'full');
   const client = new ControlledClient({ ...remoteHello(remote), capabilities });
   let currentPending = pendingResult();
   let currentPresentationDigest = remoteHostPendingPresentationDigest(currentPending.requests[0]!);
@@ -84,7 +84,7 @@ function harness(capabilities = Object.values(AgentDeckCapability) as Capability
   const service = new RemoteHostService({
     registry,
     store: new RemoteHostProfileStore(new MemoryBackend({
-      schemaVersion: 3,
+      schemaVersion: 4,
       sourceMode: 'remote',
       selectedRemoteProfileId: remote.id,
       profiles: [local, remote],

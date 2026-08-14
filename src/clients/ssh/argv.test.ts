@@ -11,7 +11,7 @@ export function makeSshProfile(
   return {
     id: 'server-profile',
     label: 'Server A',
-    topology: 'server-core',
+    topology: 'full',
     hostname: 'core.example.test',
     port: 2222,
     username: 'agentdeck',

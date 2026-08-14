@@ -1,6 +1,7 @@
 import {
   AccessSurface,
   AgentDeckCapability,
+  copyRemoteOwnerGrantClaim,
   type HostHello,
 } from '@contracts/index';
 import { assertHostHello } from '@protocol/messages';
@@ -45,6 +46,9 @@ export function validateHostHello(
     throw new FeishuGatewayError('invalid_core_response', 'Core hello is malformed');
   }
   const hello = input as HostHello;
+  if (hello.access.kind !== 'authenticated-client') {
+    throw new FeishuGatewayError('access_denied', 'Core returned a non-client access context');
+  }
   exactKeys(hello, [
     'access', 'appVersion', 'authoritativeCore', 'capabilities', 'eventRevision',
     'instanceId', 'limits', 'protocolVersion', 'topology',
@@ -55,24 +59,23 @@ export function validateHostHello(
     'maxBlobBytes', 'maxConcurrentRequests', 'maxFrameBytes', 'maxQueuedEvents',
   ], 'limits');
   exactKeys(hello.access, [
-    'accessCredentialId', 'authority', 'clientId', 'instanceId', 'kind', 'surface',
+    'authority', 'clientId', 'connectionScope', 'grant', 'instanceId', 'kind', 'surface',
     'topology', 'transport',
   ], 'access');
   boundedText(hello.appVersion, 'hello.appVersion');
   boundedText(hello.instanceId, 'hello.instanceId', true);
   boundedText(hello.authoritativeCore.id, 'authoritativeCore.id', true);
   boundedText(hello.access.clientId, 'access.clientId', true);
-  boundedText(String(hello.access.accessCredentialId), 'access.accessCredentialId', true);
+  boundedText(String(hello.access.connectionScope), 'access.connectionScope', true);
   if (
     hello.instanceId !== credential.instanceId ||
     hello.topology !== credential.topology ||
-    hello.access.kind !== 'authenticated-client' ||
     hello.access.instanceId !== credential.instanceId ||
     hello.access.topology !== credential.topology ||
     hello.access.clientId !== clientId ||
-    hello.access.accessCredentialId !== credential.credentialId ||
+    hello.access.connectionScope !== credential.connectionScope ||
     hello.access.transport !== 'feishu' ||
-    hello.access.surface !== AccessSurface.FeishuSessionConsole ||
+    hello.access.surface !== AccessSurface.Feishu ||
     hello.access.authority !== 'owner-equivalent'
   ) {
     throw new FeishuGatewayError('access_denied', 'Core returned a mismatched Feishu access context');
@@ -103,7 +106,10 @@ export function validateHostHello(
     ...hello,
     protocolVersion: Object.freeze({ ...hello.protocolVersion }),
     authoritativeCore: Object.freeze({ ...hello.authoritativeCore }),
-    access: Object.freeze({ ...hello.access }),
+    access: Object.freeze({
+      ...hello.access,
+      grant: copyRemoteOwnerGrantClaim(hello.access.grant),
+    }),
     capabilities: Object.freeze(capabilities),
     limits: Object.freeze({ ...hello.limits }),
   });

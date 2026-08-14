@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type {
-  AuthenticatedClientAccessContext,
-  CoreMethod,
-  JsonObject,
+import {
+  issueRemoteOwnerGrantClaim,
+  type AuthenticatedClientAccessContext,
+  type CoreMethod,
+  type JsonObject,
 } from '@contracts/index';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import type { SessionRecord } from '@shared/types';
@@ -12,13 +13,14 @@ import { ServerCoreSessionDetailRuntime } from './session-detail-runtime';
 
 const desktop: AuthenticatedClientAccessContext = {
   kind: 'authenticated-client',
-  topology: 'server-core',
+  topology: 'full',
   instanceId: 'instance-a',
   clientId: 'desktop-a',
   transport: 'ssh',
-  accessCredentialId: 'credential-a',
+  connectionScope: 'credential-a',
   authority: 'owner-equivalent',
-  surface: 'desktop-full',
+  surface: 'desktop',
+  grant: issueRemoteOwnerGrantClaim('desktop'),
 };
 
 const session: SessionRecord = {
@@ -369,17 +371,22 @@ describe('ServerCoreSessionDetailRuntime', () => {
     expect(JSON.stringify(payload.result)).not.toContain('/workspaces');
   });
 
-  it('fails closed for outside-Workspace rows and Feishu access', async () => {
+  it('fails closed for outside-Workspace rows and grants the same Feishu projection', async () => {
     const outside = harness({ filePath: '/private/secret.txt' }).runtime;
     await expect(outside.execute(request('session.file-changes.list', {
       sessionId: session.id,
       limit: 20,
     }))).resolves.toMatchObject({ result: { items: [] } });
-    const feishu = { ...desktop, transport: 'feishu', surface: 'feishu-session-console' } as const;
+    const feishu = {
+      ...desktop,
+      transport: 'feishu',
+      surface: 'feishu',
+      grant: issueRemoteOwnerGrantClaim('feishu'),
+    } as const;
     await expect(harness().runtime.execute(request('session.summaries.list', {
       sessionId: session.id,
       limit: 20,
-    }, feishu))).rejects.toMatchObject({ code: 'access_denied' });
+    }, feishu))).resolves.toMatchObject({ result: { summaries: expect.any(Array) } });
   });
 
   it('omits provider configuration rows before returning stored content or final diffs', async () => {

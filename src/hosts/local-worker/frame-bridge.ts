@@ -5,6 +5,7 @@ import {
   type RelayRouteFrame,
 } from '@protocol/relay';
 import { resolveRelayOutputChunkBytes } from './frame-bridge-chunking';
+import type { RemoteOwnerGrantClaim } from '@contracts/index';
 
 export interface CoreFrameOutput {
   data(payload: Uint8Array): void;
@@ -27,8 +28,9 @@ export interface CoreFrameChannelFactory {
 }
 
 export interface CoreFrameAccessContext {
-  readonly accessCredentialId: string;
-  readonly surface: 'desktop-full' | 'feishu-session-console';
+  readonly connectionScope: string;
+  readonly surface: 'desktop' | 'feishu';
+  readonly grant: RemoteOwnerGrantClaim;
 }
 
 export interface LocalWorkerFrameBridgeLimits {
@@ -188,7 +190,9 @@ export class LocalWorkerFrameBridge {
   }
 
   private open(frame: RelayRouteFrame): void {
-    if (frame.accessCredentialId === null || frame.accessSurface === null) {
+    if (
+      frame.connectionScope === null || frame.accessSurface === null || frame.accessGrant === null
+    ) {
       throw new Error('Relay open frame is missing its authenticated client context');
     }
     const existing = this.streams.get(frame.streamId);
@@ -223,8 +227,9 @@ export class LocalWorkerFrameBridge {
         close: () => this.onCoreClose(stream),
         reset: (code = 'protocol_error') => this.fail(stream, code),
       }, {
-        accessCredentialId: frame.accessCredentialId,
+        connectionScope: frame.connectionScope,
         surface: frame.accessSurface,
+        grant: frame.accessGrant,
       });
       if (this.streams.get(stream.streamId) !== stream) {
         try {
@@ -313,8 +318,9 @@ export class LocalWorkerFrameBridge {
         payload: emptyRoutePayload(),
         creditBytes: null,
         resetCode: null,
-        accessCredentialId: null,
+        connectionScope: null,
         accessSurface: null,
+        accessGrant: null,
       };
       this.remove(stream);
       try {
@@ -336,8 +342,9 @@ export class LocalWorkerFrameBridge {
       payload: payload.slice(),
       creditBytes: null,
       resetCode: null,
-      accessCredentialId: null,
+      connectionScope: null,
       accessSurface: null,
+      accessGrant: null,
     });
     if (delivered) stream.nextOutboundSequence += 1;
     return delivered;
@@ -359,8 +366,9 @@ export class LocalWorkerFrameBridge {
       payload: emptyRoutePayload(),
       creditBytes,
       resetCode,
-      accessCredentialId: null,
+      connectionScope: null,
       accessSurface: null,
+      accessGrant: null,
     });
     if (delivered) stream.nextOutboundSequence += 1;
     return delivered;
@@ -382,8 +390,9 @@ export class LocalWorkerFrameBridge {
         payload: emptyRoutePayload(),
         creditBytes: null,
         resetCode: code,
-        accessCredentialId: null,
+        connectionScope: null,
         accessSurface: null,
+        accessGrant: null,
       });
     } catch {
       // Transport callback failure is confined to this removed stream.

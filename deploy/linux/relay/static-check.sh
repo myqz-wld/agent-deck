@@ -174,7 +174,7 @@ grep -Fq 'command="/opt/agent-deck/bin/agent-deck-relay attach --instance INSTAN
   echo "relay static check: Worker forced command must bind instance, credential, and Worker" >&2
   exit 1
 }
-for surface in desktop-full feishu-session-console; do
+for surface in desktop feishu; do
   if ! grep -Eq "^restrict,command=\"/opt/agent-deck/bin/agent-deck-relay bridge --instance INSTANCE_ID --credential CREDENTIAL_ID --surface $surface --socket /run/user/RUNTIME_UID/agent-deck-relay/INSTANCE_ID/control.sock\",no-agent-forwarding,no-port-forwarding,no-X11-forwarding,no-pty ssh-" \
     "$relay_dir/authorized-client-key-options.txt"; then
     echo "relay static check: client key must bind instance, credential, and $surface" >&2

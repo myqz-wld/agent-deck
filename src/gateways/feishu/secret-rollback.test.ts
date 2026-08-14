@@ -20,7 +20,7 @@ function fixture() {
   writeFileSync(appSecretPath, `app-${'A'.repeat(40)}\n`, { mode: 0o600 });
   writeFileSync(actionSecretPath, `mac-${'B'.repeat(40)}`, { mode: 0o600 });
   writeFileSync(configPath, JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     topology: 'relay',
     instanceId: 'instance-1',
     appId: 'cli_0123456789abcdef',
@@ -28,7 +28,12 @@ function fixture() {
     stateDirectory: root,
     appSecretFile: appSecretPath,
     actionSecretFile: actionSecretPath,
-    credentials: [{ openId: 'ou_owner_1', credentialId: 'credential_1', status: 'active' }],
+    credentials: [{
+      openId: 'ou_owner_1',
+      credentialId: 'credential_1',
+      connectionScope: 'scope-credential_1',
+      status: 'active',
+    }],
     callbackWindowMs: 2_800,
     pendingPresentationLifetimeMs: 1_800_000,
     startupTimeoutMs: 15_000,

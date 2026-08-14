@@ -115,7 +115,7 @@ function secretConfig(root: string): { configPath: string; appSecret: string; ac
   writeFileSync(appSecretPath, `${appSecret}\n`, { mode: 0o600 });
   writeFileSync(actionSecretPath, actionSecret, { mode: 0o600 });
   writeFileSync(configPath, JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     topology: 'relay',
     instanceId: 'instance-1',
     appId: binding.appId,
@@ -123,7 +123,12 @@ function secretConfig(root: string): { configPath: string; appSecret: string; ac
     stateDirectory: root,
     appSecretFile: appSecretPath,
     actionSecretFile: actionSecretPath,
-    credentials: [{ openId: 'ou_owner_1', credentialId: 'credential_1', status: 'active' }],
+    credentials: [{
+      openId: 'ou_owner_1',
+      credentialId: 'credential_1',
+      connectionScope: 'scope-credential_1',
+      status: 'active',
+    }],
     callbackWindowMs: 2_800,
     pendingPresentationLifetimeMs: 1_800_000,
     startupTimeoutMs: 15_000,
@@ -213,6 +218,35 @@ describe('production nonce, config, and audit boundaries', () => {
 
     chmodSync(config.appSecretFile, 0o644);
     expect(() => withFeishuSecretMaterial(config, () => undefined)).toThrow(
+      expect.objectContaining({ code: 'invalid_configuration' }),
+    );
+  });
+
+  it('rejects retired config schemas and topology spellings', () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-feishu-')));
+    const fixture = secretConfig(root);
+    const legacy = JSON.parse(String(readFileSync(fixture.configPath)));
+    legacy.schemaVersion = 1;
+    legacy.topology = 'server-core';
+    legacy.credentials = legacy.credentials.map((entry: Record<string, unknown>) => {
+      const { connectionScope: _connectionScope, ...rest } = entry;
+      return rest;
+    });
+    writeFileSync(fixture.configPath, JSON.stringify(legacy), { mode: 0o600 });
+
+    expect(() => loadFeishuProductionConfig(fixture.configPath)).toThrow(
+      expect.objectContaining({ code: 'invalid_configuration' }),
+    );
+
+    writeFileSync(fixture.configPath, JSON.stringify({
+      ...legacy,
+      schemaVersion: 2,
+      credentials: legacy.credentials.map((entry: Record<string, unknown>) => ({
+        ...entry,
+        connectionScope: entry.credentialId,
+      })),
+    }), { mode: 0o600 });
+    expect(() => loadFeishuProductionConfig(fixture.configPath)).toThrow(
       expect.objectContaining({ code: 'invalid_configuration' }),
     );
   });
@@ -334,7 +368,7 @@ describe('production nonce, config, and audit boundaries', () => {
     const serverRoot = realpathSync(mkdtempSync(join(tmpdir(), 'agent-deck-feishu-')));
     const serverFixture = secretConfig(serverRoot);
     const config = JSON.parse(String(readFileSync(serverFixture.configPath)));
-    config.topology = 'server-core';
+    config.topology = 'full';
     writeFileSync(serverFixture.configPath, JSON.stringify(config), { mode: 0o600 });
     const server = createServerCoreFeishuRuntime({
       ...options,

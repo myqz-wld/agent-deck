@@ -1,4 +1,7 @@
-import type { AuthenticatedClientAccessContext } from '@contracts/index';
+import {
+  issueRemoteOwnerGrantClaim,
+  type AuthenticatedClientAccessContext,
+} from '@contracts/index';
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -6,15 +9,17 @@ import { ServerCoreDesktopBrokerRuntime } from './desktop-broker-runtime';
 import type { ServerCoreDesktopBrokerPort } from './desktop-broker-port';
 
 const desktop: AuthenticatedClientAccessContext = {
-  kind: 'authenticated-client', topology: 'server-core', instanceId: 'instance-a',
-  clientId: 'desktop-a', transport: 'ssh', accessCredentialId: 'credential-a',
-  authority: 'owner-equivalent', surface: 'desktop-full',
+  kind: 'authenticated-client', topology: 'full', instanceId: 'instance-a',
+  clientId: 'desktop-a', transport: 'ssh', connectionScope: 'credential-a',
+  authority: 'owner-equivalent', surface: 'desktop',
+  grant: issueRemoteOwnerGrantClaim('desktop'),
 };
 
 const feishu: AuthenticatedClientAccessContext = {
-  kind: 'authenticated-client', topology: 'server-core', instanceId: 'instance-a',
-  clientId: 'feishu-a', transport: 'feishu', accessCredentialId: 'credential-feishu',
-  authority: 'owner-equivalent', surface: 'feishu-session-console',
+  kind: 'authenticated-client', topology: 'full', instanceId: 'instance-a',
+  clientId: 'feishu-a', transport: 'feishu', connectionScope: 'credential-feishu',
+  authority: 'owner-equivalent', surface: 'feishu',
+  grant: issueRemoteOwnerGrantClaim('feishu'),
 };
 
 function input(

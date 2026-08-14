@@ -1,5 +1,6 @@
 import {
   AgentDeckClientErrorCode,
+  issueRemoteOwnerAccessContext,
   type AuthenticatedClientAccessContext,
 } from '@contracts/index';
 import { describe, expect, it, vi } from 'vitest';
@@ -16,10 +17,10 @@ import {
 import { DaemonRequestError, type DaemonCoreRuntime } from './types';
 
 describe('daemon framed connection', () => {
-  it('gates additive capabilities on the negotiated protocol minor', async () => {
+  it('advertises the complete current capability set and rejects protocol skew', async () => {
     const runtime = createRuntime({
       supportedMethods: [
-        'session.list', 'usage.tokens.get', 'node.configuration.get', 'node.assets.list',
+        'session.console.list', 'usage.tokens.get', 'node.configuration.get', 'node.assets.content',
         'node.assets.catalog.list',
         'session.context.get', 'session.input.capabilities', 'session.handoff.preview',
         'node.hook.projection.get', 'node.hook.projection.install',
@@ -28,109 +29,38 @@ describe('daemon framed connection', () => {
     });
     const host = createHost(runtime);
     await host.start();
-    const legacy = new TestDuplex();
-    host.accept({ stream: legacy, createAccessContext: sshAccess });
-    legacy.feed(hello('desktop-v2-0', 'server-core', { major: 2, minor: 0 }));
-    await waitFor(() => Boolean(findMessage(legacy, 'hello-result')), 'legacy hello-result');
-    expect(findMessage(legacy, 'hello-result')).toMatchObject({
-      hello: {
-        protocolVersion: { major: 2, minor: 0 },
-        capabilities: ['sessions.read'],
-      },
-    });
     const current = new TestDuplex();
     host.accept({ stream: current, createAccessContext: sshAccess });
-    current.feed(hello('desktop-v2-1', 'server-core', { major: 2, minor: 1 }));
+    current.feed(hello('desktop-v2-7', 'full', { major: 2, minor: 7 }));
     await waitFor(() => Boolean(findMessage(current, 'hello-result')), 'current hello-result');
     expect(findMessage(current, 'hello-result')).toMatchObject({
       hello: {
-        protocolVersion: { major: 2, minor: 1 },
-        capabilities: ['sessions.read', 'usage'],
-      },
-    });
-    const latest = new TestDuplex();
-    host.accept({ stream: latest, createAccessContext: sshAccess });
-    latest.feed(hello('desktop-v2-2', 'server-core', { major: 2, minor: 2 }));
-    await waitFor(() => Boolean(findMessage(latest, 'hello-result')), 'latest hello-result');
-    expect(findMessage(latest, 'hello-result')).toMatchObject({
-      hello: {
-        protocolVersion: { major: 2, minor: 2 },
-        capabilities: ['sessions.read', 'usage', 'node.configuration', 'node.assets'],
-      },
-    });
-    const newest = new TestDuplex();
-    host.accept({ stream: newest, createAccessContext: sshAccess });
-    newest.feed(hello('desktop-v2-3', 'server-core', { major: 2, minor: 3 }));
-    await waitFor(() => Boolean(findMessage(newest, 'hello-result')), 'newest hello-result');
-    expect(findMessage(newest, 'hello-result')).toMatchObject({
-      hello: {
-        protocolVersion: { major: 2, minor: 3 },
+        protocolVersion: { major: 2, minor: 7 },
         capabilities: [
-          'sessions.read', 'usage', 'node.configuration', 'node.assets',
+          'session-console.read', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
           'sessions.context.read', 'sessions.input.read', 'sessions.handoff',
+          'node.hooks.read', 'workspace.directory.write', 'sessions.history.write',
+          'sessions.reactivate',
         ],
       },
     });
-    const safeHooks = new TestDuplex();
-    host.accept({ stream: safeHooks, createAccessContext: sshAccess });
-    safeHooks.feed(hello('desktop-v2-4', 'server-core', { major: 2, minor: 4 }));
-    await waitFor(() => Boolean(findMessage(safeHooks, 'hello-result')), 'safe-hooks hello-result');
-    expect(findMessage(safeHooks, 'hello-result')).toMatchObject({
-      hello: {
-        protocolVersion: { major: 2, minor: 4 },
-        capabilities: [
-          'sessions.read', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
-          'sessions.context.read', 'sessions.input.read', 'sessions.handoff',
-          'node.hooks.read', 'node.hooks.write',
-        ],
-      },
-    });
-    const historyMutations = new TestDuplex();
-    host.accept({ stream: historyMutations, createAccessContext: sshAccess });
-    historyMutations.feed(hello('desktop-v2-5', 'server-core', { major: 2, minor: 5 }));
-    await waitFor(
-      () => Boolean(findMessage(historyMutations, 'hello-result')),
-      'history-mutations hello-result',
-    );
-    expect(findMessage(historyMutations, 'hello-result')).toMatchObject({
-      hello: {
-        protocolVersion: { major: 2, minor: 5 },
-        capabilities: [
-          'sessions.read', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
-          'sessions.context.read', 'sessions.input.read', 'sessions.handoff',
-          'node.hooks.read', 'node.hooks.write',
-          'workspace.directory.write', 'sessions.history.write',
-        ],
-      },
-    });
-    const reactivation = new TestDuplex();
-    host.accept({ stream: reactivation, createAccessContext: sshAccess });
-    reactivation.feed(hello('desktop-v2-6', 'server-core', { major: 2, minor: 6 }));
-    await waitFor(
-      () => Boolean(findMessage(reactivation, 'hello-result')),
-      'reactivation hello-result',
-    );
-    expect(findMessage(reactivation, 'hello-result')).toMatchObject({
-      hello: {
-        protocolVersion: { major: 2, minor: 6 },
-        capabilities: [
-          'sessions.read', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
-          'sessions.context.read', 'sessions.input.read', 'sessions.handoff',
-          'node.hooks.read', 'node.hooks.write',
-          'workspace.directory.write', 'sessions.history.write', 'sessions.reactivate',
-        ],
-      },
+    const stale = new TestDuplex();
+    host.accept({ stream: stale, createAccessContext: sshAccess });
+    stale.feed(hello('desktop-v2-6', 'full', { major: 2, minor: 6 }));
+    await waitFor(() => Boolean(findMessage(stale, 'error')), 'stale protocol error');
+    expect(findMessage(stale, 'error')).toMatchObject({
+      error: { code: 'incompatible_protocol' },
     });
     await host.stop();
   });
 
   it('uses transport-created AccessContext and dispatches hello/request/result/ping', async () => {
     const execute = vi.fn(async (input: Parameters<DaemonCoreRuntime['execute']>[0]) => ({
-      result: { observedCredential: input.access.accessCredentialId },
+      result: { observedScope: input.access.connectionScope },
       revision: 7,
     }));
     const runtime = createRuntime({
-      supportedMethods: ['session.list'],
+      supportedMethods: ['session.console.list'],
       currentRevision: () => 6,
       execute,
     });
@@ -151,17 +81,17 @@ describe('daemon framed connection', () => {
       hello: { access: AuthenticatedClientAccessContext; topology: string };
     };
     expect(helloResult.hello).toMatchObject({
-      topology: 'server-core',
+      topology: 'full',
       access: {
         clientId: 'desktop-1',
-        accessCredentialId: 'ssh-credential-1',
-        surface: 'desktop-full',
+        connectionScope: 'ssh-credential-1',
+        surface: 'desktop',
       },
     });
     expect(helloResult.hello.access).not.toHaveProperty('transportPrivateSecret');
     stream.feed({ type: 'ping', nonce: 'ping-1' });
     stream.feed({
-      ...request('list-1', 'session.list'),
+      ...request('list-1', 'session.console.list'),
       params: { accessCredentialId: 'payload-spoof' },
     });
     await waitFor(() => Boolean(findMessage(stream, 'pong')), 'pong');
@@ -169,7 +99,7 @@ describe('daemon framed connection', () => {
     expect(execute).toHaveBeenCalledOnce();
     expect(execute.mock.calls[0][0].access).toMatchObject({
       clientId: 'desktop-1',
-      accessCredentialId: 'ssh-credential-1',
+      connectionScope: 'ssh-credential-1',
     });
     expect(execute.mock.calls[0][0].access).not.toHaveProperty('transportPrivateSecret');
     expect(execute.mock.calls[0][0].params).toEqual({
@@ -178,7 +108,7 @@ describe('daemon framed connection', () => {
     await host.stop();
   });
 
-  it('enforces the fixed Feishu method surface after a valid Feishu hello', async () => {
+  it('enforces the Server-issued Feishu grant after a valid Feishu hello', async () => {
     const runtime = createRuntime({
       supportedMethods: ['system.health', 'session.list', 'session.console.list'],
     });
@@ -187,15 +117,13 @@ describe('daemon framed connection', () => {
     const stream = new TestDuplex();
     host.accept({
       stream,
-      createAccessContext: (clientHello) => ({
-        kind: 'authenticated-client',
-        topology: 'server-core',
+      credential: { credentialId: 'feishu-credential-1', surface: 'feishu' },
+      createAccessContext: (clientHello) => issueRemoteOwnerAccessContext({
+        topology: 'full',
         instanceId: 'tenant-a',
         clientId: clientHello.clientId,
-        transport: 'feishu',
-        accessCredentialId: 'feishu-credential-1',
-        authority: 'owner-equivalent',
-        surface: 'feishu-session-console',
+        connectionScope: 'feishu-credential-1',
+        surface: 'feishu',
       }),
     });
     stream.feed(hello('chat-1'));
@@ -203,7 +131,7 @@ describe('daemon framed connection', () => {
     expect(findMessage(stream, 'hello-result')).toMatchObject({
       hello: { capabilities: ['session-console.read'] },
     });
-    stream.feed(request('health-1'));
+    stream.feed(request('health-1', 'system.health'));
     stream.feed(request('legacy-list-1', 'session.list'));
     stream.feed({
       ...request('console-list-1', 'session.console.list'),
@@ -222,6 +150,59 @@ describe('daemon framed connection', () => {
       error: { code: 'access_denied' },
     });
     expect(findMessage(stream, 'error', 'legacy-list-1')).toMatchObject({
+      error: { code: 'access_denied' },
+    });
+    await host.stop();
+  });
+
+  it('detaches the admitted claim and rejects channel grants from another surface', async () => {
+    const runtime = createRuntime({
+      supportedMethods: ['session.console.list', 'system.health'],
+    });
+    const host = createHost(runtime);
+    await host.start();
+    const source = issueRemoteOwnerAccessContext({
+      topology: 'full',
+      instanceId: 'tenant-a',
+      clientId: 'desktop-copy',
+      connectionScope: 'ssh-credential-1',
+      surface: 'desktop',
+    });
+    const mutableMethods = [...source.grant.productMethods];
+    const mutable = {
+      ...source,
+      grant: {
+        ...source.grant,
+        productMethods: mutableMethods,
+        channelMethods: [...source.grant.channelMethods],
+      },
+    } as AuthenticatedClientAccessContext;
+    const stream = new TestDuplex();
+    host.accept({ stream, createAccessContext: () => mutable });
+    stream.feed(hello('desktop-copy'));
+    await waitFor(() => Boolean(findMessage(stream, 'hello-result')), 'detached hello');
+    mutableMethods.push('system.health');
+    stream.feed(request('detached-health', 'system.health'));
+    await waitFor(() => Boolean(findMessage(stream, 'error', 'detached-health')), 'grant error');
+    expect(findMessage(stream, 'error', 'detached-health')).toMatchObject({
+      error: { code: 'access_denied' },
+    });
+
+    const mismatched = new TestDuplex();
+    const mismatchConnection = host.accept({
+      stream: mismatched,
+      createAccessContext: (clientHello) => ({
+        ...issueRemoteOwnerAccessContext({
+          topology: 'full', instanceId: 'tenant-a', clientId: clientHello.clientId,
+          connectionScope: 'ssh-credential-1', surface: 'feishu',
+        }),
+        transport: 'ssh',
+        surface: 'desktop',
+      } as AuthenticatedClientAccessContext),
+    });
+    mismatched.feed(hello('desktop-mismatched'));
+    await waitFor(() => mismatchConnection.isClosed, 'mismatched grant close');
+    expect(findMessage(mismatched, 'error')).toMatchObject({
       error: { code: 'access_denied' },
     });
     await host.stop();

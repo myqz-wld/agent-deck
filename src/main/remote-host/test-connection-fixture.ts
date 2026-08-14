@@ -14,13 +14,14 @@ export function testConnectionCredential(
   overrides: Partial<RemoteConnectionClientCredential> = {},
 ): RemoteConnectionClientCredential {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: 'agent-deck-remote-connection-credential',
     label: 'Test remote',
     purpose: 'client',
-    topology: 'server-core',
+    topology: 'full',
     instanceId: 'instance-a',
     credentialId: 'desktop-a',
+    connectionScope: 'scope-desktop-a',
     endpoint: { hostname: 'core.example.test', port: 22, username: 'agentdeck' },
     hostKeys: [{ algorithm: 'ssh-ed25519', publicKey: 'AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH' }],
     identity: { algorithm: 'ssh-ed25519', privateKey: PRIVATE_KEY },

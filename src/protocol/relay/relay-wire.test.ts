@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { issueRemoteOwnerGrantClaim } from '@contracts/index';
 
 import {
   encodeWorkerWireMessage,
@@ -26,9 +27,21 @@ function dataFrame(streamId: string, sequence: number, text: string): RelayRoute
     payload: new TextEncoder().encode(text),
     creditBytes: null,
     resetCode: null,
-    accessCredentialId: null,
+    connectionScope: null,
     accessSurface: null,
+    accessGrant: null,
   };
+}
+
+function legacyRouteFrame(metadata: Record<string, unknown>): Uint8Array {
+  const encodedMetadata = new TextEncoder().encode(JSON.stringify(metadata));
+  const bodyBytes = 4 + encodedMetadata.byteLength;
+  const frame = new Uint8Array(4 + bodyBytes);
+  const view = new DataView(frame.buffer);
+  view.setUint32(0, bodyBytes, false);
+  view.setUint32(4, encodedMetadata.byteLength, false);
+  frame.set(encodedMetadata, 8);
+  return frame;
 }
 
 describe('Relay route framing', () => {
@@ -72,19 +85,37 @@ describe('Relay route framing', () => {
       ...dataFrame('feishu-open', 0, ''),
       kind: 'open',
       payload: emptyRoutePayload(),
-      accessCredentialId: 'feishu-credential-a',
-      accessSurface: 'feishu-session-console',
+      connectionScope: 'feishu-credential-a',
+      accessSurface: 'feishu',
+      accessGrant: issueRemoteOwnerGrantClaim('feishu'),
     };
     expect(decodeRelayRouteFrame(encodeRelayRouteFrame(open))).toEqual(open);
     expect(() => encodeRelayRouteFrame({
       ...dataFrame('feishu-data', 1, 'body'),
-      accessCredentialId: 'feishu-credential-a',
-      accessSurface: 'feishu-session-console',
+      connectionScope: 'feishu-credential-a',
+      accessSurface: 'feishu',
+      accessGrant: issueRemoteOwnerGrantClaim('feishu'),
     })).toThrow('Only an open frame');
     expect(() => encodeRelayRouteFrame({
       ...open,
       accessSurface: null,
     })).toThrow('must be present together');
+  });
+
+  it('rejects retired route envelopes at the decode boundary', () => {
+    expect(() => decodeRelayRouteFrame(legacyRouteFrame({
+      version: 1,
+      instanceId: 'instance-a',
+      generation: 7,
+      streamId: 'legacy-desktop',
+      direction: 'client-to-worker',
+      sequence: 0,
+      kind: 'open',
+      creditBytes: null,
+      resetCode: null,
+      accessCredentialId: 'credential-a',
+      accessSurface: 'desktop-full',
+    }))).toThrow('Unknown route metadata field');
   });
 
   it('enforces exact negotiated body bytes for in-memory and direct decode boundaries', () => {
@@ -294,8 +325,9 @@ describe('Worker attachment wire', () => {
       payload: emptyRoutePayload(),
       creditBytes: null,
       resetCode: 'worker_fenced',
-      accessCredentialId: null,
+      connectionScope: null,
       accessSurface: null,
+      accessGrant: null,
     });
     expect(new RelayRouteFrameDecoder().push(encoded)[0]).toEqual(
       expect.objectContaining({ kind: 'reset', resetCode: 'worker_fenced' }),
