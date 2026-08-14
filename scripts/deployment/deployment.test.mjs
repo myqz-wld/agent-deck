@@ -321,6 +321,9 @@ describe('deployment automation contracts', () => {
     );
     expect(installer).toContain('authority_file="$config_directory/authority.json"');
     expect(installer).toContain('"wx", 0o600');
+    expect(installer).toContain('run_service /usr/bin/test -d "$config_directory"');
+    expect(installer).toContain('run_service /usr/bin/test -e "$authority_file"');
+    expect(installer).not.toContain('[[ -d "$config_directory"');
     expect(server).toContain("await ensureRelayAuthority(config, 'create')");
     expect(server).toContain("await ensureRelayAuthority(config, 'verify')");
     expect(quadlet).toContain(
