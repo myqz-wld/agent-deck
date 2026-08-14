@@ -5,6 +5,7 @@ import {
   relayControlSocketComponent,
 } from '@composition/topologies';
 import { UnixSocketDaemonListener } from '@hosts/daemon/unix-socket-listener';
+import { readPrivateJsonFile } from '@hosts/linux-runtime/config-file';
 import {
   loadTrustedRuntimeModule,
   requireModuleFactory,
@@ -15,6 +16,7 @@ import { basename, dirname, join } from 'node:path';
 import { RelayControlHost } from './control-host';
 import { RelayControlSocketService } from './control-socket-service';
 import { RelayCredentialAuthorityService } from './credential-authority-service';
+import { parseRelayCredentialAuthority } from './credential-authority';
 import type { RelayHeadlessConfig } from './headless-config';
 import { RelayMetadataFileService } from './metadata-file';
 import { RelayStreamRouter } from './router';
@@ -22,7 +24,6 @@ import { RelayStreamRouter } from './router';
 export interface RelayServicePaths {
   readonly stateDirectory: string;
   readonly controlSocket: string;
-  readonly configFile: string;
 }
 
 export interface RelayPlumbingFactoryInput {
@@ -73,7 +74,6 @@ export async function createRelayController(
 ): Promise<AgentDeckCompositionController> {
   requireAbsolutePath(paths.stateDirectory, 'stateDirectory');
   requireAbsolutePath(paths.controlSocket, 'controlSocket');
-  requireAbsolutePath(paths.configFile, 'configFile');
   if (
     basename(paths.stateDirectory) !== config.instanceId ||
     basename(dirname(paths.controlSocket)) !== config.instanceId ||
@@ -81,15 +81,19 @@ export async function createRelayController(
   ) {
     throw new Error('Relay paths do not match the exact instance namespace');
   }
+  const authority = parseRelayCredentialAuthority(
+    await readPrivateJsonFile(config.authorityFile),
+    config.instanceId,
+  );
   const metadata = await RelayMetadataFileService.open({
     stateFile: join(paths.stateDirectory, 'metadata.json'),
     instanceId: config.instanceId,
-    credentials: config.credentials,
+    credentials: authority.credentials,
   });
   const router = new RelayStreamRouter(config.instanceId, metadata.metadata);
   const credentials = new RelayCredentialAuthorityService({
-    config,
-    configFile: paths.configFile,
+    instanceId: config.instanceId,
+    authorityFile: config.authorityFile,
     metadata: metadata.metadata,
   });
   const host = new RelayControlHost({ router });

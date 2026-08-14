@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "topology": "relay",
   "headlessArtifact": "build/linux-headless/relay",
   "entrypoint": ["/opt/agent-deck/bin/agent-deck-relay"],
@@ -61,10 +61,15 @@
     ]
   },
   "configAcceptanceGate": {
-    "hostPathTemplate": "%h/.config/agent-deck-relay/%i/config.json",
-    "regularNonSymlink": true,
-    "owner": "rootless service account",
-    "mode": "0600",
+    "hostDirectoryTemplate": "%h/.config/agent-deck-relay/%i",
+    "immutableConfigFile": "config.json",
+    "mutableAuthorityFile": "authority.json",
+    "directoryRegularNonSymlink": true,
+    "directoryOwner": "rootless service account",
+    "directoryMode": "0700",
+    "fileRegularNonSymlink": true,
+    "fileOwner": "rootless service account",
+    "fileMode": "0600",
     "containerReadOnly": true
   },
   "controlSocket": {
@@ -111,9 +116,9 @@
   ],
   "readOnlyVolumes": [
     {
-      "hostPathTemplate": "%h/.config/agent-deck-relay/%i/config.json",
-      "containerPathTemplate": "/etc/agent-deck-relay/%i/config.json",
-      "purpose": "instance and public credential configuration"
+      "hostPathTemplate": "%h/.config/agent-deck-relay/%i",
+      "containerPathTemplate": "/etc/agent-deck-relay/%i",
+      "purpose": "immutable instance config plus atomically replaceable Server-owned credential authority"
     }
   ],
   "includedComponents": [

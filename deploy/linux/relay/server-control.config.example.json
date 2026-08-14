@@ -3,7 +3,7 @@
   "appVersion": "0.1.0",
   "instanceId": "instance-a",
   "topology": "relay",
-  "authorityFile": "/var/lib/agent-deck/.config/agent-deck-relay/instance-a/config.json",
+  "authorityFile": "/var/lib/agent-deck/.config/agent-deck-relay/instance-a/authority.json",
   "authorizedKeysFile": "/var/lib/agent-deck/.ssh/authorized_keys",
   "endpoint": {
     "hostname": "relay.example.com",

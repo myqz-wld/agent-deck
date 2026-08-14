@@ -242,6 +242,14 @@ for (const [role, fixture] of checks) {
     resolve(repoRoot, fixture),
   ]);
 }
+run(process.execPath, [
+  resolve(outputRoot, 'relay/index.mjs'),
+  'check-authority',
+  '--instance',
+  'instance-a',
+  '--authority',
+  resolve(repoRoot, 'deploy/linux/relay/relay-authority.example.json'),
+]);
 for (const fixture of [
   'rootless-podman.config.example.json',
   'rootless-podman-full.config.example.json',

@@ -30,7 +30,7 @@ node -e '
   const fs = require("node:fs");
   const path = process.argv[1];
   const manifest = JSON.parse(fs.readFileSync(path, "utf8"));
-  if (manifest.topology !== "relay" || manifest.rootless !== true) process.exit(1);
+  if (manifest.schemaVersion !== 2 || manifest.topology !== "relay" || manifest.rootless !== true) process.exit(1);
   if (!Array.isArray(manifest.publishedPorts) || manifest.publishedPorts.length !== 0) process.exit(1);
   if (manifest.quadletTemplate !== "agent-deck-relay@.container") process.exit(1);
   if (manifest.instanceSpecifier !== "%i" || manifest.engineSocketMounted !== false) process.exit(1);
@@ -61,7 +61,11 @@ node -e '
   const evidence = manifest.evidenceStorage;
   if (evidence.pathTemplate !== "/etc/agent-deck-relay/evidence/%i") process.exit(1);
   if (evidence.owner !== "root" || evidence.relayServiceWritable !== false) process.exit(1);
-  if (manifest.configAcceptanceGate.containerReadOnly !== true) process.exit(1);
+  const config = manifest.configAcceptanceGate;
+  if (config.containerReadOnly !== true || config.hostDirectoryTemplate !== "%h/.config/agent-deck-relay/%i") process.exit(1);
+  if (config.immutableConfigFile !== "config.json" || config.mutableAuthorityFile !== "authority.json") process.exit(1);
+  if (!config.directoryRegularNonSymlink || config.directoryOwner !== "rootless service account" || config.directoryMode !== "0700") process.exit(1);
+  if (!config.fileRegularNonSymlink || config.fileOwner !== "rootless service account" || config.fileMode !== "0600") process.exit(1);
   const health = manifest.healthContract;
   if (JSON.stringify(health.command) !== JSON.stringify(["/opt/agent-deck/bin/agent-deck-relay", "health", "--socket", "/run/agent-deck-relay/%i/control.sock"])) process.exit(1);
   if (health.intervalSeconds !== 10 || health.timeoutSeconds !== 3 || health.retries !== 3 || health.startPeriodSeconds !== 30) process.exit(1);
@@ -105,6 +109,7 @@ for replacement in \
   'HealthOnFailure=kill|HealthOnFailure=none' \
   'Notify=healthy|Notify=true' \
   'ExecStartPost=/opt/agent-deck/bin/agent-deck-relay-health-gate --container agent-deck-relay-%i|ExecStartPost=/bin/true' \
+  'Volume=%h/.config/agent-deck-relay/%i:/etc/agent-deck-relay/%i:ro,Z|Volume=/:/etc/agent-deck-relay/%i:Z' \
   'Volume=%h/.local/share/agent-deck-relay/%i:/var/lib/agent-deck-relay/%i:Z|Volume=/:/var/lib/agent-deck-relay/%i:Z' \
   'PodmanArgs=--pids-limit=256 --memory=512m --cpus=1.0|PodmanArgs=--privileged'; do
   fixture_number=$((fixture_number + 1))
@@ -121,7 +126,19 @@ for replacement in \
 done
 
 health_gate="$relay_dir/../../../resources/bin/agent-deck-relay-health-gate"
+authority_installer="$relay_dir/../../../scripts/deployment/remote-relay-authority.sh"
 bash -n "$health_gate"
+bash -n "$authority_installer"
+for required in \
+  'mode=${1:-}' \
+  '[[ "$mode" == create || "$mode" == verify ]]' \
+  'authority_file="$config_directory/authority.json"' \
+  'check-authority'; do
+  grep -Fq -- "$required" "$authority_installer" || {
+    echo "relay static check: authority installer lost $required" >&2
+    exit 1
+  }
+done
 for required in \
   '#!/bin/bash -p' \
   'PATH=/usr/bin:/bin' \
@@ -209,6 +226,7 @@ fi
 
 for required in \
   'agent-deck-relay issue-worker-connection' \
+  '--authority /var/lib/agent-deck/.config/agent-deck-relay/instance-a/authority.json' \
   'agent-deck-server connections issue' \
   'agent-deck-server connections verify' \
   'agent-deck-worker configure' \

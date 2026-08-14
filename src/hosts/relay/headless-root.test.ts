@@ -18,21 +18,24 @@ describe('Relay headless root', () => {
     temporary.push(root);
     const state = join(root, 'state', 'instance-a');
     const socket = join(root, 'run', 'instance-a', 'control.sock');
-    const configFile = join(root, 'config.json');
+    const authorityFile = join(root, 'authority.json');
     await mkdir(state, { recursive: true, mode: 0o700 });
     await chmod(state, 0o700);
     const config: RelayHeadlessConfig = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       instanceId: 'instance-a',
       tickIntervalMs: 1_000,
       plumbingModule: null,
-      credentials: [],
+      authorityFile,
     };
-    await writeFile(configFile, `${JSON.stringify(config)}\n`, { mode: 0o600 });
+    await writeFile(authorityFile, `${JSON.stringify({
+      schemaVersion: 1,
+      instanceId: 'instance-a',
+      credentials: [],
+    })}\n`, { mode: 0o600 });
     const controller = await createRelayController(config, {
       stateDirectory: state,
       controlSocket: socket,
-      configFile,
     });
 
     expect(controller.composition.role).toBe('relay-server');

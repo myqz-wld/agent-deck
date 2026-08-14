@@ -127,7 +127,7 @@ required_lines=(
   'DropCapability=all'
   'User=%U:%G'
   'UserNS=keep-id'
-  'Volume=%h/.config/agent-deck-relay/%i/config.json:/etc/agent-deck-relay/%i/config.json:ro,Z'
+  'Volume=%h/.config/agent-deck-relay/%i:/etc/agent-deck-relay/%i:ro,Z'
   'Volume=%h/.local/share/agent-deck-relay/%i:/var/lib/agent-deck-relay/%i:Z'
   'Volume=%t/agent-deck-relay/%i:/run/agent-deck-relay/%i:Z'
   'Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=32m'
@@ -191,8 +191,9 @@ for command_name in realpath stat systemctl timeout; do
   fi
 done
 health_gate='/opt/agent-deck/bin/agent-deck-relay-health-gate'
+relay_executable='/opt/agent-deck/bin/agent-deck-relay'
 podman_executable='/usr/bin/podman'
-for host_executable in "$health_gate" "$podman_executable"; do
+for host_executable in "$health_gate" "$relay_executable" "$podman_executable"; do
   if [[ ! -f "$host_executable" || -L "$host_executable" ||
         "$(realpath -e -- "$host_executable")" != "$host_executable" ||
         "$(stat -c '%u' "$host_executable")" != 0 ||
@@ -237,6 +238,7 @@ verify_service_dir() {
 expected_state_dir="$HOME/.local/share/agent-deck-relay/$instance_id"
 expected_config_dir="$HOME/.config/agent-deck-relay/$instance_id"
 expected_config_file="$expected_config_dir/config.json"
+expected_authority_file="$expected_config_dir/authority.json"
 expected_control_dir="$XDG_RUNTIME_DIR/agent-deck-relay/$instance_id"
 verify_service_dir "state directory" "$state_dir" "$expected_state_dir" 700
 verify_service_dir "config directory" "$(dirname "$config_file")" "$expected_config_dir" 700
@@ -254,6 +256,18 @@ if [[ "$(stat -c '%u' "$config_file")" != "$runtime_uid" || "$(stat -c '%a' "$co
   echo "relay preflight: config must be service-account owned with mode 0600" >&2
   exit 70
 fi
+authority_file="$expected_authority_file"
+if [[ ! -f "$authority_file" || -L "$authority_file" ||
+      "$(realpath -e -- "$authority_file")" != "$expected_authority_file" ]]; then
+  echo "relay preflight: authority must be the exact regular non-symlink per-instance file" >&2
+  exit 70
+fi
+if [[ "$(stat -c '%u' "$authority_file")" != "$runtime_uid" || "$(stat -c '%a' "$authority_file")" != 600 ]]; then
+  echo "relay preflight: authority must be service-account owned with mode 0600" >&2
+  exit 70
+fi
+"$relay_executable" check-config --config "$config_file"
+"$relay_executable" check-authority --instance "$instance_id" --authority "$authority_file"
 control_socket="$control_dir/control.sock"
 if [[ -e "$control_socket" || -L "$control_socket" ]]; then
   echo "relay preflight: a pre-existing control socket would violate singleton startup" >&2

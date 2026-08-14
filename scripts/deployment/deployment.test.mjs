@@ -100,7 +100,13 @@ describe('deployment automation contracts', () => {
     const configFile = join(root, 'deploy.json');
     await writeFile(identityFile, 'private fixture\n', { mode: 0o600 });
     await writeFile(knownHostsFile, 'relay.example.test ssh-ed25519 fixture\n', { mode: 0o644 });
-    await writeFile(runtimeConfigFile, JSON.stringify({ instanceId: 'relay-a' }), { mode: 0o600 });
+    await writeFile(runtimeConfigFile, JSON.stringify({
+      schemaVersion: 2,
+      instanceId: 'relay-a',
+      tickIntervalMs: 1_000,
+      plumbingModule: null,
+      authorityFile: '/etc/agent-deck-relay/relay-a/authority.json',
+    }), { mode: 0o600 });
     await writeFile(configFile, JSON.stringify({
       schemaVersion: 1,
       name: 'relay-a',
@@ -127,6 +133,10 @@ describe('deployment automation contracts', () => {
       name: 'relay-a',
       topology: 'relay',
       instance: { id: 'relay-a' },
+      runtimeConfig: {
+        schemaVersion: 2,
+        authorityFile: '/etc/agent-deck-relay/relay-a/authority.json',
+      },
     });
   });
 
@@ -297,6 +307,26 @@ describe('deployment automation contracts', () => {
     expect(install).not.toContain('runtime_extract');
     expect(verify).toContain('/opt/agent-deck/feishu-runtime/desired');
     expect(verify).toContain('agent-deck-feishu check-abi');
+  });
+
+  it('keeps the mutable Relay authority outside generation-managed config', async () => {
+    const installer = await readFile(
+      join(repoRoot, 'scripts/deployment/remote-relay-authority.sh'),
+      'utf8',
+    );
+    const server = await readFile(join(repoRoot, 'scripts/deployment/server.mjs'), 'utf8');
+    const quadlet = await readFile(
+      join(repoRoot, 'deploy/linux/relay/agent-deck-relay@.container'),
+      'utf8',
+    );
+    expect(installer).toContain('authority_file="$config_directory/authority.json"');
+    expect(installer).toContain('"wx", 0o600');
+    expect(server).toContain("await ensureRelayAuthority(config, 'create')");
+    expect(server).toContain("await ensureRelayAuthority(config, 'verify')");
+    expect(quadlet).toContain(
+      'Volume=%h/.config/agent-deck-relay/%i:/etc/agent-deck-relay/%i:ro,Z',
+    );
+    expect(quadlet).not.toContain('config.json:/etc/agent-deck-relay');
   });
 
   it('rejects a Worker workspace inside the Agent Deck repository', async () => {

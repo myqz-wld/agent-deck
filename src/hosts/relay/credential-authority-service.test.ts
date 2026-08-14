@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { RelayCredentialAuthorityService } from './credential-authority-service';
-import type { RelayHeadlessConfig } from './headless-config';
 import { RelayMetadataStore } from './metadata';
 
 const credential = {
@@ -16,27 +15,19 @@ const credential = {
   revokedAt: null,
 };
 
-function config(status: 'active' | 'revoked' = 'active'): RelayHeadlessConfig {
-  return {
+function rawAuthority(status: 'active' | 'revoked' = 'active'): unknown {
+  const value = {
     schemaVersion: 1,
     instanceId: 'instance-a',
-    tickIntervalMs: 1_000,
-    plumbingModule: null,
     credentials: [{
       ...credential,
       status,
       revokedAt: status === 'revoked' ? 2 : null,
     }],
-  };
-}
-
-function rawConfig(status: 'active' | 'revoked' = 'active'): unknown {
-  const value = config(status);
+  } as const;
   return {
     schemaVersion: value.schemaVersion,
     instanceId: value.instanceId,
-    tickIntervalMs: value.tickIntervalMs,
-    plumbingModule: value.plumbingModule,
     credentials: value.credentials.map(({ id: _id, ...entry }) => entry),
   };
 }
@@ -54,12 +45,12 @@ describe('Relay credential authority service', () => {
   it('applies live revocation and fails closed while the authority is unavailable', async () => {
     vi.useFakeTimers();
     try {
-      let current: unknown = rawConfig();
+      let current: unknown = rawAuthority();
       let unavailable = false;
       const store = metadata();
       const service = new RelayCredentialAuthorityService({
-        config: config(),
-        configFile: '/var/lib/agent-deck/relay/config.json',
+        instanceId: 'instance-a',
+        authorityFile: '/var/lib/agent-deck/relay/authority.json',
         metadata: store,
         pollIntervalMs: 10,
         now: () => 5,
@@ -70,13 +61,13 @@ describe('Relay credential authority service', () => {
       });
       await service.start();
 
-      current = rawConfig('revoked');
+      current = rawAuthority('revoked');
       await vi.advanceTimersByTimeAsync(10);
       expect(store.getById('credentials', 'desktop-a')).toMatchObject({
         status: 'revoked', revokedAt: 2,
       });
 
-      current = rawConfig();
+      current = rawAuthority();
       await vi.advanceTimersByTimeAsync(10);
       expect(store.getById('credentials', 'desktop-a')).toMatchObject({ status: 'active' });
 
@@ -99,10 +90,10 @@ describe('Relay credential authority service', () => {
 
   it('rejects deletion of credential history', async () => {
     const service = new RelayCredentialAuthorityService({
-      config: config(),
-      configFile: '/var/lib/agent-deck/relay/config.json',
+      instanceId: 'instance-a',
+      authorityFile: '/var/lib/agent-deck/relay/authority.json',
       metadata: metadata(),
-      readConfig: async () => ({ ...rawConfig() as Record<string, unknown>, credentials: [] }),
+      readConfig: async () => ({ ...rawAuthority() as Record<string, unknown>, credentials: [] }),
     });
     await expect(service.refresh()).rejects.toThrow('cannot delete credential history');
   });

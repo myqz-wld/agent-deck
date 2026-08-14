@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "instanceId": "instance-a",
+  "credentials": [
+    {
+      "credentialId": "worker-credential-a",
+      "instanceId": "instance-a",
+      "kind": "relay-worker",
+      "publicKey": "ssh-ed25519 AAAATEST relay-worker",
+      "fingerprint": "SHA256:test",
+      "status": "active",
+      "createdAt": 1,
+      "revokedAt": null
+    }
+  ]
+}

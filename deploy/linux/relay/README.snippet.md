@@ -72,6 +72,10 @@ through its existing per-instance bind. Relay remains metadata-only and exposes 
 
 Issue credentials entirely on the Relay host; neither the Worker nor a desktop pre-generates and
 returns a public key. First create the one Worker credential for the designated Mac/Linux Worker.
+The immutable `config.json` contains only runtime binding and points at the separately mounted
+`authority.json`; Server CLI changes replace only that authority file, so instance generation
+checks and rollback never revert or absorb the live connection directory. The deployment command
+creates an empty mode-0600 authority on first install and preserves it on upgrade and rollback.
 The command binds its public key only to the `attach` forced command and writes one new mode-0600
 private transfer file without printing it:
 
@@ -86,7 +90,7 @@ umask 077
   --port 22 \
   --username agentdeck \
   --host-key /etc/ssh/ssh_host_ed25519_key.pub \
-  --config /var/lib/agent-deck/.config/agent-deck-relay/instance-a/config.json \
+  --authority /var/lib/agent-deck/.config/agent-deck-relay/instance-a/authority.json \
   --authorized-keys /var/lib/agent-deck/.ssh/authorized_keys \
   --runtime-uid 1001 \
   --output /secure-transfer/production-relay-worker.agentdeck-connection

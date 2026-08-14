@@ -13,7 +13,7 @@ ReadOnly=true
 DropCapability=all
 User=%U:%G
 UserNS=keep-id
-Volume=%h/.config/agent-deck-relay/%i/config.json:/etc/agent-deck-relay/%i/config.json:ro,Z
+Volume=%h/.config/agent-deck-relay/%i:/etc/agent-deck-relay/%i:ro,Z
 Volume=%h/.local/share/agent-deck-relay/%i:/var/lib/agent-deck-relay/%i:Z
 Volume=%t/agent-deck-relay/%i:/run/agent-deck-relay/%i:Z
 Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=32m

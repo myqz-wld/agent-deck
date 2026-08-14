@@ -13,6 +13,7 @@ import {
 import { connectUnixSocket } from '@hosts/ssh-bridge/tunnel';
 
 import { parseRelayForcedCommand } from './entrypoint-command';
+import { parseRelayCredentialAuthority } from './credential-authority';
 import { resolveRelayForcedCommandBinding } from './forced-command-binding';
 import { parseRelayHeadlessConfig } from './headless-config';
 import { createRelayController } from './headless-root';
@@ -75,10 +76,18 @@ export async function runRelayEntrypoint(argv: readonly string[]): Promise<numbe
     parseRelayHeadlessConfig(await readPrivateJsonFile(flags['--config']));
     return 0;
   }
+  if (command === 'check-authority') {
+    const flags = parseExactFlags(argv.slice(1), ['--instance', '--authority']);
+    parseRelayCredentialAuthority(
+      await readPrivateJsonFile(requireAbsolutePath(flags['--authority'], 'authority')),
+      requireLinuxInstanceId(flags['--instance'], 'instance'),
+    );
+    return 0;
+  }
   if (command === 'issue-worker-connection') {
     const flags = parseExactFlags(argv.slice(1), [
       '--instance', '--credential', '--worker', '--label', '--hostname', '--port',
-      '--username', '--host-key', '--config', '--authorized-keys', '--runtime-uid',
+      '--username', '--host-key', '--authority', '--authorized-keys', '--runtime-uid',
       '--output',
     ]);
     issueRelayWorkerConnection(flags);
@@ -98,7 +107,6 @@ export async function runRelayEntrypoint(argv: readonly string[]): Promise<numbe
   const controller = await createRelayController(config, {
     stateDirectory: requireAbsolutePath(flags['--state'], 'state'),
     controlSocket: requireAbsolutePath(flags['--control-socket'], 'control-socket'),
-    configFile: requireAbsolutePath(flags['--config'], 'config'),
   });
   return (await runCompositionService(controller)).exitCode;
 }
