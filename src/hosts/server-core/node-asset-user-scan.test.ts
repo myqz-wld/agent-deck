@@ -71,6 +71,83 @@ describe('scanServerCoreUserAssets bounds', () => {
     }
   });
 
+  it('uses installed Plugin roots for Grok instead of historical Claude cache versions', () => {
+    const home = mkdtempSync(join(tmpdir(), 'agent-deck-node-asset-grok-plugins-'));
+    try {
+      const claudePlugins = join(home, '.claude', 'plugins');
+      const stale = join(claudePlugins, 'cache', 'market', 'demo', '1.0.0');
+      const active = join(claudePlugins, 'cache', 'market', 'demo', '2.0.0');
+      for (const root of [stale, active]) {
+        mkdirSync(join(root, '.claude-plugin'), { recursive: true });
+        mkdirSync(join(root, 'skills', 'audit'), { recursive: true });
+        writeFileSync(
+          join(root, '.claude-plugin', 'plugin.json'),
+          JSON.stringify({ name: 'demo' }),
+        );
+        writeFileSync(
+          join(root, 'skills', 'audit', 'SKILL.md'),
+          '---\nname: audit\ndescription: audit\n---\n',
+        );
+      }
+      writeFileSync(
+        join(claudePlugins, 'installed_plugins.json'),
+        JSON.stringify({
+          version: 2,
+          plugins: { 'demo@market': [{ installPath: active, version: '2.0.0' }] },
+        }),
+      );
+
+      const grokPlugin = join(home, '.grok', 'installed-plugins', 'grok-demo-repo');
+      mkdirSync(join(grokPlugin, '.grok-plugin'), { recursive: true });
+      mkdirSync(join(grokPlugin, 'skills', 'ship'), { recursive: true });
+      writeFileSync(
+        join(grokPlugin, '.grok-plugin', 'plugin.json'),
+        JSON.stringify({ name: 'grok-demo' }),
+      );
+      writeFileSync(
+        join(grokPlugin, 'skills', 'ship', 'SKILL.md'),
+        '---\nname: ship\ndescription: ship\n---\n',
+      );
+      writeFileSync(
+        join(home, '.grok', 'installed-plugins', 'registry.json'),
+        JSON.stringify({
+          version: 1,
+          repos: {
+            demo: {
+              path: grokPlugin,
+              plugins: { 'grok-demo': { version: '1.0.0' } },
+            },
+          },
+        }),
+      );
+
+      const result = scanServerCoreUserAssets(home, {
+        maxAssets: 50,
+        maxVisitedEntries: 500,
+      });
+      const grokPluginSkills = result.assets.filter((asset) =>
+        asset.adapter === 'grok-build' && asset.kind === 'skill' && asset.origin === 'plugin'
+      );
+      expect(grokPluginSkills).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          pluginName: 'demo',
+          qualifiedName: 'plugin:demo/audit',
+          absPath: expect.stringContaining(join('2.0.0', 'skills', 'audit', 'SKILL.md')),
+        }),
+        expect.objectContaining({
+          pluginName: 'grok-demo',
+          qualifiedName: 'plugin:grok-demo/ship',
+        }),
+      ]));
+      expect(grokPluginSkills).toHaveLength(2);
+      expect(grokPluginSkills.some((asset) =>
+        asset.absPath.includes(join('1.0.0', 'skills', 'audit'))
+      )).toBe(false);
+    } finally {
+      rmSync(home, { force: true, recursive: true });
+    }
+  });
+
   it('retains every adapter when one Provider Home category exceeds the response cap', () => {
     const home = mkdtempSync(join(tmpdir(), 'agent-deck-node-asset-fair-'));
     try {
