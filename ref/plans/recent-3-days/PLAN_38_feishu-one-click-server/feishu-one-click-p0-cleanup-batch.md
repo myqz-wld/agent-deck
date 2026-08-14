@@ -1,7 +1,7 @@
 # P0 Cleanup and Compatibility Audit Batch
 
 Status: complete and accepted; Batch 1 evidence manifest and lead-owned Batch 2 cleanup validated
-Parent plan: `.ref/plans/feishu-one-click-relay-sidecar.md`
+Parent plan: [`PLAN_38_feishu-one-click-server.md`](../PLAN_38_feishu-one-click-server.md)
 Planning base commit: `c2a0a1ea4077d67fcfc1ea242d7caae7600b0222`
 User authorization already established: include this work as P0 and prepare it for parallel execution
 Batch 1 envelope approval recorded: approved through the P0 plan gate at `2026-08-13T17:48:01Z`; valid only for the unchanged envelopes below. The complete parent implementation plan was approved on `2026-08-13`, and the managed isolated worktree is active at `/Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/agent-deck-019ffbfd-37c-msrtkmb2` on branch `codex/feishu-one-click-server`.
