@@ -29,14 +29,6 @@ export function translateNormalizedCollabItemStarted(
     });
     return true;
   }
-  if (item.type === 'collabToolCall') {
-    emit('tool-use-start', {
-      toolName: 'Agent',
-      toolInput: legacyCollabToolInput(item),
-      toolUseId: item.id,
-    });
-    return true;
-  }
   if (item.type !== 'subAgentActivity') return false;
   emit('tool-use-start', {
     toolName: 'Agent',
@@ -58,17 +50,6 @@ export function translateNormalizedCollabItemCompleted(
       toolResult: collabAgentToolResult(item),
       status: item.status,
       error: item.status === 'failed' ? collabAgentFailure(item) : undefined,
-    });
-    return true;
-  }
-  if (item.type === 'collabToolCall') {
-    emit('tool-use-end', {
-      toolUseId: item.id,
-      toolName: 'Agent',
-      toolInput: legacyCollabToolInput(item),
-      toolResult: legacyCollabToolResult(item),
-      status: item.status,
-      error: item.status === 'failed' ? 'Collab agent tool call failed' : undefined,
     });
     return true;
   }
@@ -112,27 +93,6 @@ export function collabAgentToolResult(item: AnyRecord): unknown {
   }
   const states = asRecord(item.agentsStates);
   if (states) result.agents_states = states;
-  return Object.keys(result).length > 0 ? result : '';
-}
-
-function legacyCollabToolInput(item: AnyRecord): Record<string, unknown> {
-  const prompt = nullableString(item.prompt);
-  return {
-    ...(stringField(item.tool) ? { collab_tool: normalizeCollabToolName(item.tool) } : {}),
-    ...(stringField(item.senderThreadId) ? { sender_thread_id: item.senderThreadId } : {}),
-    ...(stringField(item.receiverThreadId) ? { receiver_thread_id: item.receiverThreadId } : {}),
-    ...(stringField(item.newThreadId) ? { new_thread_id: item.newThreadId } : {}),
-    ...(prompt ? { prompt } : {}),
-  };
-}
-
-function legacyCollabToolResult(item: AnyRecord): unknown {
-  const result: Record<string, unknown> = {};
-  if (stringField(item.receiverThreadId)) result.receiver_thread_id = item.receiverThreadId;
-  if (stringField(item.newThreadId)) result.new_thread_id = item.newThreadId;
-  if (item.agentStatus !== undefined && item.agentStatus !== null) {
-    result.agent_status = item.agentStatus;
-  }
   return Object.keys(result).length > 0 ? result : '';
 }
 

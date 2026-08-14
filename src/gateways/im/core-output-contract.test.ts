@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createPermissionPreviewDisplay } from '@contracts/index';
 import { resolveGatewayLimits } from './gateway-config';
 import {
   validateHistoryResult,
@@ -30,7 +31,7 @@ const cases = [
     valid: {
       requests: [{
         id: 'pending-1', sessionId, kind: 'permission', status: 'pending', createdAt: 1,
-        expiresAt: null, display: { tool: 'Bash' },
+        expiresAt: null, display: createPermissionPreviewDisplay('Bash', { command: 'pwd' }),
       }],
       revision: 2,
     },

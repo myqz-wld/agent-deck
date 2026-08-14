@@ -101,7 +101,7 @@ describe('AppHeader source selection', () => {
 
   it('uses the same primary page catalog when Remote advertises all visible pages', () => {
     renderHeader('remote', 1, new Set([
-      'session-console.read', 'pending.index.read', 'sessions.history',
+      'sessions.presentation.read', 'pending.index.read',
       'issues', 'usage',
     ]));
     expect(screen.getByRole('button', { name: '实时' })).toBeTruthy();
@@ -113,7 +113,7 @@ describe('AppHeader source selection', () => {
   });
 
   it('keeps the Local history label and does not invent a Remote total', () => {
-    renderHeader('remote', null, new Set(['sessions.history']));
+    renderHeader('remote', null, new Set(['sessions.presentation.read']));
     expect(screen.getByText('会话总数未提供')).toBeTruthy();
     expect(screen.getByRole('button', { name: '历史' })).toBeTruthy();
   });
@@ -143,7 +143,7 @@ describe('AppHeader source selection', () => {
 
   it('keeps stale Remote capabilities from enabling page and create actions offline', () => {
     renderHeader('remote', 1, new Set([
-      'session-console.read', 'pending.index.read', 'sessions.history',
+      'sessions.presentation.read', 'pending.index.read',
       'issues', 'usage',
     ]), null, false);
     expect((screen.getByRole('button', { name: '实时' }) as HTMLButtonElement).disabled).toBe(true);

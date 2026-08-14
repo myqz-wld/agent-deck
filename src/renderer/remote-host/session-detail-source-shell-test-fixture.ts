@@ -1,6 +1,5 @@
 import { vi } from 'vitest';
 
-import { legacyRemoteSessionPresentation } from './session-summary-presentation';
 import type { RemoteSessionSourceView } from './source-types';
 
 export function remoteSource(): RemoteSessionSourceView {
@@ -22,6 +21,8 @@ export function remoteSource(): RemoteSessionSourceView {
       'sessions.runtime.read',
       'sessions.runtime.write',
       'sessions.context.read',
+      'sessions.input.read',
+      'sessions.presentation.read',
     ]),
     dataRevision: 0,
     resourceRevisions: {
@@ -94,7 +95,30 @@ export function remoteSource(): RemoteSessionSourceView {
     selectedPending: { requests: [], revision: 4 },
     selectedSession: session,
     selectedSessionId: session.id,
-    sessions: [legacyRemoteSessionPresentation(session)],
+    sessions: [{
+      id: session.id,
+      adapterId: session.adapterId,
+      title: session.title,
+      source: 'sdk',
+      lifecycle: 'active',
+      activity: 'idle',
+      archived: false,
+      pinned: false,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      endedAt: null,
+      model: null,
+      thinking: null,
+      runtimeProvider: null,
+      context: null,
+      spawnedBy: null,
+      spawnDepth: 0,
+      teams: [],
+      summary: null,
+      summaryGenerationSource: null,
+      workspaceLabel: null,
+      contextOnly: false,
+    }],
     state: {
       profileId: 'remote-a',
       status: 'connected',

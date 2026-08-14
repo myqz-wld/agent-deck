@@ -92,10 +92,6 @@ export function parseLocalWorkerHeadlessConfig(value: unknown): LocalWorkerHeadl
     throw new Error('local-worker schemaVersion must be 2');
   }
   if (!isJsonObject(object.runtimeOptions)) throw new Error('runtimeOptions must be JSON');
-  // Upgrade compatibility only: old private Worker configs may retain the retired manual
-  // catalog. Never pass it into Server Core, where the trusted provider projection is authoritative.
-  const { sessionCreationCatalog: _retiredSessionCatalog, ...runtimeOptions } =
-    object.runtimeOptions;
   const instanceId = requireLinuxInstanceId(object.instanceId);
   const ssh = parseSsh(object.ssh);
   if (ssh.instanceId !== instanceId) {
@@ -125,7 +121,7 @@ export function parseLocalWorkerHeadlessConfig(value: unknown): LocalWorkerHeadl
     instanceId,
     appVersion: boundedText(object.appVersion, 'appVersion'),
     runtimeModule,
-    runtimeOptions,
+    runtimeOptions: object.runtimeOptions,
     generationFile,
     ssh,
     workspaceSandbox,

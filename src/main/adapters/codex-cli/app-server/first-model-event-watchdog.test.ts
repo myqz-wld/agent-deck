@@ -84,6 +84,7 @@ describe('Codex first-model-event watchdog', () => {
       notify('item/started', { item: { type: 'hookPrompt' } }),
       notify('item/started', { item: { type: 'contextCompaction' } }),
       notify('item/completed', { item: { type: 'enteredReviewMode' } }),
+      notify('item/completed', { item: { type: 'collabToolCall' } }),
       notify('item/started', { item: { type: 'futureLifecycleItem' } }),
       notify('rawResponseItem/futureLifecycle'),
       notify('turn/completed', { turn: { status: 'completed' } }),

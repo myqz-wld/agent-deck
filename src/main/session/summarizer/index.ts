@@ -12,7 +12,7 @@ export type {
   SummarizerSettingKey,
 } from './core';
 
-/** Optional overrides for the Desktop-compatible Summarizer facade. */
+/** Optional overrides for the current Desktop Summarizer facade. */
 export type SummarizerDependencies =
   Omit<CoreSummarizerDependencies, 'registry' | 'settings'> & {
     readonly registry?: CoreSummarizerDependencies['registry'];
@@ -20,7 +20,7 @@ export type SummarizerDependencies =
   };
 
 /**
- * Desktop-compatible facade retained for callers and tests that construct `new Summarizer()`.
+ * Desktop facade for callers and tests that construct `new Summarizer()`.
  * Electron-free hosts import `./core` and provide their own immutable settings and registry.
  */
 export class Summarizer extends SummarizerCore {

@@ -3,7 +3,6 @@ import {
   parseSessionConsoleCreateResult,
   parseSessionConsoleCapabilitiesResult,
   parseSessionConsoleGetResult,
-  parseSessionConsoleListResult,
   parseWorkspaceDirectoryListResult,
 } from '@contracts/index';
 import type {
@@ -12,8 +11,6 @@ import type {
   RemoteHostProjectPageDto,
   RemoteHostSessionCapabilitiesDto,
   RemoteHostSessionCapabilitiesRequestDto,
-  RemoteHostSessionPageDto,
-  RemoteHostSessionPageRequestDto,
   RemoteHostSessionSummaryDto,
   RemoteHostSessionTargetDto,
   RemoteHostWorkspaceDirectoryListDto,
@@ -23,20 +20,6 @@ import {
   REMOTE_HOST_INTERACTIVE_DEADLINE_MS,
   type RemoteHostScopedClient,
 } from './service-scope';
-
-export async function requestRemoteSessions(
-  scope: RemoteHostScopedClient,
-  request: RemoteHostSessionPageRequestDto,
-): Promise<RemoteHostSessionPageDto> {
-  const result = await scope.client.request('session.console.list', {
-    ...(request.cursor ? { cursor: request.cursor } : {}),
-    limit: request.limit,
-    ...(request.includeArchived === undefined
-      ? {}
-      : { includeArchived: request.includeArchived }),
-  }, { deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS });
-  return parseSessionConsoleListResult(result, request.limit);
-}
 
 export async function requestRemoteSession(
   scope: RemoteHostScopedClient,

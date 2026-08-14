@@ -302,7 +302,15 @@ describe('official API transport and modern cards', () => {
       cards: [{
         title: 'Questions', requestId: 'request_1', sessionId: 'session_1', state: 'pending',
         createdAt: NOW, presentedAt: NOW, expiresAt: null, presentationLifetimeMs: 0,
-        display: { questionIds: ['question-a', 'question-b'] },
+        display: {
+          prompt: 'Questions',
+          questionIds: ['question-a', 'question-b'],
+          questions: [{
+            id: 'question-a', question: 'Question A?', multiSelect: false, options: [],
+          }, {
+            id: 'question-b', question: 'Question B?', multiSelect: false, options: [],
+          }],
+        },
         buttons: [{ label: 'Submit', action }],
       }],
     }), signer(0)));

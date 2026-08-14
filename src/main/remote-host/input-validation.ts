@@ -24,7 +24,6 @@ import {
   type RemoteHostPendingResponseDto,
   type RemoteHostRuntimeUpdateDto,
   type RemoteHostSendDto,
-  type RemoteHostSessionPageRequestDto,
   type RemoteHostSessionCapabilitiesRequestDto,
   type RemoteHostSessionTargetDto,
   type RemoteHostWorkspaceDirectoryRequestDto,
@@ -246,27 +245,6 @@ export function parseRemoteHostPageRequest(value: unknown): RemoteHostPageReques
   const page = parsePageBase(value);
   exactKeys(page.raw, page.cursor === undefined ? ['limit', 'profileId'] : ['cursor', 'limit', 'profileId'], 'page');
   return { profileId: page.profileId, ...(page.cursor ? { cursor: page.cursor } : {}), limit: page.limit };
-}
-
-export function parseRemoteHostSessionPageRequest(
-  value: unknown,
-): RemoteHostSessionPageRequestDto {
-  const page = parsePageBase(value);
-  const expected = ['limit', 'profileId'];
-  if (page.cursor !== undefined) expected.push('cursor');
-  if (page.raw.includeArchived !== undefined) expected.push('includeArchived');
-  exactKeys(page.raw, expected, 'page');
-  if (page.raw.includeArchived !== undefined && typeof page.raw.includeArchived !== 'boolean') {
-    throw new RemoteHostInputError('includeArchived', 'must be boolean');
-  }
-  return {
-    profileId: page.profileId,
-    ...(page.cursor ? { cursor: page.cursor } : {}),
-    limit: page.limit,
-    ...(page.raw.includeArchived === undefined
-      ? {}
-      : { includeArchived: page.raw.includeArchived as boolean }),
-  };
 }
 
 export function parseRemoteHostSessionTarget(value: unknown): RemoteHostSessionTargetDto {

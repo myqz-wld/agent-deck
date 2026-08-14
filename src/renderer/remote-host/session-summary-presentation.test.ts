@@ -1,39 +1,33 @@
 import { describe, expect, it } from 'vitest';
 
+import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
 import {
   groupRemoteSessionSummaries,
-  legacyRemoteSessionPresentation,
   remoteSessionActivityCounts,
-  remoteSessionStatus,
 } from './session-summary-presentation';
 
-const row = (id: string, status: string) => legacyRemoteSessionPresentation({
-  id,
-  adapterId: 'codex-cli',
-  title: id,
-  status,
-  createdAt: 1,
-  updatedAt: 2,
-});
+function row(
+  id: string,
+  lifecycle: RemoteHostSessionPresentationDto['lifecycle'],
+  activity: RemoteHostSessionPresentationDto['activity'],
+): RemoteHostSessionPresentationDto {
+  return {
+    id, adapterId: 'codex-cli', title: id, source: 'sdk', lifecycle, activity,
+    archived: lifecycle === 'closed', pinned: false, createdAt: 1, updatedAt: 2,
+    endedAt: null, model: null, thinking: null, runtimeProvider: null, context: null,
+    spawnedBy: null, spawnDepth: 0, teams: [], summary: null,
+    summaryGenerationSource: null, workspaceLabel: null, contextOnly: false,
+  };
+}
 
 describe('Remote session summary presentation', () => {
-  it('decodes only exact legacy lifecycle/activity tokens', () => {
-    expect(remoteSessionStatus('active-working'))
-      .toEqual({ lifecycle: 'active', activity: 'working' });
-    expect(remoteSessionStatus('dormant-idle'))
-      .toEqual({ lifecycle: 'dormant', activity: 'idle' });
-    expect(() => remoteSessionStatus('closed')).toThrow(/无法识别/);
-    expect(() => remoteSessionStatus('waiting')).toThrow(/无法识别/);
-    expect(() => remoteSessionStatus('future-idle')).toThrow(/无法识别/);
-  });
-
-  it('drives Remote sections and header counts from the same status decoder', () => {
+  it('drives Remote sections and header counts from rich presentation fields', () => {
     const sessions = [
-      row('working', 'active-working'),
-      row('waiting', 'active-waiting'),
-      row('sleeping', 'dormant-idle'),
-      row('closed', 'closed-finished'),
-      row('closed-working', 'closed-working'),
+      row('working', 'active', 'working'),
+      row('waiting', 'active', 'waiting'),
+      row('sleeping', 'dormant', 'idle'),
+      row('closed', 'closed', 'finished'),
+      row('closed-working', 'closed', 'working'),
     ];
     const grouped = groupRemoteSessionSummaries(sessions);
     expect(grouped.active.map((session) => session.id)).toEqual(['working', 'waiting']);

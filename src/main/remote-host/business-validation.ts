@@ -3,12 +3,12 @@ import {
   MCP_DIFF_PRESENTATION_SCHEMA,
   MCP_PLAN_PRESENTATION_SCHEMA,
   MCP_PRESENTATION_MAX_DISPLAY_BYTES,
-  PERMISSION_PREVIEW_SCHEMA,
   parsePermissionPreviewDisplay,
   parseMcpPresentationDisplay,
 } from '@contracts/index';
 import {
-  hasMalformedRemoteHostQuestionIds,
+  parseRemoteHostAskQuestionDisplay,
+  parseRemoteHostNativeExitPlanDisplay,
   REMOTE_HOST_MAX_PENDING_ITEMS,
   type RemoteHostAcceptedResultDto,
   type RemoteHostHistoryEntryDto,
@@ -158,8 +158,19 @@ function parsePendingRequest(value: unknown): RemoteHostPendingRequestDto {
       );
     }
   }
-  if (raw.kind === 'permission' && display.schema === PERMISSION_PREVIEW_SCHEMA) {
-    try { parsePermissionPreviewDisplay(display); }
+  if (
+    (raw.kind === 'diff-review' && !presentation) ||
+    (raw.kind === 'exit-plan' && !presentation && !parseRemoteHostNativeExitPlanDisplay(display))
+  ) {
+    throw new RemoteHostInputError(
+      'pending.request.display',
+      'host returned an unsupported pending presentation',
+    );
+  }
+  if (raw.kind === 'permission') {
+    try {
+      if (!parsePermissionPreviewDisplay(display)) throw new Error('permission schema mismatch');
+    }
     catch {
       throw new RemoteHostInputError(
         'pending.request.display',
@@ -167,7 +178,7 @@ function parsePendingRequest(value: unknown): RemoteHostPendingRequestDto {
       );
     }
   }
-  if (raw.kind === 'ask-user-question' && hasMalformedRemoteHostQuestionIds(display)) {
+  if (raw.kind === 'ask-user-question' && !parseRemoteHostAskQuestionDisplay(display)) {
     throw new RemoteHostInputError(
       'pending.request.display.questionIds',
       'host returned malformed question ids',

@@ -2,10 +2,10 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
 import type { SessionRecord } from '@shared/types';
 import { LocalHistorySummaryCard } from '../LocalHistorySummaryCard';
 import { RemoteSessionSummaryCard } from '../RemoteSessionSummaryCard';
-import { legacyRemoteSessionPresentation } from '@renderer/remote-host/session-summary-presentation';
 
 afterEach(cleanup);
 
@@ -23,6 +23,14 @@ const localSession: SessionRecord = {
   archivedAt: null,
   model: null,
   thinking: null,
+};
+
+const remoteSession: RemoteHostSessionPresentationDto = {
+  id: 'remote-a', adapterId: 'codex-cli', title: 'History row', source: 'sdk',
+  lifecycle: 'closed', activity: 'finished', archived: true, pinned: false,
+  createdAt: 1, updatedAt: 2, endedAt: 2, model: null, thinking: null,
+  runtimeProvider: null, context: null, spawnedBy: null, spawnDepth: 0, teams: [],
+  summary: null, summaryGenerationSource: null, workspaceLabel: null, contextOnly: false,
 };
 
 describe('Local and Remote History presentation parity', () => {
@@ -45,14 +53,7 @@ describe('Local and Remote History presentation parity', () => {
 
     const remote = render(<RemoteSessionSummaryCard
       history
-      session={legacyRemoteSessionPresentation({
-        id: 'remote-a',
-        adapterId: 'codex-cli',
-        title: 'History row',
-        status: 'closed-finished',
-        createdAt: 1,
-        updatedAt: 2,
-      })}
+      session={remoteSession}
       onSelect={vi.fn()}
     />);
     expect(remote.container.querySelector('[data-session-card-frame="true"]')!.className)

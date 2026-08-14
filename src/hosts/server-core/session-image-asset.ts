@@ -86,7 +86,7 @@ export function fileChangePayloadMatchesDescriptor(
   descriptor: FileChangeSummary,
   change: FileChangePayload,
 ): boolean {
-  const authorityMatches = descriptor.pathAuthority === undefined ||
+  const authorityMatches =
     descriptor.pathAuthority === fileChangePathAuthorityFromMetadata(change.metadata);
   return authorityMatches && descriptor.id === change.id && descriptor.sessionId === change.sessionId &&
     descriptor.filePath === change.filePath && descriptor.kind === change.kind &&

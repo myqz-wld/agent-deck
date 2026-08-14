@@ -149,11 +149,11 @@ async function recoverPrevious(
     serviceUid: context.serviceUid, trustedRootUid: context.trustedRootUid,
     maxAgeMs: context.limits.maxEvidenceAgeMs,
   });
-  const legacyEvidence = evidencePaths(loaded.record.topology, loaded.paths);
+  const runtimeEvidence = evidencePaths(loaded.record.topology, loaded.paths);
   await runStartPreflight({
     topology: loaded.record.topology, paths: loaded.paths,
     renderedArtifactPath: loaded.current.unitBackupPath,
-    egressEvidencePath: legacyEvidence[0], quotaEvidencePath: legacyEvidence[1], context,
+    egressEvidencePath: runtimeEvidence[0], quotaEvidencePath: runtimeEvidence[1], context,
   });
   await revalidateEvidence(context.ports.fileSystem, evidenceSnapshots, context.ports.clock, context.limits.maxEvidenceAgeMs);
   await revalidateLoadedArtifacts({ loaded, ports: context.ports, maxArtifactBytes: context.limits.maxArtifactBytes, serviceUid: context.serviceUid });

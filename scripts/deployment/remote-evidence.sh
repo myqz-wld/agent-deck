@@ -34,38 +34,38 @@ cleanup() {
 }
 trap cleanup EXIT
 /usr/bin/tar -xzf "$archive" -C "$evidence_root" --no-same-owner --no-same-permissions
-for name in legacy-egress legacy-quota exact-egress exact-quota; do
+for name in runtime-egress runtime-quota exact-egress exact-quota; do
   [[ -f "$evidence_root/$name" && ! -L "$evidence_root/$name" ]] || fail "缺少 evidence 文件 $name"
 done
 [[ "$(/usr/bin/find "$evidence_root" -mindepth 1 -maxdepth 1 -type f | /usr/bin/wc -l)" == 4 ]] || fail 'evidence archive 包含多余文件'
 
 service_group="$(/usr/bin/id -gn "$service_user")"
 if [[ "$topology" == relay ]]; then
-  legacy_root="/etc/agent-deck-relay/evidence/$instance_id"
-  /usr/bin/sudo -n /usr/bin/install -d -o root -g root -m 0555 "$legacy_root"
-  legacy_owner=root
-  legacy_group=root
+  runtime_root="/etc/agent-deck-relay/evidence/$instance_id"
+  /usr/bin/sudo -n /usr/bin/install -d -o root -g root -m 0555 "$runtime_root"
+  runtime_owner=root
+  runtime_group=root
 else
-  legacy_root="$service_home/.config/agent-deck/instances/$instance_id"
-  [[ -d "$legacy_root" && ! -L "$legacy_root" ]] || fail 'Full instance config 目录尚不存在'
-  legacy_owner=$service_user
-  legacy_group=$service_group
+  runtime_root="$service_home/.config/agent-deck/instances/$instance_id"
+  [[ -d "$runtime_root" && ! -L "$runtime_root" ]] || fail 'Full instance config 目录尚不存在'
+  runtime_owner=$service_user
+  runtime_group=$service_group
 fi
 exact_root="/etc/agent-deck-manager/evidence/$topology/$instance_id/${generation}-${version}"
 /usr/bin/sudo -n /usr/bin/install -d -o root -g root -m 0555 \
   "/etc/agent-deck-manager/evidence/$topology/$instance_id" "$exact_root"
 
 if [[ "$topology" == relay ]]; then
-  legacy_egress=egress.env
-  legacy_quota=quota.env
+  runtime_egress=egress.env
+  runtime_quota=quota.env
 else
-  legacy_egress=egress-policy.verified
-  legacy_quota=volume-quota.verified
+  runtime_egress=egress-policy.verified
+  runtime_quota=volume-quota.verified
 fi
-/usr/bin/sudo -n /usr/bin/install -o "$legacy_owner" -g "$legacy_group" -m 0444 -T \
-  "$evidence_root/legacy-egress" "$legacy_root/$legacy_egress"
-/usr/bin/sudo -n /usr/bin/install -o "$legacy_owner" -g "$legacy_group" -m 0444 -T \
-  "$evidence_root/legacy-quota" "$legacy_root/$legacy_quota"
+/usr/bin/sudo -n /usr/bin/install -o "$runtime_owner" -g "$runtime_group" -m 0444 -T \
+  "$evidence_root/runtime-egress" "$runtime_root/$runtime_egress"
+/usr/bin/sudo -n /usr/bin/install -o "$runtime_owner" -g "$runtime_group" -m 0444 -T \
+  "$evidence_root/runtime-quota" "$runtime_root/$runtime_quota"
 /usr/bin/sudo -n /usr/bin/install -o root -g root -m 0444 -T \
   "$evidence_root/exact-egress" "$exact_root/egress.env"
 /usr/bin/sudo -n /usr/bin/install -o root -g root -m 0444 -T \

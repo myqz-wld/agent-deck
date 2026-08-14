@@ -1,5 +1,6 @@
 import {
   CORE_METHOD_METADATA,
+  createPermissionPreviewDisplay,
   issueRemoteOwnerAccessContext,
   type AgentDeckClient,
   type AgentDeckEventEnvelope,
@@ -389,7 +390,10 @@ export function pending(
     status,
     createdAt: 1,
     expiresAt: null,
-    display: { tool: 'Bash', command: 'pnpm test', apiKey: 'secret-value' },
+    display: createPermissionPreviewDisplay('Bash', {
+      command: 'pnpm test',
+      apiKey: 'secret-value',
+    }),
   };
 }
 

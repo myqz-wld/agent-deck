@@ -36,7 +36,6 @@ import {
   closeDb,
   isDbClosed,
 } from '../store/db';
-import { repairLegacyTokenUsage } from '../store/token-usage-legacy-repair';
 import { settingsStore } from '../store/settings-store';
 import { installDesktopEventRepositoryDiagnostics } from '../store/event-repo-diagnostics-host';
 import { installDesktopAgentDeckTeamRepositoryDiagnostics } from '../store/agent-deck-team-repo/diagnostics-host';
@@ -140,21 +139,6 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
     databasePath: join(app.getPath('userData'), AGENT_DECK_DATABASE_FILENAME),
     diagnostics: databaseLogger,
   });
-  try {
-    const repaired = repairLegacyTokenUsage(database);
-    if (repaired.claudeCumulativeRows > 0 || repaired.codexContextOnlyRows > 0) {
-      logger.info('legacy token usage repair', {
-        outcome: 'success',
-        ...repaired,
-      });
-    }
-  } catch (error) {
-    // Derived telemetry repair must not prevent the user's sessions from opening.
-    logger.warn('legacy token usage repair', {
-      outcome: 'failed',
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
 
   // 2. 设置
   const settings = settingsStore.getAll();

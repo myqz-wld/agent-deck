@@ -1,12 +1,18 @@
 import { createHash } from 'node:crypto';
-import type { JsonObject, JsonValue, PendingRequestDto } from '@contracts/index';
+import {
+  parsePermissionPreviewDisplay,
+  type JsonObject,
+  type JsonValue,
+  type PendingRequestDto,
+} from '@contracts/index';
+import { parseRemoteHostAskQuestionDisplay } from '@shared/remote-host';
 import { redactJson, truncateUtf8 } from './redaction';
 
 const SAFE_DISPLAY_FIELDS: Readonly<Record<PendingRequestDto['kind'], readonly string[]>> = {
   'ask-user-question': ['prompt', 'summary'],
   'diff-review': ['description', 'summary', 'title'],
   'exit-plan': ['description', 'summary', 'title'],
-  permission: ['command', 'description', 'reason', 'summary', 'tool'],
+  permission: [],
 };
 
 function sortedJson(value: JsonValue): JsonValue {
@@ -18,6 +24,17 @@ function sortedJson(value: JsonValue): JsonValue {
 }
 
 function safeDetails(request: PendingRequestDto): JsonObject {
+  if (request.kind === 'permission') {
+    const preview = parsePermissionPreviewDisplay(request.display);
+    return preview
+      ? {
+          tool: preview.tool,
+          input: preview.input,
+          complete: preview.complete,
+          redacted: preview.redacted,
+        }
+      : {};
+  }
   const details: JsonObject = {};
   for (const field of SAFE_DISPLAY_FIELDS[request.kind]) {
     const value = request.display[field];
@@ -47,12 +64,10 @@ export function pendingSecurityDisplay(
   };
   const details = safeDetails(request);
   if (Object.keys(details).length > 0) projected.details = details;
-  const questionIds = request.display.questionIds;
-  if (
-    request.kind === 'ask-user-question' &&
-    Array.isArray(questionIds) &&
-    questionIds.every((value) => typeof value === 'string')
-  ) projected.questionIds = questionIds as string[];
+  if (request.kind === 'ask-user-question') {
+    const display = parseRemoteHostAskQuestionDisplay(request.display);
+    if (display) projected.questionIds = [...display.questionIds];
+  }
   return projected;
 }
 

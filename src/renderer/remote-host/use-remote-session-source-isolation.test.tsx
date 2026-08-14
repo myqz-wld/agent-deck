@@ -2,22 +2,41 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { RemoteHostSessionPageDto } from '@shared/remote-host';
+import type {
+  RemoteHostSessionPresentationDto,
+  RemoteHostSessionPresentationPageDto,
+} from '@shared/remote-host';
 import { useRemoteSessionSource } from './use-remote-session-source';
 import { deferred, hosts, session } from './use-remote-session-source-test-fixture';
 
-function page(profileId: string, archived: boolean): RemoteHostSessionPageDto {
+function presentation(profileId: string): RemoteHostSessionPresentationDto {
   return {
-    sessions: archived ? [] : [session('same-session', `${profileId} list`)],
+    id: 'same-session', adapterId: 'codex-cli', title: `${profileId} list`, source: 'sdk',
+    lifecycle: 'active', activity: 'idle', archived: false, pinned: false, createdAt: 1,
+    updatedAt: 2, endedAt: null, model: null, thinking: null, runtimeProvider: null,
+    context: null, spawnedBy: null, spawnDepth: 0, teams: [], summary: null,
+    summaryGenerationSource: null, workspaceLabel: 'Workspace', contextOnly: false,
+  };
+}
+
+function page(profileId: string, kind: 'history' | 'live'): RemoteHostSessionPresentationPageDto {
+  const sessions = kind === 'history' ? [] : [presentation(profileId)];
+  return {
+    sessions,
     nextCursor: null,
-    total: archived ? 0 : 1,
+    counts: {
+      total: sessions.length, active: sessions.length, dormant: 0, closed: 0,
+      working: 0, waiting: 0,
+    },
+    contextTruncated: false,
     revision: 1,
   };
 }
 
 beforeEach(() => {
   window.api = {
-    listRemoteHostSessions: vi.fn(async (request) => page(request.profileId, Boolean(request.includeArchived))),
+    listRemoteHostSessionPresentations: vi.fn(async (request) =>
+      page(request.profileId, request.kind)),
     listRemoteHostPendingIndex: vi.fn(async () => ({
       buckets: [], nextCursor: null, totalBuckets: 0, totalRequests: 0,
       scanTruncated: false, revision: 1,
@@ -100,9 +119,9 @@ describe('useRemoteSessionSource isolated reads and intent identity', () => {
   });
 
   it('publishes Live sessions while a History read remains pending or fails', async () => {
-    const history = deferred<RemoteHostSessionPageDto>();
-    vi.mocked(window.api.listRemoteHostSessions).mockImplementation((request) =>
-      request.includeArchived ? history.promise : Promise.resolve(page(request.profileId, false)));
+    const history = deferred<RemoteHostSessionPresentationPageDto>();
+    vi.mocked(window.api.listRemoteHostSessionPresentations).mockImplementation((request) =>
+      request.kind === 'history' ? history.promise : Promise.resolve(page(request.profileId, 'live')));
     const hook = renderHook(() => useRemoteSessionSource(hosts('remote-a', 1)));
 
     await waitFor(() => expect(hook.result.current.sessions[0]?.title).toBe('remote-a list'));

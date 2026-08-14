@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createPermissionPreviewDisplay } from '@contracts/index';
 import {
   actionFrom,
   flush,
@@ -86,10 +87,10 @@ describe('group-chat Core egress policy', () => {
     const client = onlyClient(clients);
     client.pending.set('session-1', [{
       ...pending(),
-      display: {
+      display: createPermissionPreviewDisplay('Bash', {
         command: 'kubectl --token=abcdefghijklmnopqrstuvwxyz123456789012 get pods',
         connectionString: 'postgres://admin:secret@db.internal/prod',
-      },
+      }),
     }]);
     transport.messages.length = 0;
     await gateway.handle(messageEvent('group-pending', '/pending', { chatType: 'group' }));
@@ -122,16 +123,22 @@ describe('group-chat Core egress policy', () => {
     await gateway.handle(messageEvent('p2p-select', '/select session-1'));
     onlyClient(clients).pending.set('session-1', [{
       ...pending(),
-      display: { tool: 'Bash', command: 'pnpm test', connectionString: 'secret' },
+      display: createPermissionPreviewDisplay('Bash', {
+        command: 'pnpm test',
+        connectionString: 'secret',
+      }),
     }]);
     transport.messages.length = 0;
     await gateway.handle(messageEvent('p2p-pending', '/pending'));
     const card = transport.messages.at(-1)?.cards[0];
     expect(card?.display).toMatchObject({
       requestKind: 'permission',
-      details: { tool: 'Bash', command: 'pnpm test' },
+      details: {
+        tool: 'Bash',
+        input: { command: 'pnpm test', connectionString: '[redacted]' },
+      },
     });
-    expect(card?.display).not.toHaveProperty('details.connectionString');
+    expect(JSON.stringify(card?.display)).not.toContain('secret');
     expect(actionFrom(transport.messages.at(-1)!).action).toBe('approve');
   });
 });

@@ -129,10 +129,6 @@ export interface RemoteHostPageRequestDto {
   limit: number;
 }
 
-export interface RemoteHostSessionPageRequestDto extends RemoteHostPageRequestDto {
-  includeArchived?: boolean;
-}
-
 export interface RemoteHostSessionSummaryDto {
   id: string;
   adapterId: string;
@@ -140,13 +136,6 @@ export interface RemoteHostSessionSummaryDto {
   status: string;
   createdAt: number;
   updatedAt: number;
-}
-
-export interface RemoteHostSessionPageDto {
-  sessions: RemoteHostSessionSummaryDto[];
-  nextCursor: string | null;
-  total: number | null;
-  revision: number;
 }
 
 export interface RemoteHostSessionPresentationRequestDto {

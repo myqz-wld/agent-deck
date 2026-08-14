@@ -42,10 +42,7 @@ export function RemoteSessionComposer({
   const activeInput = source.inputCapabilities?.adapterId === adapterId
     ? source.inputCapabilities.activeTurn
     : null;
-  const legacySteer = !source.capabilities.has('sessions.input.read') &&
-    (adapterId === 'codex-cli' || adapterId === 'grok-build');
-  const canSteerTurn = activeInput?.mode === 'steer' || activeInput?.mode === 'interject' ||
-    legacySteer;
+  const canSteerTurn = activeInput?.mode === 'steer' || activeInput?.mode === 'interject';
   const steerMode = turnBusy && canSteerTurn;
   const queueMode = turnBusy && activeInput?.mode === 'queue';
   const effectiveAttachmentPolicy = turnBusy

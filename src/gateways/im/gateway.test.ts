@@ -22,6 +22,7 @@ import {
   setup,
   testNonce,
 } from './__tests__/fixture';
+import { pendingForKind } from './__tests__/pending-fixture';
 
 describe('FeishuSessionConsoleGateway identity and chat state', () => {
   it('authorizes only the exact enrolled app/tenant/open-id tuple, never display names', async () => {
@@ -234,9 +235,9 @@ describe('authoritative pending actions', () => {
     expect(JSON.stringify(reply)).not.toContain('secret-value');
     expect(reply?.cards[0].display).toMatchObject({
       requestKind: 'permission',
-      details: { tool: 'Bash', command: 'pnpm test' },
+      details: { tool: 'Bash', input: { command: 'pnpm test', apiKey: '[redacted]' } },
     });
-    expect(reply?.cards[0].display).not.toHaveProperty('details.apiKey');
+    expect(JSON.stringify(reply?.cards[0].display)).not.toContain('secret-value');
 
     const action = actionFrom(reply!);
     await gateway.handle(actionEvent('approve-live', action));
@@ -274,7 +275,7 @@ describe('authoritative pending actions', () => {
   it('supports bounded ask-user values without persisting the submitted business value', async () => {
     const { gateway, clients, transport, store } = setup();
     await select(gateway);
-    const request = { ...pending('question'), kind: 'ask-user-question' as const };
+    const request = pendingForKind('ask-user-question', 'question');
     onlyClient(clients).pending.set('session-1', [request]);
     await gateway.handle(messageEvent('question-card', '/pending'));
     const button = actionFrom(transport.messages.at(-1)!);

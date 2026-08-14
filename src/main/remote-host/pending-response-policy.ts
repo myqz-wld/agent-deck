@@ -7,9 +7,9 @@ import {
   parseMcpPresentationFeedback,
 } from '@contracts/index';
 import {
+  parseRemoteHostAskQuestionDisplay,
   parseRemoteHostNativeExitPlanDisplay,
   remoteHostPendingPresentationCanonical,
-  remoteHostQuestionIds,
   type RemoteHostPendingListDto,
   type RemoteHostPendingResponseDto,
 } from '@shared/remote-host';
@@ -29,7 +29,9 @@ function validateExactQuestionKeys(
 ): void {
   if (!isJsonObject(value)) invalidPendingAction();
   const actual = Object.keys(value).sort();
-  const expected = remoteHostQuestionIds(pending.display).sort();
+  const display = parseRemoteHostAskQuestionDisplay(pending.display);
+  if (!display) invalidPendingAction();
+  const expected = [...display.questionIds].sort();
   if (
     actual.length !== expected.length ||
     actual.some((key, index) => key !== expected[index])
@@ -41,17 +43,6 @@ function validateExactQuestionKeys(
 const EXIT_PLAN_TARGET_MODES = new Set([
   'default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions',
 ]);
-const LEGACY_PERMISSION_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/u;
-
-function hasCompleteLegacyPermissionDisplay(
-  display: RemoteHostPendingListDto['requests'][number]['display'],
-): boolean {
-  return typeof display.tool === 'string' && display.tool.length > 0 &&
-    Buffer.byteLength(display.tool, 'utf8') <= 256 && !LEGACY_PERMISSION_CONTROL.test(display.tool) &&
-    typeof display.command === 'string' && display.command.trim().length > 0 &&
-    Buffer.byteLength(display.command, 'utf8') <= 4_096 &&
-    !LEGACY_PERMISSION_CONTROL.test(display.command);
-}
 
 export function remoteHostPendingPresentationDigest(
   request: RemoteHostPendingListDto['requests'][number],
@@ -67,7 +58,7 @@ function validateNativeExitPlanValue(response: RemoteHostPendingResponseDto): vo
     catch { invalidPendingAction(); }
     return;
   }
-  if (response.value === undefined) return; // Legacy desktop: default permission mode.
+  if (response.value === undefined) return;
   if (!isJsonObject(response.value)) invalidPendingAction();
   const keys = Object.keys(response.value);
   if (
@@ -102,15 +93,10 @@ export function authorizeRemoteHostPendingResponse(
     if (response.action !== 'approve' && response.action !== 'deny') {
       invalidPendingAction();
     }
-    if (response.action === 'approve') {
-      let preview: ReturnType<typeof parsePermissionPreviewDisplay>;
-      try { preview = parsePermissionPreviewDisplay(request.display); }
-      catch { return invalidPendingAction(); }
-      if (
-        (preview && !preview.complete) ||
-        (!preview && !hasCompleteLegacyPermissionDisplay(request.display))
-      ) invalidPendingAction();
-    }
+    let preview: ReturnType<typeof parsePermissionPreviewDisplay>;
+    try { preview = parsePermissionPreviewDisplay(request.display); }
+    catch { return invalidPendingAction(); }
+    if (!preview || (response.action === 'approve' && !preview.complete)) invalidPendingAction();
     return pending.revision;
   }
   if (response.action !== 'accept' && response.action !== 'reject') {
@@ -124,8 +110,7 @@ export function authorizeRemoteHostPendingResponse(
       validateNativeExitPlanValue(response);
       return pending.revision;
     }
-    if (response.value !== undefined) invalidPendingAction();
-    return pending.revision;
+    return invalidPendingAction();
   }
   if (response.action === 'accept' && response.value !== undefined) invalidPendingAction();
   if (response.action === 'reject') {

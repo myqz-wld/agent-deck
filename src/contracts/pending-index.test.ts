@@ -8,7 +8,7 @@ const session: SessionPresentationSummaryDto = {
   lifecycle: 'active', activity: 'waiting', archived: false, pinned: false,
   createdAt: 1, updatedAt: 2, endedAt: null, model: null, thinking: null,
   runtimeProvider: null, context: null, spawnedBy: null, spawnDepth: 0, teams: [],
-  summary: null, workspaceLabel: 'Workspace', contextOnly: false,
+  summary: null, summaryGenerationSource: null, workspaceLabel: 'Workspace', contextOnly: false,
 };
 
 describe('pending index contract', () => {

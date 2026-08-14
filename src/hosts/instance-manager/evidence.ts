@@ -43,7 +43,7 @@ async function readEvidence(input: {
   return captureTrustedFile(input.fileSystem, input.path, MAX_EVIDENCE_BYTES, input.expectedUid, 0o444, input.field);
 }
 
-function legacyFull(paths: InstancePaths): readonly { path: string; lines: readonly string[]; field: string }[] {
+function runtimeFull(paths: InstancePaths): readonly { path: string; lines: readonly string[]; field: string }[] {
   const [state, workspace, socket, browser, secrets] = fullVolumeNames(paths.instanceId);
   return [
     { path: posix.join(paths.evidenceDirectory, 'egress-policy.verified'), field: 'full egress evidence', lines: ['schemaVersion=1', `instanceId=${paths.instanceId}`, 'topology=full', 'publicOnlyEgressVerified=true', 'privateAndLinkLocalDenied=true', 'cloudMetadataDenied=true'] },
@@ -51,7 +51,7 @@ function legacyFull(paths: InstancePaths): readonly { path: string; lines: reado
   ];
 }
 
-async function legacyRelay(fileSystem: FileSystemPort, paths: InstancePaths): Promise<readonly { path: string; lines: readonly string[]; field: string }[]> {
+async function runtimeRelay(fileSystem: FileSystemPort, paths: InstancePaths): Promise<readonly { path: string; lines: readonly string[]; field: string }[]> {
   if (!paths.stateDirectory) fail('tampered', 'relay state path is missing');
   const stateReal = await fileSystem.realpath(paths.stateDirectory);
   if (stateReal !== paths.stateDirectory) fail('tampered', 'relay state path uses symlink indirection');
@@ -109,9 +109,9 @@ export async function validateStartEvidence(input: {
   readonly maxAgeMs: number;
 }): Promise<readonly TrustedFileArtifact[]> {
   if (input.topology === 'relay') await requireOwnedDirectory(input.fileSystem, input.paths.evidenceDirectory, input.trustedRootUid, 0o555, 'relay evidence directory');
-  const legacy = input.topology === 'full' ? legacyFull(input.paths) : await legacyRelay(input.fileSystem, input.paths);
+  const runtime = input.topology === 'full' ? runtimeFull(input.paths) : await runtimeRelay(input.fileSystem, input.paths);
   const snapshots: TrustedFileArtifact[] = [];
-  for (const entry of legacy) snapshots.push(await readEvidence({ ...input, expectedUid: input.topology === 'full' ? input.serviceUid : input.trustedRootUid, expectedLines: entry.lines, path: entry.path, field: entry.field }));
+  for (const entry of runtime) snapshots.push(await readEvidence({ ...input, expectedUid: input.topology === 'full' ? input.serviceUid : input.trustedRootUid, expectedLines: entry.lines, path: entry.path, field: entry.field }));
   const directory = await requireCanonicalDirectory(input.fileSystem, input.paths.cutoverEvidenceDirectory, 'exact cutover evidence directory');
   if (directory.uid !== input.trustedRootUid || (directory.mode & 0o777) !== 0o555) fail('tampered', 'exact cutover evidence directory has an untrusted owner or mode');
   const exact = exactCutover(input);
@@ -140,10 +140,10 @@ export async function revalidateEvidence(
 }
 
 export function evidencePaths(topology: ManagedTopology, paths: InstancePaths, generation?: number, version?: string): readonly string[] {
-  const legacy = topology === 'full'
+  const runtime = topology === 'full'
     ? [posix.join(paths.evidenceDirectory, 'egress-policy.verified'), posix.join(paths.evidenceDirectory, 'volume-quota.verified')]
     : [posix.join(paths.evidenceDirectory, 'egress.env'), posix.join(paths.evidenceDirectory, 'quota.env')];
-  if (generation === undefined || version === undefined) return legacy;
+  if (generation === undefined || version === undefined) return runtime;
   const exactRoot = posix.join(paths.cutoverEvidenceDirectory, `${generation}-${version}`);
-  return [...legacy, posix.join(exactRoot, 'egress.env'), posix.join(exactRoot, 'quota.env')];
+  return [...runtime, posix.join(exactRoot, 'egress.env'), posix.join(exactRoot, 'quota.env')];
 }

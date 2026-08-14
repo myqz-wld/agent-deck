@@ -2,6 +2,7 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { createPermissionPreviewDisplay } from '@contracts/index';
 import type {
   RemoteHostPendingIndexDto,
   RemoteHostResourceKind,
@@ -38,7 +39,7 @@ function session(id = 'session-a'): RemoteHostSessionPresentationDto {
     id, adapterId: 'codex-cli', title: id, source: 'sdk', lifecycle: 'active',
     activity: 'waiting', archived: false, pinned: false, createdAt: 1, updatedAt: 2,
     endedAt: null, model: null, thinking: null, runtimeProvider: null, context: null,
-    spawnedBy: null, spawnDepth: 0, teams: [], summary: null,
+    spawnedBy: null, spawnDepth: 0, teams: [], summary: null, summaryGenerationSource: null,
     workspaceLabel: 'Workspace', contextOnly: false,
   };
 }
@@ -76,7 +77,8 @@ function pending(
       pending: {
         requests: [{
           id: `request-${id}`, sessionId: id, kind: 'permission', status: 'pending',
-          createdAt: 1, expiresAt: null, display: {},
+          createdAt: 1, expiresAt: null,
+          display: createPermissionPreviewDisplay('Bash', { command: 'pwd' }),
         }],
         revision,
       },
@@ -94,14 +96,33 @@ const capabilities = new Set([
   'sessions.history.write',
 ]);
 
-function renderLists(resourceRevisions = revisions()) {
+function renderLists(
+  resourceRevisions = revisions(),
+  enabledCapabilities: ReadonlySet<string> = capabilities,
+) {
   return renderHook(({ resources }) => useRemotePresentationLists({
-    activeProfileId: 'remote-a', capabilities, identity: 'remote-a:core-a:1',
+    activeProfileId: 'remote-a', capabilities: enabledCapabilities,
+    identity: 'remote-a:core-a:1',
     localRevision: 0, resourceRevisions: resources, usable: true,
   }), { initialProps: { resources: resourceRevisions } });
 }
 
 describe('useRemotePresentationLists', () => {
+  it('does not request presentations without the presentation capability', async () => {
+    const listPresentations = vi.fn();
+    window.api = {
+      listRemoteHostSessionPresentations: listPresentations,
+      listRemoteHostPendingIndex: vi.fn(async () => pending()),
+    } as unknown as typeof window.api;
+
+    const hook = renderLists(revisions(), new Set(['session-console.read']));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(hook.result.current.sessions).toEqual([]);
+    expect(hook.result.current.historySessions).toEqual([]);
+    expect(listPresentations).not.toHaveBeenCalled();
+  });
+
   it('requests an archived-only history page only after the explicit filter changes', async () => {
     const list = vi.fn((request: { kind: 'history' | 'live'; archivedOnly?: boolean }) =>
       Promise.resolve(page(request.kind)));

@@ -117,17 +117,12 @@ describe('Codex app-server collaboration translation', () => {
     ]);
   });
 
-  it('keeps the legacy normalized collaboration item visible for custom older binaries', () => {
+  it('ignores the retired normalized collaboration item shape', () => {
     const { emit, events } = collect();
     const item = {
-      id: 'legacy-agent-1',
+      id: 'retired-agent-1',
       type: 'collabToolCall',
       tool: 'spawn_agent',
-      senderThreadId: 'lead-thread',
-      receiverThreadId: 'child-thread',
-      newThreadId: 'child-thread',
-      prompt: 'inspect the adapter',
-      agentStatus: { status: 'running' },
       status: 'completed',
     };
 
@@ -140,43 +135,7 @@ describe('Codex app-server collaboration translation', () => {
       emit,
     );
 
-    expect(events).toEqual([
-      {
-        kind: 'tool-use-start',
-        payload: {
-          toolName: 'Agent',
-          toolInput: {
-            collab_tool: 'spawn_agent',
-            sender_thread_id: 'lead-thread',
-            receiver_thread_id: 'child-thread',
-            new_thread_id: 'child-thread',
-            prompt: 'inspect the adapter',
-          },
-          toolUseId: 'legacy-agent-1',
-        },
-      },
-      {
-        kind: 'tool-use-end',
-        payload: {
-          toolUseId: 'legacy-agent-1',
-          toolName: 'Agent',
-          toolInput: {
-            collab_tool: 'spawn_agent',
-            sender_thread_id: 'lead-thread',
-            receiver_thread_id: 'child-thread',
-            new_thread_id: 'child-thread',
-            prompt: 'inspect the adapter',
-          },
-          toolResult: {
-            receiver_thread_id: 'child-thread',
-            new_thread_id: 'child-thread',
-            agent_status: { status: 'running' },
-          },
-          status: 'completed',
-          error: undefined,
-        },
-      },
-    ]);
+    expect(events).toEqual([]);
   });
 
   it('preserves complete raw collaboration inputs and outputs for local display', () => {

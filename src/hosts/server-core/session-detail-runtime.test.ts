@@ -85,8 +85,8 @@ function harness(overrides: {
   const fileKind = overrides.fileKind ?? 'text';
   const beforeBlob = overrides.beforeBlob === undefined ? 'before' : overrides.beforeBlob;
   const afterBlob = overrides.afterBlob === undefined ? 'after' : overrides.afterBlob;
-  const pathAuthority = Object.prototype.hasOwnProperty.call(overrides, 'pathAuthority')
-    ? overrides.pathAuthority
+  const pathAuthority: string | null = Object.prototype.hasOwnProperty.call(overrides, 'pathAuthority')
+    ? overrides.pathAuthority ?? null
     : filePath;
   const getDescriptor = vi.fn(() => ({
     id: 3,
@@ -98,7 +98,7 @@ function harness(overrides: {
     hasAfterBlob: afterBlob !== null,
     hasBeforeSnapshot: false,
     hasAfterSnapshot: false,
-    ...(pathAuthority === undefined ? {} : { pathAuthority }),
+    pathAuthority,
     ts: 3,
   }));
   const getPayload = vi.fn(() => ({
@@ -116,7 +116,7 @@ function harness(overrides: {
       access_key: 'AKIAIOSFODNN7EXAMPLE',
       locationHint: '/mnt/custom-runtime/private/socket.json',
       opaqueValue: 'aB3dE5fG7hJ9kL2mN4pQ6rS8tU0vW1xY3zA5cD7eF9gH2jK4',
-    }, pathAuthority === undefined ? filePath : pathAuthority),
+    }, pathAuthority),
     toolCallId: null,
     ts: 3,
   }));
@@ -174,7 +174,7 @@ function harness(overrides: {
           hasAfterBlob: true,
           hasBeforeSnapshot: false,
           hasAfterSnapshot: false,
-          ...(pathAuthority === undefined ? {} : { pathAuthority }),
+          pathAuthority,
           ts: 3,
         }],
         nextCursor: null,

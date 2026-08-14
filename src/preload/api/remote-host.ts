@@ -46,8 +46,6 @@ import type {
   RemoteHostRuntimeUpdateResultDto,
   RemoteHostSendDto,
   RemoteHostSendResultDto,
-  RemoteHostSessionPageDto,
-  RemoteHostSessionPageRequestDto,
   RemoteHostSessionCapabilitiesDto,
   RemoteHostSessionCapabilitiesRequestDto,
   RemoteHostSessionSummaryDto,
@@ -119,10 +117,6 @@ export const remoteHostApi = {
   chooseRemoteHostConnection: (): Promise<RemoteHostConnectionSelectionDto | null> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.ChooseConnection),
 
-  listRemoteHostSessions: (
-    request: RemoteHostSessionPageRequestDto,
-  ): Promise<RemoteHostSessionPageDto> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionsList, request),
   listRemoteHostSessionPresentations: (
     request: RemoteHostSessionPresentationRequestDto,
   ): Promise<RemoteHostSessionPresentationPageDto> =>

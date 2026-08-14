@@ -15,7 +15,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SESSION_IMAGE_ASSET_CHUNK_BYTES } from '@contracts/index';
 import type { FileChangePayload, FileChangeSummary } from '@shared/types';
-import { withStoredFileChangePathAuthority } from '@shared/file-change-path-authority';
+import {
+  fileChangePathAuthorityFromMetadata,
+  withStoredFileChangePathAuthority,
+} from '@shared/file-change-path-authority';
 import {
   ServerCoreSessionImageAssetReader,
   type SessionImageAssetFilesystem,
@@ -46,7 +49,7 @@ function fixture() {
     kind: 'image',
     beforeBlob: null,
     afterBlob: JSON.stringify({ kind: 'path', path: image }),
-    metadata: {},
+    metadata: withStoredFileChangePathAuthority({}, realpathSync(image)),
     toolCallId: null,
     ts: 1,
   };
@@ -80,6 +83,7 @@ function toDescriptor(change: FileChangePayload): FileChangeSummary {
     hasAfterBlob: change.afterBlob !== null,
     hasBeforeSnapshot: change.beforeSnapshot != null,
     hasAfterSnapshot: change.afterSnapshot != null,
+    pathAuthority: fileChangePathAuthorityFromMetadata(change.metadata),
     ts: change.ts,
   };
 }
@@ -119,7 +123,8 @@ describe('ServerCoreSessionImageAssetReader', () => {
     symlinkSync(secret, link);
     setChange({
       id: 3, sessionId: 'session-a', filePath: link, kind: 'image', beforeBlob: null,
-      afterBlob: JSON.stringify({ kind: 'path', path: link }), metadata: {},
+      afterBlob: JSON.stringify({ kind: 'path', path: link }),
+      metadata: withStoredFileChangePathAuthority({}, realpathSync(link)),
       toolCallId: null, ts: 1,
     });
     await expect(reader.read({
@@ -128,7 +133,8 @@ describe('ServerCoreSessionImageAssetReader', () => {
     expect(getPayload).not.toHaveBeenCalled();
     const change = {
       id: 3, sessionId: 'session-a', filePath: secret, kind: 'image', beforeBlob: null,
-      afterBlob: JSON.stringify({ kind: 'path', path: secret }), metadata: {},
+      afterBlob: JSON.stringify({ kind: 'path', path: secret }),
+      metadata: withStoredFileChangePathAuthority({}, realpathSync(secret)),
       toolCallId: null, ts: 1,
     };
     expect(reader.publicHandle(toDescriptor(change), change, 'after')).toBeNull();
@@ -148,7 +154,7 @@ describe('ServerCoreSessionImageAssetReader', () => {
       kind: 'image',
       beforeBlob: null,
       afterBlob: JSON.stringify({ kind: 'path', path: image }),
-      metadata: {},
+      metadata: withStoredFileChangePathAuthority({}, realpathSync(image)),
       toolCallId: null,
       ts: 1,
     };
@@ -170,7 +176,7 @@ describe('ServerCoreSessionImageAssetReader', () => {
       kind: 'image',
       beforeBlob: null,
       afterBlob: JSON.stringify({ kind: 'path', path: authorized.filePath }),
-      metadata: {},
+      metadata: withStoredFileChangePathAuthority({}, authorized.pathAuthority ?? null),
       toolCallId: 'replacement',
       ts: authorized.ts + 1,
     });
@@ -223,7 +229,7 @@ describe('ServerCoreSessionImageAssetReader', () => {
       kind: safeDescriptor.kind,
       beforeBlob: null,
       afterBlob: JSON.stringify({ kind: 'path', path: link }),
-      metadata: {},
+      metadata: withStoredFileChangePathAuthority({}, safeDescriptor.pathAuthority ?? null),
       toolCallId: safeDescriptor.toolCallId,
       ts: safeDescriptor.ts,
     };
@@ -254,7 +260,7 @@ describe('ServerCoreSessionImageAssetReader', () => {
       kind: 'image',
       beforeBlob: null,
       afterBlob: JSON.stringify({ kind: 'path', path: image }),
-      metadata: {},
+      metadata: withStoredFileChangePathAuthority({}, realpathSync(image)),
       toolCallId: null,
       ts: 1,
     });

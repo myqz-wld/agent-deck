@@ -14,7 +14,8 @@ function session(overrides: Partial<SessionPresentationSummaryDto> = {}): Sessio
     runtimeProvider: 'openai', context: { usedTokens: 12, windowTokens: 100 },
     spawnedBy: null, spawnDepth: 0,
     teams: [{ teamId: 'team-a', teamName: 'Team A', role: 'lead', joinedAt: 1 }],
-    summary: 'Safe summary', workspaceLabel: 'Project A', contextOnly: false,
+    summary: 'Safe summary', summaryGenerationSource: 'llm', workspaceLabel: 'Project A',
+    contextOnly: false,
     ...overrides,
   };
 }

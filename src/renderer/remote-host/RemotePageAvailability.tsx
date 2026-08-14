@@ -29,10 +29,10 @@ const PAGE_REQUIREMENTS: Record<
   data: { label: '数据与用量', capabilities: ['usage'] },
   history: {
     label: '历史会话',
-    capabilities: ['session-console.read', 'sessions.history'],
+    capabilities: ['sessions.presentation.read'],
   },
   issues: { label: '问题', capabilities: ['issues'] },
-  live: { label: '会话列表', capabilities: ['session-console.read'] },
+  live: { label: '会话列表', capabilities: ['sessions.presentation.read'] },
   pending: {
     label: '待处理',
     capabilities: ['pending.index.read'],

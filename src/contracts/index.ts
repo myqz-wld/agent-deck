@@ -1,7 +1,6 @@
 export * from './access';
 export * from './capabilities';
 export * from './client';
-export * from './current-api-classification';
 export * from './desktop-broker';
 export * from './mcp-presentation';
 export * from './json';

@@ -32,6 +32,20 @@ function pending(
   };
 }
 
+function singleQuestionDisplay(question: string) {
+  return {
+    prompt: question,
+    questionIds: ['answer'],
+    questions: [{
+      id: 'answer',
+      header: 'Answer',
+      question,
+      multiSelect: false,
+      options: [{ label: 'Continue' }],
+    }],
+  };
+}
+
 afterEach(cleanup);
 
 describe('RemotePendingRequests', () => {
@@ -66,7 +80,15 @@ describe('RemotePendingRequests', () => {
       'Bash', { command: 'pwd' },
     ));
     const question = pending('ask-a', 'ask-user-question', {
+      prompt: 'Deployment questions',
       questionIds: ['environment', 'reason'],
+      questions: [{
+        id: 'environment', question: 'Target environment?', multiSelect: false,
+        options: [{ label: 'production' }],
+      }, {
+        id: 'reason', question: 'Why deploy?', multiSelect: false,
+        options: [{ label: 'release' }],
+      }],
     });
     render(
       <RemotePendingRequests
@@ -78,28 +100,32 @@ describe('RemotePendingRequests', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: '允许本次' }));
-    fireEvent.change(screen.getByRole('textbox', { name: '回答：environment' }), {
-      target: { value: 'production' },
-    });
-    fireEvent.change(screen.getByRole('textbox', { name: '回答：reason' }), {
-      target: { value: 'release' },
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'production' }));
+    fireEvent.click(screen.getByRole('button', { name: 'release' }));
     fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
 
     await waitFor(() => expect(respond).toHaveBeenCalledTimes(2));
     expect(respond.mock.calls).toEqual([
       [expect.objectContaining({ request: permission, revision: 7, sourceIdentity: 'remote-a:core-a:1' }), 'approve'],
-      [expect.objectContaining({ request: question, revision: 7, sourceIdentity: 'remote-a:core-a:1' }), 'submit', { environment: 'production', reason: 'release' }],
+      [expect.objectContaining({ request: question, revision: 7, sourceIdentity: 'remote-a:core-a:1' }), 'submit', { environment: ['production'], reason: ['release'] }],
     ]);
   });
 
-  it('uses the answer fallback and disables actions for non-pending records', async () => {
+  it('fails closed for unstructured or malformed Pending displays', () => {
     const respond = vi.fn(async () => undefined);
+    const malformedPermission = {
+      ...createPermissionPreviewDisplay('Bash', { command: 'pwd' }),
+      unexpected: true,
+    };
     render(
       <RemotePendingRequests
         pending={{ requests: [
-          pending('fallback', 'ask-user-question', {}),
-          pending('resolved', 'permission', {}, 'resolved'),
+          pending('unstructured-question', 'ask-user-question', {}),
+          pending('unstructured-permission', 'permission', { command: 'pwd' }),
+          pending('malformed-permission', 'permission', malformedPermission),
+          pending('extended-plan', 'exit-plan', {
+            title: 'Deploy', summary: '# Deploy safely', hint: 'unexpected metadata',
+          }),
         ], revision: 8 }}
         sourceIdentity="remote-a:core-a:1"
         busy={false}
@@ -107,25 +133,16 @@ describe('RemotePendingRequests', () => {
       />,
     );
 
-    expect(screen.queryByRole('button', { name: '允许本次' })).toBeNull();
-    fireEvent.change(screen.getByRole('textbox', { name: '回答：answer' }), {
-      target: { value: 'fallback value' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
-    await waitFor(() => expect(respond).toHaveBeenCalledWith(
-      expect.objectContaining({ request: expect.objectContaining({ id: 'fallback' }) }),
-      'submit',
-      { answer: 'fallback value' },
-    ));
+    expect(document.querySelectorAll('li')).toHaveLength(0);
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(respond).not.toHaveBeenCalled();
   });
 
   it('remounts answers and errors when the same request gets a new presentation revision', async () => {
     const respond = vi.fn()
       .mockRejectedValueOnce(new Error('stale presentation'))
       .mockResolvedValue(undefined);
-    const first = pending('ask-a', 'ask-user-question', {
-      prompt: 'first prompt', questionIds: ['answer'],
-    });
+    const first = pending('ask-a', 'ask-user-question', singleQuestionDisplay('First prompt?'));
     const view = render(
       <RemotePendingRequests
         pending={{ requests: [first], revision: 10 }}
@@ -134,16 +151,13 @@ describe('RemotePendingRequests', () => {
         onRespond={respond}
       />,
     );
-    fireEvent.change(screen.getByRole('textbox', { name: '回答：answer' }), {
-      target: { value: 'stale answer' },
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
-    expect((await screen.findByRole('alert')).textContent).toContain('处理失败，请刷新后重试。');
+    expect((await screen.findByRole('alert')).textContent)
+      .toContain('回答提交失败，请确认问题仍在等待后重试。');
     expect(screen.queryByText(/stale presentation/u)).toBeNull();
 
-    const changed = pending('ask-a', 'ask-user-question', {
-      prompt: 'changed prompt', questionIds: ['answer'],
-    });
+    const changed = pending('ask-a', 'ask-user-question', singleQuestionDisplay('Changed prompt?'));
     view.rerender(
       <RemotePendingRequests
         pending={{ requests: [changed], revision: 10 }}
@@ -152,12 +166,12 @@ describe('RemotePendingRequests', () => {
         onRespond={respond}
       />,
     );
-    const answer = screen.getByRole('textbox', { name: '回答：answer' }) as HTMLTextAreaElement;
-    expect(answer.value).toBe('');
+    const answer = screen.getByRole('button', { name: 'Continue' });
+    expect(answer.getAttribute('aria-pressed')).toBe('false');
     expect(screen.queryByRole('alert')).toBeNull();
     expect((screen.getByRole('button', { name: '提交回答' }) as HTMLButtonElement).disabled)
       .toBe(true);
-    fireEvent.change(answer, { target: { value: 'old revision answer' } });
+    fireEvent.click(answer);
     view.rerender(
       <RemotePendingRequests
         pending={{ requests: [changed], revision: 11 }}
@@ -166,32 +180,31 @@ describe('RemotePendingRequests', () => {
         onRespond={respond}
       />,
     );
-    const revisedAnswer = screen.getByRole('textbox', { name: '回答：answer' }) as HTMLTextAreaElement;
-    expect(revisedAnswer.value).toBe('');
-    fireEvent.change(revisedAnswer, { target: { value: 'fresh answer' } });
+    const revisedAnswer = screen.getByRole('button', { name: 'Continue' });
+    expect(revisedAnswer.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(revisedAnswer);
     fireEvent.click(screen.getByRole('button', { name: '提交回答' }));
     await waitFor(() => expect(respond).toHaveBeenLastCalledWith(
       expect.objectContaining({ request: changed, revision: 11 }),
       'submit',
-      { answer: 'fresh answer' },
+      { answer: ['Continue'] },
     ));
   });
 
   it('isolates answer state for the same request id across source identities', () => {
-    const request = pending('ask-a', 'ask-user-question', { questionIds: ['answer'] });
+    const request = pending('ask-a', 'ask-user-question', singleQuestionDisplay('Continue?'));
     const props = { pending: { requests: [request], revision: 3 }, busy: false, onRespond: vi.fn() };
     const view = render(<RemotePendingRequests {...props} sourceIdentity="remote-a:core-a:1" />);
-    fireEvent.change(screen.getByRole('textbox', { name: '回答：answer' }), {
-      target: { value: 'source A answer' },
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     view.rerender(<RemotePendingRequests {...props} sourceIdentity="remote-b:core-b:1" />);
-    expect((screen.getByRole('textbox', { name: '回答：answer' }) as HTMLTextAreaElement).value)
-      .toBe('');
+    expect(screen.getByRole('button', { name: 'Continue' }).getAttribute('aria-pressed'))
+      .toBe('false');
   });
 
   it('renders bounded question options and submits the structured answer shape', async () => {
     const respond = vi.fn(async () => undefined);
     const question = pending('ask-options', 'ask-user-question', {
+      prompt: 'Choose a target environment',
       questionIds: ['environment'],
       questions: [{
         id: 'environment',
@@ -293,28 +306,6 @@ describe('RemotePendingRequests', () => {
     expect(approvals.some((button) => button.disabled)).toBe(true);
     expect(approvals.some((button) => !button.disabled)).toBe(true);
     expect(denials.every((button) => !button.disabled)).toBe(true);
-  });
-
-  it('falls back without native target modes for an extended exit-plan display', async () => {
-    const respond = vi.fn(async () => undefined);
-    const plan = pending('extended-plan', 'exit-plan', {
-      title: 'Deploy', summary: '# Deploy safely', hint: 'forward-compatible metadata',
-    });
-    render(<RemotePendingRequests
-      pending={{ requests: [plan], revision: 6 }}
-      sourceIdentity="remote-a:core-a:1"
-      agentId="claude-code"
-      busy={false}
-      onRespond={respond}
-    />);
-
-    expect(screen.queryByRole('button', { name: /批准并切到/u })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '批准并继续' }));
-    await waitFor(() => expect(respond).toHaveBeenCalledWith(
-      expect.objectContaining({ request: plan, revision: 6 }),
-      'accept',
-      undefined,
-    ));
   });
 
   it('reuses the shared plan and diff presentations with Remote response routing', async () => {

@@ -65,14 +65,14 @@ export function buildAcceptanceEvidence(input) {
   ];
   if (input.topology === 'relay') {
     return {
-      legacyEgress: text([
+      runtimeEgress: text([
         'schemaVersion=1',
         `instanceId=${input.instanceId}`,
         'publicOnlyEgressVerified=true',
         'privateAndLinkLocalDenied=true',
         'cloudMetadataDenied=true',
       ]),
-      legacyQuota: text([
+      runtimeQuota: text([
         'schemaVersion=1',
         `instanceId=${input.instanceId}`,
         `statePath=/var/lib/agent-deck/.local/share/agent-deck-relay/${input.instanceId}`,
@@ -97,7 +97,7 @@ export function buildAcceptanceEvidence(input) {
   const volumes = ['state', 'workspace', 'socket', 'browser', 'secrets']
     .map((suffix) => `agent-deck-${input.instanceId}-${suffix}`);
   return {
-    legacyEgress: text([
+    runtimeEgress: text([
       'schemaVersion=1',
       `instanceId=${input.instanceId}`,
       'topology=full',
@@ -105,7 +105,7 @@ export function buildAcceptanceEvidence(input) {
       'privateAndLinkLocalDenied=true',
       'cloudMetadataDenied=true',
     ]),
-    legacyQuota: text([
+    runtimeQuota: text([
       'schemaVersion=1',
       `instanceId=${input.instanceId}`,
       'topology=full',
