@@ -28,6 +28,7 @@ function source(overrides: Partial<RemoteSessionSourceView> = {}): RemoteSession
       'sessions.write',
       'sessions.runtime.write',
       'session-console.read',
+      'sessions.input.read',
     ]),
     selectedSessionId: 'session-a',
     selectedSession: {
@@ -205,14 +206,17 @@ describe('RemoteSessionComposer parity and authority', () => {
     expect(remote.steer).not.toHaveBeenCalled();
   });
 
-  it('keeps legacy active-turn steering text-only without the negotiated input capability', async () => {
+  it('does not infer active-turn steering without the negotiated input capability', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: { confirmDialog: vi.fn() },
     });
     const remote = source({
+      capabilities: new Set([
+        'sessions.write', 'sessions.runtime.write', 'session-console.read',
+      ]),
       selectedSession: {
-        id: 'session-a', adapterId: 'codex-cli', title: 'Legacy Remote Codex',
+        id: 'session-a', adapterId: 'codex-cli', title: 'Remote Codex',
         status: 'active-working', createdAt: 1, updatedAt: 2,
       },
       runtime: {
@@ -230,11 +234,12 @@ describe('RemoteSessionComposer parity and authority', () => {
       sessionId="session-a"
     />);
 
-    const input = await screen.findByPlaceholderText(/修正当前 Codex CLI 轮次/);
+    const input = await screen.findByPlaceholderText(/给 Codex CLI 发消息/);
     expect(screen.queryByRole('button', { name: '上传图片' })).toBeNull();
     fireEvent.change(input, { target: { value: 'text only' } });
-    fireEvent.click(screen.getByRole('button', { name: '修正' }));
-    await waitFor(() => expect(remote.steer).toHaveBeenCalledWith('text only', []));
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await waitFor(() => expect(remote.send).toHaveBeenCalledWith('text only', []));
+    expect(remote.steer).not.toHaveBeenCalled();
   });
 
   it('keeps next-turn runtime controls editable while a provider turn is working', async () => {

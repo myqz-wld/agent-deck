@@ -7,7 +7,18 @@ import {
 
 import { parseRemoteHostPendingListResult } from './business-validation';
 
-function result(questionIds?: unknown) {
+function askDisplay() {
+  return {
+    prompt: 'Choose an environment',
+    questionIds: ['q1'],
+    questions: [{
+      id: 'q1', question: 'Environment?', multiSelect: false,
+      options: [{ label: 'production', description: 'Use production' }],
+    }],
+  };
+}
+
+function result(display: unknown = askDisplay()) {
   return {
     requests: [{
       id: 'request-1',
@@ -16,17 +27,19 @@ function result(questionIds?: unknown) {
       status: 'pending',
       createdAt: 1,
       expiresAt: null,
-      display: questionIds === undefined ? {} : { questionIds },
+      display,
     }],
     revision: 2,
   };
 }
 
 describe('remote host pending result validation', () => {
-  it('accepts missing questionIds for the authoritative answer fallback', () => {
+  it('accepts only the current structured question display', () => {
     expect(parseRemoteHostPendingListResult(result(), 'session-1')).toMatchObject({
-      requests: [{ display: {} }],
+      requests: [{ display: { questionIds: ['q1'] } }],
     });
+    expect(() => parseRemoteHostPendingListResult(result({}), 'session-1'))
+      .toThrow('malformed question ids');
   });
 
   it.each([
@@ -35,7 +48,7 @@ describe('remote host pending result validation', () => {
     { questionIds: ['line\u0000break'] },
   ])('rejects malformed bounded questionIds: $questionIds', ({ questionIds }) => {
     expect(() => parseRemoteHostPendingListResult(
-      result(questionIds),
+      result({ ...askDisplay(), questionIds }),
       'session-1',
     )).toThrow('malformed question ids');
   });

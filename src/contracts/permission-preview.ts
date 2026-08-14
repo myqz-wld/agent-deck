@@ -8,7 +8,7 @@ const MAX_ENTRIES = 64;
 const MAX_NODES = 512;
 const MAX_STRING_BYTES = 16 * 1024;
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/u;
-const SENSITIVE_KEY = /(?:api[-_]?key|authorization|cookie|credential|password|passwd|private[-_]?key|secret|token)/iu;
+const SENSITIVE_KEY = /(?:api[-_]?key|authorization|connection[-_]?string|cookie|credential|password|passwd|private[-_]?key|secret|token)/iu;
 const UTF8 = new TextEncoder();
 
 export function isSensitiveJsonKey(key: string): boolean {
@@ -21,8 +21,6 @@ export type PermissionPreviewDisplay = JsonObject & {
   input: JsonObject;
   complete: boolean;
   redacted: boolean;
-  command?: string;
-  description?: string;
 };
 
 interface PreviewState {
@@ -130,11 +128,6 @@ function previewValue(
   }
 }
 
-function legacyText(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  return clip(value, 4_096).value;
-}
-
 export function createPermissionPreviewDisplay(
   toolName: string,
   toolInput: Record<string, unknown>,
@@ -154,16 +147,12 @@ export function createPermissionPreviewDisplay(
   }
   const tool = clip(toolName, 256);
   if (!tool.complete) state.complete = false;
-  const command = legacyText(toolInput.command);
-  const description = legacyText(toolInput.description);
   return {
     schema: PERMISSION_PREVIEW_SCHEMA,
     tool: tool.value,
     input,
     complete: state.complete,
     redacted: state.redacted,
-    ...(command === undefined ? {} : { command }),
-    ...(description === undefined ? {} : { description }),
   };
 }
 
@@ -171,9 +160,7 @@ export function parsePermissionPreviewDisplay(
   value: JsonObject,
 ): PermissionPreviewDisplay | null {
   if (value.schema !== PERMISSION_PREVIEW_SCHEMA) return null;
-  const allowed = new Set([
-    'command', 'complete', 'description', 'input', 'redacted', 'schema', 'tool',
-  ]);
+  const allowed = new Set(['complete', 'input', 'redacted', 'schema', 'tool']);
   if (
     Object.keys(value).some((key) => !allowed.has(key)) ||
     typeof value.tool !== 'string' || value.tool.length === 0 ||
@@ -181,15 +168,7 @@ export function parsePermissionPreviewDisplay(
     !isJsonObject(value.input) ||
     byteLength(JSON.stringify(value.input)) > PERMISSION_PREVIEW_MAX_INPUT_BYTES ||
     typeof value.complete !== 'boolean' ||
-    typeof value.redacted !== 'boolean' ||
-    (value.command !== undefined && (
-      typeof value.command !== 'string' || byteLength(value.command) > 4_096 ||
-      CONTROL.test(value.command)
-    )) ||
-    (value.description !== undefined && (
-      typeof value.description !== 'string' || byteLength(value.description) > 4_096 ||
-      CONTROL.test(value.description)
-    ))
+    typeof value.redacted !== 'boolean'
   ) throw new Error('Invalid permission preview display');
   return value as PermissionPreviewDisplay;
 }

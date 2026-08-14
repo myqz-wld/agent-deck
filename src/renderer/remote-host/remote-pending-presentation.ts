@@ -1,19 +1,9 @@
-import type {
-  RemoteHostPendingAction,
-  RemoteHostPendingRequestDto,
-} from '@shared/remote-host';
+import type { RemoteHostPendingRequestDto } from '@shared/remote-host';
 import {
-  remoteHostPendingActionSurface,
   remoteHostPendingPresentationCanonical,
 } from '@shared/remote-host';
 
 import type { RemotePendingPresentation } from './source-types';
-
-export function pendingActionSurface(
-  kind: RemoteHostPendingRequestDto['kind'],
-): readonly RemoteHostPendingAction[] {
-  return remoteHostPendingActionSurface(kind);
-}
 
 export function pendingPresentationDigest(request: RemoteHostPendingRequestDto): string {
   return remoteHostPendingPresentationCanonical(request);

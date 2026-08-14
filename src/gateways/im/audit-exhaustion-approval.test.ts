@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createPermissionPreviewDisplay } from '@contracts/index';
 import type {
   FeishuDeliveryAttemptContext,
   FeishuOutboundMessage,
@@ -90,7 +91,10 @@ describe('trustworthy approval presentation binding', () => {
     await gateway.handle(messageEvent('digest-card', '/pending'));
     const action = actionFrom(transport.messages.at(-1)!);
     client.pending.set('session-1', [
-      { ...pending(), display: { tool: 'Bash', command: 'rm -rf /different' } },
+      {
+        ...pending(),
+        display: createPermissionPreviewDisplay('Bash', { command: 'rm -rf /different' }),
+      },
     ]);
     expect((await gateway.handle(actionEvent('digest-changed', action))).code).toBe(
       'pending_context_changed',

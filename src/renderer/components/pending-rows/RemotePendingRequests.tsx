@@ -14,8 +14,8 @@ import type {
   RemoteHostPendingListDto,
 } from '@shared/remote-host';
 import {
+  parseRemoteHostAskQuestionDisplay,
   parseRemoteHostNativeExitPlanDisplay,
-  remoteHostQuestionIds,
 } from '@shared/remote-host';
 import {
   remotePendingPresentation,
@@ -38,62 +38,15 @@ import { AskRow } from './AskRow';
 import { DiffReviewRow } from './DiffReviewRow';
 import { ExitPlanRow } from './ExitPlanRow';
 import { PermissionRow } from './PermissionRow';
-import { RemotePendingFallbackRow } from './RemotePendingFallbackRow';
 
-const MAX_QUESTIONS = 32;
-const MAX_OPTIONS = 32;
 const UTF8 = new TextEncoder();
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/u;
-
-interface RemoteQuestionPresentation {
-  id: string;
-  header: string | null;
-  question: string;
-  multiSelect: boolean;
-  options: Array<{ label: string; description: string | null }>;
-}
 
 function text(value: RemoteHostJsonValue | undefined, maximumBytes = 4_096): string | null {
   return typeof value === 'string' && value.trim() && !CONTROL.test(value) &&
     UTF8.encode(value).byteLength <= maximumBytes
     ? value
     : null;
-}
-
-function remoteQuestions(
-  display: RemoteHostJsonObject,
-  questionIds: readonly string[],
-): RemoteQuestionPresentation[] {
-  if (!Array.isArray(display.questions) || display.questions.length > MAX_QUESTIONS) return [];
-  const allowedIds = new Set(questionIds);
-  const byId = new Map<string, RemoteQuestionPresentation>();
-  for (const item of display.questions) {
-    if (item === null || Array.isArray(item) || typeof item !== 'object') return [];
-    const id = text(item.id, 128);
-    const question = text(item.question, 1_024);
-    if (
-      !id || !question || !allowedIds.has(id) || byId.has(id) ||
-      !Array.isArray(item.options) || item.options.length > MAX_OPTIONS
-    ) return [];
-    const options: RemoteQuestionPresentation['options'] = [];
-    for (const option of item.options) {
-      if (option === null || Array.isArray(option) || typeof option !== 'object') return [];
-      const label = text(option.label, 256);
-      if (!label) return [];
-      options.push({ label, description: text(option.description, 512) });
-    }
-    if (new Set(options.map((option) => option.label)).size !== options.length) return [];
-    byId.set(id, {
-      id,
-      header: text(item.header, 256),
-      question,
-      multiSelect: item.multiSelect === true,
-      options,
-    });
-  }
-  return questionIds.length === byId.size
-    ? questionIds.map((id) => byId.get(id)!)
-    : [];
 }
 
 export function RemotePendingRequests({
@@ -154,18 +107,13 @@ export function RemotePendingRequestRow({
   busy: boolean;
   onRespond: Parameters<typeof RemotePendingRequests>[0]['onRespond'];
   planReviewTransport?: RemoteSessionSourceView['planReviewTransport'];
-}): JSX.Element {
+}): JSX.Element | null {
   const presentation = remotePendingPresentation(sourceIdentity, revision, request);
   return remoteMcpPresentationRow(
     presentation, agentId, busy, onRespond, planReviewTransport,
   ) ?? remoteProviderPresentationRow(
     presentation, agentId, busy, onRespond,
-  ) ?? <RemotePendingFallbackRow
-    key={`fallback-${presentation.sourceIdentity}-${presentation.request.id}-${presentation.revision}-${presentation.digest}`}
-    presentation={presentation}
-    busy={busy}
-    onRespond={onRespond}
-  />;
+  );
 }
 
 function presentationEvent(
@@ -299,24 +247,15 @@ function remoteProviderPresentationRow(
     let preview: ReturnType<typeof parsePermissionPreviewDisplay>;
     try { preview = parsePermissionPreviewDisplay(request.display); }
     catch { return null; }
-    const command = text(request.display.command);
-    const description = text(request.display.description);
-    const toolName = preview?.tool ?? text(request.display.tool, 256) ?? '远程工具';
-    const approvalDisabledReason = preview
-      ? preview.complete
-        ? null
-        : '授权输入未能完整安全展示；仅可拒绝此请求。'
-      : command
-        ? null
-        : '授权详情不完整；为保证安全，只能拒绝此请求。';
+    if (!preview) return null;
+    const approvalDisabledReason = preview.complete
+      ? null
+      : '授权输入未能完整安全展示；仅可拒绝此请求。';
     const payload: PermissionRequest = {
       type: 'permission-request',
       requestId: request.id,
-      toolName,
-      toolInput: preview?.input ?? {
-        ...(command ? { command } : {}),
-        ...(description ? { description } : {}),
-      },
+      toolName: preview.tool,
+      toolInput: preview.input,
     };
     return <PermissionRow
       key={`permission-${key}`}
@@ -369,9 +308,9 @@ function remoteProviderPresentationRow(
     />;
   }
   if (request.kind !== 'ask-user-question') return null;
-  const questionIds = remoteHostQuestionIds(request.display);
-  const questions = remoteQuestions(request.display, questionIds);
-  if (questions.length !== questionIds.length) return null;
+  const display = parseRemoteHostAskQuestionDisplay(request.display);
+  if (!display) return null;
+  const { questionIds, questions } = display;
   const payload: AskUserQuestionRequest = {
     type: 'ask-user-question',
     requestId: request.id,

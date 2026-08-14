@@ -56,17 +56,18 @@ describe('LocalWorkerHeadlessConfig workspace sandbox', () => {
     expect(parsed.runtimeOptions).toEqual({});
   });
 
-  it('drops the retired manual session catalog from an upgraded private config', () => {
+  it('preserves current runtime options for downstream validation', () => {
     const parsed = parseLocalWorkerHeadlessConfig({
       ...config(),
       runtimeOptions: {
         providerContainer: { schemaVersion: 1 },
-        sessionCreationCatalog: { schemaVersion: 1, adapters: [] },
+        projects: [],
       },
     });
 
     expect(parsed.runtimeOptions).toEqual({
       providerContainer: { schemaVersion: 1 },
+      projects: [],
     });
   });
 

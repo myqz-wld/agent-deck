@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { FeishuGatewayError, boundedJsonText, truncateUtf8 } from '@gateways/im';
 import type { FeishuOutboundMessage, FeishuPendingAction, FeishuPendingCard } from '@gateways/im';
+import { parseRemoteHostAskQuestionDisplay } from '@shared/remote-host';
 import {
   FEISHU_ACTION_PROTOCOL,
   type FeishuCardActionEnvelope,
@@ -45,14 +46,11 @@ function actionWithoutValue(action: FeishuPendingAction): Omit<FeishuPendingActi
 }
 
 function questionIds(card: FeishuPendingCard): readonly string[] {
-  const ids = card.display.questionIds;
-  if (
-    Array.isArray(ids) &&
-    ids.length > 0 &&
-    ids.length <= 32 &&
-    ids.every((id) => typeof id === 'string' && id.length > 0)
-  ) return ids as string[];
-  return ['answer'];
+  const display = parseRemoteHostAskQuestionDisplay(card.display);
+  if (!display) {
+    throw new FeishuGatewayError('invalid_core_response', 'Question card display is malformed');
+  }
+  return display.questionIds;
 }
 
 function fieldBindings(card: FeishuPendingCard): readonly FeishuQuestionFieldBinding[] {

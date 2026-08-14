@@ -2,14 +2,15 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { createPermissionPreviewDisplay } from '@contracts/index';
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
 import { NewSessionDialog } from '@renderer/components/NewSessionDialog';
 import { RemoteHostManagerDialog } from '@renderer/components/RemoteHost/RemoteHostManagerDialog';
 import { HistoryPanel } from '@renderer/components/HistoryPanel';
 import { SessionList } from '@renderer/components/SessionList';
 import { PendingTab } from '@renderer/components/PendingTab';
+import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
 import type { RemoteSessionSourceView } from './source-types';
-import { legacyRemoteSessionPresentation } from './session-summary-presentation';
 import { deferred, hosts, source } from './remote-dialogs-test-fixture';
 
 afterEach(() => {
@@ -18,6 +19,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
+
+function presentation(
+  id: string,
+  title: string,
+  lifecycle: RemoteHostSessionPresentationDto['lifecycle'],
+  activity: RemoteHostSessionPresentationDto['activity'],
+): RemoteHostSessionPresentationDto {
+  return {
+    id, adapterId: 'codex-cli', title, source: 'sdk', lifecycle, activity,
+    archived: lifecycle === 'closed', pinned: false, createdAt: 1, updatedAt: 2,
+    endedAt: lifecycle === 'closed' ? 2 : null, model: null, thinking: null,
+    runtimeProvider: null, context: null, spawnedBy: null, spawnDepth: 0, teams: [],
+    summary: null, summaryGenerationSource: null, workspaceLabel: null, contextOnly: false,
+  };
+}
 
 describe('remote source surfaces', () => {
   it('imports one server-issued credential without topology or key-file controls', async () => {
@@ -244,12 +260,9 @@ describe('remote source surfaces', () => {
   });
 
   it('presents Core-owned history projections without Local fallback', () => {
-    const row = {
-      id: 'session-a', adapterId: 'codex-cli', title: 'Summary row', status: 'closed-finished',
-      createdAt: 1, updatedAt: 2,
-    };
+    const row = presentation('session-a', 'Summary row', 'closed', 'finished');
     render(<HistoryPanel
-      remoteSource={{ ...source(), historySessions: [legacyRemoteSessionPresentation(row)] }}
+      remoteSource={{ ...source(), historySessions: [row] }}
       onSelect={vi.fn()}
     />);
     expect(screen.getByPlaceholderText('搜索标题、工作区、事件或总结…')).toBeTruthy();
@@ -260,10 +273,10 @@ describe('remote source surfaces', () => {
   it('opens Remote history mutations by right click at the pointer', async () => {
     const current = source();
     current.capabilities = new Set(['sessions.history.write']);
-    const row = { ...legacyRemoteSessionPresentation({
-      id: 'session-a', adapterId: 'codex-cli', title: 'Remote history action',
-      status: 'closed-finished', createdAt: 1, updatedAt: 2,
-    }), archived: false };
+    const row = {
+      ...presentation('session-a', 'Remote history action', 'closed', 'finished'),
+      archived: false,
+    };
     current.historySessions = [row];
     render(<HistoryPanel remoteSource={current} onSelect={vi.fn()} />);
 
@@ -282,10 +295,7 @@ describe('remote source surfaces', () => {
   it('offers cancel-archive and confirmed delete for archived Remote rows', async () => {
     const current = source();
     current.capabilities = new Set(['sessions.history.write']);
-    const row = legacyRemoteSessionPresentation({
-      id: 'archived-a', adapterId: 'codex-cli', title: 'Archived Remote row',
-      status: 'closed-finished', createdAt: 1, updatedAt: 2,
-    });
+    const row = presentation('archived-a', 'Archived Remote row', 'closed', 'finished');
     current.historySessions = [row];
     const confirmDialog = vi.fn(async () => true);
     window.api = { confirmDialog } as unknown as typeof window.api;
@@ -303,18 +313,15 @@ describe('remote source surfaces', () => {
   });
 
   it('shows a partial Remote error without a source-specific load-count banner', () => {
-    const row = {
-      id: 'session-a', adapterId: 'codex-cli', title: 'Live row', status: 'active-idle',
-      createdAt: 1, updatedAt: 2,
-    };
+    const row = presentation('session-a', 'Live row', 'active', 'idle');
     const view = render(<SessionList
-      remoteSource={{ ...source(), error: '远程 session 不存在或已删除。', sessions: [legacyRemoteSessionPresentation(row)], sessionTotal: null }}
+      remoteSource={{ ...source(), error: '远程 session 不存在或已删除。', sessions: [row], sessionTotal: null }}
     />);
     expect(screen.getByText('Live row')).toBeTruthy();
     expect(screen.queryByText(/已载入/)).toBeNull();
     expect(screen.getByRole('alert').textContent).toContain('不存在或已删除');
     view.rerender(<SessionList
-      remoteSource={{ ...source(), sessions: [legacyRemoteSessionPresentation(row)], sessionTotal: 9 }}
+      remoteSource={{ ...source(), sessions: [row], sessionTotal: 9 }}
     />);
     expect(screen.queryByText(/1\/9/)).toBeNull();
   });
@@ -352,10 +359,7 @@ describe('remote source surfaces', () => {
   });
 
   it('labels loaded Pending rows as partial while the authoritative total is unknown', () => {
-    const projected = legacyRemoteSessionPresentation({
-      id: 'partial-pending', adapterId: 'codex-cli', title: 'Partial pending',
-      status: 'active-waiting', createdAt: 1, updatedAt: 2,
-    });
+    const projected = presentation('partial-pending', 'Partial pending', 'active', 'waiting');
     render(<PendingTab
       remoteSource={{
         ...source(),
@@ -365,7 +369,8 @@ describe('remote source surfaces', () => {
           pending: {
             requests: [{
               id: 'request-a', sessionId: projected.id, kind: 'permission', status: 'pending',
-              createdAt: 2, expiresAt: null, display: {},
+              createdAt: 2, expiresAt: null,
+              display: createPermissionPreviewDisplay('Bash', { command: 'pwd' }),
             }],
             revision: 4,
           },
@@ -380,10 +385,9 @@ describe('remote source surfaces', () => {
   });
 
   it('renders aggregate Pending buckets independently of the loaded Live page', () => {
-    const projected = legacyRemoteSessionPresentation({
-      id: 'pending-after-page', adapterId: 'codex-cli', title: 'Pending after page',
-      status: 'active-waiting', createdAt: 1, updatedAt: 2,
-    });
+    const projected = presentation(
+      'pending-after-page', 'Pending after page', 'active', 'waiting',
+    );
     const loadMorePending = vi.fn();
     const onOpenSession = vi.fn();
     render(<PendingTab
@@ -396,7 +400,8 @@ describe('remote source surfaces', () => {
           pending: {
             requests: [{
               id: 'request-a', sessionId: projected.id, kind: 'permission', status: 'pending',
-              createdAt: 2, expiresAt: null, display: {},
+              createdAt: 2, expiresAt: null,
+              display: createPermissionPreviewDisplay('Bash', { command: 'pwd' }),
             }],
             revision: 4,
           },
@@ -415,10 +420,7 @@ describe('remote source surfaces', () => {
   });
 
   it('runs Remote permission batch actions serially through presentation-bound responses', async () => {
-    const projected = legacyRemoteSessionPresentation({
-      id: 'batch-session', adapterId: 'codex-cli', title: 'Batch session',
-      status: 'active-waiting', createdAt: 1, updatedAt: 2,
-    });
+    const projected = presentation('batch-session', 'Batch session', 'active', 'waiting');
     const respondPending = vi.fn(async (
       ..._args: Parameters<RemoteSessionSourceView['respondPending']>
     ) => undefined);
@@ -431,7 +433,8 @@ describe('remote source surfaces', () => {
           pending: {
             requests: ['one', 'two'].map((id) => ({
               id, sessionId: projected.id, kind: 'permission' as const,
-              status: 'pending' as const, createdAt: 2, expiresAt: null, display: {},
+              status: 'pending' as const, createdAt: 2, expiresAt: null,
+              display: createPermissionPreviewDisplay('Bash', { command: `echo ${id}` }),
             })),
             revision: 4,
           },

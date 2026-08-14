@@ -129,7 +129,7 @@ export const IpcInvoke = {
   PreloadFatalError: 'preload:fatal-error',
 } as const;
 
-/** Typed desktop-host surface; it is not part of the legacy IPC migration inventory. */
+/** Typed current Desktop-host surface for Remote connection and product operations. */
 export const RemoteHostIpcInvoke = {
   Snapshot: 'remote-host:snapshot',
   ProfileAdd: 'remote-host:profile-add',
@@ -140,7 +140,6 @@ export const RemoteHostIpcInvoke = {
   Connect: 'remote-host:connect',
   Disconnect: 'remote-host:disconnect',
   ChooseConnection: 'remote-host:choose-connection',
-  SessionsList: 'remote-host:sessions-list',
   SessionPresentationsList: 'remote-host:session-presentations-list',
   SessionGet: 'remote-host:session-get',
   SessionCapabilities: 'remote-host:session-capabilities',

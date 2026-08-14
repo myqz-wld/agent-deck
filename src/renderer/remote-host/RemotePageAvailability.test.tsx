@@ -69,8 +69,8 @@ describe('Remote page availability', () => {
   });
 
   it.each([
-    ['live', ['session-console.read']],
-    ['history', ['session-console.read', 'sessions.history']],
+    ['live', ['sessions.presentation.read']],
+    ['history', ['sessions.presentation.read']],
     ['pending', ['pending.index.read']],
     ['issues', ['issues']],
     ['data', ['usage']],

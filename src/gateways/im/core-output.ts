@@ -4,6 +4,8 @@ import {
   type PendingRequestDto,
   parseProjectListResult,
   parseProjectResolveResult,
+  parseMcpPresentationDisplay,
+  parsePermissionPreviewDisplay,
   parseSessionConsoleCapabilitiesResult,
   parseSessionConsoleCreateResult,
   parseSessionConsoleGetResult,
@@ -17,12 +19,15 @@ import {
   type SessionConsoleListResult,
   type SessionRuntimeControlsDto,
 } from '@contracts/index';
+import {
+  parseRemoteHostAskQuestionDisplay,
+  parseRemoteHostNativeExitPlanDisplay,
+} from '@shared/remote-host';
 import { assertBoundedCoreValue } from './core-bounds';
 import { FeishuGatewayError } from './errors';
 import type { FeishuGatewayLimits } from './types';
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@/$-]*$/;
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 const PENDING_KINDS = new Set(['ask-user-question', 'diff-review', 'exit-plan', 'permission']);
 const PENDING_STATES = new Set(['cancelled', 'denied', 'expired', 'pending', 'resolved', 'stale']);
 
@@ -186,23 +191,30 @@ export function validatePendingRequests(
     const expiresAt = request.expiresAt === null
       ? null
       : coreTime(request.expiresAt, 'pending.expiresAt');
-    const questionIds = (request.display as JsonObject).questionIds;
     if (
       request.kind === 'ask-user-question' &&
-      questionIds !== undefined &&
-      (!Array.isArray(questionIds) ||
-        questionIds.length === 0 ||
-        questionIds.length > 32 ||
-        questionIds.some(
-          (item) =>
-            typeof item !== 'string' ||
-            item.length === 0 ||
-            new TextEncoder().encode(item).byteLength > 128 ||
-            CONTROL.test(item),
-        ) ||
-        new Set(questionIds).size !== questionIds.length)
+      !parseRemoteHostAskQuestionDisplay(request.display as JsonObject)
     ) {
       fail('pending.display.questionIds');
+    }
+    if (request.kind === 'permission') {
+      try {
+        if (!parsePermissionPreviewDisplay(request.display as JsonObject)) {
+          fail('pending.display.permission');
+        }
+      } catch {
+        fail('pending.display.permission');
+      }
+    }
+    if (request.kind === 'diff-review' || request.kind === 'exit-plan') {
+      let presentation: ReturnType<typeof parseMcpPresentationDisplay>;
+      try { presentation = parseMcpPresentationDisplay(request.display); }
+      catch { fail('pending.display.presentation'); }
+      const matches = request.kind === 'diff-review'
+        ? presentation?.schema === 'agent-deck.mcp-diff.v1'
+        : presentation?.schema === 'agent-deck.mcp-plan.v1' ||
+          Boolean(parseRemoteHostNativeExitPlanDisplay(request.display as JsonObject));
+      if (!matches) fail('pending.display.presentation');
     }
     return {
       id: coreIdentifier(request.id, 'pending.id'),

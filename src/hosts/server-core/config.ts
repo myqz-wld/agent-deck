@@ -39,10 +39,6 @@ export function parseServerCoreConfig(value: unknown): ServerCoreConfig {
   if (object.schemaVersion !== 1) throw new Error('server-core schemaVersion must be 1');
   const instanceId = requireLinuxInstanceId(object.instanceId);
   if (!isJsonObject(object.runtimeOptions)) throw new Error('runtimeOptions must be JSON');
-  // Existing Full installations may still have this retired private field. Ignore it during the
-  // upgrade boundary; the runtime accepts only the automatically derived provider projection.
-  const { sessionCreationCatalog: _retiredSessionCatalog, ...runtimeOptions } =
-    object.runtimeOptions;
   const socketPath = requireAbsolutePath(object.socketPath, 'socketPath');
   if (basename(socketPath) !== 'agent-deckd.sock' || basename(dirname(socketPath)) !== instanceId) {
     throw new Error('socketPath must use the exact instance namespace');
@@ -52,7 +48,7 @@ export function parseServerCoreConfig(value: unknown): ServerCoreConfig {
     instanceId,
     appVersion: boundedText(object.appVersion, 'appVersion'),
     runtimeModule: requireAbsolutePath(object.runtimeModule, 'runtimeModule'),
-    runtimeOptions,
+    runtimeOptions: object.runtimeOptions,
     socketPath,
   });
 }

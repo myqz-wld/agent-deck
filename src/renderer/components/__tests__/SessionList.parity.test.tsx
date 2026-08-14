@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
 import type { SessionRecord } from '@shared/types';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
-import { legacyRemoteSessionPresentation } from '@renderer/remote-host/session-summary-presentation';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { AppHeader } from '../AppHeader';
 import { SessionList } from '../SessionList';
@@ -32,16 +31,16 @@ function localSession(
 
 function remoteSession(
   id: string,
-  status: string,
+  lifecycle: RemoteHostSessionPresentationDto['lifecycle'],
+  activity: RemoteHostSessionPresentationDto['activity'],
 ): RemoteHostSessionPresentationDto {
-  return legacyRemoteSessionPresentation({
-    id,
-    adapterId: 'codex-cli',
-    title: `${id} Remote`,
-    status,
-    createdAt: 1,
-    updatedAt: 2,
-  });
+  return {
+    id, adapterId: 'codex-cli', title: `${id} Remote`, source: 'sdk', lifecycle, activity,
+    archived: lifecycle === 'closed', pinned: false, createdAt: 1, updatedAt: 2,
+    endedAt: lifecycle === 'closed' ? 2 : null, model: null, thinking: null,
+    runtimeProvider: null, context: null, spawnedBy: null, spawnDepth: 0, teams: [],
+    summary: null, summaryGenerationSource: null, workspaceLabel: null, contextOnly: false,
+  };
 }
 
 function remoteSource(
@@ -50,7 +49,7 @@ function remoteSource(
 ): RemoteSessionSourceView {
   return {
     busy: false,
-    capabilities: new Set(['session-console.read']),
+    capabilities: new Set(['sessions.presentation.read']),
     dataRevision: 1,
     error: null,
     eventLoadError: null,
@@ -84,7 +83,7 @@ function remoteSource(
       recovery: null,
       authoritativeCoreId: 'core-a',
       workerGeneration: 1,
-      capabilities: ['session-console.read'],
+      capabilities: ['sessions.presentation.read'],
       eventRevision: 1,
       error: null,
     },
@@ -145,8 +144,8 @@ describe('Local and Remote session-list parity', () => {
     localView.unmount();
     getSessionGitBranch.mockClear();
     const source = remoteSource([
-      remoteSession('remote-active', 'active-working'),
-      remoteSession('remote-dormant', 'dormant-idle'),
+      remoteSession('remote-active', 'active', 'working'),
+      remoteSession('remote-dormant', 'dormant', 'idle'),
     ], { selectedSessionId: 'remote-active' });
     render(<SessionList remoteSource={source} />);
     const remoteCard = document.querySelector('[data-session-id="remote-active"]')!;
@@ -166,8 +165,8 @@ describe('Local and Remote session-list parity', () => {
 
   it('omits the Remote-only Closed section and decorative profile/count banner', () => {
     const source = remoteSource([
-      remoteSession('Active', 'active-idle'),
-      remoteSession('Closed', 'closed-finished'),
+      remoteSession('Active', 'active', 'idle'),
+      remoteSession('Closed', 'closed', 'finished'),
     ], { hasMoreSessions: true, sessionTotal: 9 });
     render(<SessionList remoteSource={source} />);
 
@@ -183,7 +182,7 @@ describe('Local and Remote session-list parity', () => {
 
     cleanup();
     const busySource = remoteSource([
-      remoteSession('Active', 'active-idle'),
+      remoteSession('Active', 'active', 'idle'),
     ], { busy: true, hasMoreSessions: true, sessionTotal: 9 });
     render(<SessionList remoteSource={busySource} />);
     expect((screen.getByRole('button', { name: '加载更多会话' }) as HTMLButtonElement).disabled)
@@ -192,11 +191,11 @@ describe('Local and Remote session-list parity', () => {
 
   it('uses the shared spawn/team tree and authoritative lifecycle section counts', () => {
     const lead = {
-      ...remoteSession('Lead', 'active-idle'),
+      ...remoteSession('Lead', 'active', 'idle'),
       teams: [{ teamId: 'team-a', teamName: 'Parity Team', role: 'lead' as const, joinedAt: 1 }],
     };
     const child = {
-      ...remoteSession('Child', 'active-waiting'),
+      ...remoteSession('Child', 'active', 'waiting'),
       spawnedBy: lead.id,
       spawnDepth: 1,
       teams: [{ teamId: 'team-a', teamName: 'Parity Team', role: 'teammate' as const, joinedAt: 1 }],
@@ -217,7 +216,7 @@ describe('Local and Remote session-list parity', () => {
   });
 
   it('shows an accessible read-only indicator for an authoritative Remote pin', () => {
-    const pinned = { ...remoteSession('Pinned', 'active-idle'), pinned: true };
+    const pinned = { ...remoteSession('Pinned', 'active', 'idle'), pinned: true };
     render(<SessionList remoteSource={remoteSource([pinned])} />);
 
     expect(screen.getByRole('img', { name: '此会话已置顶' })).toBeTruthy();
@@ -227,8 +226,8 @@ describe('Local and Remote session-list parity', () => {
   it('opens archive and delete actions from a Remote Live card right click', async () => {
     const archiveHistorySession = vi.fn(async () => undefined);
     const deleteHistorySession = vi.fn(async () => undefined);
-    const source = remoteSource([remoteSession('Live', 'active-working')], {
-      capabilities: new Set(['session-console.read', 'sessions.history.write']),
+    const source = remoteSource([remoteSession('Live', 'active', 'working')], {
+      capabilities: new Set(['sessions.presentation.read', 'sessions.history.write']),
       archiveHistorySession,
       deleteHistorySession,
       unarchiveHistorySession: vi.fn(async () => undefined),
@@ -254,11 +253,11 @@ describe('Local and Remote session-list parity', () => {
   it('offers Remote reactivation only on dormant Live rows when negotiated', async () => {
     const reactivateSession = vi.fn(async () => undefined);
     const source = remoteSource([
-      remoteSession('Active', 'active-idle'),
-      remoteSession('Dormant', 'dormant-idle'),
+      remoteSession('Active', 'active', 'idle'),
+      remoteSession('Dormant', 'dormant', 'idle'),
     ], {
       capabilities: new Set([
-        'session-console.read', 'sessions.history.write', 'sessions.reactivate',
+        'sessions.presentation.read', 'sessions.history.write', 'sessions.reactivate',
       ]),
       archiveHistorySession: vi.fn(async () => undefined),
       deleteHistorySession: vi.fn(async () => undefined),
@@ -310,7 +309,7 @@ describe('Local and Remote session-list parity', () => {
       authority="remote"
       selectedRemoteProfileId="remote-a"
       remoteProfiles={[]}
-      remoteCapabilities={new Set(['session-console.read'])}
+      remoteCapabilities={new Set(['sessions.presentation.read'])}
       remoteUsable
       remoteUsage={{
         enabled: true,
@@ -348,7 +347,7 @@ describe('Local and Remote session-list parity', () => {
 
   it('keeps the bounded 512-row Remote list interactive', () => {
     const rows = Array.from({ length: 512 }, (_, index) =>
-      remoteSession(`remote-${index}`, 'active-idle'));
+      remoteSession(`remote-${index}`, 'active', 'idle'));
     const source = remoteSource(rows);
     render(<SessionList remoteSource={source} />);
 

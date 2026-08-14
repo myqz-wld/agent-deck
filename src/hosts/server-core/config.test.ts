@@ -14,17 +14,18 @@ function config(instanceId: string) {
 }
 
 describe('Server Core instance config', () => {
-  it('drops the retired manual session catalog from an upgraded private config', () => {
+  it('preserves current runtime options for strict downstream validation', () => {
     const parsed = parseServerCoreConfig({
       ...config('instance-a'),
       runtimeOptions: {
         providerContainer: { schemaVersion: 1 },
-        sessionCreationCatalog: { schemaVersion: 1, adapters: [] },
+        projects: [],
       },
     });
 
     expect(parsed.runtimeOptions).toEqual({
       providerContainer: { schemaVersion: 1 },
+      projects: [],
     });
   });
 

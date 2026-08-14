@@ -20,8 +20,6 @@ import type {
   RemoteHostResourceKind,
   RemoteHostSendDto,
   RemoteHostSendResultDto,
-  RemoteHostSessionPageDto,
-  RemoteHostSessionPageRequestDto,
   RemoteHostSessionCapabilitiesDto,
   RemoteHostSessionCapabilitiesRequestDto,
   RemoteHostSessionSummaryDto,
@@ -54,7 +52,6 @@ import {
   requestRemoteSession,
   requestRemoteSessionCapabilities,
   requestRemoteSessionCreate,
-  requestRemoteSessions,
   requestRemoteWorkspaceDirectories,
 } from './service-session-console';
 import { RemoteHostDetailReader } from './service-detail-reader';
@@ -301,11 +298,6 @@ export class RemoteHostService {
   captureConnection(path: string): RemoteHostConnectionSelectionDto {
     this.assertActive();
     return this.options.connections.capture(path);
-  }
-
-  async listSessions(request: RemoteHostSessionPageRequestDto): Promise<RemoteHostSessionPageDto> {
-    return this.requestAuthority.request(request.profileId, 'session.console.list', (scope) =>
-      requestRemoteSessions(scope, request));
   }
 
   async listSessionPresentations(

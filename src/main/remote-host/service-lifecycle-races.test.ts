@@ -200,8 +200,9 @@ describe('RemoteHostService lifecycle admission', () => {
       errorCode: 'heartbeat_timeout',
     });
 
-    await expect(context.service.listSessions({
+    await expect(context.service.listSessionPresentations({
       profileId: context.firstProfile.id,
+      kind: 'live',
       limit: 20,
     })).rejects.toMatchObject({ code: 'not_connected' });
     await expect(context.service.issues.list({

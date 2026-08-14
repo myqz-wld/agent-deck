@@ -36,7 +36,7 @@ const dbMock = vi.hoisted(() => {
   const pathAuthority = (raw: string): unknown => {
     try {
       const metadata = JSON.parse(raw) as Record<string, unknown>;
-      return metadata.__agentDeckCanonicalPathAuthorityV1 ?? 'legacy';
+      return metadata.__agentDeckCanonicalPathAuthorityV1 ?? 'unavailable';
     } catch {
       return 'unavailable';
     }

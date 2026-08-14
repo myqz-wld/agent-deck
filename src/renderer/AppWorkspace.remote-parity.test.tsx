@@ -96,9 +96,9 @@ function workspace(
 
 describe('AppWorkspace Local and Remote page parity', () => {
   it.each([
-    ['live', 'live', ['session-console.read']],
+    ['live', 'live', ['sessions.presentation.read']],
     ['pending', 'pending', ['pending.index.read']],
-    ['history', 'history', ['session-console.read', 'sessions.history']],
+    ['history', 'history', ['sessions.presentation.read']],
   ] as const)('routes %s through the selected source without Local fallback', (
     view,
     testId,
@@ -112,7 +112,7 @@ describe('AppWorkspace Local and Remote page parity', () => {
   });
 
   it('routes Remote session detail through the Remote source', () => {
-    workspace('live', true, ['session-console.read'], 'remote-session');
+    workspace('live', true, ['sessions.presentation.read'], 'remote-session');
     expect(screen.getByTestId('detail').textContent).toBe('remote detail');
   });
 
@@ -133,9 +133,9 @@ describe('AppWorkspace Local and Remote page parity', () => {
   });
 
   it.each([
-    ['live', 'session-console.read', 'reconnecting', true],
+    ['live', 'sessions.presentation.read', 'reconnecting', true],
     ['pending', 'pending.index.read', 'offline', false],
-    ['history', 'sessions.history', 'incompatible', false],
+    ['history', 'sessions.presentation.read', 'incompatible', false],
     ['issues', 'issues', 'offline', false],
     ['data', 'usage', 'incompatible', false],
   ] as const)('does not mount %s while the Remote source is %s', (
@@ -144,11 +144,7 @@ describe('AppWorkspace Local and Remote page parity', () => {
     status,
     usable,
   ) => {
-    const capabilities = view === 'pending'
-      ? [capability]
-      : view === 'history'
-        ? ['session-console.read', capability]
-        : [capability];
+    const capabilities = [capability];
     workspace(view, true, capabilities, null, status, usable);
     expect(screen.queryByTestId(view)).toBeNull();
     expect(screen.getByTestId('remote-page-unavailable')).toBeTruthy();
@@ -159,7 +155,7 @@ describe('AppWorkspace Local and Remote page parity', () => {
     workspace(
       'live',
       true,
-      ['session-console.read'],
+      ['sessions.presentation.read'],
       'remote-session',
       'reconnecting',
       true,

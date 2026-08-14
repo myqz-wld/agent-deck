@@ -38,7 +38,6 @@ import {
   parseRemoteHostRuntimeUpdate,
   parseRemoteHostSend,
   parseRemoteHostSessionCapabilitiesRequest,
-  parseRemoteHostSessionPageRequest,
   parseRemoteHostSessionPresentationRequest,
   parseRemoteHostSessionMessagesRequest,
   parseRemoteHostSessionOutgoingRequest,
@@ -114,8 +113,6 @@ export function registerRemoteHostIpc(): void {
     return path ? getRemoteHostService().captureConnection(path) : null;
   }));
 
-  on(RemoteHostIpcInvoke.SessionsList, (_event, request) => safely(() =>
-    getRemoteHostService().listSessions(parseRemoteHostSessionPageRequest(request))));
   on(RemoteHostIpcInvoke.SessionPresentationsList, (_event, request) => safely(() =>
     getRemoteHostService().listSessionPresentations(
       parseRemoteHostSessionPresentationRequest(request),

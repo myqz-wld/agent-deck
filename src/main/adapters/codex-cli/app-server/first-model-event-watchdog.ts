@@ -38,7 +38,6 @@ const TRUSTED_CONTINUATION_ITEM_TYPES = new Set([
   'mcpToolCall',
   'dynamicToolCall',
   'collabAgentToolCall',
-  'collabToolCall',
   'subAgentActivity',
   'webSearch',
   'sleep',

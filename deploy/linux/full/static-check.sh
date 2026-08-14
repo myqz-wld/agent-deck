@@ -60,7 +60,7 @@ grep -Fq '"runtimeModule": "/opt/agent-deck/linux-headless/server-core-runtime/i
   "$full_dir/server-core.config.example.json" ||
   fail 'Server Core config does not bind the packaged concrete runtime'
 if grep -Fq '"sessionCreationCatalog"' "$full_dir/server-core.config.example.json"; then
-  fail 'Server Core config still contains the retired manual session catalog'
+  fail 'Server Core config contains an untrusted manual session catalog'
 fi
 for required in \
   '"surface": "desktop"' \

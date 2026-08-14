@@ -5,12 +5,12 @@ import {
   parseRemoteHostCreateSession,
   parseRemoteHostHistoryRequest,
   parseRemoteHostMutationAuthority,
+  parseRemoteHostPageRequest,
   parseRemoteHostPendingResponse as parseRemoteHostPendingResponseInput,
   parseRemoteHostProfileDraft,
   parseRemoteHostRuntimeUpdate,
   parseRemoteHostSend,
   parseRemoteHostSessionCapabilitiesRequest,
-  parseRemoteHostSessionPageRequest,
   parseRemoteHostWorkspaceDirectoryRequest,
 } from './input-validation';
 import {
@@ -75,12 +75,11 @@ describe('remote-host IPC input validation', () => {
   });
 
   it('enforces bounded pagination and safe cursors at the IPC boundary', () => {
-    expect(parseRemoteHostSessionPageRequest({
+    expect(parseRemoteHostPageRequest({
       profileId: 'remote-a',
       limit: 100,
-      includeArchived: false,
     })).toMatchObject({ profileId: 'remote-a', limit: 100 });
-    expect(() => parseRemoteHostSessionPageRequest({
+    expect(() => parseRemoteHostPageRequest({
       profileId: 'remote-a',
       limit: 101,
     })).toThrow('range');

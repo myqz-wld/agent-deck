@@ -1,17 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { SessionPresentationCountsDto } from '@contracts/index';
-import { REMOTE_HOST_PAGE_LIMIT, remoteSessionPageRequest } from '@shared/remote-host';
+import { REMOTE_HOST_PAGE_LIMIT } from '@shared/remote-host';
 import type {
   RemoteHostPendingIndexBucketDto,
   RemoteHostPendingListDto,
   RemoteHostResourceRevisions,
   RemoteHostSessionPresentationDto,
-  RemoteHostSessionPresentationPageDto,
 } from '@shared/remote-host';
 
 import { appendUnique } from './remote-source-utils';
-import { legacyRemoteSessionPresentation } from './session-summary-presentation';
 import { useRemoteRefreshLane } from './use-remote-refresh-lane';
 
 const EMPTY_PENDING = new Map<string, RemoteHostPendingListDto>();
@@ -140,10 +138,8 @@ export function useRemotePresentationLists(
   cursorRefs.current = { live: sessionCursor, history: historyCursor, pending: pendingCursor };
   const baseRevisions = useRef({ live: 0, history: 0, pending: 0 });
   const paginationGeneration = useRef({ live: 0, history: 0, pending: 0 });
-  const canRich = usable && capabilities.has('sessions.presentation.read');
-  const canLegacy = usable && capabilities.has('session-console.read');
-  const canHistory = canRich || (canLegacy && capabilities.has('sessions.history'));
-  const canHistoryParity = canRich && capabilities.has('sessions.history.write');
+  const canPresent = usable && capabilities.has('sessions.presentation.read');
+  const canHistoryParity = canPresent && capabilities.has('sessions.history.write');
   const canPending = usable && capabilities.has('pending.index.read');
   const liveTrigger = `${resourceRevisions['session-list']}:${localRevision}:${reloads.live}`;
   const historyTrigger = `${resourceRevisions['session-list']}:${localRevision}:${reloads.history}:${historyQuery}:${historyArchivedOnly}`;
@@ -190,35 +186,21 @@ export function useRemotePresentationLists(
   }, [identity]);
 
   useRemoteRefreshLane({
-    enabled: Boolean(activeProfileId && (canRich || canLegacy)), identity, trigger: liveTrigger,
+    enabled: Boolean(activeProfileId && canPresent), identity, trigger: liveTrigger,
     run: async (isCurrent) => {
       if (!activeProfileId) return;
       setLoading(true);
       try {
-        if (canRich) {
-          const page = await window.api.listRemoteHostSessionPresentations({
-            profileId: activeProfileId, kind: 'live', limit: REMOTE_HOST_PAGE_LIMIT,
-          });
-          if (!isCurrent()) return;
-          setSessions(page.sessions);
-          setCounts(page.counts);
-          setSessionTotal(page.counts.total);
-          setSessionCursor(page.nextCursor);
-          baseRevisions.current.live = page.revision;
-          setError(page.contextTruncated ? '部分层级因有界读取未展开；可刷新后重试。' : null);
-        } else {
-          const page = await window.api.listRemoteHostSessions(remoteSessionPageRequest(
-            activeProfileId, REMOTE_HOST_PAGE_LIMIT, { includeArchived: false },
-          ));
-          if (!isCurrent()) return;
-          const rows = page.sessions.map(legacyRemoteSessionPresentation);
-          setSessions(rows);
-          setCounts(null);
-          setSessionTotal(page.total);
-          setSessionCursor(page.nextCursor);
-          baseRevisions.current.live = page.revision;
-          setError(null);
-        }
+        const page = await window.api.listRemoteHostSessionPresentations({
+          profileId: activeProfileId, kind: 'live', limit: REMOTE_HOST_PAGE_LIMIT,
+        });
+        if (!isCurrent()) return;
+        setSessions(page.sessions);
+        setCounts(page.counts);
+        setSessionTotal(page.counts.total);
+        setSessionCursor(page.nextCursor);
+        baseRevisions.current.live = page.revision;
+        setError(page.contextTruncated ? '部分层级因有界读取未展开；可刷新后重试。' : null);
       } catch (reason) {
         if (isCurrent()) setError(message(reason));
       } finally {
@@ -228,33 +210,22 @@ export function useRemotePresentationLists(
   });
 
   useRemoteRefreshLane({
-    enabled: Boolean(activeProfileId && canHistory), identity, trigger: historyTrigger,
+    enabled: Boolean(activeProfileId && canPresent), identity, trigger: historyTrigger,
     run: async (isCurrent) => {
       if (!activeProfileId) return;
       const query = historyQuery.trim();
       setHistoryLoading(true);
       try {
-        if (canRich) {
-          const page = await window.api.listRemoteHostSessionPresentations({
-            profileId: activeProfileId, kind: 'history', limit: REMOTE_HOST_PAGE_LIMIT,
-            ...(query ? { query } : {}),
-            ...(canHistoryParity && historyArchivedOnly ? { archivedOnly: true } : {}),
-          });
-          if (!isCurrent()) return;
-          setHistorySessions(page.sessions);
-          setHistoryCursor(page.nextCursor);
-          baseRevisions.current.history = page.revision;
-          setHistoryLoadError(null);
-        } else {
-          const page = await window.api.listRemoteHostSessions(remoteSessionPageRequest(
-            activeProfileId, REMOTE_HOST_PAGE_LIMIT, { includeArchived: true },
-          ));
-          if (!isCurrent()) return;
-          setHistorySessions(page.sessions.map(legacyRemoteSessionPresentation));
-          setHistoryCursor(page.nextCursor);
-          baseRevisions.current.history = page.revision;
-          setHistoryLoadError(query ? '当前远端版本只能搜索已经载入的历史会话。' : null);
-        }
+        const page = await window.api.listRemoteHostSessionPresentations({
+          profileId: activeProfileId, kind: 'history', limit: REMOTE_HOST_PAGE_LIMIT,
+          ...(query ? { query } : {}),
+          ...(canHistoryParity && historyArchivedOnly ? { archivedOnly: true } : {}),
+        });
+        if (!isCurrent()) return;
+        setHistorySessions(page.sessions);
+        setHistoryCursor(page.nextCursor);
+        baseRevisions.current.history = page.revision;
+        setHistoryLoadError(null);
       } catch (reason) {
         if (isCurrent()) setHistoryLoadError(message(reason));
       } finally {
@@ -343,30 +314,14 @@ export function useRemotePresentationLists(
         return;
       }
       const isHistory = kind === 'history';
-      let page: Omit<RemoteHostSessionPresentationPageDto, 'counts'> & {
-        counts: SessionPresentationCountsDto | null;
-        total: number | null;
-      };
-      if (canRich) {
-        const rich = await window.api.listRemoteHostSessionPresentations({
-          profileId: activeProfileId, kind, cursor, limit: REMOTE_HOST_PAGE_LIMIT,
-          ...(isHistory && expectedQuery ? { query: expectedQuery } : {}),
-          ...(isHistory && canHistoryParity && expectedArchivedOnly
-            ? { archivedOnly: true }
-            : {}),
-        });
-        page = { ...rich, total: rich.counts.total };
-      } else {
-        const legacy = await window.api.listRemoteHostSessions(remoteSessionPageRequest(
-          activeProfileId, REMOTE_HOST_PAGE_LIMIT, { cursor, includeArchived: isHistory },
-        ));
-        const rows = legacy.sessions.map(legacyRemoteSessionPresentation);
-        page = {
-          sessions: rows, nextCursor: legacy.nextCursor,
-          counts: null, contextTruncated: false,
-          revision: legacy.revision, total: legacy.total,
-        };
-      }
+      if (!canPresent) return;
+      const page = await window.api.listRemoteHostSessionPresentations({
+        profileId: activeProfileId, kind, cursor, limit: REMOTE_HOST_PAGE_LIMIT,
+        ...(isHistory && expectedQuery ? { query: expectedQuery } : {}),
+        ...(isHistory && canHistoryParity && expectedArchivedOnly
+          ? { archivedOnly: true }
+          : {}),
+      });
       if (
         !current() ||
         (isHistory && historyQueryRef.current.trim() !== expectedQuery) ||
@@ -384,7 +339,7 @@ export function useRemotePresentationLists(
         setSessions((value) => appendUnique(value, page.sessions, (row) => row.id));
         setSessionCursor(page.nextCursor);
         setCounts(page.counts);
-        setSessionTotal(page.total);
+        setSessionTotal(page.counts.total);
         setError(page.contextTruncated ? '部分层级因有界读取未展开；可刷新后重试。' : null);
       }
     } catch (reason) {
@@ -395,7 +350,7 @@ export function useRemotePresentationLists(
     } finally {
       if (current()) setPaginationBusy((value) => ({ ...value, [kind]: false }));
     }
-  }, [activeProfileId, canHistoryParity, canPending, canRich, usable]);
+  }, [activeProfileId, canHistoryParity, canPending, canPresent, usable]);
 
   return {
     sessions: usable ? sessions : [], historySessions: usable ? historySessions : [],

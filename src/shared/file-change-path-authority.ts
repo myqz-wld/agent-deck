@@ -1,19 +1,17 @@
 const AUTHORITY_KEY = '__agentDeckCanonicalPathAuthorityV1';
 const CANONICAL_PREFIX = 'canonical:';
 const UNAVAILABLE = 'unavailable';
-const LEGACY = 'legacy';
 const MAX_AUTHORITY_BYTES = 4_096;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 const encoder = new TextEncoder();
 
 export const FILE_CHANGE_PATH_AUTHORITY_KEY = AUTHORITY_KEY;
 
-export type FileChangePathAuthority = string | null | undefined;
+export type FileChangePathAuthority = string | null;
 
 export function storedFileChangePathAuthority(
   value: unknown,
 ): FileChangePathAuthority {
-  if (value === undefined || value === LEGACY) return undefined;
   if (value === UNAVAILABLE) return null;
   if (
     typeof value !== 'string' ||
@@ -31,7 +29,7 @@ export function fileChangePathAuthorityFromMetadata(
 ): FileChangePathAuthority {
   return Object.prototype.hasOwnProperty.call(metadata, AUTHORITY_KEY)
     ? storedFileChangePathAuthority(metadata[AUTHORITY_KEY])
-    : undefined;
+    : null;
 }
 
 export function withStoredFileChangePathAuthority(

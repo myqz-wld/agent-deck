@@ -146,7 +146,7 @@ describe('deployment automation contracts', () => {
     expect(unit).toContain(`Image=${image}`);
     expect(evidence.exactEgress).toContain(`unitSha256=${unitSha256}\n`);
     expect(evidence.exactQuota).toContain('generation=2\n');
-    expect(evidence.legacyQuota).toContain(
+    expect(evidence.runtimeQuota).toContain(
       'statePath=/var/lib/agent-deck/.local/share/agent-deck-relay/relay-a\n',
     );
   });
@@ -264,13 +264,17 @@ describe('deployment automation contracts', () => {
 
   it('omits host extended attributes from portable deployment archives', async () => {
     const prepared = await buildEvidenceArchive({
-      legacyEgress: 'legacy egress\n',
-      legacyQuota: 'legacy quota\n',
+      runtimeEgress: 'runtime egress\n',
+      runtimeQuota: 'runtime quota\n',
       exactEgress: 'exact egress\n',
       exactQuota: 'exact quota\n',
     });
     try {
       const tarBytes = gunzipSync(await readFile(prepared.archive));
+      expect(tarBytes.includes(Buffer.from('runtime-egress'))).toBe(true);
+      expect(tarBytes.includes(Buffer.from('runtime-quota'))).toBe(true);
+      expect(tarBytes.includes(Buffer.from('exact-egress'))).toBe(true);
+      expect(tarBytes.includes(Buffer.from('exact-quota'))).toBe(true);
       expect(tarBytes.includes(Buffer.from('LIBARCHIVE.xattr'))).toBe(false);
     } finally {
       await prepared.cleanup();

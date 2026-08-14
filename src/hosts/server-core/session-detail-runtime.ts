@@ -380,7 +380,7 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
   ): string | null {
     const cwd = this.canonicalizePath(resolve(session.cwd));
     return projectSessionFilePath({
-      authority: pathAuthority,
+      authority: pathAuthority ?? null,
       canonicalize: this.canonicalizePath,
       cwd,
       filePath: value,

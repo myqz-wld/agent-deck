@@ -33,7 +33,7 @@ The target host must already have the service user at `/var/lib/agent-deck`, Nod
 and non-interactive sudo for the SSH administrator. Enable linger before `--check`; the mutating
 install also enables it. The acceptance booleans are not probes: set them only after the 1 GiB
 state quota and public-only egress restrictions have independent evidence. The script then writes
-the legacy and generation-specific evidence with the exact unit digest expected by the manager.
+the runtime and generation-specific evidence with the exact unit digest expected by the manager.
 
 Worker `--upgrade` revalidates the installed signed runtime and kickstarts the existing
 LaunchAgent/systemd-user definition. It does not replace the Agent Deck application. Worker

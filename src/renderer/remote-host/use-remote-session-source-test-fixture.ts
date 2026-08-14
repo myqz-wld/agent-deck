@@ -11,7 +11,9 @@ import { emptyRemoteHostResourceRevisions } from './use-remote-host-snapshot';
 const CAPABILITIES = [
   'projects.read',
   'session-console.read',
+  'sessions.presentation.read',
   'sessions.history',
+  'sessions.history.write',
   'events.replay',
   'sessions.write',
   'pending.read',

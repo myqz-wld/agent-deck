@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createPermissionPreviewDisplay } from '@contracts/index';
 import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-capabilities.fixture';
 import {
   FeishuSessionConsoleGateway,
@@ -26,6 +27,7 @@ import {
   setup,
   testNonce,
 } from './__tests__/fixture';
+import { pendingForKind } from './__tests__/pending-fixture';
 
 function resign(
   input: FeishuPendingAction,
@@ -65,7 +67,10 @@ describe('whole outbound message bounds', () => {
 
     await select(gateway);
     client.pending.set('session-1', [
-      { ...pending(), display: { description: 'x'.repeat(3_000) } },
+      {
+        ...pending(),
+        display: createPermissionPreviewDisplay('Bash', { description: 'x'.repeat(3_000) }),
+      },
     ]);
     await gateway.handle(messageEvent('bounded-subscribe', '/subscribe'));
     transport.messages.length = 0;
@@ -253,21 +258,21 @@ describe('pending action semantics and Core output validation', () => {
       ).toBe('invalid_pending_action');
     }
 
-    client.pending.set('session-1', [{ ...pending('question'), kind: 'ask-user-question' }]);
+    client.pending.set('session-1', [pendingForKind('ask-user-question', 'question')]);
     await gateway.handle(messageEvent('question-card-semantic', '/pending'));
     const question = actionFrom(transport.messages.at(-1)!);
     expect((await gateway.handle(actionEvent('question-no-value', question))).code).toBe(
       'invalid_pending_action',
     );
 
-    client.pending.set('session-1', [{ ...pending('diff'), kind: 'diff-review' }]);
+    client.pending.set('session-1', [pendingForKind('diff-review', 'diff')]);
     await gateway.handle(messageEvent('diff-card', '/pending'));
     const diff = actionFrom(transport.messages.at(-1)!);
     expect(
       (await gateway.handle(actionEvent('diff-wrong-action', resign(diff, 'approve')))).code,
     ).toBe('invalid_pending_action');
 
-    client.pending.set('session-1', [{ ...pending('exit'), kind: 'exit-plan' }]);
+    client.pending.set('session-1', [pendingForKind('exit-plan', 'exit')]);
     await gateway.handle(messageEvent('exit-card', '/pending'));
     const exitPlan = actionFrom(transport.messages.at(-1)!);
     expect(

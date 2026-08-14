@@ -6,7 +6,7 @@ export const PATH_AUTHORITY_PROJECTION = `CASE
   WHEN json_valid(fc.metadata_json)
     THEN COALESCE(
       json_extract(fc.metadata_json, '${PATH_AUTHORITY_JSON}'),
-      'legacy'
+      'unavailable'
     )
   ELSE 'unavailable'
 END AS path_authority`;

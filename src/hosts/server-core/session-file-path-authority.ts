@@ -59,18 +59,10 @@ export function projectSessionFilePath(input: {
     : resolve(input.cwd, input.filePath));
   if (projectedPath(input.workspaceRoot, requested) === null) return null;
 
-  if (input.authority !== undefined) {
-    if (input.authority === null) return null;
-    const authorized = resolve(input.authority);
-    const projected = projectedPath(input.workspaceRoot, authorized);
-    if (projected === null) return null;
-    if (currentCanonicalTarget(requested, input.canonicalize) !== authorized) return null;
-    return projected;
-  }
-
-  try {
-    return projectedPath(input.workspaceRoot, resolve(input.canonicalize(requested)));
-  } catch {
-    return null;
-  }
+  if (input.authority === null) return null;
+  const authorized = resolve(input.authority);
+  const projected = projectedPath(input.workspaceRoot, authorized);
+  if (projected === null) return null;
+  if (currentCanonicalTarget(requested, input.canonicalize) !== authorized) return null;
+  return projected;
 }

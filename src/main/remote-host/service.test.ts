@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { AgentDeckCapability, type AgentDeckCapability as Capability, type CoreMethodMap } from '@contracts/index';
+import {
+  AgentDeckCapability,
+  createPermissionPreviewDisplay,
+  type AgentDeckCapability as Capability,
+  type CoreMethodMap,
+} from '@contracts/index';
 import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-capabilities.fixture';
 import { ElectronHostRegistry, type ElectronHostClientBinding } from '@hosts/electron';
 import { ControlledClient, deferred, remoteHello, remoteProfile, standaloneProfile } from '@hosts/electron/__tests__/registry-fixture';
@@ -186,14 +191,27 @@ describe('RemoteHostService', () => {
     });
   });
 
-  it('uses only cwd-free project/session-console methods for list and create', async () => {
+  it('uses only cwd-free project/presentation methods for list and create', async () => {
     const { first, remote, service } = harness();
     vi.mocked(first.request).mockImplementation((async (method: keyof CoreMethodMap) => {
       switch (method) {
         case 'project.list':
           return { projects: [{ projectId: 'p1', projectRef: '.', alias: 'workspace', title: null }], nextCursor: null, total: 1, revision: 3 };
-        case 'session.console.list':
-          return { sessions: [{ id: 's1', adapterId: 'codex-cli', title: 'Remote', status: 'active', createdAt: 1, updatedAt: 2 }], nextCursor: null, total: 1, revision: 4 };
+        case 'session.presentation.list':
+          return {
+            sessions: [{
+              id: 's1', adapterId: 'codex-cli', title: 'Remote', source: 'sdk',
+              lifecycle: 'active', activity: 'idle', archived: false, pinned: false,
+              createdAt: 1, updatedAt: 2, endedAt: null, model: null, thinking: null,
+              runtimeProvider: null, context: null, spawnedBy: null, spawnDepth: 0,
+              teams: [], summary: null, summaryGenerationSource: null,
+              workspaceLabel: 'Workspace', contextOnly: false,
+            }],
+            nextCursor: null,
+            counts: { total: 1, active: 1, dormant: 0, closed: 0, working: 0, waiting: 0 },
+            contextTruncated: false,
+            revision: 4,
+          };
         case 'session.console.create':
           return { sessionId: 's2', revision: 5 };
         default:
@@ -203,7 +221,11 @@ describe('RemoteHostService', () => {
     await service.connect(remote.id);
 
     const projects = await service.listProjects({ profileId: remote.id, limit: 20 });
-    const sessions = await service.listSessions({ profileId: remote.id, limit: 20 });
+    const sessions = await service.listSessionPresentations({
+      profileId: remote.id,
+      kind: 'live',
+      limit: 20,
+    });
     const created = await service.createSession({
       profileId: remote.id,
       adapterId: 'codex-cli',
@@ -221,7 +243,7 @@ describe('RemoteHostService', () => {
     const calls = vi.mocked(first.request).mock.calls;
     expect(calls.map((call) => call[0])).toEqual([
       'project.list',
-      'session.console.list',
+      'session.presentation.list',
       'session.console.create',
     ]);
     expect(JSON.stringify(calls)).not.toContain('cwd');
@@ -247,7 +269,14 @@ describe('RemoteHostService', () => {
         case 'session.steer':
           return { accepted: true, revision: 8 };
         case 'pending.list':
-          return { requests: [{ id: 'r1', sessionId: 's1', kind: 'permission', status: 'pending', createdAt: 3, expiresAt: null, display: { tool: 'Bash', command: 'pwd' } }], revision: 9 };
+          return {
+            requests: [{
+              id: 'r1', sessionId: 's1', kind: 'permission', status: 'pending',
+              createdAt: 3, expiresAt: null,
+              display: createPermissionPreviewDisplay('Bash', { command: 'pwd' }),
+            }],
+            revision: 9,
+          };
         case 'pending.respond':
           return { status: 'resolved', revision: 10 };
         case 'session.runtime.get':

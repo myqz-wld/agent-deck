@@ -157,8 +157,8 @@ export async function buildEvidenceArchive(evidence) {
   const staging = await mkdtemp(join(tmpdir(), 'agent-deck-evidence-'));
   try {
     for (const [name, value] of [
-      ['legacy-egress', evidence.legacyEgress],
-      ['legacy-quota', evidence.legacyQuota],
+      ['runtime-egress', evidence.runtimeEgress],
+      ['runtime-quota', evidence.runtimeQuota],
       ['exact-egress', evidence.exactEgress],
       ['exact-quota', evidence.exactQuota],
     ]) {

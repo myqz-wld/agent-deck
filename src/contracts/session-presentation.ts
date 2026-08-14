@@ -47,8 +47,7 @@ export interface SessionPresentationSummaryDto {
   spawnDepth: number;
   teams: SessionPresentationTeamDto[];
   summary: string | null;
-  /** Optional for compatibility with an older Relay/Full service. */
-  summaryGenerationSource?: SessionPresentationSummarySource | null;
+  summaryGenerationSource: SessionPresentationSummarySource | null;
   workspaceLabel: string | null;
   contextOnly: boolean;
 }
@@ -169,9 +168,9 @@ export function parseSessionPresentationSummary(
   const keys = [
     'activity', 'adapterId', 'archived', 'context', 'contextOnly', 'createdAt', 'endedAt',
     'id', 'lifecycle', 'model', 'pinned', 'runtimeProvider', 'source', 'spawnDepth',
-    'spawnedBy', 'summary', 'teams', 'thinking', 'title', 'updatedAt', 'workspaceLabel',
+    'spawnedBy', 'summary', 'summaryGenerationSource', 'teams', 'thinking', 'title', 'updatedAt',
+    'workspaceLabel',
   ];
-  if (value.summaryGenerationSource !== undefined) keys.push('summaryGenerationSource');
   exact(value, keys, 'session.presentation.session');
   if (typeof value.archived !== 'boolean' || typeof value.pinned !== 'boolean' ||
       typeof value.contextOnly !== 'boolean') fail('session.presentation.session.flags');
@@ -224,17 +223,13 @@ export function parseSessionPresentationSummary(
     spawnDepth,
     teams,
     summary: nullableText(value.summary, 'session.presentation.session.summary'),
-    ...(value.summaryGenerationSource === undefined
-      ? {}
-      : {
-          summaryGenerationSource: value.summaryGenerationSource === null
-            ? null
-            : oneOf(
-                value.summaryGenerationSource,
-                ['llm', 'assistant-fallback', 'stats-fallback'] as const,
-                'session.presentation.session.summaryGenerationSource',
-              ),
-        }),
+    summaryGenerationSource: value.summaryGenerationSource === null
+      ? null
+      : oneOf(
+          value.summaryGenerationSource,
+          ['llm', 'assistant-fallback', 'stats-fallback'] as const,
+          'session.presentation.session.summaryGenerationSource',
+        ),
     workspaceLabel: nullableText(value.workspaceLabel, 'session.presentation.session.workspaceLabel', 512),
     contextOnly: value.contextOnly,
   };

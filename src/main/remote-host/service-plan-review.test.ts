@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { MCP_PLAN_PRESENTATION_SCHEMA } from '@contracts/index';
+import { createPermissionPreviewDisplay, MCP_PLAN_PRESENTATION_SCHEMA } from '@contracts/index';
 import type { RemoteHostPlanReviewTargetDto } from '@shared/remote-host';
 
 import { RemoteHostPlanReviewController } from './service-plan-review';
@@ -121,7 +121,10 @@ describe('RemoteHostPlanReviewController', () => {
     await expect(stale.controller.start(target)).rejects.toMatchObject({ code: 'conflict' });
     expect(stale.request).toHaveBeenCalledOnce();
 
-    const wrongKind = harness([pending({ kind: 'permission', display: {} })]);
+    const wrongKind = harness([pending({
+      kind: 'permission',
+      display: createPermissionPreviewDisplay('Bash', { command: 'pwd' }),
+    })]);
     await expect(wrongKind.controller.start(target)).rejects.toMatchObject({
       code: 'invalid_request',
     });

@@ -90,9 +90,9 @@ boundaries:
   checks for their host lifecycle manager, and `deploy/linux/feishu/` contains the separate
   long-connection gateway service contract.
 
-The current preload surface remains available while it is migrated in vertical slices. Its complete
-invoke-channel ownership is recorded in `src/contracts/current-api-classification.ts`, so new local
-IPC methods cannot acquire remote or Feishu semantics implicitly.
+The preload IPC surface is the current Desktop-local contract. Remote product methods are defined
+explicitly in `src/contracts/methods.ts` and pinned to the reachable Desktop product directory, so
+local IPC methods do not acquire Remote or Feishu semantics implicitly.
 
 Protocol 2.7 uses canonical `standalone`, `relay`, and `full` topology values plus anonymous
 Server-issued connection scopes and immutable grants. Desktop and Feishu both resolve to the exact

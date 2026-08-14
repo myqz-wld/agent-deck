@@ -22,7 +22,15 @@ const session = {
   lifecycle: 'active', activity: 'waiting', archived: false, pinned: false,
   createdAt: 1, updatedAt: 2, endedAt: null, model: null, thinking: null,
   runtimeProvider: null, context: null, spawnedBy: null, spawnDepth: 0, teams: [],
-  summary: null, workspaceLabel: 'Workspace', contextOnly: false,
+  summary: null, summaryGenerationSource: null, workspaceLabel: 'Workspace', contextOnly: false,
+} as const;
+
+const permissionDisplay = {
+  schema: 'agent-deck.permission-preview.v1',
+  tool: 'Bash',
+  input: { command: 'pwd' },
+  complete: true,
+  redacted: false,
 } as const;
 
 describe('RemoteHostSessionPresentationController', () => {
@@ -50,7 +58,7 @@ describe('RemoteHostSessionPresentationController', () => {
         session,
         requests: [{
           id: 'request-a', sessionId: 'session-a', kind: 'permission', status: 'pending',
-          createdAt: 2, expiresAt: null, display: {},
+          createdAt: 2, expiresAt: null, display: permissionDisplay,
         }],
         revision: 8,
       }],
@@ -66,7 +74,7 @@ describe('RemoteHostSessionPresentationController', () => {
         session,
         requests: [{
           id: 'request-b', sessionId: 'other', kind: 'permission', status: 'pending',
-          createdAt: 2, expiresAt: null, display: {},
+          createdAt: 2, expiresAt: null, display: permissionDisplay,
         }],
         revision: 8,
       }],

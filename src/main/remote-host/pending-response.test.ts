@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   AgentDeckCapability,
   createPermissionPreviewDisplay,
+  MCP_DIFF_PRESENTATION_SCHEMA,
   MCP_PLAN_PRESENTATION_SCHEMA,
   type AgentDeckCapability as Capability,
   type CoreMethodMap,
@@ -40,6 +41,33 @@ class MemoryBackend implements RemoteHostProfileBackend {
   write(value: RemoteHostProfileDocument): void { this.value = structuredClone(value); }
 }
 
+function askDisplay(ids = ['question-a', 'question-b']): Record<string, RemoteHostJsonValue> {
+  return {
+    prompt: 'Questions',
+    questionIds: ids,
+    questions: ids.map((id) => ({
+      id,
+      question: id,
+      multiSelect: false,
+      options: [{ label: 'production' }],
+    })),
+  };
+}
+
+function currentDisplay(
+  kind: RemoteHostPendingRequestDto['kind'],
+): Record<string, RemoteHostJsonValue> {
+  if (kind === 'permission') return createPermissionPreviewDisplay('Bash', { command: 'pwd' });
+  if (kind === 'ask-user-question') return askDisplay();
+  if (kind === 'exit-plan') return { summary: '# Plan' };
+  return {
+    schema: MCP_DIFF_PRESENTATION_SCHEMA,
+    mode: 'pr',
+    rationale: 'Review',
+    pr: { before: 'before', after: 'after' },
+  };
+}
+
 function pendingResult(
   kind: RemoteHostPendingRequestDto['kind'] = 'permission',
   options: {
@@ -57,7 +85,7 @@ function pendingResult(
       status: options.status ?? 'pending',
       createdAt: 1,
       expiresAt: null,
-      display: options.display ?? { tool: 'Bash', command: 'pwd' },
+      display: options.display ?? currentDisplay(kind),
     }],
     revision: options.revision ?? 7,
   };
@@ -163,15 +191,11 @@ describe('RemoteHostService authoritative pending response policy', () => {
 
   it.each([
     {
-      display: { questionIds: ['question-a', 'question-b'] },
+      display: askDisplay(),
       value: { 'question-a': 'answer-a', 'question-b': 'answer-b' },
     },
     {
-      display: {},
-      value: { answer: 'fallback-answer' },
-    },
-    {
-      display: { questionIds: ['question-a', 'question-b'] },
+      display: askDisplay(),
       value: {
         'question-a': { selected: ['production'], other: 'urgent', note: 'watch metrics' },
         'question-b': { selected: [] },
@@ -249,17 +273,16 @@ describe('RemoteHostService authoritative pending response policy', () => {
     });
   });
 
-  it('allows fallback exit-plan approval without native target modes', async () => {
+  it('rejects an unrecognized exit-plan display before responding', async () => {
     const context = harness();
     context.setPending(pendingResult('exit-plan', {
       display: { title: 'Deploy', summary: '# Plan', hint: 'future metadata' },
     }));
     await context.service.connect(context.remote.id);
 
-    await context.service.respondPending(context.response('accept'));
-    expect(vi.mocked(context.client.request).mock.calls[1]?.[1]).toEqual({
-      sessionId: 'session-1', requestId: 'request-1', action: 'accept',
-    });
+    await expect(context.service.respondPending(context.response('accept')))
+      .rejects.toThrow('unsupported pending presentation');
+    expect(methods(context.client)).toEqual(['pending.list']);
   });
 
   it('permits denial but rejects approval when the authorization preview is incomplete', async () => {
@@ -301,33 +324,33 @@ describe('RemoteHostService authoritative pending response policy', () => {
   it.each([
     {
       kind: 'ask-user-question',
-      display: { questionIds: ['secret-question', 'second-question'] },
+      display: askDisplay(['secret-question', 'second-question']),
       action: 'submit',
       value: { 'secret-question': 'one' },
     },
     {
       kind: 'ask-user-question',
-      display: { questionIds: ['secret-question'] },
+      display: askDisplay(['secret-question']),
       action: 'submit',
       value: { 'secret-question': 'one', extra: 'two' },
     },
     {
       kind: 'ask-user-question',
-      display: { remotePath: '/private/remote' },
+      display: askDisplay(['answer']),
       action: 'submit',
       value: { wrong: 'fallback mismatch' },
     },
     {
       kind: 'permission',
-      display: {},
+      display: createPermissionPreviewDisplay('Bash', { command: 'pwd' }),
       action: 'approve',
       value: { answer: 'unexpected' },
     },
     {
       kind: 'diff-review',
-      display: {},
-      action: 'reject',
-      value: { feedback: 'not an MCP presentation' },
+      display: currentDisplay('diff-review'),
+      action: 'accept',
+      value: { feedback: 'unexpected acceptance value' },
     },
     {
       kind: 'exit-plan',
@@ -369,7 +392,7 @@ describe('RemoteHostService authoritative pending response policy', () => {
 
     const drifted = pendingResult('permission', {
       revision: 9,
-      display: { tool: 'Bash', command: 'rm -rf workspace' },
+      display: createPermissionPreviewDisplay('Bash', { command: 'rm -rf workspace' }),
     });
     context.setPending(drifted, false);
     await expect(context.service.respondPending(context.response('approve')))

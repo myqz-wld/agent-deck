@@ -43,8 +43,8 @@ export interface SessionManagerHost {
 }
 
 /**
- * Host-neutral public facade. Keeping every call as an exact delegate preserves the legacy public
- * API while allowing a headless Core composition to provide its own repository/lifecycle host.
+ * Host-neutral public facade. Exact delegation gives Desktop and headless Core compositions one
+ * repository/lifecycle contract without importing either host into the other.
  */
 export class SessionManagerFacade implements SessionManagerHost {
   constructor(private readonly host: SessionManagerHost) {}

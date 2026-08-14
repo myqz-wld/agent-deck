@@ -83,7 +83,8 @@ describe('Remote session mutation authority', () => {
       lifecycle: 'closed', activity: 'finished', archived: false, pinned: false,
       createdAt: 1, updatedAt: 2, endedAt: 2, model: null, thinking: null,
       runtimeProvider: null, context: null, spawnedBy: null, spawnDepth: 0,
-      teams: [], summary: null, workspaceLabel: 'Workspace', contextOnly: false,
+      teams: [], summary: null, summaryGenerationSource: null, workspaceLabel: 'Workspace',
+      contextOnly: false,
     });
     await expect(actions.createWorkspaceDirectory('repo', 'new-folder'))
       .resolves.toBe('repo/new-folder');
@@ -128,7 +129,8 @@ describe('Remote session mutation authority', () => {
       lifecycle: 'dormant', activity: 'idle', archived: false, pinned: false,
       createdAt: 1, updatedAt: 2, endedAt: 2, model: null, thinking: null,
       runtimeProvider: null, context: null, spawnedBy: null, spawnDepth: 0,
-      teams: [], summary: null, workspaceLabel: 'Workspace', contextOnly: false,
+      teams: [], summary: null, summaryGenerationSource: null, workspaceLabel: 'Workspace',
+      contextOnly: false,
     });
 
     expect(requireCapability).toHaveBeenCalledWith('sessions.reactivate');

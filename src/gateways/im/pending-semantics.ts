@@ -1,4 +1,5 @@
 import { isJsonObject, type JsonValue, type PendingRequestDto } from '@contracts/index';
+import { parseRemoteHostAskQuestionDisplay } from '@shared/remote-host';
 import { FeishuGatewayError } from './errors';
 import type { FeishuPendingAction } from './types';
 
@@ -46,34 +47,20 @@ function validateQuestionValue(request: PendingRequestDto, value: JsonValue | un
       );
     }
   }
-  const questionIds = request.display.questionIds;
-  if (questionIds !== undefined) {
-    if (
-      !Array.isArray(questionIds) ||
-      questionIds.length === 0 ||
-      questionIds.length > 32 ||
-      !questionIds.every(
-        (item) =>
-          typeof item === 'string' &&
-          item.length > 0 &&
-          new TextEncoder().encode(item).byteLength <= 128 &&
-          !CONTROL.test(item),
-      ) ||
-      new Set(questionIds).size !== questionIds.length
-    ) {
-      throw new FeishuGatewayError(
-        'invalid_core_response',
-        'ask-user-question questionIds are malformed',
-      );
-    }
-    const actual = Object.keys(value).sort();
-    const expected = [...questionIds].sort();
-    if (actual.length !== expected.length || actual.some((item, index) => item !== expected[index])) {
-      throw new FeishuGatewayError(
-        'invalid_pending_action',
-        'ask-user-question answers must match every displayed question id',
-      );
-    }
+  const display = parseRemoteHostAskQuestionDisplay(request.display);
+  if (!display) {
+    throw new FeishuGatewayError(
+      'invalid_core_response',
+      'ask-user-question display is malformed',
+    );
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...display.questionIds].sort();
+  if (actual.length !== expected.length || actual.some((item, index) => item !== expected[index])) {
+    throw new FeishuGatewayError(
+      'invalid_pending_action',
+      'ask-user-question answers must match every displayed question id',
+    );
   }
 }
 

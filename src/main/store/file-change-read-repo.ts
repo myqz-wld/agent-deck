@@ -129,7 +129,7 @@ function toSummary(row: BaseRow): FileChangeSummary {
     hasAfterBlob: Boolean(row.has_after_blob),
     hasBeforeSnapshot: Boolean(row.has_before_snapshot),
     hasAfterSnapshot: Boolean(row.has_after_snapshot),
-    ...(pathAuthority === undefined ? {} : { pathAuthority }),
+    pathAuthority,
     ts: row.ts,
   };
 }
