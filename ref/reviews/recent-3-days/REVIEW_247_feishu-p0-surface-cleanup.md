@@ -98,8 +98,8 @@ src/shared/types/agent-deck-team.ts
 ```
 
 All deleted Team/permission source files and their removed tests were reviewed through the exact
-file manifest in `.ref/plans/feishu-one-click-p0-cleanup-batch.md`; they cannot provide future
-file-level coverage because they no longer exist.
+file manifest in the [archived P0 cleanup batch](../../plans/recent-3-days/PLAN_38_feishu-one-click-server/feishu-one-click-p0-cleanup-batch.md);
+they cannot provide future file-level coverage because they no longer exist.
 
 ## Findings and fixes landed
 
