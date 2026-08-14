@@ -15,6 +15,7 @@ import { buildAcceptanceEvidence, renderManagedUnit, sha256 } from './evidence.m
 import { runRemoteScript, uploadFile } from './process.mjs';
 
 const deploymentRoot = dirname(fileURLToPath(import.meta.url));
+export const RELEASE_UPLOAD_TIMEOUT_MS = 1_200_000;
 const remoteScripts = Object.freeze({
   check: join(deploymentRoot, 'remote-check.sh'),
   install: join(deploymentRoot, 'remote-install.sh'),
@@ -53,7 +54,9 @@ async function installRelease(config, release) {
   const prepared = await buildReleaseArchive(config);
   const remoteArchive = `/tmp/agent-deck-release-${randomUUID()}.tgz`;
   try {
-    await uploadFile(config.ssh, prepared.archive, remoteArchive);
+    await uploadFile(config.ssh, prepared.archive, remoteArchive, {
+      timeoutMs: RELEASE_UPLOAD_TIMEOUT_MS,
+    });
     const result = await runRemoteScript(
       config.ssh,
       remoteScripts.install,

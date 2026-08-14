@@ -18,6 +18,7 @@ import { buildEvidenceArchive, buildFullSecretsArchive } from './artifacts.mjs';
 import {
   existingInstanceNeedsStart,
   managerFailureCode,
+  RELEASE_UPLOAD_TIMEOUT_MS,
   relayCutoverRecovery,
 } from './server.mjs';
 
@@ -36,6 +37,10 @@ afterEach(async () => {
 });
 
 describe('deployment automation contracts', () => {
+  it('gives the release archive a bounded slow-link upload window', () => {
+    expect(RELEASE_UPLOAD_TIMEOUT_MS).toBe(1_200_000);
+  });
+
   it('requires one exact action and config path', () => {
     expect(parseEntrypointArgs(
       ['--', '--config', '/tmp/config.json', '--dry-run'],
