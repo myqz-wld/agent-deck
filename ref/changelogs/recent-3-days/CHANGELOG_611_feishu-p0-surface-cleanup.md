@@ -49,4 +49,4 @@ lines; the cleanup also deleted several obsolete oversized surface modules.
 
 ## Related review
 
-- `ref/reviews/recent-3-days/REVIEW_246_feishu-p0-surface-cleanup.md`
+- `ref/reviews/recent-3-days/REVIEW_247_feishu-p0-surface-cleanup.md`

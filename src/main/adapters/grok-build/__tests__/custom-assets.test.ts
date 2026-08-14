@@ -111,6 +111,96 @@ describe('Grok custom assets', () => {
     );
   });
 
+  it('lists only effective Plugin versions from Grok and Claude install state', () => {
+    const claudePlugins = join(userHome, '.claude', 'plugins');
+    const staleClaude = join(
+      claudePlugins,
+      'cache',
+      'market',
+      'market-plugin',
+      '1.0.0',
+    );
+    const activeClaude = join(
+      claudePlugins,
+      'cache',
+      'market',
+      'market-plugin',
+      '2.0.0',
+    );
+    for (const root of [staleClaude, activeClaude]) {
+      writeFile(
+        join(root, '.claude-plugin', 'plugin.json'),
+        JSON.stringify({ name: 'market-plugin' }),
+      );
+      writeFile(
+        join(root, 'skills', 'market-skill', 'SKILL.md'),
+        skill('market-skill'),
+      );
+    }
+    writeFile(
+      join(claudePlugins, 'installed_plugins.json'),
+      JSON.stringify({
+        version: 2,
+        plugins: {
+          'market-plugin@market': [{ installPath: activeClaude, version: '2.0.0' }],
+        },
+      }),
+    );
+
+    const activeGrok = join(grokHome, 'installed-plugins', 'active-repo');
+    const disabledGrok = join(grokHome, 'installed-plugins', 'disabled-repo');
+    writeFile(
+      join(activeGrok, '.grok-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'grok-active' }),
+    );
+    writeFile(
+      join(activeGrok, 'skills', 'active-skill', 'SKILL.md'),
+      skill('active-skill'),
+    );
+    writeFile(
+      join(disabledGrok, '.grok-plugin', 'plugin.json'),
+      JSON.stringify({ name: 'grok-disabled' }),
+    );
+    writeFile(
+      join(disabledGrok, 'skills', 'disabled-skill', 'SKILL.md'),
+      skill('disabled-skill'),
+    );
+    writeFile(join(grokHome, 'config.toml'), '[plugins]\nenabled = ["grok-active"]\n');
+    writeFile(
+      join(grokHome, 'installed-plugins', 'registry.json'),
+      JSON.stringify({
+        version: 1,
+        repos: {
+          active: { path: activeGrok, plugins: { 'grok-active': { version: '1.0.0' } } },
+          disabled: {
+            path: disabledGrok,
+            plugins: { 'grok-disabled': { version: '1.0.0' } },
+          },
+        },
+      }),
+    );
+
+    const pluginSkills = listGrokUserAssets().skills.filter((asset) => asset.origin === 'plugin');
+    expect(pluginSkills).toHaveLength(2);
+    expect(pluginSkills).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        pluginName: 'market-plugin',
+        qualifiedName: 'plugin:market-plugin/market-skill',
+        absPath: expect.stringContaining(
+          join('2.0.0', 'skills', 'market-skill', 'SKILL.md'),
+        ),
+      }),
+      expect.objectContaining({
+        pluginName: 'grok-active',
+        qualifiedName: 'plugin:grok-active/active-skill',
+      }),
+    ]));
+    expect(pluginSkills.some((asset) =>
+      asset.absPath.includes(join('1.0.0', 'skills', 'market-skill'))
+    )).toBe(false);
+    expect(pluginSkills.some((asset) => asset.pluginName === 'grok-disabled')).toBe(false);
+  });
+
   it('folds multiline descriptions instead of exposing the YAML marker', () => {
     writeFile(
       join(grokHome, 'skills', 'folded-skill', 'SKILL.md'),

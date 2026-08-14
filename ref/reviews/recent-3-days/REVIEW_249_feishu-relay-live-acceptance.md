@@ -1,5 +1,5 @@
 ---
-review_id: 248
+review_id: 249
 reviewed_at: 2026-08-14
 baseline_commit: c8026d77727f4353f666403f72105e8c5c5acd64
 expired: false
@@ -8,7 +8,7 @@ skipped_expired:
     reason: "Acceptance records and indexes are mechanical evidence derived from the reviewed tree and live run."
 ---
 
-# REVIEW_248_feishu-relay-live-acceptance: Relay deployment and Server CLI
+# REVIEW_249_feishu-relay-live-acceptance: Relay deployment and Server CLI
 
 ## Scope and method
 
@@ -126,7 +126,7 @@ No confirmed code finding remains open.
 
 ## Validation
 
-- Full suite: 966 files / 6,110 tests passed; 2 files / 3 tests remained skipped behind existing
+- Merged full suite: 966 files / 6,112 tests passed; 2 files / 3 tests remained skipped behind existing
   opt-in guards.
 - `pnpm typecheck`, `pnpm build`, `pnpm verify:linux-headless`, `pnpm check:deployment`, Full,
   Relay, Feishu, and Manager static checks, review expiry, changed-source file size, and

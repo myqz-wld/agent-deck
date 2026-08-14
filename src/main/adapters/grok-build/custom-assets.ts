@@ -26,6 +26,11 @@ import {
   safeIsFile,
   type PluginRoot,
 } from '@main/plugin-assets';
+import {
+  getConfiguredGrokPluginPaths,
+  getGrokUserPluginSearchPaths,
+  GROK_PLUGIN_MANIFEST_PATHS,
+} from './plugin-search-paths';
 
 const logger = log.scope('grok-custom-assets');
 
@@ -73,7 +78,7 @@ export function listGrokUserAssets(): UserAssetsSnapshot {
   const roots = getRoots();
   const agents = scanAgentDir(join(roots.grokHome, 'agents'));
   const skills = scanSkillDir(join(roots.grokHome, 'skills'));
-  const plugins = discoverGrokPluginRoots(getUserPluginSearchPaths(roots));
+  const plugins = discoverGrokUserPluginRoots(roots);
   for (const plugin of plugins) {
     agents.push(...scanPluginAgents(plugin));
     skills.push(...scanPluginSkills(plugin));
@@ -109,7 +114,7 @@ export function resolveGrokUserAgentContent(
     const direct = findAgent(scanAgentDir(join(roots.grokHome, 'agents')), agentName);
     if (direct) return toResolvedAgent(direct, 'user');
   }
-  const plugins = discoverGrokPluginRoots(getUserPluginSearchPaths(roots));
+  const plugins = discoverGrokUserPluginRoots(roots);
   const plugin = findPluginAgent(plugins, agentName, 'user Grok plugins');
   if (plugin.ok) return toResolvedAgent(plugin.asset, 'plugin');
   if (!plugin.reason.startsWith('not found')) return plugin;
@@ -139,7 +144,7 @@ export function getGrokUserAssetPath(
     name,
   );
   if (direct) return direct.path;
-  const plugins = discoverGrokPluginRoots(getUserPluginSearchPaths(roots));
+  const plugins = discoverGrokUserPluginRoots(roots);
   for (const plugin of plugins) {
     const match = findAsset(
       kind,
@@ -176,43 +181,31 @@ function getProjectRoots(cwd: string): string[] {
 function getProjectPluginSearchPaths(projectRoot: string): string[] {
   return [
     join(projectRoot, 'plugins'),
-    ...readPluginPaths(join(projectRoot, 'config.toml'), projectRoot),
+    ...getConfiguredGrokPluginPaths(join(projectRoot, 'config.toml'), projectRoot),
   ];
-}
-
-function getUserPluginSearchPaths(roots: GrokRoots): string[] {
-  return [
-    join(roots.grokHome, 'plugins'),
-    join(roots.claudeHome, 'plugins'),
-    ...readPluginPaths(join(roots.grokHome, 'config.toml'), roots.grokHome),
-  ];
-}
-
-function readPluginPaths(configPath: string, baseDir: string): string[] {
-  if (!safeIsFile(configPath)) return [];
-  try {
-    const text = readFileSync(configPath, 'utf8');
-    const section = text.match(/^\[plugins\]([\s\S]*?)(?=^\[[^\]]+\]|$)/m)?.[1];
-    const values = section?.match(/^\s*paths\s*=\s*\[([\s\S]*?)\]/m)?.[1];
-    if (!values) return [];
-    return [...values.matchAll(/(["'])(.*?)\1/g)].map((match) => {
-      const value = match[2].trim();
-      if (value.startsWith('~/')) return join(homedir(), value.slice(2));
-      return isAbsolute(value) ? value : resolve(baseDir, value);
-    });
-  } catch (error) {
-    logger.warn(`[grok-custom-assets] cannot read plugin paths: ${configPath}`, error);
-    return [];
-  }
 }
 
 function discoverGrokPluginRoots(searchPaths: string[]): PluginRoot[] {
   return discoverPluginRoots({
     searchPaths,
-    manifestPaths: ['plugin.json'],
+    manifestPaths: GROK_PLUGIN_MANIFEST_PATHS,
     allowContentOnly: true,
     maxDepth: 4,
   });
+}
+
+function discoverGrokUserPluginRoots(roots: GrokRoots): PluginRoot[] {
+  const plugins = new Map<string, PluginRoot>();
+  const searchPaths = getGrokUserPluginSearchPaths({
+    grokHome: roots.grokHome,
+    claudeHome: roots.claudeHome,
+  });
+  for (const searchPath of searchPaths) {
+    for (const plugin of discoverGrokPluginRoots([searchPath])) {
+      if (!plugins.has(plugin.name)) plugins.set(plugin.name, plugin);
+    }
+  }
+  return [...plugins.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function scanAgentDir(
@@ -384,7 +377,7 @@ function isAllowedGrokAssetPath(
   const allowedRoots = [
     join(roots.grokHome, 'agents'),
     join(roots.grokHome, 'skills'),
-    ...discoverGrokPluginRoots(getUserPluginSearchPaths(roots)).map((plugin) => plugin.path),
+    ...discoverGrokUserPluginRoots(roots).map((plugin) => plugin.path),
   ];
   if (!allowedRoots.some((root) => isWithinExistingRoot(normalized, root))) return false;
   if (kind === 'agent' && !path.endsWith('.md')) return false;

@@ -57,11 +57,11 @@ revocation while Worker/Core retains business data and mechanically enforces imm
 
 - Focused behavior/security suites passed 21 files / 156 tests; expiry/deletion coverage passed 2
   files / 23 tests.
-- The complete suite passed 966 files / 6,110 tests; 2 files / 3 tests remained skipped behind
+- The merged complete suite passed 966 files / 6,112 tests; 2 files / 3 tests remained skipped behind
   existing opt-in guards.
 - Three T1.5 test suites that still exceeded the repository guardrail were partitioned by test
-  topic without changing assertions or the 6,110-test total; the largest changed source file is
-  now 499 lines.
+  topic without changing assertions; after integrating the latest `main`, the largest changed
+  source file remains 499 lines.
 - `pnpm typecheck`, `pnpm build`, `pnpm verify:linux-headless`, `pnpm check:deployment`, and the
   Full, Relay, Feishu, and Manager static checks passed.
 - Repeated independent-process builds were byte-identical: amd64
@@ -99,6 +99,6 @@ below 500 lines; generated lockfiles are exempt.
 
 ## Related records
 
-- `ref/reviews/recent-3-days/REVIEW_247_feishu-server-one-click-acceptance.md`
-- `ref/reviews/recent-3-days/REVIEW_248_feishu-relay-live-acceptance.md`
+- `ref/reviews/recent-3-days/REVIEW_248_feishu-server-one-click-acceptance.md`
+- `ref/reviews/recent-3-days/REVIEW_249_feishu-relay-live-acceptance.md`
 - `ref/plans/recent-3-days/PLAN_38_feishu-one-click-server.md`

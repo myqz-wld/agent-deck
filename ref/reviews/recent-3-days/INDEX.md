@@ -15,9 +15,10 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-08-14 | `REVIEW_248_feishu-relay-live-acceptance.md` | Feishu Relay deployment and Server CLI live acceptance | 0 CRITICAL / 3 HIGH fixed / 2 MEDIUM fixed |
-| 2026-08-14 | `REVIEW_247_feishu-server-one-click-acceptance.md` | Feishu server connection and sidecar lifecycle | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed / 2 LOW fixed |
-| 2026-08-13 | `REVIEW_246_feishu-p0-surface-cleanup.md` | Dormant product surface removal | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 1 LOW fixed |
+| 2026-08-14 | `REVIEW_249_feishu-relay-live-acceptance.md` | Feishu Relay deployment and Server CLI live acceptance | 0 CRITICAL / 3 HIGH fixed / 2 MEDIUM fixed |
+| 2026-08-14 | `REVIEW_248_feishu-server-one-click-acceptance.md` | Feishu server connection and sidecar lifecycle | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed / 2 LOW fixed |
+| 2026-08-13 | `REVIEW_247_feishu-p0-surface-cleanup.md` | Dormant product surface removal | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 1 LOW fixed |
+| 2026-08-13 | `REVIEW_246_grok-active-plugin-assets.md` | Grok active Plugin asset discovery | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 1 LOW fixed |
 | 2026-08-13 | `REVIEW_245_remote-asset-relay-flow-control.md` | Remote asset Relay flow control and diagnostics | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed / 2 LOW fixed |
 | 2026-08-13 | `REVIEW_244_explicit-ssh-reconnect.md` | Explicit SSH reconnect lifecycle | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed |
 | 2026-08-13 | `REVIEW_243_remote-settings-local-controls.md` | Remote settings ownership and layout | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed |
