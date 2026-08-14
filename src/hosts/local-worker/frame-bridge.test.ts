@@ -132,6 +132,42 @@ describe('local Worker generic Core frame bridge', () => {
     expect(bridge.streamCount()).toBe(0);
   });
 
+  it('fragments Core output above initial credit so returned credit can drain it', () => {
+    const emitted: RelayRouteFrame[] = [];
+    const output: { current: CoreFrameOutput | null } = { current: null };
+    const bridge = new LocalWorkerFrameBridge(
+      'instance-a',
+      3,
+      {
+        open(_streamId, nextOutput) {
+          output.current = nextOutput;
+          return { write: () => true, closeInput: vi.fn(), reset: vi.fn() };
+        },
+      },
+      (frame) => emitted.push(frame),
+      {
+        initialCreditBytes: 4,
+        maxCreditBytes: 4,
+        maxOutputQueueBytesPerStream: 8,
+        maxOutputQueueBytesTotal: 8,
+        maxOutputQueueFramesPerStream: 4,
+        maxOutputQueueFramesTotal: 4,
+        maxFrameBytes: 1024,
+      },
+    );
+    bridge.accept(inbound('fragmented-output', 0, 'open'));
+
+    output.current?.data(new Uint8Array([1, 2, 3, 4, 5, 6]));
+    expect(emitted.filter((frame) => frame.kind === 'data').map((frame) => [...frame.payload]))
+      .toEqual([[1, 2, 3, 4]]);
+    expect(bridge.queuedOutputBytes()).toBe(2);
+
+    bridge.accept(inbound('fragmented-output', 1, 'credit', { creditBytes: 4 }));
+    expect(emitted.filter((frame) => frame.kind === 'data').map((frame) => [...frame.payload]))
+      .toEqual([[1, 2, 3, 4], [5, 6]]);
+    expect(bridge.queuedOutputBytes()).toBe(0);
+  });
+
   it('rejects wrong generation and out-of-order frames before touching Core', () => {
     const write = vi.fn(() => true);
     const bridge = new LocalWorkerFrameBridge(

@@ -51,6 +51,43 @@ function emitHello(
 }
 
 describe('ElectronHostRegistry resilience boundaries', () => {
+  it('does not republish semantically unchanged SSH transport state', async () => {
+    const profile = remoteProfile('relay-state-dedup', 'relay');
+    const client = new ControlledClient(remoteHello(profile));
+    const transportObservers: Array<(state: SshConnectionState) => void> = [];
+    const registry = new ElectronHostRegistry({
+      appVersion: 'desktop-test',
+      createClient: () => ({
+        client,
+        observeTransport(listener) {
+          transportObservers.push(listener);
+          return { close: () => undefined };
+        },
+      }),
+    });
+    registry.register(profile);
+    await registry.connect(profile.id);
+    const observed = vi.fn();
+    registry.onState(observed);
+    const reconnecting: SshConnectionState = {
+      profileId: profile.id,
+      topology: 'relay',
+      status: 'reconnecting',
+      attempt: 1,
+      hello: client.hello,
+      reason: 'SSH bridge exited',
+      errorCode: 'connection_failed',
+    };
+    const observer = transportObservers[0];
+    if (!observer) throw new Error('Missing transport observer');
+
+    observer(reconnecting);
+    expect(observed).toHaveBeenCalledOnce();
+    observer({ ...reconnecting, attempt: 2 });
+    expect(observed).toHaveBeenCalledOnce();
+    await registry.stopAll();
+  });
+
   it('validates HostHello locally and isolates state/selection/event observers', async () => {
     const invalidProfile = standaloneProfile('invalid');
     const invalidRemote = remoteProfile('different', 'server-core');
