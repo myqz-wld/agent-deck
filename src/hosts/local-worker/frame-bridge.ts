@@ -4,6 +4,7 @@ import {
   type RelayResetCode,
   type RelayRouteFrame,
 } from '@protocol/relay';
+import { resolveRelayOutputChunkBytes } from './frame-bridge-chunking';
 
 export interface CoreFrameOutput {
   data(payload: Uint8Array): void;
@@ -57,6 +58,7 @@ interface BridgeStream {
   inputCredit: number;
   inputClosed: boolean;
   outputCredit: number;
+  outputChunkBytes: number;
   outputQueue: Uint8Array[];
   outputQueueBytes: number;
   closePending: boolean;
@@ -201,6 +203,14 @@ export class LocalWorkerFrameBridge {
       inputCredit: this.limits.initialCreditBytes,
       inputClosed: false,
       outputCredit: this.limits.initialCreditBytes,
+      outputChunkBytes: resolveRelayOutputChunkBytes({
+        instanceId: this.instanceId,
+        generation: this.generation,
+        streamId: frame.streamId,
+        initialCreditBytes: this.limits.initialCreditBytes,
+        maxCreditBytes: this.limits.maxCreditBytes,
+        maxFrameBytes: this.limits.maxFrameBytes,
+      }),
       outputQueue: [],
       outputQueueBytes: 0,
       closePending: false,
@@ -240,6 +250,16 @@ export class LocalWorkerFrameBridge {
       this.fail(stream, 'protocol_error');
       return;
     }
+    for (let offset = 0; offset < payload.byteLength; offset += stream.outputChunkBytes) {
+      if (this.streams.get(stream.streamId) !== stream) return;
+      this.bufferCoreChunk(
+        stream,
+        payload.subarray(offset, offset + stream.outputChunkBytes),
+      );
+    }
+  }
+
+  private bufferCoreChunk(stream: BridgeStream, payload: Uint8Array): void {
     if (stream.outputQueue.length === 0 && payload.byteLength <= stream.outputCredit) {
       stream.outputCredit -= payload.byteLength;
       this.emitData(stream, payload);

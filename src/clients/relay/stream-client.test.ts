@@ -313,7 +313,7 @@ describe('Relay client byte-stream bridge', () => {
 });
 
 describe('Relay client -> router -> local Worker integration', () => {
-  it('round-trips ordinary opaque Core frames and forwards cancellation without server compute', () => {
+  it('round-trips opaque Core frames above initial credit and forwards cancellation', () => {
     const metadata = new RelayMetadataStore();
     metadata.put('instances', {
       id: 'instance-a',
@@ -375,12 +375,12 @@ describe('Relay client -> router -> local Worker integration', () => {
         router.routeFromWorker('connection-1', frame, 2);
       },
     );
-    const received: string[] = [];
+    const received: Uint8Array[] = [];
     const clientBridge = new RelayClientFrameBridge('instance-a', 1, (frame) => {
       router.routeFromClient('client-a', frame);
     });
     const stream = clientBridge.open('roundtrip', {
-      data: (payload) => received.push(new TextDecoder().decode(payload)),
+      data: (payload) => received.push(payload.slice()),
       close: vi.fn(),
       reset: vi.fn(),
     });
@@ -397,7 +397,22 @@ describe('Relay client -> router -> local Worker integration', () => {
     pumpToWorker();
     pumpToClient();
     pumpToWorker();
-    expect(received).toEqual(['{"type":"request","opaque":true}']);
+    expect(new TextDecoder().decode(received[0])).toBe('{"type":"request","opaque":true}');
+
+    const largeResponse = new Uint8Array(280 * 1024);
+    for (let index = 0; index < largeResponse.byteLength; index += 1) {
+      largeResponse[index] = index % 251;
+    }
+    const activeCoreOutput = coreOutput as CoreFrameOutput | null;
+    if (!activeCoreOutput) throw new Error('Missing Core output');
+    activeCoreOutput.data(largeResponse);
+    pumpToClient();
+    pumpToWorker();
+    pumpToClient();
+    pumpToWorker();
+    expect(Buffer.concat(received.slice(1).map((payload) => Buffer.from(payload))))
+      .toEqual(Buffer.from(largeResponse));
+    expect(workerBridge.queuedOutputBytes()).toBe(0);
 
     stream.cancel();
     pumpToWorker();

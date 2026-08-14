@@ -191,6 +191,38 @@ export function shouldDropClaudeCanUseToolShadowedNoise(
   return false;
 }
 
+/**
+ * Electron logs every rejected ipcMain.handle call as an error with a full stack. A stale remote
+ * authority is an expected cancellation after a host switch or reconnect; the transport
+ * transition remains independently logged, so keep this framework report in the console only.
+ */
+export function shouldDropExpectedRemoteHostStaleScopeNoise(
+  message: FilterLogMessage,
+): boolean {
+  let hasRemoteHostHandler = false;
+  let hasStaleScopeError = false;
+  for (const item of message.data) {
+    if (
+      typeof item === 'string' &&
+      item.includes("Error occurred in handler for 'remote-host:")
+    ) {
+      hasRemoteHostHandler = true;
+    }
+    if (item && (typeof item === 'object' || typeof item === 'function')) {
+      try {
+        const error = item as { name?: unknown; code?: unknown };
+        if (error.name === 'RemoteHostPublicError' && error.code === 'stale_scope') {
+          hasStaleScopeError = true;
+        }
+      } catch {
+        // Uninspectable diagnostic values pass through.
+      }
+    }
+    if (hasRemoteHostHandler && hasStaleScopeError) return true;
+  }
+  return false;
+}
+
 const webFrameMainDisposedNoiseHook = (
   message: FilterLogMessage,
   _transport: unknown,
@@ -233,6 +265,27 @@ export function installClaudeCanUseToolShadowedFileFilter(): void {
 }
 
 installClaudeCanUseToolShadowedFileFilter();
+
+const expectedRemoteHostStaleScopeNoiseHook = (
+  message: FilterLogMessage,
+  _transport: unknown,
+  transportName?: string,
+): FilterLogMessage | false => {
+  if (transportName !== 'file') return message;
+  return shouldDropExpectedRemoteHostStaleScopeNoise(message) ? false : message;
+};
+
+export function installExpectedRemoteHostStaleScopeFileFilter(): void {
+  const hooks = log.hooks as unknown as ((
+    m: FilterLogMessage,
+    t: unknown,
+    n?: string,
+  ) => FilterLogMessage | false)[];
+  if (hooks.includes(expectedRemoteHostStaleScopeNoiseHook)) return;
+  hooks.push(expectedRemoteHostStaleScopeNoiseHook);
+}
+
+installExpectedRemoteHostStaleScopeFileFilter();
 
 // Keep persisted logs and the development console on the same redaction boundary. The hook is
 // intentionally installed after the narrow noise filters so those filters still inspect the native
