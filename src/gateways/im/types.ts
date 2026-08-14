@@ -116,6 +116,29 @@ export interface DeliveryClaim {
   state: 'claimed' | 'duplicate' | 'exhausted' | 'in-progress' | 'reconciliation-required';
 }
 
+export interface FeishuSessionDeleteConfirmation {
+  instanceId: string;
+  confirmationId: string;
+  tokenHash: string;
+  credentialId: string;
+  chatId: string;
+  openId: string;
+  sessionId: string;
+  expectedArchived: boolean;
+  expectedUpdatedAt: number;
+  status: 'pending' | 'executing' | 'completed' | 'expired';
+  claimEventId: string | null;
+  claimExpiresAt: number | null;
+  expiresAt: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface FeishuSessionDeleteClaim {
+  record: FeishuSessionDeleteConfirmation | null;
+  state: 'claimed' | 'completed' | 'expired' | 'in-progress' | 'invalid';
+}
+
 /** Metadata only. Implementations must never persist business payloads or rendered bodies. */
 export interface FeishuGatewayStore {
   resolveCredential(subject: FeishuStableSubject): EnrolledFeishuCredential | null;
@@ -184,6 +207,36 @@ export interface FeishuGatewayStore {
   ): boolean;
   getCursor(instanceId: string, credentialId: string, chatId: string): FeishuCursorRecord | null;
   putCursor(cursor: FeishuCursorRecord): void;
+  createDeleteConfirmation(
+    confirmation: FeishuSessionDeleteConfirmation,
+  ): FeishuSessionDeleteConfirmation;
+  claimDeleteConfirmation(input: {
+    instanceId: string;
+    credentialId: string;
+    chatId: string;
+    openId: string;
+    tokenHash: string;
+    eventId: string;
+    now: number;
+    claimLifetimeMs: number;
+  }): FeishuSessionDeleteClaim;
+  releaseDeleteConfirmation(
+    instanceId: string,
+    confirmationId: string,
+    eventId: string,
+    updatedAt: number,
+  ): boolean;
+  completeDeleteConfirmation(
+    instanceId: string,
+    confirmationId: string,
+    eventId: string,
+    updatedAt: number,
+  ): boolean;
+  getDeleteConfirmation(
+    instanceId: string,
+    confirmationId: string,
+  ): FeishuSessionDeleteConfirmation | null;
+  pruneDeleteConfirmations(terminalBefore: number, now: number): number;
   /** Deletes only old terminal delivery metadata; pending/reconciling evidence is retained. */
   pruneDeliveries(terminalBefore: number): number;
 }

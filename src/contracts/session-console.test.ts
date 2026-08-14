@@ -16,6 +16,7 @@ const session = {
   adapterId: 'codex-cli',
   title: 'Session',
   status: 'idle',
+  archived: false,
   createdAt: 1,
   updatedAt: 2,
 };

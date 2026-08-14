@@ -30,8 +30,9 @@ import {
   type FeishuDeliveryAttemptContext,
   type FeishuPendingAction,
   type FeishuTransportPort,
-  type PendingActionNoncePort,
 } from '..';
+import { testNonce } from './nonce-fixture';
+export { testNonce } from './nonce-fixture';
 
 export const credential: EnrolledFeishuCredential = {
   appId: 'app-1',
@@ -196,6 +197,11 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
         this.sessions.set(id, session(id, params.adapterId as string, params.cwd as string));
         return { sessionId: id, revision: ++this.revision };
       }
+      case 'session.delete': {
+        const sessionId = params.sessionId as string;
+        this.sessions.delete(sessionId);
+        return { sessionId, state: 'deleted', revision: ++this.revision };
+      }
       case 'session.history': {
         const entries = this.histories.get(params.sessionId as string) ?? [];
         const limit = typeof params.limit === 'number' ? params.limit : entries.length;
@@ -310,33 +316,6 @@ export class FakeTransport implements FeishuTransportPort {
   }
 }
 
-function hash(value: string): string {
-  let result = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    result = Math.imul(result ^ value.charCodeAt(index), 16777619);
-  }
-  return (result >>> 0).toString(36);
-}
-
-function nonceValue(binding: Parameters<PendingActionNoncePort['issue']>[0]): string {
-  return JSON.stringify([
-    binding.instanceId,
-    binding.credentialId,
-    binding.chatId,
-    binding.chatType,
-    binding.sessionId,
-    binding.requestId,
-    binding.revision,
-    binding.contentDigest,
-    binding.action,
-  ]);
-}
-
-export const testNonce: PendingActionNoncePort = {
-  issue: (binding) => `nonce-${hash(nonceValue(binding))}`,
-  verify: (binding, nonce) => nonce === `nonce-${hash(nonceValue(binding))}`,
-};
-
 export function session(
   id: string,
   adapterId = 'codex-cli',
@@ -359,6 +338,7 @@ export function sessionSummary(value: SessionListItemDto): SessionConsoleSummary
     adapterId: value.adapterId,
     title: value.title,
     status: value.status,
+    archived: false,
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
   };

@@ -6,7 +6,12 @@ import {
 } from '@gateways/im';
 import { mapFeishuCardActionEvent, mapFeishuMessageEvent, type FeishuEventMapperOptions } from './mapper';
 import { FeishuSourceRegistry } from './source-registry';
-import type { FeishuAuditBundle, FeishuSdkEventHandlers, MappedFeishuEvent } from './types';
+import type {
+  FeishuAuditBundle,
+  FeishuPairingEventPort,
+  FeishuSdkEventHandlers,
+  MappedFeishuEvent,
+} from './types';
 
 const SAFE_REJECTION: FeishuCallbackResult = {
   acknowledged: true,
@@ -21,6 +26,7 @@ export class FeishuSdkEventAdapter implements FeishuSdkEventHandlers {
     private readonly mapper: FeishuEventMapperOptions,
     private readonly sources: FeishuSourceRegistry,
     private readonly audit: FeishuAuditBundle,
+    private readonly pairing?: FeishuPairingEventPort,
   ) {}
 
   async onMessage(raw: unknown): Promise<void> {
@@ -67,7 +73,13 @@ export class FeishuSdkEventAdapter implements FeishuSdkEventHandlers {
       return this.reject(String(classified.code));
     }
     try {
-      return await this.sources.within(mapped.source, () => this.gateway.handle(mapped.event));
+      return await this.sources.within(mapped.source, async () => {
+        if (mapped.event.kind === 'message') {
+          const paired = await this.pairing?.handle(mapped.event);
+          if (paired) return paired;
+        }
+        return this.gateway.handle(mapped.event);
+      });
     } catch (error) {
       const classified = classifyGatewayError(error);
       if (classified.retryable) {

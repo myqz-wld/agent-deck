@@ -1,3 +1,4 @@
+import type { JsonValue } from '@contracts/index';
 import {
   DEFAULT_GATEWAY_CLOCK,
   FeishuGatewayError,
@@ -6,6 +7,7 @@ import {
   type FeishuGatewayBinding,
   type FeishuGatewayClock,
 } from '@gateways/im';
+import { boundedFeishuOperation } from './bounded-operation';
 import { createFeishuAuditBundle } from './audit';
 import {
   feishuDatabasePath,
@@ -16,6 +18,8 @@ import { FeishuSdkEventAdapter } from './event-adapter';
 import { FeishuLongConnection } from './long-connection';
 import { HmacPendingActionNonce } from './nonce';
 import type { FeishuActionSecretDisposalPort } from './nonce';
+import { FeishuPairingEventHandler } from './pairing-event-handler';
+import { createFeishuCoreProbe } from './core-verification';
 import { createOfficialFeishuConnectionFactory, createOfficialFeishuOpenApi } from './sdk';
 import { FeishuSourceRegistry } from './source-registry';
 import { SqliteFeishuGatewayStore } from './sqlite-store';
@@ -28,7 +32,10 @@ import type {
   FeishuRuntimeFactoryOptions,
 } from './types';
 
-type Timer = ReturnType<FeishuGatewayClock['setTimer']>;
+type CoreVerificationState = Readonly<{
+  state: 'connected' | 'failed' | 'unverified';
+  verifiedAt: number | null;
+}>;
 type ShutdownFailureCode =
   | 'action-secret-disposal-failed'
   | 'connection-close-failed'
@@ -49,22 +56,6 @@ export class FeishuProductionRuntimeShutdownError extends AggregateError {
   }
 }
 
-function bounded<T>(
-  promise: Promise<T>,
-  clock: FeishuGatewayClock,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timer: Timer | null = null;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timer = clock.setTimer(
-      () => reject(new FeishuGatewayError('lifecycle_failed', message, true)),
-      timeoutMs,
-    );
-  });
-  return Promise.race([promise, deadline]).finally(() => timer?.cancel());
-}
-
 export class FeishuProductionRuntime implements FeishuGatewayRuntimePort {
   private state: 'idle' | 'starting' | 'running' | 'closing' | 'closed' = 'idle';
   private startPromise: Promise<void> | null = null;
@@ -80,8 +71,14 @@ export class FeishuProductionRuntime implements FeishuGatewayRuntimePort {
     private readonly clock: FeishuGatewayClock,
     private readonly startupTimeoutMs: number,
     private readonly shutdownTimeoutMs: number,
+    private readonly coreProbe: () => Promise<JsonValue>,
     private readonly reportFatal: (code: string) => void,
   ) {}
+
+  private coreVerification: CoreVerificationState = Object.freeze({
+    state: 'unverified',
+    verifiedAt: null,
+  });
 
   start(): Promise<void> {
     if (this.state === 'starting' || this.state === 'running') {
@@ -104,7 +101,7 @@ export class FeishuProductionRuntime implements FeishuGatewayRuntimePort {
 
   private async startOpen(): Promise<void> {
     try {
-      await bounded(
+      await boundedFeishuOperation(
         this.gateway.start(),
         this.clock,
         this.startupTimeoutMs,
@@ -160,7 +157,7 @@ export class FeishuProductionRuntime implements FeishuGatewayRuntimePort {
           },
         );
       try {
-        await bounded(
+        await boundedFeishuOperation(
           gatewayClose,
           this.clock,
           this.shutdownTimeoutMs,
@@ -218,6 +215,29 @@ export class FeishuProductionRuntime implements FeishuGatewayRuntimePort {
   fatal(code: string): void {
     this.report(code);
     void this.close().catch(() => this.report('fatal-cleanup-failed'));
+  }
+
+  managementTarget(): SqliteFeishuGatewayStore {
+    return this.store;
+  }
+
+  coreStatus(): JsonValue {
+    return { ...this.coreVerification };
+  }
+
+  async verifyCore(): Promise<JsonValue> {
+    if (this.state !== 'running') {
+      throw new FeishuGatewayError('gateway_closed', 'Feishu runtime is not open');
+    }
+    try {
+      const result = await this.coreProbe();
+      const verifiedAt = this.clock.now();
+      this.coreVerification = Object.freeze({ state: 'connected', verifiedAt });
+      return { ...result as Record<string, JsonValue>, state: 'connected', verifiedAt };
+    } catch (error) {
+      this.coreVerification = Object.freeze({ state: 'failed', verifiedAt: this.clock.now() });
+      throw error;
+    }
   }
 
   private report(code: string): void {
@@ -279,6 +299,14 @@ function buildWithSecrets(
       defaultLifetimeMs: config.pendingPresentationLifetimeMs,
     });
     const transport = new OfficialFeishuTransport(binding, api, sources, nonce);
+    const pairing = new FeishuPairingEventHandler(
+      store,
+      transport,
+      binding,
+      clock,
+      audit,
+      config.callbackWindowMs,
+    );
     const gateway = new FeishuSessionConsoleGateway({
       appVersion: options.appVersion,
       binding,
@@ -297,6 +325,7 @@ function buildWithSecrets(
       { appId: config.appId, tenantKey: config.tenantKey, now: () => clock.now() },
       sources,
       audit,
+      pairing,
     );
     let runtime: FeishuProductionRuntime | null = null;
     const connection = new FeishuLongConnection({
@@ -325,6 +354,7 @@ function buildWithSecrets(
       clock,
       config.startupTimeoutMs,
       config.shutdownTimeoutMs,
+      createFeishuCoreProbe(config, options, clock),
       options.onFatal ?? (() => undefined),
     );
     return runtime;

@@ -299,35 +299,40 @@ function replaceExpected(current: TrustedTextFile, next: string): void {
 
 export function commitManagedTextTransaction(input: {
   readonly mutations: readonly CredentialIssueMutation[];
-  readonly output?: PrivateTextOutput;
+  readonly outputs?: readonly PrivateTextOutput[];
 }): void {
   if (input.mutations.length === 0) throw new Error('managed transaction requires a mutation');
   const paths = input.mutations.map((mutation) => mutation.current.path);
   if (new Set(paths).size !== paths.length) {
     throw new Error('managed transaction contains duplicate targets');
   }
-  if (input.output) {
-    requireAbsolutePath(input.output.path, 'output');
-    const outputParent = dirname(input.output.path);
+  const outputs = input.outputs ?? [];
+  if (new Set([...paths, ...outputs.map((output) => output.path)]).size !==
+    paths.length + outputs.length) {
+    throw new Error('managed transaction contains duplicate targets');
+  }
+  for (const output of outputs) {
+    requireAbsolutePath(output.path, 'output');
+    const outputParent = dirname(output.path);
     if (
       realpathSync(outputParent) !== outputParent ||
-      statSync(input.output.path, { throwIfNoEntry: false }) !== undefined
+      statSync(output.path, { throwIfNoEntry: false }) !== undefined
     ) {
       throw new Error('connection credential output path is not a new canonical file');
     }
     if (
-      input.output.mode !== 0o600 ||
-      (input.output.uid === undefined) !== (input.output.gid === undefined) ||
-      (input.output.uid !== undefined && (
-        !Number.isSafeInteger(input.output.uid) || input.output.uid < 0 ||
-        !Number.isSafeInteger(input.output.gid) || (input.output.gid as number) < 0
+      output.mode !== 0o600 ||
+      (output.uid === undefined) !== (output.gid === undefined) ||
+      (output.uid !== undefined && (
+        !Number.isSafeInteger(output.uid) || output.uid < 0 ||
+        !Number.isSafeInteger(output.gid) || (output.gid as number) < 0
       ))
     ) {
       throw new Error('private output owner or mode is invalid');
     }
   }
   const committed: CredentialIssueMutation[] = [];
-  let outputCreated = false;
+  const createdOutputs: PrivateTextOutput[] = [];
   try {
     for (const mutation of input.mutations) {
       try {
@@ -342,24 +347,24 @@ export function commitManagedTextTransaction(input: {
         throw error;
       }
     }
-    if (input.output) {
+    for (const output of outputs) {
       writeBytesExclusive(
-        input.output.path,
-        input.output.text,
-        input.output.mode,
-        input.output.uid === undefined
+        output.path,
+        output.text,
+        output.mode,
+        output.uid === undefined
           ? undefined
-          : { uid: input.output.uid, gid: input.output.gid as number },
+          : { uid: output.uid, gid: output.gid as number },
       );
-      outputCreated = true;
-      syncDirectory(dirname(input.output.path));
+      createdOutputs.push(output);
+      syncDirectory(dirname(output.path));
     }
   } catch (error) {
     let rollbackFailure: unknown = null;
-    if (outputCreated && input.output) {
+    for (const output of createdOutputs.reverse()) {
       try {
-        unlinkSync(input.output.path);
-        syncDirectory(dirname(input.output.path));
+        unlinkSync(output.path);
+        syncDirectory(dirname(output.path));
       } catch (rollbackError) {
         rollbackFailure ??= rollbackError;
       }
@@ -390,10 +395,10 @@ export function commitRemoteConnectionIssue(input: {
 }): void {
   commitManagedTextTransaction({
     mutations: input.mutations,
-    output: {
+    outputs: [{
       path: input.outputFile,
       text: input.encodedCredential,
       mode: 0o600,
-    },
+    }],
   });
 }

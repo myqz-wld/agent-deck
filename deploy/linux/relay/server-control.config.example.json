@@ -1,5 +1,6 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "appVersion": "0.1.0",
   "instanceId": "instance-a",
   "topology": "relay",
   "authorityFile": "/var/lib/agent-deck/.config/agent-deck-relay/instance-a/config.json",

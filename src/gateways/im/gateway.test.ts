@@ -312,6 +312,55 @@ describe('authoritative pending actions', () => {
   });
 });
 
+describe('confirmed session deletion', () => {
+  it('requires a p2p preview token and deletes once with a stable confirmation id', async () => {
+    const { gateway, clients, transport, store } = setup();
+    await select(gateway);
+    await gateway.handle(messageEvent('subscribe-before-delete', '/subscribe'));
+    await gateway.handle(messageEvent('delete-preview', '/delete'));
+    const preview = transport.messages.at(-1)?.text ?? '';
+    const token = preview.match(/\/delete-confirm ([A-Za-z0-9_-]{32})/)?.[1];
+    expect(token).toBeTruthy();
+    expect(preview).toContain('即将永久删除 session session-1');
+    expect(preview).toContain('标题：Title session-1');
+    expect(onlyClient(clients).calls.filter((call) => call.method === 'session.delete'))
+      .toHaveLength(0);
+    expect(store.exportMetadataSnapshot()).not.toContain(token);
+
+    const wrong = await gateway.handle(
+      messageEvent('delete-wrong', `/delete-confirm ${'A'.repeat(32)}`),
+    );
+    expect(wrong.code).toBe('invalid_confirmation');
+    expect(onlyClient(clients).calls.filter((call) => call.method === 'session.delete'))
+      .toHaveLength(0);
+
+    await gateway.handle(messageEvent('delete-confirmed', `/delete-confirm ${token}`));
+    const calls = onlyClient(clients).calls.filter((call) => call.method === 'session.delete');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      params: { sessionId: 'session-1', expectedArchived: false, expectedUpdatedAt: 2 },
+      options: { idempotencyKey: expect.stringMatching(/^feishu:delete:/) },
+    });
+    expect(store.getContext('instance-1', 'credential-1', 'chat-1'))
+      .toMatchObject({ activeSessionId: null });
+    expect(store.listSubscriptions('instance-1', 'credential-1', 'chat-1')).toEqual([]);
+
+    await gateway.handle(messageEvent('delete-confirmed-again', `/delete-confirm ${token}`));
+    expect(onlyClient(clients).calls.filter((call) => call.method === 'session.delete'))
+      .toHaveLength(1);
+  });
+
+  it('never offers or accepts deletion confirmation in a group chat', async () => {
+    const { gateway, clients } = setup();
+    await select(gateway, 'session-1', 'select-group', 'group-chat');
+    expect((await gateway.handle(messageEvent('delete-group', '/delete', {
+      chatId: 'group-chat', chatType: 'group',
+    }))).code).toBe('access_denied');
+    expect(onlyClient(clients).calls.filter((call) => call.method === 'session.delete'))
+      .toHaveLength(0);
+  });
+});
+
 describe('delivery/restart and Relay offline behavior', () => {
   it('reuses the persisted event ledger after restart without storing the message body', async () => {
     const first = setup();

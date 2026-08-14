@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "topology": "relay",
   "instanceId": "replace-with-authoritative-instance-id",
   "appId": "cli_0000000000000000",
@@ -7,11 +7,13 @@
   "stateDirectory": "/var/lib/agent-deck-feishu",
   "appSecretFile": "/etc/agent-deck-feishu/app-secret",
   "actionSecretFile": "/etc/agent-deck-feishu/action-secret",
+  "managementSocketPath": "/run/agent-deck-feishu/control.sock",
   "credentials": [
     {
-      "openId": "ou_replace_with_stable_open_id",
+      "openId": null,
       "credentialId": "replace-with-core-credential-id",
       "connectionScope": "replace-with-connection-scope-from-server",
+      "replacesCredentialId": null,
       "status": "active"
     }
   ],

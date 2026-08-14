@@ -123,6 +123,7 @@ function summary(record: SessionRecord): SessionConsoleSummaryDto {
     adapterId: record.agentId,
     title: record.title || null,
     status: `${record.lifecycle}-${record.activity}`,
+    archived: record.archivedAt !== null,
     createdAt: record.startedAt,
     updatedAt: record.lastEventAt,
   });

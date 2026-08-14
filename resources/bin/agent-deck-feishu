@@ -21,14 +21,44 @@ verify_root_owned() {
   (( (8#$mode & 8#022) == 0 )) || fail
 }
 
-for directory in /opt /opt/agent-deck /opt/agent-deck/bin /opt/agent-deck/linux-headless /opt/agent-deck/linux-headless/feishu; do
+for directory in \
+  /opt \
+  /opt/agent-deck \
+  /opt/agent-deck/bin \
+  /opt/agent-deck/feishu-runtime \
+  /opt/agent-deck/feishu-runtime/releases; do
   verify_root_owned "$directory" directory
 done
 verify_root_owned /opt/agent-deck/bin/agent-deck-feishu file
-verify_root_owned /usr/bin/node file
 verify_root_owned /usr/bin/ssh file
-verify_root_owned /opt/agent-deck/linux-headless/feishu/index.mjs file
+verify_root_owned /opt/agent-deck/feishu-runtime/active file
+
+mapfile -t active_lines < /opt/agent-deck/feishu-runtime/active
+[[ ${#active_lines[@]} == 1 ]] || fail
+runtime_digest=${active_lines[0]}
+[[ "$runtime_digest" =~ ^[a-f0-9]{64}$ ]] || fail
+runtime_root="/opt/agent-deck/feishu-runtime/releases/$runtime_digest"
+verify_root_owned "$runtime_root" directory
+
+while IFS= read -r -d '' path; do
+  if [[ -d "$path" ]]; then
+    verify_root_owned "$path" directory
+  elif [[ -f "$path" ]]; then
+    verify_root_owned "$path" file
+  else
+    fail
+  fi
+done < <(/usr/bin/find "$runtime_root" -xdev -print0)
+
+verify_root_owned "$runtime_root/bin/node" file
+verify_root_owned "$runtime_root/app/index.mjs" file
+verify_root_owned "$runtime_root/runtime.json" file
+verify_root_owned "$runtime_root/SHA256SUMS" file
+(
+  cd "$runtime_root"
+  /usr/bin/sha256sum --check --strict SHA256SUMS >/dev/null
+) || fail
 
 exec /usr/bin/env -i \
   HOME=/var/lib/agent-deck-feishu PATH=/usr/bin:/bin LANG=C LC_ALL=C NODE_ENV=production \
-  /usr/bin/node /opt/agent-deck/linux-headless/feishu/index.mjs "$@"
+  "$runtime_root/bin/node" "$runtime_root/app/index.mjs" "$@"

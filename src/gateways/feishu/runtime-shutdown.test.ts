@@ -89,6 +89,7 @@ function runtimeFixture(input: {
     clock,
     100,
     50,
+    async () => ({ state: 'connected' }),
     fatal,
   );
   return { actionSecret, connection, events, fakeConnection, fatal, gateway, runtime, store };

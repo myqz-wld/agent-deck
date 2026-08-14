@@ -50,6 +50,7 @@ check_file "$core_config_path"
 
 mapfile -t protected_paths < <(/usr/bin/node - "$config_path" "$core_config_path" <<'NODE'
 const fs = require('node:fs');
+const path = require('node:path');
 const [gateway, core] = process.argv.slice(2).map((path) =>
   JSON.parse(fs.readFileSync(path, 'utf8')));
 const active = gateway.credentials
@@ -60,12 +61,18 @@ const identities = core.credentials
   ?.map((credential) => credential?.credentialId)
   .sort();
 if (
+  gateway.schemaVersion !== 3 ||
+  gateway.stateDirectory !== '/var/lib/agent-deck-feishu' ||
+  gateway.appSecretFile !== '/etc/agent-deck-feishu/app-secret' ||
+  gateway.actionSecretFile !== '/etc/agent-deck-feishu/action-secret' ||
+  gateway.managementSocketPath !== '/run/agent-deck-feishu/control.sock' ||
   gateway.instanceId !== core.instanceId || gateway.topology !== core.topology ||
   !Array.isArray(active) || !Array.isArray(identities) ||
   JSON.stringify(active) !== JSON.stringify(identities)
 ) process.exit(2);
 const paths = [
   gateway.stateDirectory,
+  path.dirname(gateway.managementSocketPath),
   gateway.appSecretFile,
   gateway.actionSecretFile,
   core.knownHostsFile,
@@ -80,9 +87,10 @@ process.stdout.write(paths.join('\n'));
 NODE
 )
 path_count=${#protected_paths[@]}
-(( path_count >= 6 )) || fail
+(( path_count >= 7 )) || fail
 check_directory "${protected_paths[0]}"
-for ((index = 1; index < path_count - 1; index += 1)); do
+check_directory "${protected_paths[1]}"
+for ((index = 2; index < path_count - 1; index += 1)); do
   check_file "${protected_paths[$index]}"
 done
 /usr/bin/getent ahosts "${protected_paths[$((path_count - 1))]}" >/dev/null || fail

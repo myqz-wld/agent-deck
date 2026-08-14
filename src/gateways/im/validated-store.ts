@@ -8,6 +8,8 @@ import type {
   FeishuGatewayBinding,
   FeishuGatewayLimits,
   FeishuGatewayStore,
+  FeishuSessionDeleteClaim,
+  FeishuSessionDeleteConfirmation,
   FeishuStableSubject,
   FeishuSubscriptionRecord,
 } from './types';
@@ -139,6 +141,57 @@ function validClaimState(state: DeliveryClaim['state'], record: FeishuDeliveryRe
 function boolean(value: unknown): boolean {
   if (typeof value !== 'boolean') fail();
   return value;
+}
+
+function deleteConfirmation(value: unknown): FeishuSessionDeleteConfirmation {
+  exact(value, [
+    'chatId', 'claimEventId', 'claimExpiresAt', 'confirmationId', 'createdAt', 'credentialId',
+    'expectedArchived', 'expectedUpdatedAt', 'expiresAt', 'instanceId', 'openId', 'sessionId',
+    'status', 'tokenHash', 'updatedAt',
+  ]);
+  if (
+    !['completed', 'executing', 'expired', 'pending'].includes(String(value.status)) ||
+    typeof value.expectedArchived !== 'boolean' ||
+    typeof value.tokenHash !== 'string' || !/^[0-9a-f]{64}$/u.test(value.tokenHash)
+  ) fail();
+  const result = {
+    instanceId: token(value.instanceId), confirmationId: token(value.confirmationId),
+    tokenHash: value.tokenHash, credentialId: token(value.credentialId),
+    chatId: token(value.chatId), openId: token(value.openId), sessionId: token(value.sessionId),
+    expectedArchived: value.expectedArchived, expectedUpdatedAt: integer(value.expectedUpdatedAt),
+    status: value.status as FeishuSessionDeleteConfirmation['status'],
+    claimEventId: value.claimEventId === null ? null : token(value.claimEventId),
+    claimExpiresAt: value.claimExpiresAt === null ? null : integer(value.claimExpiresAt),
+    expiresAt: integer(value.expiresAt), createdAt: integer(value.createdAt),
+    updatedAt: integer(value.updatedAt),
+  };
+  if (
+    result.expiresAt <= result.createdAt || result.updatedAt < result.createdAt ||
+    (result.status === 'executing') !==
+      (result.claimEventId !== null && result.claimExpiresAt !== null) ||
+    (result.status !== 'executing' && result.status !== 'completed' &&
+      (result.claimEventId !== null || result.claimExpiresAt !== null)) ||
+    (result.status === 'completed' &&
+      (result.claimEventId === null || result.claimExpiresAt !== null))
+  ) fail();
+  return result;
+}
+
+function deleteClaim(value: unknown): FeishuSessionDeleteClaim {
+  exact(value, ['record', 'state']);
+  if (!['claimed', 'completed', 'expired', 'in-progress', 'invalid'].includes(String(value.state))) {
+    fail();
+  }
+  const state = value.state as FeishuSessionDeleteClaim['state'];
+  const record = value.record === null ? null : deleteConfirmation(value.record);
+  if ((state === 'invalid') !== (record === null)) fail();
+  if (
+    (state === 'claimed' && record?.status !== 'executing') ||
+    (state === 'completed' && record?.status !== 'completed') ||
+    (state === 'expired' && record?.status !== 'expired') ||
+    (state === 'in-progress' && record?.status !== 'executing')
+  ) fail();
+  return { state, record };
 }
 
 /** Treats every metadata-store read as untrusted and bounds persisted cardinality. */
@@ -317,6 +370,45 @@ export class ValidatedFeishuGatewayStore implements FeishuGatewayStore {
     const valid = cursor(value);
     if (valid.instanceId !== this.binding.instanceId) fail();
     this.raw.putCursor(valid);
+  }
+  createDeleteConfirmation(value: FeishuSessionDeleteConfirmation) {
+    const valid = deleteConfirmation(value);
+    if (valid.instanceId !== this.binding.instanceId || valid.status !== 'pending') fail();
+    const stored = deleteConfirmation(this.raw.createDeleteConfirmation(valid));
+    if (stored.confirmationId !== valid.confirmationId) fail();
+    return stored;
+  }
+  claimDeleteConfirmation(input: Parameters<FeishuGatewayStore['claimDeleteConfirmation']>[0]) {
+    token(input.instanceId); token(input.credentialId); token(input.chatId); token(input.openId);
+    token(input.eventId); integer(input.now); integer(input.claimLifetimeMs, true);
+    if (!/^[0-9a-f]{64}$/u.test(input.tokenHash) || input.instanceId !== this.binding.instanceId) fail();
+    const claim = deleteClaim(this.raw.claimDeleteConfirmation(input));
+    if (claim.record && (
+      claim.record.instanceId !== input.instanceId ||
+      claim.record.credentialId !== input.credentialId ||
+      claim.record.chatId !== input.chatId || claim.record.openId !== input.openId
+    )) fail();
+    return claim;
+  }
+  releaseDeleteConfirmation(i: string, c: string, e: string, at: number) {
+    token(i); token(c); token(e); integer(at);
+    return boolean(this.raw.releaseDeleteConfirmation(i, c, e, at));
+  }
+  completeDeleteConfirmation(i: string, c: string, e: string, at: number) {
+    token(i); token(c); token(e); integer(at);
+    return boolean(this.raw.completeDeleteConfirmation(i, c, e, at));
+  }
+  getDeleteConfirmation(i: string, c: string) {
+    token(i); token(c);
+    const value = this.raw.getDeleteConfirmation(i, c);
+    if (value === null) return null;
+    const valid = deleteConfirmation(value);
+    if (valid.instanceId !== i || valid.confirmationId !== c) fail();
+    return valid;
+  }
+  pruneDeleteConfirmations(before: number, now: number): number {
+    integer(before); integer(now);
+    return integer(this.raw.pruneDeleteConfirmations(before, now));
   }
   pruneDeliveries(terminalBefore: number): number {
     integer(terminalBefore);

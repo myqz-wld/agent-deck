@@ -10,10 +10,12 @@ import {
   parseSessionConsoleCreateResult,
   parseSessionConsoleGetResult,
   parseSessionConsoleListResult,
+  parseSessionHistoryMutationResult,
   type ProjectListResult,
   type ProjectResolveResult,
   type SessionConsoleCapabilitiesResult,
   type SessionHistoryEntryDto,
+  type SessionHistoryMutationResult,
   type SessionConsoleCreateResult,
   type SessionConsoleGetResult,
   type SessionConsoleListResult,
@@ -134,6 +136,15 @@ export function validateSessionConsoleCreateResult(
 ): SessionConsoleCreateResult {
   return contractResult(value, limits, 'session-console create', () =>
     parseSessionConsoleCreateResult(value));
+}
+
+export function validateSessionDeleteResult(
+  value: unknown,
+  expectedSessionId: string,
+  limits: FeishuGatewayLimits,
+): SessionHistoryMutationResult {
+  return contractResult(value, limits, 'session delete', () =>
+    parseSessionHistoryMutationResult(value, expectedSessionId, 'deleted'));
 }
 
 export function validateSessionConsoleCapabilitiesResult(

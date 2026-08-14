@@ -6,20 +6,22 @@ import type {
   FeishuGatewayClock,
   FeishuGatewayObserver,
   FeishuInboundEvent,
+  FeishuMessageEvent,
 } from '@gateways/im';
 
 export type FeishuProductionTopology = 'relay' | 'full';
 
 export interface FeishuConfiguredCredential {
-  openId: string;
+  openId: string | null;
   credentialId: string;
   connectionScope: string;
+  replacesCredentialId: string | null;
   status: 'active' | 'revoked';
 }
 
 /** Secret-free, bounded production configuration. */
 export interface FeishuProductionConfig {
-  schemaVersion: 2;
+  schemaVersion: 3;
   topology: FeishuProductionTopology;
   instanceId: string;
   appId: string;
@@ -27,6 +29,7 @@ export interface FeishuProductionConfig {
   stateDirectory: string;
   appSecretFile: string;
   actionSecretFile: string;
+  managementSocketPath: string;
   credentials: readonly FeishuConfiguredCredential[];
   callbackWindowMs: number;
   pendingPresentationLifetimeMs: number;
@@ -35,6 +38,71 @@ export interface FeishuProductionConfig {
   shutdownTimeoutMs: number;
   handshakeTimeoutMs: number;
   pingTimeoutSeconds: number;
+}
+
+export interface FeishuPairingCodeRecord {
+  instanceId: string;
+  codeId: string;
+  codeHash: string;
+  status: 'active' | 'consumed' | 'expired';
+  expiresAt: number;
+  createdAt: number;
+  consumedAt: number | null;
+  consumedEventId: string | null;
+}
+
+export interface FeishuPairingRequestRecord {
+  instanceId: string;
+  requestId: string;
+  codeId: string;
+  appId: string;
+  tenantKey: string;
+  openId: string;
+  chatId: string;
+  displayName: string | null;
+  status: 'pending' | 'approved' | 'expired' | 'rejected';
+  credentialId: string | null;
+  expiresAt: number;
+  createdAt: number;
+  decidedAt: number | null;
+}
+
+export interface FeishuPairingConsumeResult {
+  state: 'accepted' | 'already-paired' | 'duplicate' | 'expired' | 'invalid';
+  request: FeishuPairingRequestRecord | null;
+}
+
+export interface FeishuPairingDecisionResult {
+  state: 'already-decided' | 'approved' | 'expired' | 'not-found' | 'rejected';
+  request: FeishuPairingRequestRecord | null;
+}
+
+export interface FeishuPairingStore {
+  createPairingCode(record: FeishuPairingCodeRecord): FeishuPairingCodeRecord;
+  consumePairingCode(input: {
+    instanceId: string;
+    appId: string;
+    tenantKey: string;
+    openId: string;
+    chatId: string;
+    displayName: string | null;
+    eventId: string;
+    codeHash: string;
+    requestId: string;
+    now: number;
+  }): FeishuPairingConsumeResult;
+  listPairingRequests(status?: FeishuPairingRequestRecord['status']):
+    readonly FeishuPairingRequestRecord[];
+  decidePairingRequest(
+    requestId: string,
+    decision: 'approve' | 'reject',
+    now: number,
+  ): FeishuPairingDecisionResult;
+  prunePairingMetadata(terminalBefore: number, now: number): number;
+}
+
+export interface FeishuPairingEventPort {
+  handle(event: FeishuMessageEvent): Promise<FeishuCallbackResult | null>;
 }
 
 export interface FeishuProviderSource {

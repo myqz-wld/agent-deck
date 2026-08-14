@@ -283,11 +283,13 @@ for required in \
     exit 1
   }
 done
-grep -Fq "argv[0] !== 'connections'" \
-  "$relay_dir/../../../src/hosts/server-control/entrypoint.ts" || {
-  echo 'relay static check: unified Server connection CLI is missing' >&2
-  exit 1
-}
+for family in connections feishu; do
+  grep -Fq "argv[0] === '$family'" \
+    "$relay_dir/../../../src/hosts/server-control/entrypoint.ts" || {
+    echo "relay static check: unified Server $family CLI is missing" >&2
+    exit 1
+  }
+done
 grep -Fq "if (command === 'issue-worker-connection')" \
   "$relay_dir/../../../src/hosts/relay/entrypoint.ts" || {
   echo 'relay static check: Relay entrypoint lost one-shot Worker issuance' >&2

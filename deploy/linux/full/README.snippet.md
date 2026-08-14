@@ -160,6 +160,12 @@ Transfer that single `.agentdeck-connection` file to the desktop over an authent
 channel, import it in Agent Deck, then delete the transfer copy. Do not reuse one credential across
 devices; revocation remains exact per credential id and desktop surface.
 
+The same installed Server CLI owns the independent Feishu sidecar beside Full Server. Follow
+`/opt/agent-deck/share/feishu/README.md` after the Full instance is healthy. Feishu receives its own
+forced-command credential and the same Remote Owner Product v1 grants as Desktop, while tenant and
+open-id pairing remain only in the sidecar's service-owned metadata; Server Core receives neither
+human identity nor the connection directory.
+
 Static checks:
 
 ```bash

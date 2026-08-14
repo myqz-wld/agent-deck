@@ -118,8 +118,9 @@ for required in \
   grep -Fq -- "$required" "$full_dir/README.snippet.md" ||
     fail "connection credential issuance documentation lost $required"
 done
-grep -Fq "argv[0] !== 'connections'" \
-  "$repo_root/src/hosts/server-control/entrypoint.ts" ||
-  fail 'unified Server connection CLI is missing'
+for family in connections feishu; do
+  grep -Fq "argv[0] === '$family'" "$repo_root/src/hosts/server-control/entrypoint.ts" ||
+    fail "unified Server $family CLI is missing"
+done
 
 echo 'Full static check: passed'

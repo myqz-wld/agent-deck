@@ -1,0 +1,62 @@
+ARG NODE_IMAGE
+FROM ${NODE_IMAGE}
+
+ARG NODE_IMAGE
+ARG TARGET_ARCH
+ARG RELEASE_VERSION
+WORKDIR /work
+
+COPY package.json package-lock.json ./
+RUN set -eux; \
+  case "$TARGET_ARCH" in \
+    amd64) expected_node_arch=x64 ;; \
+    arm64) expected_node_arch=arm64 ;; \
+    *) exit 64 ;; \
+  esac; \
+  test "$(node -p 'process.platform')" = linux; \
+  test "$(node -p 'process.arch')" = "$expected_node_arch"; \
+  test "$(node -p 'process.version')" = v22.22.3; \
+  test "$(node -p 'process.versions.modules')" = 127; \
+  npm ci --omit=dev --no-audit --no-fund
+
+COPY index.mjs /payload/app/index.mjs
+RUN set -eux; \
+  install -d -m 0755 /payload/bin /payload/node_modules /out; \
+  install -m 0755 /usr/local/bin/node /payload/bin/node; \
+  cp -a node_modules/better-sqlite3 node_modules/bindings node_modules/file-uri-to-path \
+    /payload/node_modules/; \
+  rm -rf \
+    /payload/node_modules/better-sqlite3/deps \
+    /payload/node_modules/better-sqlite3/src \
+    /payload/node_modules/file-uri-to-path/test; \
+  rm -f \
+    /payload/node_modules/better-sqlite3/README.md \
+    /payload/node_modules/better-sqlite3/binding.gyp \
+    /payload/node_modules/bindings/README.md \
+    /payload/node_modules/file-uri-to-path/.npmignore \
+    /payload/node_modules/file-uri-to-path/.travis.yml \
+    /payload/node_modules/file-uri-to-path/History.md \
+    /payload/node_modules/file-uri-to-path/README.md \
+    /payload/node_modules/file-uri-to-path/index.d.ts; \
+  find /payload -type d -exec chmod 0755 {} +; \
+  find /payload -type f -exec chmod 0644 {} +; \
+  chmod 0755 /payload/bin/node; \
+  /payload/bin/node -e \
+    "const Database=require('/payload/node_modules/better-sqlite3'); const db=new Database(':memory:'); db.prepare('select 1').get(); db.close();"; \
+  /payload/bin/node -e \
+    "const fs=require('node:fs'); const [arch,image,release]=process.argv.slice(1); const value={schemaVersion:1,platform:'linux',architecture:arch,libc:'glibc',nodeVersion:'22.22.3',nodeAbi:127,betterSqlite3Version:'11.10.0',releaseVersion:release,baseImage:image,node:'bin/node',bundle:'app/index.mjs'}; fs.writeFileSync('/payload/runtime.json', JSON.stringify(value,null,2)+'\n',{mode:0o644});" \
+    "$TARGET_ARCH" "$NODE_IMAGE" "$RELEASE_VERSION"; \
+  cd /payload; \
+  find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS; \
+  artifact="agent-deck-feishu-runtime-linux-${TARGET_ARCH}.tgz"; \
+  tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+    --format=gnu -cf - . | gzip -n > "/out/$artifact"; \
+  artifact_sha="$(sha256sum "/out/$artifact" | cut -d ' ' -f 1)"; \
+  artifact_size="$(stat -c '%s' "/out/$artifact")"; \
+  printf '%s  %s\n' "$artifact_sha" "$artifact" > "/out/$artifact.sha256"; \
+  /payload/bin/node -e \
+    "const fs=require('node:fs'); const [path,arch,image,release,sha,size]=process.argv.slice(1); const artifact='agent-deck-feishu-runtime-linux-'+arch+'.tgz'; const value={schemaVersion:1,artifact,sha256:sha,size:Number(size),platform:'linux',architecture:arch,libc:'glibc',nodeVersion:'22.22.3',nodeAbi:127,betterSqlite3Version:'11.10.0',releaseVersion:release,baseImage:image}; fs.writeFileSync(path, JSON.stringify(value,null,2)+'\n',{mode:0o644});" \
+    "/out/agent-deck-feishu-runtime-linux-${TARGET_ARCH}.json" \
+    "$TARGET_ARCH" "$NODE_IMAGE" "$RELEASE_VERSION" "$artifact_sha" "$artifact_size"
+
+CMD ["/bin/false"]

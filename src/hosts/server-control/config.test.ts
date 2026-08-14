@@ -4,7 +4,8 @@ import { parseServerControlConfig } from './config';
 
 function config(topology: 'relay' | 'full') {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
+    appVersion: '0.1.0',
     instanceId: 'instance-a',
     topology,
     authorityFile: '/var/lib/agent-deck/authority.json',
@@ -27,7 +28,7 @@ describe('Server control config', () => {
 
   it.each([
     null,
-    { ...config('relay'), schemaVersion: 2 },
+    { ...config('relay'), schemaVersion: 1 },
     { ...config('relay'), topology: 'standalone' },
     { ...config('relay'), relayRuntimeUid: null },
     { ...config('full'), relayRuntimeUid: 1001 },

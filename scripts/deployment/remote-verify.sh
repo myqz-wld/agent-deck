@@ -46,4 +46,30 @@ if [[ "$topology" == full ]]; then
   [[ "$(run_service /usr/bin/podman inspect --format '{{index .Config.Labels "io.agent-deck.managed-by"}}' -- "$container_name")" == agent-deck-instance-manager ]] || fail 'Full manager label 不匹配'
 fi
 
-echo "VERIFY_OK topology=$topology instance=$instance_id image=$observed_image health=$health"
+for feishu_file in \
+  /opt/agent-deck/bin/agent-deck-feishu \
+  /opt/agent-deck/libexec/agent-deck-feishu-preflight \
+  /etc/systemd/system/agent-deck-feishu.service \
+  /opt/agent-deck/feishu-runtime/active \
+  /opt/agent-deck/feishu-runtime/desired; do
+  [[ -f "$feishu_file" && ! -L "$feishu_file" ]] || fail 'Feishu 运行时安装不完整'
+  [[ "$(/usr/bin/stat -c '%u' -- "$feishu_file")" == 0 ]] ||
+    fail 'Feishu 运行时文件必须由 root 拥有'
+  (( (8#$(/usr/bin/stat -c '%a' -- "$feishu_file") & 8#022) == 0 )) ||
+    fail 'Feishu 运行时文件不可被非 root 写入'
+done
+for pointer in active desired; do
+  mapfile -t pointer_lines < "/opt/agent-deck/feishu-runtime/$pointer"
+  [[ ${#pointer_lines[@]} == 1 && "${pointer_lines[0]}" =~ ^[a-f0-9]{64}$ ]] ||
+    fail 'Feishu 运行时指针无效'
+  pointer_root="/opt/agent-deck/feishu-runtime/releases/${pointer_lines[0]}"
+  [[ -d "$pointer_root" && ! -L "$pointer_root" ]] || fail 'Feishu 运行时 release 缺失'
+  (
+    cd "$pointer_root"
+    /usr/bin/sha256sum --check --strict SHA256SUMS >/dev/null
+  ) || fail 'Feishu 运行时 release 校验失败'
+done
+/usr/bin/sudo -n /opt/agent-deck/bin/agent-deck-feishu check-abi >/dev/null ||
+  fail 'Feishu 活动运行时 ABI 校验失败'
+
+echo "VERIFY_OK topology=$topology instance=$instance_id image=$observed_image health=$health feishuRuntime=ready"

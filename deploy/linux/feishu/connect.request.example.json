@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "appId": "cli_0000000000000000",
+  "tenantKey": "replace-with-tenant-key",
+  "credentialId": "feishu-owner-a",
+  "label": "Production Feishu",
+  "appSecretFile": "/etc/agent-deck/server-control/feishu-app-secret.input"
+}
