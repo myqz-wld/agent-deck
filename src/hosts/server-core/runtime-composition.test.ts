@@ -157,12 +157,16 @@ describe('concrete Server Core runtime composition', () => {
     const credentialFile = join(secretDirectory, 'credentials.json');
     mkdirSync(secretDirectory, { recursive: true, mode: 0o700 });
     writeFileSync(credentialFile, JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: 3,
       instanceId: INSTANCE_ID,
       credentials: [{
         credentialId: 'credential-a',
         surface: 'desktop',
+        publicKey: 'ssh-ed25519 AAAATEST credential-a',
+        fingerprint: 'SHA256:credential-a',
         status: 'active',
+        createdAt: 1,
+        revokedAt: null,
       }],
     }), { mode: 0o600 });
     chmodSync(credentialFile, 0o600);

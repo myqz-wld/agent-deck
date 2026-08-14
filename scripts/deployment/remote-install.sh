@@ -48,10 +48,12 @@ required=(
   build/linux-headless/instance-manager/index.mjs
   build/linux-headless/relay/index.mjs
   build/linux-headless/server-core-host-bridge/index.mjs
+  build/linux-headless/server-control/index.mjs
   resources/bin/agent-deck-instance-manager
   resources/bin/agent-deck-relay
   resources/bin/agent-deck-relay-health-gate
   resources/bin/agent-deck-full-bridge
+  resources/bin/agent-deck-server
   deploy/linux/full/agent-deck-full@.container.in
   deploy/linux/full/preflight.sh
   deploy/linux/relay/agent-deck-relay@.container
@@ -89,6 +91,7 @@ runtime_root="/run/user/$service_uid"
   /opt/agent-deck/linux-headless/instance-manager \
   /opt/agent-deck/linux-headless/relay \
   /opt/agent-deck/linux-headless/server-core-host-bridge \
+  /opt/agent-deck/linux-headless/server-control \
   /opt/agent-deck/share \
   /opt/agent-deck/share/full \
   /opt/agent-deck/share/relay
@@ -110,6 +113,8 @@ install_root_file "$release_root/build/linux-headless/relay/index.mjs" \
   /opt/agent-deck/linux-headless/relay/index.mjs 0644
 install_root_file "$release_root/build/linux-headless/server-core-host-bridge/index.mjs" \
   /opt/agent-deck/linux-headless/server-core-host-bridge/index.mjs 0644
+install_root_file "$release_root/build/linux-headless/server-control/index.mjs" \
+  /opt/agent-deck/linux-headless/server-control/index.mjs 0644
 install_root_file "$release_root/resources/bin/agent-deck-instance-manager" \
   /opt/agent-deck/bin/agent-deck-instance-manager 0755
 install_root_file "$release_root/resources/bin/agent-deck-relay" \
@@ -118,6 +123,8 @@ install_root_file "$release_root/resources/bin/agent-deck-relay-health-gate" \
   /opt/agent-deck/bin/agent-deck-relay-health-gate 0755
 install_root_file "$release_root/resources/bin/agent-deck-full-bridge" \
   /opt/agent-deck/bin/agent-deck-full-bridge 0755
+install_root_file "$release_root/resources/bin/agent-deck-server" \
+  /opt/agent-deck/bin/agent-deck-server 0755
 install_root_file "$release_root/deploy/linux/full/agent-deck-full@.container.in" \
   /opt/agent-deck/share/full/agent-deck-full@.container.in 0444
 install_root_file "$release_root/deploy/linux/full/preflight.sh" \

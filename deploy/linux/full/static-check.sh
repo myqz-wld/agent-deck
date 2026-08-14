@@ -111,15 +111,15 @@ for required in \
 done
 
 for required in \
-  'agent-deckd issue-connection' \
-  '--credential-file /path/to/instance/secrets/credentials.json' \
-  '--host-key /etc/ssh/ssh_host_ed25519_key.pub' \
+  'agent-deck-server connections issue' \
+  'agent-deck-server connections verify' \
+  '--config /etc/agent-deck/server-control/instance-a.json' \
   '.agentdeck-connection'; do
   grep -Fq -- "$required" "$full_dir/README.snippet.md" ||
     fail "connection credential issuance documentation lost $required"
 done
-grep -Fq "if (command === 'issue-connection')" \
-  "$repo_root/src/hosts/server-core/entrypoint.ts" ||
-  fail 'Server Core entrypoint lost one-shot connection issuance'
+grep -Fq "argv[0] !== 'connections'" \
+  "$repo_root/src/hosts/server-control/entrypoint.ts" ||
+  fail 'unified Server connection CLI is missing'
 
 echo 'Full static check: passed'

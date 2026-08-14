@@ -209,7 +209,8 @@ fi
 
 for required in \
   'agent-deck-relay issue-worker-connection' \
-  'agent-deck-relay issue-client-connection' \
+  'agent-deck-server connections issue' \
+  'agent-deck-server connections verify' \
   'agent-deck-worker configure' \
   'agent-deck-worker status' \
   'agent-deck-worker stop' \
@@ -282,9 +283,9 @@ for required in \
     exit 1
   }
 done
-grep -Fq "if (command === 'issue-client-connection')" \
-  "$relay_dir/../../../src/hosts/relay/entrypoint.ts" || {
-  echo 'relay static check: Relay entrypoint lost one-shot Client issuance' >&2
+grep -Fq "argv[0] !== 'connections'" \
+  "$relay_dir/../../../src/hosts/server-control/entrypoint.ts" || {
+  echo 'relay static check: unified Server connection CLI is missing' >&2
   exit 1
 }
 grep -Fq "if (command === 'issue-worker-connection')" \

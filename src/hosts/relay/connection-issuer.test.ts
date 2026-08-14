@@ -1,5 +1,5 @@
 import {
-  chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync,
+  chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,10 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { parseRemoteConnectionCredential } from '@shared/remote-host';
 
-import {
-  issueRelayClientConnection,
-  issueRelayWorkerConnection,
-} from './connection-issuer';
+import { issueRelayWorkerConnection } from './connection-issuer';
 
 const HOST_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH host\n';
 const roots: string[] = [];
@@ -56,37 +53,6 @@ function common(fixturePaths: ReturnType<typeof fixture>, output: string) {
 }
 
 describe('Relay connection issuance', () => {
-  it('issues one Client credential bound only to the bridge admission', () => {
-    const paths = fixture();
-    const output = join(paths.root, 'client.agentdeck-connection');
-
-    issueRelayClientConnection({
-      ...common(paths, output),
-      '--credential': 'desktop-a',
-    });
-
-    const credential = parseRemoteConnectionCredential(JSON.parse(readFileSync(output, 'utf8')));
-    expect(credential).toMatchObject({
-      schemaVersion: 3,
-      purpose: 'client',
-      topology: 'relay',
-      credentialId: 'desktop-a',
-    });
-    expect(credential).not.toHaveProperty('workerId');
-    expect(statSync(output).mode & 0o777).toBe(0o600);
-    const updated = JSON.parse(readFileSync(paths.config, 'utf8')) as {
-      credentials: Array<Record<string, unknown>>;
-    };
-    expect(updated.credentials).toEqual([
-      expect.objectContaining({ credentialId: 'desktop-a', kind: 'ssh-client', status: 'active' }),
-    ]);
-    const authorized = readFileSync(paths.authorizedKeys, 'utf8');
-    expect(authorized).toContain('agent-deck-relay bridge');
-    expect(authorized).toContain('--surface desktop');
-    expect(authorized).not.toContain('agent-deck-relay attach');
-    expect(authorized).not.toContain('OPENSSH PRIVATE KEY');
-  });
-
   it('issues one terminal-only Worker credential bound only to attach', () => {
     const paths = fixture();
     const output = join(paths.root, 'worker.agentdeck-connection');
@@ -119,18 +85,13 @@ describe('Relay connection issuance', () => {
     expect(authorized).not.toContain('--surface desktop');
   });
 
-  it('allows Clients beside one Worker but rejects a second active Worker', () => {
+  it('rejects a second active Worker identity', () => {
     const paths = fixture();
     issueRelayWorkerConnection({
       ...common(paths, join(paths.root, 'worker-a.agentdeck-connection')),
       '--credential': 'worker-credential-a',
       '--worker': 'worker-a',
     });
-    issueRelayClientConnection({
-      ...common(paths, join(paths.root, 'client-a.agentdeck-connection')),
-      '--credential': 'desktop-a',
-    });
-
     expect(() => issueRelayWorkerConnection({
       ...common(paths, join(paths.root, 'worker-b.agentdeck-connection')),
       '--credential': 'worker-credential-b',
@@ -140,6 +101,6 @@ describe('Relay connection issuance', () => {
     const updated = JSON.parse(readFileSync(paths.config, 'utf8')) as {
       credentials: Array<{ kind: string }>;
     };
-    expect(updated.credentials.map((entry) => entry.kind)).toEqual(['relay-worker', 'ssh-client']);
+    expect(updated.credentials.map((entry) => entry.kind)).toEqual(['relay-worker']);
   });
 });

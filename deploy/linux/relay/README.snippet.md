@@ -170,26 +170,22 @@ credential separately on the Relay host before transferring a replacement Worker
 
 ```bash
 umask 077
-/opt/agent-deck/bin/agent-deck-relay issue-client-connection \
-  --instance instance-a \
-  --credential desktop-macbook-a \
-  --label 'Production relay' \
-  --hostname relay.example.com \
-  --port 22 \
-  --username agentdeck \
-  --host-key /etc/ssh/ssh_host_ed25519_key.pub \
-  --config /var/lib/agent-deck/.config/agent-deck-relay/instance-a/config.json \
-  --authorized-keys /var/lib/agent-deck/.ssh/authorized_keys \
-  --runtime-uid 1001 \
-  --output /secure-transfer/production-relay-client.agentdeck-connection
-systemctl --user restart agent-deck-relay@instance-a.service
+/opt/agent-deck/bin/agent-deck-server connections issue \
+  --config /etc/agent-deck/server-control/instance-a.json \
+  --request /etc/agent-deck/server-control/issue-desktop-a.json
+/opt/agent-deck/bin/agent-deck-server connections verify \
+  --config /etc/agent-deck/server-control/instance-a.json
 ```
+
+Render `server-control.config.example.json` and `connection-issue.request.example.json` as
+root-owned mode-0600 files before running the command. The Relay process polls the same authority
+file and applies credential issue/revoke/rotate changes fail-closed without a manual restart.
 
 Transfer each file only to its intended machine over an authenticated private channel and delete
 the transfer copy after terminal configuration or Electron import. One Relay accepts one active
 Worker identity and any number of independently revocable Client identities; deploy another
-isolated Relay/Worker pair for another tenant or workspace. The restart makes the new authoritative
-config live; it does not add Relay compute or a business queue.
+isolated Relay/Worker pair for another tenant or workspace. Credential synchronization does not
+add Relay compute or a business queue.
 
 The Quadlet overrides any inherited image healthcheck and probes only the private per-instance
 control socket through `agent-deck-relay health`. Its Podman JSON argv begins with the executable

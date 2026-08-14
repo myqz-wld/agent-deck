@@ -19,7 +19,7 @@ function credential(
     instanceId: 'instance-a',
     credentialId,
     kind,
-    publicKey: kind === 'feishu' ? null : 'ssh-ed25519 AAAATEST',
+    publicKey: 'ssh-ed25519 AAAATEST',
     fingerprint: `SHA256:${credentialId}`,
     status: 'active',
     createdAt: 1,

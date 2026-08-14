@@ -29,6 +29,7 @@ const sourceRoots = [
   'src/gateways/feishu',
   'src/hosts/daemon',
   'src/hosts/server-core',
+  'src/hosts/server-control',
   'src/hosts/local-worker',
   'src/hosts/provider-session',
   'src/hosts/relay',
@@ -212,38 +213,7 @@ function verifyIssuedConnectionBundles() {
   try {
     writeFileSync(hostKey, 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH host\n', { mode: 0o644 });
     writeFileSync(authorizedKeys, '', { mode: 0o600 });
-    const fullAuthority = resolve(root, 'full-credentials.json');
-    const fullOutput = resolve(root, 'full.agentdeck-connection');
-    writeFileSync(fullAuthority, `${JSON.stringify({
-      schemaVersion: 2, instanceId: 'instance-a', credentials: [],
-    })}\n`, { mode: 0o600 });
-    run(process.execPath, [
-      resolve(outputRoot, 'server-core/index.mjs'), 'issue-connection',
-      '--instance', 'instance-a', '--credential', 'desktop-a',
-      '--label', 'Full production', '--hostname', 'full.example.test',
-      '--port', '22', '--username', 'agentdeck', '--host-key', hostKey,
-      '--credential-file', fullAuthority, '--authorized-keys', authorizedKeys,
-      '--output', fullOutput,
-    ]);
-    const full = JSON.parse(readFileSync(fullOutput, 'utf8'));
-    if (full.schemaVersion !== 3 ||
-        full.kind !== 'agent-deck-remote-connection-credential' ||
-        full.topology !== 'full' || full.instanceId !== 'instance-a' ||
-        typeof full.connectionScope !== 'string' ||
-        !full.connectionScope.startsWith('scope-') ||
-        full.connectionScope === full.credentialId ||
-        !String(full.identity?.privateKey).includes('OPENSSH PRIVATE KEY') ||
-        (statSync(fullOutput).mode & 0o777) !== 0o600) {
-      fail('Server Core bundle did not issue one exact private connection credential');
-    }
-    if (!readFileSync(fullAuthority, 'utf8').includes('desktop-a') ||
-        !readFileSync(authorizedKeys, 'utf8').includes('--surface desktop')) {
-      fail('Server Core issuance did not enroll the matching credential and forced key');
-    }
-
-    writeFileSync(authorizedKeys, '', { mode: 0o600 });
     const relayConfig = resolve(root, 'relay-config.json');
-    const relayClientOutput = resolve(root, 'relay-client.agentdeck-connection');
     const relayWorkerOutput = resolve(root, 'relay-worker.agentdeck-connection');
     writeFileSync(relayConfig, `${JSON.stringify({
       schemaVersion: 1, instanceId: 'instance-a', tickIntervalMs: 1000,
@@ -258,35 +228,16 @@ function verifyIssuedConnectionBundles() {
       '--config', relayConfig, '--authorized-keys', authorizedKeys,
       '--runtime-uid', '1001', '--output', relayWorkerOutput,
     ]);
-    run(process.execPath, [
-      resolve(outputRoot, 'relay/index.mjs'), 'issue-client-connection',
-      '--instance', 'instance-a', '--credential', 'desktop-relay-a',
-      '--label', 'Relay production', '--hostname', 'relay.example.test',
-      '--port', '22', '--username', 'agentdeck', '--host-key', hostKey,
-      '--config', relayConfig, '--authorized-keys', authorizedKeys,
-      '--runtime-uid', '1001', '--output', relayClientOutput,
-    ]);
     const relayWorker = JSON.parse(readFileSync(relayWorkerOutput, 'utf8'));
-    const relayClient = JSON.parse(readFileSync(relayClientOutput, 'utf8'));
     if (relayWorker.schemaVersion !== 3 || relayWorker.purpose !== 'worker' ||
         relayWorker.topology !== 'relay' || relayWorker.workerId !== 'worker-a' ||
         relayWorker.credentialId !== 'worker-credential-a' ||
         !String(relayWorker.identity?.privateKey).includes('OPENSSH PRIVATE KEY') ||
-        relayClient.schemaVersion !== 3 || relayClient.purpose !== 'client' ||
-        relayClient.topology !== 'relay' || relayClient.credentialId !== 'desktop-relay-a' ||
-        typeof relayClient.connectionScope !== 'string' ||
-        !relayClient.connectionScope.startsWith('scope-') ||
-        relayClient.connectionScope === relayClient.credentialId ||
-        relayClient.workerId !== undefined ||
-        !String(relayClient.identity?.privateKey).includes('OPENSSH PRIVATE KEY') ||
         (statSync(relayWorkerOutput).mode & 0o777) !== 0o600 ||
-        (statSync(relayClientOutput).mode & 0o777) !== 0o600 ||
-        !readFileSync(relayConfig, 'utf8').includes('"kind": "ssh-client"') ||
         !readFileSync(relayConfig, 'utf8').includes('"kind": "relay-worker"') ||
         !readFileSync(authorizedKeys, 'utf8').includes('/run/user/1001/') ||
-        !readFileSync(authorizedKeys, 'utf8').includes('--surface desktop') ||
         !readFileSync(authorizedKeys, 'utf8').includes('--worker worker-a')) {
-      fail('Relay bundle did not separately issue exact Client and Worker credentials');
+      fail('Relay bundle did not issue one exact Worker credential');
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -314,6 +265,7 @@ if (JSON.stringify(packageFixture.entries) !== JSON.stringify(builtManifest.entr
 }
 if (
   packageFixture.instanceManagerKind !== 'host-only-command' ||
+  packageFixture.serverControlKind !== 'root-only-command' ||
   packageFixture.hostRequirements?.platform !== 'linux' ||
   packageFixture.hostRequirements?.procSelfFd !== true ||
   packageFixture.hostRequirements?.podman !== 'rootless' ||
@@ -342,6 +294,9 @@ if (
   install?.serverCoreHostBridgeBundle !==
     '/opt/agent-deck/linux-headless/server-core-host-bridge/index.mjs' ||
   install?.serverCoreHostForcedCommand !== '/opt/agent-deck/bin/agent-deck-full-bridge' ||
+  install?.serverControlBundle !==
+    '/opt/agent-deck/linux-headless/server-control/index.mjs' ||
+  install?.serverControlCommand !== '/opt/agent-deck/bin/agent-deck-server' ||
   install?.relayCommand !== '/opt/agent-deck/bin/agent-deck-relay' ||
   install?.relayHealthGateCommand !== '/opt/agent-deck/bin/agent-deck-relay-health-gate' ||
   install?.instanceManagerBundle !==
@@ -620,11 +575,21 @@ const credentialFixture = JSON.parse(readFileSync(
   'utf8',
 ));
 if (
-  credentialFixture.schemaVersion !== 2 ||
+  credentialFixture.schemaVersion !== 3 ||
   credentialFixture.instanceId !== 'instance-a' ||
   JSON.stringify(credentialFixture.credentials) !== JSON.stringify([
-    { credentialId: 'desktop-credential-a', surface: 'desktop', status: 'active' },
-    { credentialId: 'feishu-credential-a', surface: 'feishu', status: 'active' },
+    {
+      credentialId: 'desktop-credential-a', surface: 'desktop',
+      publicKey: 'ssh-ed25519 AAAATEST desktop-credential-a',
+      fingerprint: 'SHA256:desktop-credential-a', status: 'active',
+      createdAt: 1, revokedAt: null,
+    },
+    {
+      credentialId: 'feishu-credential-a', surface: 'feishu',
+      publicKey: 'ssh-ed25519 AAAATEST feishu-credential-a',
+      fingerprint: 'SHA256:feishu-credential-a', status: 'active',
+      createdAt: 1, revokedAt: null,
+    },
   ])
 ) fail('Server Core credential fixture drifted from the live lifecycle contract');
 await verifyRelayBundleForcedCommands();
@@ -648,11 +613,18 @@ try {
   rmSync(feishuCheckRoot, { recursive: true, force: true });
 }
 await import(pathToFileURL(resolve(outputRoot, 'instance-manager/index.mjs')).href);
+await import(pathToFileURL(resolve(outputRoot, 'server-control/index.mjs')).href);
+if (!runOutput(process.execPath, [
+  resolve(outputRoot, 'server-control/index.mjs'), '--help',
+]).includes('Agent Deck Server 连接管理')) {
+  fail('Server control bundle help output is incomplete');
+}
 
 for (const wrapper of [
   'agent-deckd',
   'agent-deck-full-bridge',
   'agent-deck-relay',
+  'agent-deck-server',
   'agent-deck-instance-manager',
   'agent-deck-worker',
   'agent-deck-provider-supervisor',

@@ -14,7 +14,17 @@ function document(credentials: Array<{
   surface: 'desktop' | 'feishu';
   status: 'active' | 'revoked';
 }> = []) {
-  return { schemaVersion: 2, instanceId: INSTANCE_ID, credentials };
+  return {
+    schemaVersion: 3,
+    instanceId: INSTANCE_ID,
+    credentials: credentials.map((entry) => ({
+      ...entry,
+      publicKey: `ssh-ed25519 AAAATEST ${entry.credentialId}`,
+      fingerprint: `SHA256:${entry.credentialId}`,
+      createdAt: 1,
+      revokedAt: entry.status === 'revoked' ? 2 : null,
+    })),
+  };
 }
 
 function identity(
@@ -48,9 +58,9 @@ describe('ServerCoreCredentialFile', () => {
 
   it.each([
     null,
-    { schemaVersion: 3, instanceId: INSTANCE_ID, credentials: [] },
-    { schemaVersion: 1, instanceId: 'other', credentials: [] },
-    { schemaVersion: 1, instanceId: INSTANCE_ID, credentials: [], extra: true },
+    { schemaVersion: 4, instanceId: INSTANCE_ID, credentials: [] },
+    { schemaVersion: 3, instanceId: 'other', credentials: [] },
+    { schemaVersion: 3, instanceId: INSTANCE_ID, credentials: [], extra: true },
     document([{ credentialId: '../bad', surface: 'desktop', status: 'active' }]),
     document([{ credentialId: 'a', surface: 'desktop', status: 'active' }, {
       credentialId: 'a', surface: 'desktop', status: 'revoked',
@@ -61,7 +71,7 @@ describe('ServerCoreCredentialFile', () => {
 
   it('rejects retired credential documents and surfaces', () => {
     expect(() => parseServerCoreCredentialDocument({
-      schemaVersion: 1,
+      schemaVersion: 2,
       instanceId: INSTANCE_ID,
       credentials: [
         { credentialId: 'desktop-a', surface: 'desktop-full', status: 'active' },
@@ -69,9 +79,13 @@ describe('ServerCoreCredentialFile', () => {
       ],
     }, INSTANCE_ID)).toThrow('schemaVersion');
     expect(() => parseServerCoreCredentialDocument({
-      schemaVersion: 2,
+      schemaVersion: 3,
       instanceId: INSTANCE_ID,
-      credentials: [{ credentialId: 'desktop-a', surface: 'desktop-full', status: 'active' }],
+      credentials: [{
+        credentialId: 'desktop-a', surface: 'desktop-full', status: 'active',
+        publicKey: 'ssh-ed25519 AAAATEST desktop-a', fingerprint: 'SHA256:desktop-a',
+        createdAt: 1, revokedAt: null,
+      }],
     }, INSTANCE_ID)).toThrow('surface');
   });
 

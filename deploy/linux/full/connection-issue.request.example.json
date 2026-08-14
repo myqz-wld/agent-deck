@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "credentialId": "desktop-macbook-a",
+  "surface": "desktop",
+  "label": "Production Full",
+  "outputFile": "/secure-transfer/production.agentdeck-connection"
+}

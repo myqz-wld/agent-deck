@@ -102,7 +102,8 @@ describe('Relay metadata file service', () => {
     });
     foreign.put('credentials', {
       id: 'foreign-feishu', instanceId: 'foreign-instance', credentialId: 'foreign-feishu',
-      kind: 'feishu', publicKey: null, fingerprint: 'SHA256:foreign-feishu',
+      kind: 'feishu', publicKey: 'ssh-ed25519 AAAATEST foreign-feishu',
+      fingerprint: 'SHA256:foreign-feishu',
       status: 'active', createdAt: 1, revokedAt: null,
     });
     foreign.put('workerRegistrations', {
@@ -157,7 +158,7 @@ describe('Relay metadata file service', () => {
     });
     stored.put('credentials', {
       id: 'shared-credential', instanceId: 'instance-a', credentialId: 'shared-credential',
-      kind: 'feishu', publicKey: null, fingerprint: 'SHA256:shared',
+      kind: 'feishu', publicKey: 'ssh-ed25519 AAAATEST shared', fingerprint: 'SHA256:shared',
       status: 'active', createdAt: 1, revokedAt: null,
     });
     stored.put('feishuContexts', {

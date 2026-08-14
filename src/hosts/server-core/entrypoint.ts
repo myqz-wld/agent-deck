@@ -16,7 +16,6 @@ import {
 
 import { parseServerCoreConfig } from './config';
 import { createServerCoreController } from './root';
-import { issueServerCoreConnection } from './connection-issuer';
 
 async function probeSocket(socketPath: string): Promise<void> {
   requireAbsolutePath(socketPath, 'socket');
@@ -101,14 +100,6 @@ export async function runServerCoreEntrypoint(argv: readonly string[]): Promise<
   if (command === 'check-config') {
     const flags = parseExactFlags(argv.slice(1), ['--config']);
     parseServerCoreConfig(await readPrivateJsonFile(flags['--config']));
-    return 0;
-  }
-  if (command === 'issue-connection') {
-    const flags = parseExactFlags(argv.slice(1), [
-      '--instance', '--credential', '--label', '--hostname', '--port', '--username',
-      '--host-key', '--credential-file', '--authorized-keys', '--output',
-    ]);
-    issueServerCoreConnection(flags);
     return 0;
   }
   if (command !== 'serve') throw new Error('unknown server-core command');

@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   closeSync,
   constants,
+  fchmodSync,
+  fchownSync,
   fstatSync,
   fsyncSync,
   lstatSync,
@@ -57,11 +59,21 @@ export interface TrustedTextFile {
   readonly path: string;
   readonly text: string;
   readonly mode: number;
+  readonly uid: number;
+  readonly gid: number;
 }
 
 export interface CredentialIssueMutation {
   readonly current: TrustedTextFile;
   readonly next: string;
+}
+
+export interface PrivateTextOutput {
+  readonly path: string;
+  readonly text: string;
+  readonly mode: number;
+  readonly uid?: number;
+  readonly gid?: number;
 }
 
 function keyParts(value: string, field: string): { algorithm: string; publicKey: string } {
@@ -172,7 +184,8 @@ export function prepareRemoteConnectionIssue(
 
 function sameSnapshot(left: ReturnType<typeof fstatSync>, right: ReturnType<typeof fstatSync>): boolean {
   return left.dev === right.dev && left.ino === right.ino && left.size === right.size &&
-    left.mtimeMs === right.mtimeMs && left.mode === right.mode && left.uid === right.uid;
+    left.mtimeMs === right.mtimeMs && left.mode === right.mode && left.uid === right.uid &&
+    left.gid === right.gid;
 }
 
 export function readTrustedTextFile(path: string): TrustedTextFile {
@@ -199,6 +212,8 @@ export function readTrustedTextFile(path: string): TrustedTextFile {
         path,
         text: new TextDecoder('utf-8', { fatal: true }).decode(bytes),
         mode: before.mode & 0o777,
+        uid: before.uid,
+        gid: before.gid,
       };
     } finally {
       bytes.fill(0);
@@ -208,7 +223,12 @@ export function readTrustedTextFile(path: string): TrustedTextFile {
   }
 }
 
-function writeBytesExclusive(path: string, text: string, mode: number): void {
+function writeBytesExclusive(
+  path: string,
+  text: string,
+  mode: number,
+  owner?: { readonly uid: number; readonly gid: number },
+): void {
   const bytes = Buffer.from(text, 'utf8');
   let descriptor: number | null = null;
   let created = false;
@@ -220,6 +240,8 @@ function writeBytesExclusive(path: string, text: string, mode: number): void {
       mode,
     );
     created = true;
+    fchmodSync(descriptor, mode);
+    if (owner) fchownSync(descriptor, owner.uid, owner.gid);
     let offset = 0;
     while (offset < bytes.byteLength) offset += writeSync(descriptor, bytes, offset);
     fsyncSync(descriptor);
@@ -255,13 +277,19 @@ function syncDirectory(path: string): void {
 
 function replaceExpected(current: TrustedTextFile, next: string): void {
   const observed = readTrustedTextFile(current.path);
-  if (observed.text !== current.text || observed.mode !== current.mode) {
+  if (
+    observed.text !== current.text || observed.mode !== current.mode ||
+    observed.uid !== current.uid || observed.gid !== current.gid
+  ) {
     throw new Error('managed file changed before credential issuance');
   }
   const parent = dirname(current.path);
   const temporary = join(parent, `.${basename(current.path)}.${randomUUID()}.tmp`);
   try {
-    writeBytesExclusive(temporary, next, current.mode);
+    writeBytesExclusive(temporary, next, current.mode, {
+      uid: current.uid,
+      gid: current.gid,
+    });
     renameSync(temporary, current.path);
     syncDirectory(parent);
   } finally {
@@ -269,14 +297,34 @@ function replaceExpected(current: TrustedTextFile, next: string): void {
   }
 }
 
-export function commitRemoteConnectionIssue(input: {
-  readonly outputFile: string;
-  readonly encodedCredential: string;
+export function commitManagedTextTransaction(input: {
   readonly mutations: readonly CredentialIssueMutation[];
+  readonly output?: PrivateTextOutput;
 }): void {
-  requireAbsolutePath(input.outputFile, 'output');
-  if (statSync(input.outputFile, { throwIfNoEntry: false }) !== undefined) {
-    throw new Error('connection credential output already exists');
+  if (input.mutations.length === 0) throw new Error('managed transaction requires a mutation');
+  const paths = input.mutations.map((mutation) => mutation.current.path);
+  if (new Set(paths).size !== paths.length) {
+    throw new Error('managed transaction contains duplicate targets');
+  }
+  if (input.output) {
+    requireAbsolutePath(input.output.path, 'output');
+    const outputParent = dirname(input.output.path);
+    if (
+      realpathSync(outputParent) !== outputParent ||
+      statSync(input.output.path, { throwIfNoEntry: false }) !== undefined
+    ) {
+      throw new Error('connection credential output path is not a new canonical file');
+    }
+    if (
+      input.output.mode !== 0o600 ||
+      (input.output.uid === undefined) !== (input.output.gid === undefined) ||
+      (input.output.uid !== undefined && (
+        !Number.isSafeInteger(input.output.uid) || input.output.uid < 0 ||
+        !Number.isSafeInteger(input.output.gid) || (input.output.gid as number) < 0
+      ))
+    ) {
+      throw new Error('private output owner or mode is invalid');
+    }
   }
   const committed: CredentialIssueMutation[] = [];
   let outputCreated = false;
@@ -294,12 +342,27 @@ export function commitRemoteConnectionIssue(input: {
         throw error;
       }
     }
-    writeBytesExclusive(input.outputFile, input.encodedCredential, 0o600);
-    outputCreated = true;
-    syncDirectory(dirname(input.outputFile));
+    if (input.output) {
+      writeBytesExclusive(
+        input.output.path,
+        input.output.text,
+        input.output.mode,
+        input.output.uid === undefined
+          ? undefined
+          : { uid: input.output.uid, gid: input.output.gid as number },
+      );
+      outputCreated = true;
+      syncDirectory(dirname(input.output.path));
+    }
   } catch (error) {
-    if (outputCreated) {
-      try { unlinkSync(input.outputFile); } catch {}
+    let rollbackFailure: unknown = null;
+    if (outputCreated && input.output) {
+      try {
+        unlinkSync(input.output.path);
+        syncDirectory(dirname(input.output.path));
+      } catch (rollbackError) {
+        rollbackFailure ??= rollbackError;
+      }
     }
     for (const mutation of committed.reverse()) {
       try {
@@ -307,8 +370,30 @@ export function commitRemoteConnectionIssue(input: {
           { ...mutation.current, text: mutation.next },
           mutation.current.text,
         );
-      } catch {}
+      } catch (rollbackError) {
+        rollbackFailure ??= rollbackError;
+      }
+    }
+    if (rollbackFailure) {
+      throw new Error('managed transaction failed and rollback was incomplete', {
+        cause: rollbackFailure,
+      });
     }
     throw error;
   }
+}
+
+export function commitRemoteConnectionIssue(input: {
+  readonly outputFile: string;
+  readonly encodedCredential: string;
+  readonly mutations: readonly CredentialIssueMutation[];
+}): void {
+  commitManagedTextTransaction({
+    mutations: input.mutations,
+    output: {
+      path: input.outputFile,
+      text: input.encodedCredential,
+      mode: 0o600,
+    },
+  });
 }

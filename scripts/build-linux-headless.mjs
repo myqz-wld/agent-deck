@@ -11,6 +11,7 @@ const roles = Object.freeze({
   'server-core': 'src/hosts/server-core/entrypoint.ts',
   'server-core-runtime': 'src/hosts/server-core/runtime-entrypoint.ts',
   'server-core-host-bridge': 'src/hosts/server-core/host-bridge-entrypoint.ts',
+  'server-control': 'src/hosts/server-control/entrypoint.ts',
   relay: 'src/hosts/relay/entrypoint.ts',
   'local-worker': 'src/hosts/local-worker/entrypoint.ts',
   'local-worker-runtime': 'src/hosts/local-worker/runtime-entrypoint.ts',

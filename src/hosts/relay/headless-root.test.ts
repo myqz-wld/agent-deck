@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -18,6 +18,7 @@ describe('Relay headless root', () => {
     temporary.push(root);
     const state = join(root, 'state', 'instance-a');
     const socket = join(root, 'run', 'instance-a', 'control.sock');
+    const configFile = join(root, 'config.json');
     await mkdir(state, { recursive: true, mode: 0o700 });
     await chmod(state, 0o700);
     const config: RelayHeadlessConfig = {
@@ -27,14 +28,17 @@ describe('Relay headless root', () => {
       plumbingModule: null,
       credentials: [],
     };
+    await writeFile(configFile, `${JSON.stringify(config)}\n`, { mode: 0o600 });
     const controller = await createRelayController(config, {
       stateDirectory: state,
       controlSocket: socket,
+      configFile,
     });
 
     expect(controller.composition.role).toBe('relay-server');
     expect(controller.composition.components.map((component) => component.name)).toEqual([
       'relay-metadata-file',
+      'relay-credential-authority',
       'relay-worker-lease-ticker',
       'relay-control-socket',
     ]);

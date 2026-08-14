@@ -47,6 +47,12 @@ manager_wrapper="$repo_root/resources/bin/agent-deck-instance-manager"
 bash -n "$manager_wrapper"
 grep -Fq '/usr/bin/node /opt/agent-deck/linux-headless/instance-manager/index.mjs' "$manager_wrapper" ||
   fail 'instance manager wrapper must use the fixed packaged Node entrypoint'
+server_wrapper="$repo_root/resources/bin/agent-deck-server"
+bash -n "$server_wrapper"
+grep -Fq '/usr/bin/flock -n /run/lock/agent-deck-server-control.lock' "$server_wrapper" ||
+  fail 'Server connection wrapper must use the fixed root-only flock'
+grep -Fq '/usr/bin/node /opt/agent-deck/linux-headless/server-control/index.mjs' "$server_wrapper" ||
+  fail 'Server connection wrapper must use the fixed packaged Node entrypoint'
 grep -Fq 'O_NOFOLLOW' "$adapter_root/linux-filesystem.ts" ||
   fail 'production filesystem adapter must reject symlink leaf traversal'
 grep -Fq '/proc/self/fd' "$adapter_root/linux-filesystem.ts" ||

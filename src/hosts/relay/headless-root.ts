@@ -14,6 +14,7 @@ import { basename, dirname, join } from 'node:path';
 
 import { RelayControlHost } from './control-host';
 import { RelayControlSocketService } from './control-socket-service';
+import { RelayCredentialAuthorityService } from './credential-authority-service';
 import type { RelayHeadlessConfig } from './headless-config';
 import { RelayMetadataFileService } from './metadata-file';
 import { RelayStreamRouter } from './router';
@@ -21,6 +22,7 @@ import { RelayStreamRouter } from './router';
 export interface RelayServicePaths {
   readonly stateDirectory: string;
   readonly controlSocket: string;
+  readonly configFile: string;
 }
 
 export interface RelayPlumbingFactoryInput {
@@ -71,6 +73,7 @@ export async function createRelayController(
 ): Promise<AgentDeckCompositionController> {
   requireAbsolutePath(paths.stateDirectory, 'stateDirectory');
   requireAbsolutePath(paths.controlSocket, 'controlSocket');
+  requireAbsolutePath(paths.configFile, 'configFile');
   if (
     basename(paths.stateDirectory) !== config.instanceId ||
     basename(dirname(paths.controlSocket)) !== config.instanceId ||
@@ -84,6 +87,11 @@ export async function createRelayController(
     credentials: config.credentials,
   });
   const router = new RelayStreamRouter(config.instanceId, metadata.metadata);
+  const credentials = new RelayCredentialAuthorityService({
+    config,
+    configFile: paths.configFile,
+    metadata: metadata.metadata,
+  });
   const host = new RelayControlHost({ router });
   const control = new RelayControlSocketService(
     host,
@@ -101,6 +109,11 @@ export async function createRelayController(
           name: 'relay-metadata-file',
           start: () => metadata.start(),
           stop: () => metadata.stop(),
+        },
+        {
+          name: 'relay-credential-authority',
+          start: () => credentials.start(),
+          stop: () => credentials.stop(),
         },
         ...extra,
         ticker(host, config.tickIntervalMs),
