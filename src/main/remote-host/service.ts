@@ -80,6 +80,7 @@ import { RemoteHostRequestAuthority } from './service-request-authority';
 import { remoteHostResourcesForCoreEvent } from './resource-invalidation';
 import type { RemoteHostDesktopBrokerPort } from './desktop-browser-broker';
 import { RemoteHostSessionRenameTracker } from './remote-session-rename';
+import { RemoteHostTransportDiagnostics } from './transport-diagnostics';
 import log from '@main/utils/logger';
 
 const logger = log.scope('remote-host-transport');
@@ -114,6 +115,7 @@ export class RemoteHostService {
   private readonly hostIdentityByProfile = new Map<string, string>();
   private readonly desktopBroker: RemoteHostDesktopBrokerPort;
   private readonly sessionRenames = new RemoteHostSessionRenameTracker();
+  private readonly transportDiagnostics = new RemoteHostTransportDiagnostics(logger);
   constructor(private readonly options: RemoteHostServiceOptions) {
     this.desktopBroker = options.desktopBroker ?? {
       handleState: () => undefined,
@@ -176,16 +178,7 @@ export class RemoteHostService {
     );
     options.registry.onState((state) => {
       this.desktopBroker.handleState(state);
-      if (state.error) {
-        logger.warn('Remote transport state changed with an internal reason', {
-          profileId: state.profileId,
-          status: state.status,
-          code: state.error.code,
-          reason: state.error.message,
-          authoritativeCoreId: state.authoritativeCoreId,
-          workerGeneration: state.workerGeneration,
-        });
-      }
+      this.transportDiagnostics.observe(state);
       const identity = `${state.authoritativeCoreId ?? ''}:${state.workerGeneration ?? ''}`;
       const previousIdentity = this.hostIdentityByProfile.get(state.profileId);
       this.hostIdentityByProfile.set(state.profileId, identity);
