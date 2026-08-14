@@ -13,10 +13,11 @@ skipped_expired:
 ## Scope and method
 
 This follow-up reviewed the post-implementation deployment fixes and exercised the official Relay
-deployment entrypoint on an authorized ARM64 Ubuntu host. It inspected the complete code diff from
-the final-record baseline through `4fd970044463f392a1606f15e1b4a761ec4b097d`, rebuilt both runtime
-architectures repeatedly in independent processes, and separated real Relay evidence from still
-unavailable Full and tenant-installed Feishu evidence.
+deployment entrypoint on an authorized ARM64 Ubuntu host. It inspected the complete production-code
+diff from the final-record baseline through `4fd970044463f392a1606f15e1b4a761ec4b097d`, deployed the
+records-only `f6d977adcbd0f1411196c934c3f2380f81f9b01d` release to exercise same-schema lifecycle,
+rebuilt both runtime architectures repeatedly in independent processes, and separated real Relay
+evidence from still unavailable Full and tenant-installed Feishu evidence.
 
 ```review-scope
 scripts/build-linux-headless.mjs
@@ -31,6 +32,12 @@ src/hosts/relay/credential-authority.ts
 src/hosts/relay/headless-config.ts
 src/hosts/relay/headless-root.ts
 src/hosts/server-control/connection-authority.ts
+src/main/adapters/codex-cli/app-server/translate-collab.test.ts
+src/main/adapters/codex-cli/app-server/translate-collab-parameters.test.ts
+src/renderer/remote-host/use-remote-session-source.test.tsx
+src/renderer/remote-host/use-remote-session-source-refresh.test.tsx
+src/renderer/remote-host/use-remote-session-source-detail.test.tsx
+src/renderer/remote-host/use-remote-session-source-detail-reads.test.tsx
 ```
 
 ## Findings and fixes landed
@@ -72,13 +79,24 @@ account's mode-0700 config directory. Authority creation and verification now ru
 symlink, owner, mode, and schema probe through the restricted service-account context; directory
 permissions were not weakened.
 
+### Guardrail follow-up — oversized test suites partitioned
+
+The final file-size inventory exposed three T1.5 test files at 604, 548, and 541 lines. Their test
+cases were partitioned into six topic-specific files without changing production code, assertions,
+or the total test count. All six focused files passed 33 tests, typecheck passed, and the complete
+suite retained all 6,110 tests; the largest changed source file is now 499 lines.
+
 No confirmed code finding remains open.
 
 ## Live Relay acceptance
 
 - The official check, dry-run, and independent verify path succeeded after a one-way clean break to
-  release `git-4fd970044463`, generation 15. Installed config/unit digests match the record and no
-  operation journal remains.
+  release `git-4fd970044463`, generation 15. A normal same-schema upgrade created generation 16 at
+  `git-f6d977adcbd0`; official rollback created generation 17 at 4fd and a second rollback created
+  the final generation 18 at f6d. Each operation returned `VERIFY_OK` with Relay healthy and the
+  Feishu runtime ready.
+- Final current/previous records are f6d/4fd. Installed schema-v2 config and unit digests match the
+  current record, retained backups match their recorded digests, and no operation journal remains.
 - The running image is digest-pinned and the manager reported the exact active generation healthy.
   The exact managed Relay unit was restarted once and independently verified healthy; no local or
   unrelated process was terminated.
@@ -95,6 +113,9 @@ No confirmed code finding remains open.
 - A follow-up disposable connection proved the separate authority and Relay metadata changed from
   active to revoked within the polling bound while the exact container start timestamp stayed
   unchanged. Its private output was deleted and its authorized key was removed.
+- The connection authority survived both official rollbacks unchanged: one active Relay Worker and
+  five owner/client history rows. The CLI projection correctly excludes the Worker and reports one
+  active Desktop connection plus four revoked disposable rows.
 - `feishu check` and `feishu status` passed. The final arm64 runtime is installed and verified; the
   sidecar remains deliberately inactive because no app credentials were supplied.
 - The Relay remained healthy while its Worker route was offline. This proves independent Relay
@@ -105,7 +126,7 @@ No confirmed code finding remains open.
 
 ## Validation
 
-- Full suite: 963 files / 6,110 tests passed; 2 files / 3 tests remained skipped behind existing
+- Full suite: 966 files / 6,110 tests passed; 2 files / 3 tests remained skipped behind existing
   opt-in guards.
 - `pnpm typecheck`, `pnpm build`, `pnpm verify:linux-headless`, `pnpm check:deployment`, Full,
   Relay, Feishu, and Manager static checks, review expiry, changed-source file size, and
@@ -115,9 +136,9 @@ No confirmed code finding remains open.
   (45,471,494 bytes) and arm64
   `59bc3544f016c2b920e1b956c84e731eedec98e8778b3a42f97df27cfd72d2af`
   (45,287,836 bytes).
-- The exact remote Relay restart and subsequent official verify passed. The repository-required
-  main/preload development restart remains intentionally skipped under the user's instruction not
-  to terminate existing processes.
+- The exact remote Relay restart, normal schema-v2 upgrade, two official rollbacks, and verification
+  after every transition passed. The repository-required main/preload development restart remains
+  intentionally skipped under the user's instruction not to terminate existing processes.
 
 ## Remaining external acceptance
 

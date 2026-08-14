@@ -91,7 +91,24 @@ function withRemoteState(
   };
 }
 
-describe('useRemoteSessionSource source fencing', () => {
+function withWorkerGeneration(generation: number): RemoteHostSnapshotState {
+  const current = currentHosts('remote-a', generation);
+  return {
+    ...current,
+    snapshot: {
+      ...current.snapshot!,
+      states: current.snapshot!.states.map((state) => state.profileId === 'remote-a'
+        ? {
+            ...state,
+            authoritativeCoreId: 'core-stable',
+            workerGeneration: generation,
+          }
+        : state),
+    },
+  };
+}
+
+describe('useRemoteSessionSource refresh fencing', () => {
   const oldDetail = deferred<ReturnType<typeof session>>();
 
   beforeEach(() => {
@@ -202,192 +219,142 @@ describe('useRemoteSessionSource source fencing', () => {
     Reflect.deleteProperty(window, 'api');
   });
 
-  it('isolates identical session and pending ids and drops the old source response', async () => {
+  it('moves an already-selected temporary session to a later canonical rename', async () => {
+    const temporaryDetail = deferred<ReturnType<typeof session>>();
+    vi.mocked(window.api.getRemoteHostSession).mockImplementation((request) =>
+      request.sessionId === 'temporary-a'
+        ? temporaryDetail.promise
+        : Promise.resolve(session('canonical-a', 'Canonical detail')));
+    const current = currentHosts('remote-a', 1);
+    const identity = remoteSourceIdentity('remote-a', 'core-remote-a', null);
+    const hook = renderHook(
+      ({ value }: { value: RemoteHostSnapshotState }) => useRemoteSessionSource(value),
+      { initialProps: { value: current } },
+    );
+    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
+    act(() => hook.result.current.selectSession('temporary-a'));
+    await waitFor(() => expect(window.api.getRemoteHostSession).toHaveBeenCalledWith({
+      profileId: 'remote-a', sessionId: 'temporary-a',
+    }));
+
+    hook.rerender({
+      value: {
+        ...current,
+        sessionRenamesBySource: new Map([
+          [identity, new Map([['temporary-a', 'canonical-a']])],
+        ]),
+      },
+    });
+
+    await waitFor(() => expect(hook.result.current.selectedSessionId).toBe('canonical-a'));
+    await waitFor(() => expect(hook.result.current.selectedSession?.id).toBe('canonical-a'));
+    temporaryDetail.resolve(session('temporary-a', 'Late temporary detail'));
+    await act(async () => { await temporaryDetail.promise; });
+    expect(hook.result.current.selectedSession?.id).toBe('canonical-a');
+  });
+
+  it('rejects a Workspace directory result after the source identity changes', async () => {
+    const listing = deferred<{
+      directory: string;
+      directories: [];
+      truncated: boolean;
+      revision: number;
+    }>();
+    vi.mocked(window.api.listRemoteHostWorkspaceDirectories).mockReturnValue(listing.promise);
     const hook = renderHook(
       ({ value }: { value: RemoteHostSnapshotState }) => useRemoteSessionSource(value),
       { initialProps: { value: currentHosts('remote-a', 1) } },
     );
     await waitFor(() => expect(hook.result.current.sessions[0]?.title).toBe('remote-a list'));
-    expect(hook.result.current.pendingBySession.get('same-session')).toMatchObject({
-      revision: 10,
-      requests: [{ display: { input: { source: 'remote-a' } } }],
-    });
-    const listCallsBeforeUnrelatedEvent = vi.mocked(
-      window.api.listRemoteHostSessionPresentations,
-    ).mock.calls.length;
-    hook.rerender({
-      value: {
-        ...currentHosts('remote-a', 1),
-        dataRevisionByProfile: new Map([
-          ['remote-a', 1],
-          ['remote-b', 99],
-        ]),
-        resourceRevisionsByProfile: new Map([
-          ['remote-a', currentHosts('remote-a', 1).resourceRevisionsByProfile.get('remote-a')!],
-          ['remote-b', currentHosts('remote-b', 99).resourceRevisionsByProfile.get('remote-b')!],
-        ]),
-      },
-    });
-    await act(async () => { await Promise.resolve(); });
-    expect(window.api.listRemoteHostSessionPresentations).toHaveBeenCalledTimes(
-      listCallsBeforeUnrelatedEvent,
-    );
-
-    act(() => hook.result.current.selectSession('same-session'));
-    await waitFor(() => expect(window.api.getRemoteHostSession).toHaveBeenCalledWith({
-      profileId: 'remote-a', sessionId: 'same-session',
+    const pending = hook.result.current.listWorkspaceDirectories('.');
+    await waitFor(() => expect(window.api.listRemoteHostWorkspaceDirectories).toHaveBeenCalledWith({
+      profileId: 'remote-a', directory: '.',
     }));
 
     hook.rerender({ value: currentHosts('remote-b', 2) });
     await waitFor(() => expect(hook.result.current.sessions[0]?.title).toBe('remote-b list'));
-    expect(hook.result.current.selectedSessionId).toBeNull();
-    expect(window.api.getRemoteHostSession).toHaveBeenCalledTimes(1);
-    expect(hook.result.current.pendingBySession.get('same-session')).toMatchObject({
-      revision: 20,
-      requests: [{ display: { input: { source: 'remote-b' } } }],
-    });
+    listing.resolve({ directory: '.', directories: [], truncated: false, revision: 1 });
 
-    act(() => hook.result.current.selectSession('same-session'));
-    await waitFor(() => expect(hook.result.current.selectedSession?.title).toBe('remote-b detail'));
-    oldDetail.resolve({
-      id: 'same-session',
-      adapterId: 'codex-cli',
-      title: 'late remote-a detail',
-      status: 'active-idle',
-      createdAt: 1,
-      updatedAt: 4,
-    });
-    await act(async () => { await oldDetail.promise; });
-    expect(hook.result.current.selectedSession?.title).toBe('remote-b detail');
+    await expect(pending).rejects.toThrow('数据源已切换');
   });
 
-  it.each([
-    ['connecting', null],
-    ['reconnecting', null],
-    ['offline', null],
-    ['offline', 'worker-offline'],
-    ['incompatible', null],
-  ] as const)('admits no session reads while the Remote source is %s/%s', async (
-    status,
-    recovery,
-  ) => {
-    const hook = renderHook(() => useRemoteSessionSource(withRemoteState(status, { recovery })));
-    await act(async () => { await Promise.resolve(); });
-
-    expect(hook.result.current.usable).toBe(false);
-    expect(hook.result.current.sessions).toEqual([]);
-    expect(hook.result.current.historySessions).toEqual([]);
-    expect(hook.result.current.sessionTotal).toBeNull();
-    expect(window.api.listRemoteHostSessionPresentations).not.toHaveBeenCalled();
-  });
-
-  it('retires retained Remote readers while snapshot authority is unknown and resumes after recovery', async () => {
+  it('keeps at most one list refresh in flight and merges later invalidations', async () => {
+    const firstPage = deferred<RemoteHostSessionPresentationPageDto>();
+    let liveCalls = 0;
+    vi.mocked(window.api.listRemoteHostSessionPresentations).mockImplementation((request) => {
+      if (request.kind === 'history') return Promise.resolve(sessionPage('', 1, 'history'));
+      if (liveCalls++ === 0) return firstPage.promise;
+      return Promise.resolve(sessionPage('refreshed', 2));
+    });
     const hook = renderHook(
       ({ value }: { value: RemoteHostSnapshotState }) => useRemoteSessionSource(value),
       { initialProps: { value: currentHosts('remote-a', 1) } },
     );
-    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
+    await waitFor(() => expect(liveCalls).toBe(1));
 
-    const retained = currentHosts('remote-a', 2);
-    hook.rerender({
-      value: {
-        ...retained,
-        snapshotError: '无法确认 Remote 数据源。',
-        error: '无法确认 Remote 数据源。',
-      },
-    });
-
-    expect(hook.result.current.usable).toBe(false);
-    expect(hook.result.current.sessions).toEqual([]);
-    expect(hook.result.current.historySessions).toEqual([]);
-    expect(hook.result.current.pendingTotal).toBeNull();
-    vi.mocked(window.api.listRemoteHostSessionPresentations).mockClear();
-    vi.mocked(window.api.listRemoteHostPendingIndex).mockClear();
-
-    hook.rerender({
-      value: {
-        ...currentHosts('remote-a', 3),
-        snapshot: retained.snapshot,
-        snapshotError: '无法确认 Remote 数据源。',
-        error: '无法确认 Remote 数据源。',
-      },
-    });
-    await act(async () => { await Promise.resolve(); });
-    expect(window.api.listRemoteHostSessionPresentations).not.toHaveBeenCalled();
-    expect(window.api.listRemoteHostPendingIndex).not.toHaveBeenCalled();
-
+    hook.rerender({ value: currentHosts('remote-a', 2) });
     hook.rerender({ value: currentHosts('remote-a', 3) });
-    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
-    expect(window.api.listRemoteHostSessionPresentations).toHaveBeenCalled();
-    expect(window.api.listRemoteHostPendingIndex).toHaveBeenCalled();
+    await act(async () => { await Promise.resolve(); });
+    expect(liveCalls).toBe(1);
+
+    firstPage.resolve(sessionPage('initial', 1));
+    await waitFor(() => expect(liveCalls).toBe(2));
+    await waitFor(() => expect(hook.result.current.sessions[0]?.title).toBe('refreshed'));
+    expect(liveCalls).toBe(2);
   });
 
-  it('clears visible data immediately and rejects a stale action after reconnect starts', async () => {
+  it('starts a fresh list after same-identity reconnect and drops the old in-flight page', async () => {
+    const oldPage = deferred<RemoteHostSessionPresentationPageDto>();
+    let liveCalls = 0;
+    vi.mocked(window.api.listRemoteHostSessionPresentations).mockImplementation((request) => {
+      if (request.kind === 'history') return Promise.resolve(sessionPage('', 1, 'history'));
+      liveCalls += 1;
+      return liveCalls === 1
+        ? oldPage.promise
+        : Promise.resolve(sessionPage('fresh reconnect', 2));
+    });
     const hook = renderHook(
       ({ value }: { value: RemoteHostSnapshotState }) => useRemoteSessionSource(value),
       { initialProps: { value: currentHosts('remote-a', 1) } },
     );
-    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
-    const staleCapabilitiesRead = hook.result.current.getSessionCapabilities;
-    const listCalls = vi.mocked(window.api.listRemoteHostSessionPresentations).mock.calls.length;
+    await waitFor(() => expect(liveCalls).toBe(1));
 
     hook.rerender({ value: withRemoteState('reconnecting') });
-    expect(hook.result.current.usable).toBe(false);
     expect(hook.result.current.sessions).toEqual([]);
-    expect(hook.result.current.historySessions).toEqual([]);
-    expect(hook.result.current.sessionTotal).toBeNull();
-    await expect(staleCapabilitiesRead({
-      adapterId: 'codex-cli',
-      provider: '',
-      workingDirectory: '.',
-    })).rejects.toThrow('尚未连接');
-    expect(window.api.getRemoteHostSessionCapabilities).not.toHaveBeenCalled();
-    expect(window.api.listRemoteHostSessionPresentations).toHaveBeenCalledTimes(listCalls);
+    hook.rerender({ value: currentHosts('remote-a', 1) });
+    await waitFor(() => expect(liveCalls).toBe(2));
+    await waitFor(() => expect(hook.result.current.sessions[0]?.title).toBe('fresh reconnect'));
+
+    oldPage.resolve(sessionPage('stale pre-reconnect', 1));
+    await act(async () => { await oldPage.promise; });
+    expect(hook.result.current.sessions[0]?.title).toBe('fresh reconnect');
   });
 
-  it('does not request a list surface whose capability is absent', async () => {
-    const noBase = renderHook(() => useRemoteSessionSource(withRemoteState('connected', {
-      capabilities: [],
-    })));
-    await act(async () => { await Promise.resolve(); });
-    expect(noBase.result.current.usable).toBe(true);
-    expect(window.api.listRemoteHostSessionPresentations).not.toHaveBeenCalled();
-    noBase.unmount();
-
-    vi.mocked(window.api.listRemoteHostSessionPresentations).mockClear();
-    const richOnly = renderHook(() => useRemoteSessionSource(withRemoteState('connected', {
-      capabilities: ['sessions.presentation.read'],
-    })));
-    await waitFor(() => expect(richOnly.result.current.sessions).toHaveLength(1));
-    expect(window.api.listRemoteHostSessionPresentations).toHaveBeenCalledTimes(2);
-    expect(window.api.listRemoteHostSessionPresentations).toHaveBeenCalledWith(expect.objectContaining({
-      kind: 'live',
-    }));
-    expect(richOnly.result.current.historySessions).toEqual([]);
-  });
-
-  it('selects the canonical session when create returns an already-renamed temporary id', async () => {
-    vi.mocked(window.api.getRemoteHostSession).mockResolvedValue({
-      id: 'canonical-a', adapterId: 'codex-cli', title: 'Canonical detail',
-      status: 'active-idle', createdAt: 1, updatedAt: 3,
+  it('keeps only the newest page across rapid Worker generation changes', async () => {
+    const first = deferred<RemoteHostSessionPresentationPageDto>();
+    const second = deferred<RemoteHostSessionPresentationPageDto>();
+    const third = deferred<RemoteHostSessionPresentationPageDto>();
+    const pages = [first, second, third];
+    let liveCalls = 0;
+    vi.mocked(window.api.listRemoteHostSessionPresentations).mockImplementation((request) => {
+      if (request.kind === 'history') return Promise.resolve(sessionPage('', 1, 'history'));
+      return pages[liveCalls++]!.promise;
     });
-    const current = currentHosts('remote-a', 1);
-    const identity = remoteSourceIdentity('remote-a', 'core-remote-a', null);
-    const hook = renderHook(() => useRemoteSessionSource({
-      ...current,
-      sessionRenamesBySource: new Map([
-        [identity, new Map([['temporary-a', 'canonical-a']])],
-      ]),
-    }));
-    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
+    const hook = renderHook(
+      ({ value }: { value: RemoteHostSnapshotState }) => useRemoteSessionSource(value),
+      { initialProps: { value: withWorkerGeneration(1) } },
+    );
+    await waitFor(() => expect(liveCalls).toBe(1));
+    hook.rerender({ value: withWorkerGeneration(2) });
+    await waitFor(() => expect(liveCalls).toBe(2));
+    hook.rerender({ value: withWorkerGeneration(3) });
+    await waitFor(() => expect(liveCalls).toBe(3));
 
-    act(() => hook.result.current.selectSession('temporary-a'));
-
-    expect(hook.result.current.selectedSessionId).toBe('canonical-a');
-    await waitFor(() => expect(window.api.getRemoteHostSession).toHaveBeenCalledWith({
-      profileId: 'remote-a', sessionId: 'canonical-a',
-    }));
-    await waitFor(() => expect(hook.result.current.selectedSession?.id).toBe('canonical-a'));
+    third.resolve(sessionPage('generation 3', 3));
+    await waitFor(() => expect(hook.result.current.sessions[0]?.title).toBe('generation 3'));
+    second.resolve(sessionPage('stale generation 2', 2));
+    first.resolve(sessionPage('stale generation 1', 1));
+    await act(async () => { await Promise.all([first.promise, second.promise]); });
+    expect(hook.result.current.sessions[0]?.title).toBe('generation 3');
   });
-
 });
