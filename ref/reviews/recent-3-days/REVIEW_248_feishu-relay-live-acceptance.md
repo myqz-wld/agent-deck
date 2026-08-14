@@ -14,7 +14,7 @@ skipped_expired:
 
 This follow-up reviewed the post-implementation deployment fixes and exercised the official Relay
 deployment entrypoint on an authorized ARM64 Ubuntu host. It inspected the complete code diff from
-the final-record baseline through `057c8f21a130d04d4688032e0bdc62d40cea71e4`, rebuilt both runtime
+the final-record baseline through `4fd970044463f392a1606f15e1b4a761ec4b097d`, rebuilt both runtime
 architectures repeatedly in independent processes, and separated real Relay evidence from still
 unavailable Full and tenant-installed Feishu evidence.
 
@@ -22,7 +22,15 @@ unavailable Full and tenant-installed Feishu evidence.
 scripts/build-linux-headless.mjs
 scripts/deployment/deployment.test.mjs
 scripts/deployment/remote-install.sh
+scripts/deployment/remote-relay-authority.sh
+scripts/deployment/remote-verify.sh
 scripts/deployment/server.mjs
+src/hosts/relay/connection-issuer.ts
+src/hosts/relay/credential-authority-service.ts
+src/hosts/relay/credential-authority.ts
+src/hosts/relay/headless-config.ts
+src/hosts/relay/headless-root.ts
+src/hosts/server-control/connection-authority.ts
 ```
 
 ## Findings and fixes landed
@@ -49,12 +57,28 @@ The official deploy command inherited a 300-second timeout that was too short fo
 on the available link. Release upload now has an explicit bounded 1,200-second timeout while other
 remote commands retain their existing bounds.
 
+### HIGH — Mutable Relay credentials invalidated immutable generation evidence
+
+The Server CLI correctly changed Relay's credential directory, but that directory was embedded in
+the manager-versioned runtime config. A later upgrade therefore failed closed as tampered. Relay now
+uses an immutable schema-v2 runtime config plus a separate service-owned mode-0600 authority file;
+the whole exact config directory is mounted read-only so atomic host replacement remains visible to
+the running container. A live issue/revoke test reached Relay metadata without a restart.
+
+### MEDIUM — Private authority checks ran as the SSH deployment identity
+
+The first fixed-release attempt correctly denied the deploy user direct traversal of the service
+account's mode-0700 config directory. Authority creation and verification now run every directory,
+symlink, owner, mode, and schema probe through the restricted service-account context; directory
+permissions were not weakened.
+
 No confirmed code finding remains open.
 
 ## Live Relay acceptance
 
-- The official check, dry-run, upgrade, and independent verify path succeeded on the authorized
-  ARM64 Ubuntu Relay host at release `git-057c8f21a130`, generation 14.
+- The official check, dry-run, and independent verify path succeeded after a one-way clean break to
+  release `git-4fd970044463`, generation 15. Installed config/unit digests match the record and no
+  operation journal remains.
 - The running image is digest-pinned and the manager reported the exact active generation healthy.
   The exact managed Relay unit was restarted once and independently verified healthy; no local or
   unrelated process was terminated.
@@ -68,6 +92,9 @@ No confirmed code finding remains open.
 - The installed Server CLI passed `connections verify` and `connections list`. Two disposable
   credentials exercised `issued`, `already-issued`, `rotated`, `already-rotated`, `revoked`, and
   `already-revoked`; both final records are revoked and no disposable authorized key remains.
+- A follow-up disposable connection proved the separate authority and Relay metadata changed from
+  active to revoked within the polling bound while the exact container start timestamp stayed
+  unchanged. Its private output was deleted and its authorized key was removed.
 - `feishu check` and `feishu status` passed. The final arm64 runtime is installed and verified; the
   sidecar remains deliberately inactive because no app credentials were supplied.
 - The Relay remained healthy while its Worker route was offline. This proves independent Relay
@@ -78,7 +105,7 @@ No confirmed code finding remains open.
 
 ## Validation
 
-- Full suite: 962 files / 6,105 tests passed; 2 files / 3 tests remained skipped behind existing
+- Full suite: 963 files / 6,110 tests passed; 2 files / 3 tests remained skipped behind existing
   opt-in guards.
 - `pnpm typecheck`, `pnpm build`, `pnpm verify:linux-headless`, `pnpm check:deployment`, Full,
   Relay, Feishu, and Manager static checks, review expiry, changed-source file size, and
