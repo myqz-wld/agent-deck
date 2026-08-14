@@ -47,18 +47,25 @@ if [[ "$topology" == full ]]; then
 else
   authority_directory="$service_home/.config/agent-deck-relay/$instance_id"
   authority_file="$authority_directory/authority.json"
-  [[ -d "$authority_directory" && ! -L "$authority_directory" &&
-     "$(/usr/bin/readlink -f -- "$authority_directory")" == "$authority_directory" ]] ||
+  run_service /usr/bin/test -d "$authority_directory" ||
+    fail 'Relay connection authority 目录不存在'
+  if run_service /usr/bin/test -L "$authority_directory"; then
+    fail 'Relay connection authority 目录不能是符号链接'
+  fi
+  [[ "$(run_service /usr/bin/readlink -f -- "$authority_directory")" == "$authority_directory" ]] ||
     fail 'Relay connection authority 目录不规范'
-  [[ "$(/usr/bin/stat -c '%u' -- "$authority_directory")" == "$service_uid" &&
-     "$(/usr/bin/stat -c '%a' -- "$authority_directory")" == 700 ]] ||
+  [[ "$(run_service /usr/bin/stat -c '%u' -- "$authority_directory")" == "$service_uid" &&
+     "$(run_service /usr/bin/stat -c '%a' -- "$authority_directory")" == 700 ]] ||
     fail 'Relay connection authority 目录 owner/mode 不匹配'
-  [[ -f "$authority_file" && ! -L "$authority_file" ]] || fail 'Relay connection authority 缺失'
-  [[ "$(/usr/bin/readlink -f -- "$authority_file")" == "$authority_file" ]] ||
+  run_service /usr/bin/test -f "$authority_file" || fail 'Relay connection authority 缺失'
+  if run_service /usr/bin/test -L "$authority_file"; then
+    fail 'Relay connection authority 不能是符号链接'
+  fi
+  [[ "$(run_service /usr/bin/readlink -f -- "$authority_file")" == "$authority_file" ]] ||
     fail 'Relay connection authority 路径不规范'
-  [[ "$(/usr/bin/stat -c '%u' -- "$authority_file")" == "$service_uid" &&
-     "$(/usr/bin/stat -c '%g' -- "$authority_file")" == "$(/usr/bin/id -g "$service_user")" &&
-     "$(/usr/bin/stat -c '%a' -- "$authority_file")" == 600 ]] ||
+  [[ "$(run_service /usr/bin/stat -c '%u' -- "$authority_file")" == "$service_uid" &&
+     "$(run_service /usr/bin/stat -c '%g' -- "$authority_file")" == "$(/usr/bin/id -g "$service_user")" &&
+     "$(run_service /usr/bin/stat -c '%a' -- "$authority_file")" == 600 ]] ||
     fail 'Relay connection authority owner/mode 不匹配'
   run_service /opt/agent-deck/bin/agent-deck-relay check-authority \
     --instance "$instance_id" --authority "$authority_file"

@@ -21,23 +21,29 @@ instance_id=${5:-}
 [[ "$instance_id" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || fail 'instance id 无效'
 [[ "$(/usr/bin/id -u "$service_user")" == "$service_uid" ]] || fail 'service user/uid 不匹配'
 
-config_directory="$service_home/.config/agent-deck-relay/$instance_id"
-authority_file="$config_directory/authority.json"
-[[ -d "$config_directory" && ! -L "$config_directory" ]] || fail '配置目录不存在或不是常规目录'
-[[ "$(/usr/bin/readlink -f -- "$config_directory")" == "$config_directory" ]] || fail '配置目录不规范'
-[[ "$(/usr/bin/stat -c '%u' -- "$config_directory")" == "$service_uid" &&
-   "$(/usr/bin/stat -c '%g' -- "$config_directory")" == "$(/usr/bin/id -g "$service_user")" &&
-   "$(/usr/bin/stat -c '%a' -- "$config_directory")" == 700 ]] ||
-  fail '配置目录 owner/mode 不匹配'
-
 run_service() {
   /usr/bin/sudo -n -u "$service_user" /usr/bin/env -i \
     HOME="$service_home" PATH=/usr/bin:/bin LANG=C LC_ALL=C \
     /usr/bin/env --chdir="$service_home" "$@"
 }
 
+config_directory="$service_home/.config/agent-deck-relay/$instance_id"
+authority_file="$config_directory/authority.json"
+run_service /usr/bin/test -d "$config_directory" || fail '配置目录不存在或不是常规目录'
+if run_service /usr/bin/test -L "$config_directory"; then fail '配置目录不能是符号链接'; fi
+[[ "$(run_service /usr/bin/readlink -f -- "$config_directory")" == "$config_directory" ]] || fail '配置目录不规范'
+[[ "$(run_service /usr/bin/stat -c '%u' -- "$config_directory")" == "$service_uid" &&
+   "$(run_service /usr/bin/stat -c '%g' -- "$config_directory")" == "$(/usr/bin/id -g "$service_user")" &&
+   "$(run_service /usr/bin/stat -c '%a' -- "$config_directory")" == 700 ]] ||
+  fail '配置目录 owner/mode 不匹配'
+
 created=0
-if [[ ! -e "$authority_file" && ! -L "$authority_file" ]]; then
+authority_present=0
+if run_service /usr/bin/test -e "$authority_file" ||
+   run_service /usr/bin/test -L "$authority_file"; then
+  authority_present=1
+fi
+if ((authority_present == 0)); then
   [[ "$mode" == create ]] || fail 'connection authority 不存在'
   run_service /usr/bin/node -e '
     const fs = require("node:fs");
@@ -59,11 +65,12 @@ if [[ ! -e "$authority_file" && ! -L "$authority_file" ]]; then
   created=1
 fi
 
-[[ -f "$authority_file" && ! -L "$authority_file" ]] || fail 'connection authority 不是常规文件'
-[[ "$(/usr/bin/readlink -f -- "$authority_file")" == "$authority_file" ]] || fail 'connection authority 路径不规范'
-[[ "$(/usr/bin/stat -c '%u' -- "$authority_file")" == "$service_uid" &&
-   "$(/usr/bin/stat -c '%g' -- "$authority_file")" == "$(/usr/bin/id -g "$service_user")" &&
-   "$(/usr/bin/stat -c '%a' -- "$authority_file")" == 600 ]] ||
+run_service /usr/bin/test -f "$authority_file" || fail 'connection authority 不是常规文件'
+if run_service /usr/bin/test -L "$authority_file"; then fail 'connection authority 不能是符号链接'; fi
+[[ "$(run_service /usr/bin/readlink -f -- "$authority_file")" == "$authority_file" ]] || fail 'connection authority 路径不规范'
+[[ "$(run_service /usr/bin/stat -c '%u' -- "$authority_file")" == "$service_uid" &&
+   "$(run_service /usr/bin/stat -c '%g' -- "$authority_file")" == "$(/usr/bin/id -g "$service_user")" &&
+   "$(run_service /usr/bin/stat -c '%a' -- "$authority_file")" == 600 ]] ||
   fail 'connection authority owner/mode 不匹配'
 run_service /opt/agent-deck/bin/agent-deck-relay check-authority \
   --instance "$instance_id" --authority "$authority_file"
