@@ -28,7 +28,8 @@ export function RemoteHostManagerDialog({
       setEditing(undefined);
     }
   }, [editing, open, snapshot?.profiles]);
-  useModalFocus({ blocked: hosts.busy, dialogRef, onClose, open });
+  // Background connection work must never trap the user inside this manager.
+  useModalFocus({ dialogRef, onClose, open });
   if (!open) return null;
 
   const removeProfile = async (profileId: string): Promise<void> => {
@@ -76,7 +77,7 @@ export function RemoteHostManagerDialog({
             <button
               type="button"
               onClick={() => setEditing(null)}
-              disabled={hosts.busy}
+              disabled={hosts.mutations.profileRegistry}
               className="inline-flex h-6 items-center gap-1 rounded-md border border-white/[0.10] bg-white/[0.045] px-2.5 text-[10px] text-deck-text transition hover:border-white/[0.16] hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <PlusIcon className="h-3 w-3" />添加
@@ -84,8 +85,7 @@ export function RemoteHostManagerDialog({
             <button
               type="button"
               onClick={onClose}
-              disabled={hosts.busy}
-              className="flex h-5 w-5 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-5 w-5 items-center justify-center rounded text-deck-muted hover:bg-white/10 hover:text-deck-text"
               aria-label="关闭远程数据源设置"
             >
               <CloseIcon className="h-3.5 w-3.5" />
@@ -102,7 +102,7 @@ export function RemoteHostManagerDialog({
             profiles={snapshot?.profiles ?? []}
             states={snapshot?.states ?? []}
             selectedRemoteProfileId={snapshot?.selectedRemoteProfileId ?? null}
-            busy={hosts.busy}
+            mutations={hosts.mutations}
             onEdit={setEditing}
             onSelect={(profileId) => consume(hosts.selectProfile(profileId))}
             onConnect={(profileId) => consume(hosts.connect(profileId))}
@@ -113,7 +113,7 @@ export function RemoteHostManagerDialog({
         {editing !== undefined && (
           <RemoteProfileForm
             profile={editing}
-            busy={hosts.busy}
+            busy={hosts.mutations.profileRegistry}
             onClose={() => setEditing(undefined)}
             onSave={(draft) => editing
               ? hosts.updateProfile(editing.id, draft)

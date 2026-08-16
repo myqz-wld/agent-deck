@@ -15,6 +15,15 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-08-07 | `CHANGELOG_577_remote-core-user-presentations.md` | Reuse Local plan and diff gates for Remote sessions |
+| 2026-08-07 | `CHANGELOG_576_remote-desktop-browser-broker.md` | Broker Remote Browser tools through the connected desktop |
+| 2026-08-07 | `CHANGELOG_575_remote-core-worktree-lifecycle.md` | Restore automatic Remote worktree cwd transitions |
+| 2026-08-07 | `CHANGELOG_574_remote-image-asset-broker.md` | Display Remote image diffs through an opaque Core asset broker |
+| 2026-08-07 | `CHANGELOG_573_remote-core-session-collaboration-mcp.md` | Add Core-owned Remote session collaboration MCP tools |
+| 2026-08-07 | `CHANGELOG_572_remote-issues-parity.md` | Reuse the shared Issues board through Remote Core |
+| 2026-08-07 | `CHANGELOG_571_remote-task-and-activity-parity.md` | Reuse shared Remote task and activity presentations |
+| 2026-08-07 | `CHANGELOG_570_remote-summary-and-text-diff-parity.md` | Add Workspace-bounded Remote summaries and text diffs |
+| 2026-08-07 | `CHANGELOG_568_remote-new-session-parity.md` | Mirror Local New Session controls through Remote Core |
 | 2026-08-06 | `CHANGELOG_565_workspace-bounded-relay-worker.md` | Bound Relay Worker clients to one Workspace |
 | 2026-08-05 | `CHANGELOG_567_single-reviewer-finding-verification.md` | Verify un-rebutted single-worker findings before use |
 | 2026-08-05 | `CHANGELOG_566_adapter-runtime-event-fidelity.md` | Refresh runtimes and restore native-agent/tool visibility |
@@ -206,12 +215,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | 2026-07-21 | `CHANGELOG_379_plan-review-pending-queue-composer.md` | Isolate plan review and preserve pending input until consumption |
 | 2026-07-16 | `CHANGELOG_378_plan-review-chat-feedback.md` | Align decision controls and show deep-review reply progress |
 | 2026-07-16 | `CHANGELOG_377_worktree-lifecycle-contract.md` | Clarify default worktrees and require consent before branch deletion |
-| 2026-07-15 | `CHANGELOG_376_plan-review-quote-and-decision-tray.md` | Refine deep-review quotes, decisions, and feedback confirmation |
-| 2026-07-15 | `CHANGELOG_375_claude-codex-patch-releases.md` | Advance packaged Claude Agent SDK and Codex CLI patch releases |
-| 2026-07-15 | `CHANGELOG_374_history-search-case-insensitive.md` | Make History search case-insensitive through an offline FTS rebuild |
-| 2026-07-15 | `CHANGELOG_373_review-skill-lifecycle.md` | Separate simple and deep review lifecycles |
-| 2026-07-15 | `CHANGELOG_372_asset-library-card-copy.md` | Align asset-library controls and Agent metadata |
-| 2026-07-15 | `CHANGELOG_371_deepseek-summary-haiku-default.md` | Use Haiku as the blank Deepseek summary model |
-| 2026-07-15 | `CHANGELOG_370_continuation-checkpoint-concurrency.md` | Bound concurrent continuation checkpoint refreshes |
-| 2026-07-15 | `CHANGELOG_369_claude-codex-dependencies.md` | Refresh packaged Claude Agent SDK and Codex CLI dependencies |
-| 2026-07-15 | `CHANGELOG_368_settings-panel-alignment.md` | Align settings copy, sandbox controls, and default reset |

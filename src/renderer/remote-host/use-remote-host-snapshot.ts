@@ -19,6 +19,7 @@ export interface RemoteHostSnapshotState {
   dataRevisionByProfile: ReadonlyMap<string, number>;
   resourceRevisionsByProfile: ReadonlyMap<string, RemoteHostResourceRevisions>;
   sessionRenamesBySource?: ReadonlyMap<string, RemoteSessionRenameAliases>;
+  mutations: RemoteHostMutationActivity;
   busy: boolean;
   error: string | null;
   snapshotError: string | null;
@@ -33,7 +34,38 @@ export interface RemoteHostSnapshotState {
   clearError(): void;
 }
 
+export interface RemoteHostMutationActivity {
+  profileRegistry: boolean;
+  sourceSelection: boolean;
+  connectingProfileIds: ReadonlySet<string>;
+  disconnectingProfileIds: ReadonlySet<string>;
+}
+
 const RESOURCE_KIND_SET = new Set<string>(REMOTE_HOST_RESOURCE_KINDS);
+const PROFILE_REGISTRY_MUTATION = 'profile-registry';
+const SOURCE_SELECTION_MUTATION = 'source-selection';
+const CONNECTION_MUTATION_PREFIX = 'connection:';
+const DISCONNECTION_MUTATION_PREFIX = 'connection-stop:';
+
+function projectMutationActivity(
+  pending: ReadonlyMap<string, number>,
+): RemoteHostMutationActivity {
+  const connectingProfileIds = new Set<string>();
+  const disconnectingProfileIds = new Set<string>();
+  for (const key of pending.keys()) {
+    if (key.startsWith(CONNECTION_MUTATION_PREFIX)) {
+      connectingProfileIds.add(key.slice(CONNECTION_MUTATION_PREFIX.length));
+    } else if (key.startsWith(DISCONNECTION_MUTATION_PREFIX)) {
+      disconnectingProfileIds.add(key.slice(DISCONNECTION_MUTATION_PREFIX.length));
+    }
+  }
+  return {
+    profileRegistry: pending.has(PROFILE_REGISTRY_MUTATION),
+    sourceSelection: pending.has(SOURCE_SELECTION_MUTATION),
+    connectingProfileIds,
+    disconnectingProfileIds,
+  };
+}
 
 export function emptyRemoteHostResourceRevisions(): RemoteHostResourceRevisions {
   return Object.fromEntries(
@@ -56,13 +88,15 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
   const [sessionRenamesBySource, setSessionRenamesBySource] = useState<
     ReadonlyMap<string, RemoteSessionRenameAliases>
   >(new Map());
-  const [busy, setBusy] = useState(false);
+  const [pendingMutations, setPendingMutations] = useState<ReadonlyMap<string, number>>(
+    new Map(),
+  );
   const [error, setError] = useState<string | null>(null);
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
   const requestSequence = useRef(0);
   const autoConnectAttempt = useRef<string | null>(null);
+  const autoConnectGeneration = useRef(0);
   const mutationTails = useRef(new Map<string, Promise<void>>());
-  const mutationCount = useRef(0);
   const mutationSequence = useRef(0);
   const errorOwner = useRef<'refresh' | 'mutation' | null>(null);
 
@@ -92,13 +126,22 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
     }
   }, [apply]);
 
+  const markMutation = useCallback((key: string, delta: 1 | -1): void => {
+    setPendingMutations((current) => {
+      const next = new Map(current);
+      const count = (next.get(key) ?? 0) + delta;
+      if (count > 0) next.set(key, count);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
   const mutate = useCallback((
     key: string,
     operation: () => Promise<RemoteHostSnapshotDto>,
   ): Promise<void> => {
     const operationSequence = ++mutationSequence.current;
-    mutationCount.current += 1;
-    setBusy(true);
+    markMutation(key, 1);
     errorOwner.current = null;
     setError(null);
     const previous = mutationTails.current.get(key) ?? Promise.resolve();
@@ -118,10 +161,9 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
     mutationTails.current.set(key, tail);
     return run.finally(() => {
       if (mutationTails.current.get(key) === tail) mutationTails.current.delete(key);
-      mutationCount.current -= 1;
-      if (mutationCount.current === 0) setBusy(false);
+      markMutation(key, -1);
     });
-  }, [apply]);
+  }, [apply, markMutation]);
 
   useEffect(() => {
     let snapshotDebounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -243,6 +285,7 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
   useEffect(() => {
     if (!selectedRemoteProfileId) {
       autoConnectAttempt.current = null;
+      autoConnectGeneration.current += 1;
       return;
     }
     if (
@@ -259,52 +302,76 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
     ) return;
 
     autoConnectAttempt.current = selectedRemoteProfileId;
+    const generation = ++autoConnectGeneration.current;
     void mutate(
-      `connection:${selectedRemoteProfileId}`,
+      `${CONNECTION_MUTATION_PREFIX}${selectedRemoteProfileId}`,
       () => window.api.connectRemoteHost(selectedRemoteProfileId),
     ).catch((reason) => {
-      if (activeRemoteProfileId.current === selectedRemoteProfileId) {
+      if (
+        autoConnectGeneration.current === generation &&
+        activeRemoteProfileId.current === selectedRemoteProfileId
+      ) {
         setError(errorMessage(reason));
       }
     });
   }, [mutate, selectedRemoteProfileId, selectedRemoteStatus]);
   const setSourceMode = useCallback(
     (mode: RemoteHostSourceMode) => mutate(
-      'source-selection',
+      SOURCE_SELECTION_MUTATION,
       () => window.api.setRemoteHostSourceMode(mode),
     ),
     [mutate],
   );
+
+  const mutations = projectMutationActivity(pendingMutations);
 
   return {
     snapshot,
     dataRevisionByProfile,
     resourceRevisionsByProfile,
     sessionRenamesBySource,
-    busy,
+    mutations,
+    busy: pendingMutations.size > 0,
     error,
     snapshotError,
     refresh,
-    addProfile: (draft) => mutate('profile-registry', () => window.api.addRemoteHostProfile(draft)),
+    addProfile: (draft) => mutate(
+      PROFILE_REGISTRY_MUTATION,
+      () => window.api.addRemoteHostProfile(draft),
+    ),
     updateProfile: (profileId, draft) =>
-      mutate('profile-registry', () => window.api.updateRemoteHostProfile(profileId, draft)),
+      mutate(
+        PROFILE_REGISTRY_MUTATION,
+        () => window.api.updateRemoteHostProfile(profileId, draft),
+      ),
     removeProfile: (profileId) => mutate(
-      'profile-registry',
+      PROFILE_REGISTRY_MUTATION,
       () => window.api.removeRemoteHostProfile(profileId),
     ),
     selectProfile: (profileId) => mutate(
-      'source-selection',
+      SOURCE_SELECTION_MUTATION,
       () => window.api.selectRemoteHostProfile(profileId),
     ),
     setSourceMode,
-    connect: (profileId) => mutate(
-      `connection:${profileId}`,
-      () => window.api.connectRemoteHost(profileId),
-    ),
-    disconnect: (profileId) => mutate(
-      `connection:${profileId}`,
-      () => window.api.disconnectRemoteHost(profileId),
-    ),
+    connect: (profileId) => {
+      autoConnectAttempt.current = profileId;
+      autoConnectGeneration.current += 1;
+      return mutate(
+        `${CONNECTION_MUTATION_PREFIX}${profileId}`,
+        () => window.api.connectRemoteHost(profileId),
+      );
+    },
+    disconnect: (profileId) => {
+      // An explicit stop is a cancellation boundary, not another item behind connect/reconnect.
+      // Main/registry disconnect closes the SSH binding, which clears its retry timer, retires the
+      // active child, and rejects the older connect waiter.
+      autoConnectAttempt.current = profileId;
+      autoConnectGeneration.current += 1;
+      return mutate(
+        `${DISCONNECTION_MUTATION_PREFIX}${profileId}`,
+        () => window.api.disconnectRemoteHost(profileId),
+      );
+    },
     clearError: () => {
       errorOwner.current = null;
       setError(null);

@@ -132,6 +132,36 @@ describe('Remote handoff dialog authority', () => {
     expect(screen.queryByText('正在读取会话配置…')).toBeNull();
   });
 
+  it('keeps settled options mounted and delays later configuration progress', async () => {
+    vi.useFakeTimers();
+    const refreshed = deferred<ReturnType<typeof sessionConsoleCapabilitiesFixture>>();
+    const getSessionCapabilities = vi.fn()
+      .mockResolvedValueOnce(sessionConsoleCapabilitiesFixture('codex-cli', '.'))
+      .mockReturnValueOnce(refreshed.promise);
+    render(<RemoteHandOffDialog
+      source={source({ getSessionCapabilities })}
+      sessionId="session-a"
+      onClose={vi.fn()}
+      onCommitted={vi.fn()}
+    />);
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    fireEvent.click(screen.getByText('模型配置'));
+    fireEvent.change(screen.getByLabelText('模型来源'), {
+      target: { value: 'openai-custom' },
+    });
+
+    expect(screen.getByText('模型配置')).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
+    expect(screen.queryByText('正在更新会话配置…')).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(getSessionCapabilities).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('正在更新会话配置…')).toBeTruthy();
+
+    await act(async () => refreshed.resolve(sessionConsoleCapabilitiesFixture('codex-cli', '.')));
+    expect(screen.queryByText('正在更新会话配置…')).toBeNull();
+  });
+
   it('recovers a capability-read failure in place', async () => {
     const getSessionCapabilities = vi.fn()
       .mockRejectedValueOnce(new Error('temporary capability failure'))

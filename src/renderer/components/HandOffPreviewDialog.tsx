@@ -6,6 +6,7 @@ import type {
   SessionHandOffPreparation,
   SessionRecord,
 } from '@shared/types';
+import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
 import { RefreshIcon } from './icons';
 import {
   thinkingOptionsForAdapter,
@@ -37,6 +38,11 @@ export const DEFAULT_UI_CONTINUATION_INSTRUCTION = '请基于以上会话续接�
 // Failed successor cleanup must remain acknowledged across close/reopen and source navigation.
 const pendingOrphanAcknowledgements = new Map<string, SessionHandOffExecutionFailure>();
 
+interface HandOffAdapterProjection {
+  identity: string;
+  adapters: HandOffAdapterOption[];
+}
+
 function sourceThinking(session: SessionRecord): SessionThinkingChoice {
   const value = session.thinking ?? '';
   return thinkingOptionsForAdapter(session.agentId).some((option) => option.value === value)
@@ -46,7 +52,20 @@ function sourceThinking(session: SessionRecord): SessionThinkingChoice {
 
 export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Element | null {
   const sessionId = session.id;
-  const [adapters, setAdapters] = useState<HandOffAdapterOption[]>([]);
+  const previousOpenRef = useRef(open);
+  const openCycleRef = useRef(0);
+  if (previousOpenRef.current !== open) {
+    previousOpenRef.current = open;
+    openCycleRef.current += 1;
+  }
+  const configurationIdentity = `local-handoff:${sessionId}:${openCycleRef.current}`;
+  const [adapterProjection, setAdapterProjection] = useState<HandOffAdapterProjection>({
+    identity: '',
+    adapters: [],
+  });
+  const adapters = adapterProjection.identity === configurationIdentity
+    ? adapterProjection.adapters
+    : [];
   const [targetAdapter, setTargetAdapter] = useState<SessionAdapterId>(session.agentId as SessionAdapterId);
   const [targetProvider, setTargetProvider] = useState(session.runtimeProvider ?? '');
   const [targetModel, setTargetModel] = useState(session.model ?? '');
@@ -118,8 +137,9 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       .listAdapters()
       .then((rows) => {
         if (cancelled) return;
-        setAdapters(
-          rows
+        setAdapterProjection({
+          identity: configurationIdentity,
+          adapters: rows
             .filter(
               (row): row is typeof row & { id: SessionAdapterId } =>
                 row.capabilities.canCreateSession === true &&
@@ -132,17 +152,18 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
               label: row.displayName,
               sessionModes: row.sessionModes ?? [],
             })),
-        );
+        });
       })
       .catch((caught: unknown) => {
         if (!cancelled) {
+          setAdapterProjection({ identity: configurationIdentity, adapters: [] });
           setError(`加载助手配置失败：${caught instanceof Error ? caught.message : String(caught)}`);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [configurationIdentity, open]);
 
   const close = (): void => {
     if (commitInFlight.current) return;
@@ -153,14 +174,22 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
     setCommitting(false);
     onClose();
   };
+  const configurationPending = open && adapterProjection.identity !== configurationIdentity;
+  const presentation = useInitialAsyncPresentation(
+    configurationPending,
+    configurationIdentity,
+  );
   useModalFocus({
     blocked: committing,
     dialogRef,
     onClose: close,
-    open,
+    open: open && presentation !== 'deferred',
   });
 
   if (!open) return null;
+  if (presentation === 'deferred') {
+    return <div data-session-handoff-frame className="absolute inset-0 z-40 bg-black/40 backdrop-blur-sm" />;
+  }
 
   const invalidateAndChange = (change: () => void): void => {
     if (preparationId.current) cancelPreparation();
@@ -287,7 +316,16 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       primaryLabel={committing ? '正在创建续接会话…' : '打开新会话接力'}
       primaryDisabled={busy || !preparation}
       onPrimary={() => { void commit(); }}
+      ariaBusy={presentation === 'fallback'}
     >
+        {presentation === 'fallback' ? (
+          <div
+            role="status"
+            className="flex min-h-40 items-center justify-center p-4 text-[11px] text-deck-muted"
+          >
+            正在读取会话配置…
+          </div>
+        ) : <>
           <p className="text-[10px] leading-relaxed text-deck-muted">
             上下文整理方式由“会话续接上下文”设置控制；下方选项只决定新会话使用的助手、模型和思考程度。
           </p>
@@ -444,6 +482,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
               ⚠️ {error}
             </div>
           )}
+        </>}
     </HandOffDialogFrame>
   );
 }

@@ -1,8 +1,15 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { SessionHandOffPreparation, SessionRecord } from '@shared/types';
+import { FAST_ASYNC_FALLBACK_GRACE_MS } from '@renderer/hooks/useDelayedAsyncFallback';
 import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 const source: SessionRecord = {
   id: 'source-1',
@@ -89,11 +96,39 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   Reflect.deleteProperty(window, 'api');
 });
 
 describe('HandOffPreviewDialog unified preparation flow', () => {
+  it('reveals Local handoff configuration only after the shared grace period', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<Awaited<ReturnType<typeof window.api.listAdapters>>>();
+    window.api.listAdapters = vi.fn(() => pending.promise);
+    render(<HandOffPreviewDialog open session={source} onClose={vi.fn()} />);
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(document.querySelector('[data-session-handoff-frame]')).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: '接力到新会话' })).toBeNull();
+    expect(screen.queryByText('正在读取会话配置…')).toBeNull();
+
+    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
+    expect(screen.queryByText('正在读取会话配置…')).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByText('正在读取会话配置…')).toBeTruthy();
+
+    await act(async () => pending.resolve([{
+      id: 'claude-code',
+      displayName: 'Claude',
+      capabilities: { canCreateSession: true },
+      sessionModes: [],
+    }]));
+    expect(screen.getByRole('dialog', { name: '接力到新会话' })).toBeTruthy();
+    expect(screen.getByLabelText('目标助手')).toBeTruthy();
+    expect(screen.queryByText('正在读取会话配置…')).toBeNull();
+  });
+
   it('selects the target before prepare and commits only the opaque preparation id', async () => {
     const onClose = vi.fn();
     render(<HandOffPreviewDialog open session={source} onClose={onClose} />);

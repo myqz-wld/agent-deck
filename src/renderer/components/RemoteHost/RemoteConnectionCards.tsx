@@ -5,13 +5,14 @@ import {
   type RemoteHostProfileDto,
   type RemoteHostStateDto,
 } from '@shared/remote-host';
+import type { RemoteHostMutationActivity } from '@renderer/remote-host/use-remote-host-snapshot';
 import { PencilIcon, PlayIcon, StopIcon, TrashIcon } from '../icons';
 
 interface RemoteConnectionCardsProps {
   profiles: RemoteHostProfileDto[];
   states: RemoteHostStateDto[];
   selectedRemoteProfileId: string | null;
-  busy: boolean;
+  mutations: RemoteHostMutationActivity;
   onEdit(profile: RemoteHostProfileDto): void;
   onSelect(profileId: string): void;
   onConnect(profileId: string): void;
@@ -31,7 +32,7 @@ export function RemoteConnectionCards({
   profiles,
   states,
   selectedRemoteProfileId,
-  busy,
+  mutations,
   onEdit,
   onSelect,
   onConnect,
@@ -60,6 +61,9 @@ export function RemoteConnectionCards({
         const selected = selectedRemoteProfileId === profile.id;
         const active = status === 'connected' || status === 'connecting' ||
           status === 'reconnecting' || isRecoverableRelayWorkerOffline(state);
+        const connecting = mutations.connectingProfileIds.has(profile.id);
+        const disconnecting = mutations.disconnectingProfileIds.has(profile.id);
+        const usesDisconnectPath = active || connecting || disconnecting;
         return (
           <article
             key={profile.id}
@@ -74,6 +78,7 @@ export function RemoteConnectionCards({
             <button
               type="button"
               onClick={() => onSelect(profile.id)}
+              disabled={mutations.sourceSelection}
               className="block w-full min-w-0 px-3 py-3 text-left outline-none transition focus-visible:bg-white/[0.045]"
               aria-label={`选择连接 ${profile.label}`}
               aria-pressed={selected}
@@ -117,22 +122,24 @@ export function RemoteConnectionCards({
             <div className="flex flex-wrap items-center gap-1 border-t border-white/[0.055] px-2.5 py-2">
               <button
                 type="button"
-                disabled={busy}
-                onClick={() => active ? onDisconnect(profile.id) : onConnect(profile.id)}
+                disabled={disconnecting}
+                onClick={() => usesDisconnectPath
+                  ? onDisconnect(profile.id)
+                  : onConnect(profile.id)}
                 className={`inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[9px] transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                  active
+                  usesDisconnectPath
                     ? 'border-white/[0.07] text-deck-muted hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-deck-text'
                     : 'border-emerald-300/15 bg-emerald-400/[0.08] text-emerald-200 hover:border-emerald-300/25 hover:bg-emerald-400/[0.13]'
                 }`}
               >
-                {active
+                {usesDisconnectPath
                   ? <StopIcon className="h-2.5 w-2.5" />
                   : <PlayIcon className="h-2.5 w-2.5" />}
-                {active ? '断开' : '连接'}
+                {usesDisconnectPath ? '断开' : '连接'}
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={mutations.profileRegistry}
                 onClick={() => onEdit(profile)}
                 className="inline-flex h-6 items-center gap-1 rounded-md px-2 text-[9px] text-deck-muted transition hover:bg-white/[0.05] hover:text-deck-text disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -140,7 +147,7 @@ export function RemoteConnectionCards({
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={mutations.profileRegistry}
                 onClick={() => onRemove(profile.id)}
                 className="ml-auto inline-flex h-6 items-center gap-1 rounded-md px-2 text-[9px] text-red-300/80 transition hover:bg-red-500/[0.08] hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
               >

@@ -324,11 +324,11 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
     expect(hook.result.current.error).toBeNull();
   });
 
-  it('serializes rapid connection mutations and stays busy through the queued operation', async () => {
-    let resolveConnect!: (value: RemoteHostSnapshotDto) => void;
+  it('dispatches disconnect immediately instead of queueing it behind connect', async () => {
+    let rejectConnect!: (reason: unknown) => void;
     let resolveDisconnect!: (value: RemoteHostSnapshotDto) => void;
-    connectRemoteHost.mockReturnValue(new Promise((resolve) => {
-      resolveConnect = resolve;
+    connectRemoteHost.mockReturnValue(new Promise((_resolve, reject) => {
+      rejectConnect = reject;
     }));
     disconnectRemoteHost.mockReturnValue(new Promise((resolve) => {
       resolveDisconnect = resolve;
@@ -336,27 +336,74 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
     const hook = renderHook(() => useRemoteHostSnapshot());
     await act(async () => { await Promise.resolve(); });
 
-    let connecting!: Promise<void>;
+    let connecting!: Promise<unknown>;
     let disconnecting!: Promise<void>;
     act(() => {
-      connecting = hook.result.current.connect('remote-a');
+      connecting = hook.result.current.connect('remote-a').catch((reason: unknown) => reason);
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(hook.result.current.mutations.connectingProfileIds.has('remote-a')).toBe(true);
+
+    act(() => {
       disconnecting = hook.result.current.disconnect('remote-a');
     });
     await act(async () => { await Promise.resolve(); });
     expect(connectRemoteHost).toHaveBeenCalledOnce();
-    expect(disconnectRemoteHost).not.toHaveBeenCalled();
+    expect(disconnectRemoteHost).toHaveBeenCalledOnce();
+    expect(hook.result.current.mutations.disconnectingProfileIds.has('remote-a')).toBe(true);
     expect(hook.result.current.busy).toBe(true);
 
-    await act(async () => {
-      resolveConnect({ ...snapshot, revision: 2 });
-      await connecting;
-    });
-    expect(disconnectRemoteHost).toHaveBeenCalledOnce();
-    expect(hook.result.current.busy).toBe(true);
     await act(async () => {
       resolveDisconnect({ ...snapshot, revision: 3 });
       await disconnecting;
     });
+    expect(hook.result.current.busy).toBe(true);
+    await act(async () => {
+      rejectConnect(new Error('SSH transport stopped'));
+      expect(await connecting).toBeInstanceOf(Error);
+    });
     expect(hook.result.current.busy).toBe(false);
+    expect(hook.result.current.error).toBeNull();
+  });
+
+  it('lets explicit disconnect cancel a pending startup auto-connect without a stale error', async () => {
+    const remote: RemoteHostSnapshotDto = {
+      revision: 3,
+      sourceMode: 'remote',
+      selectedRemoteProfileId: 'remote-a',
+      profiles: [],
+      states: [{
+        profileId: 'remote-a',
+        status: 'offline',
+        recovery: null,
+        authoritativeCoreId: null,
+        workerGeneration: null,
+        capabilities: [],
+        eventRevision: 0,
+        error: null,
+      }],
+    };
+    const disconnected = { ...remote, revision: 4 };
+    let rejectConnect!: (reason: unknown) => void;
+    connectRemoteHost.mockReturnValue(new Promise((_resolve, reject) => {
+      rejectConnect = reject;
+    }));
+    disconnectRemoteHost.mockResolvedValue(disconnected);
+    getSnapshot.mockResolvedValue(remote);
+
+    const hook = renderHook(() => useRemoteHostSnapshot());
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(connectRemoteHost).toHaveBeenCalledWith('remote-a');
+
+    await act(async () => { await hook.result.current.disconnect('remote-a'); });
+    expect(disconnectRemoteHost).toHaveBeenCalledWith('remote-a');
+    await act(async () => {
+      rejectConnect(new Error('SSH transport stopped'));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook.result.current.error).toBeNull();
+    expect(hook.result.current.snapshot).toEqual(disconnected);
   });
 });

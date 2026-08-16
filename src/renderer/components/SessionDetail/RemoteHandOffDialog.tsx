@@ -11,7 +11,10 @@ import type { SessionThinkingChoice } from '@renderer/components/SessionModelFie
 import { useRemoteSessionCreation } from '@renderer/components/new-session/useRemoteSessionCreation';
 import { remoteControls } from '@renderer/components/NewSessionDialog';
 import { useModalFocus } from '@renderer/components/use-modal-focus';
-import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
+import {
+  useDelayedAsyncFallback,
+  useInitialAsyncPresentation,
+} from '@renderer/hooks/useDelayedAsyncFallback';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { RefreshIcon } from '../icons';
 import {
@@ -148,6 +151,10 @@ export function RemoteHandOffDialog({
     remote.initializing,
     `remote-handoff:${identity}:${remote.readinessIdentity}`,
   );
+  const showConfigurationProgress = useDelayedAsyncFallback(
+    presentation === 'ready' && remote.loading,
+    `remote-handoff:${identity}:${remote.readinessIdentity}:configuration`,
+  );
   useModalFocus({
     blocked: committing,
     dialogRef: modalRootRef,
@@ -185,6 +192,11 @@ export function RemoteHandOffDialog({
           <p className="text-[10px] leading-relaxed text-deck-muted">
             下方选项决定新会话使用的运行方式、模型和思考程度；工作目录继承当前会话。
           </p>
+          {showConfigurationProgress && (
+            <div role="status" className="rounded bg-white/[0.035] px-2 py-1 text-[10px] text-deck-muted">
+              正在更新会话配置…
+            </div>
+          )}
           {remote.adapters.length > 0 && (
             <label className="flex flex-col gap-1">
               <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">助手</span>
