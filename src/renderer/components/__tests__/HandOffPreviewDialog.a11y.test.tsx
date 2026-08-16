@@ -89,9 +89,9 @@ describe('HandOffPreviewDialog modal interaction', () => {
     const opener = screen.getByRole('button', { name: '打开接力' });
     opener.focus();
     fireEvent.click(opener);
-    const dialog = screen.getByRole('dialog', { name: '接力到新会话' });
+    const dialog = await screen.findByRole('dialog', { name: '接力到新会话' });
     expect(dialog.getAttribute('aria-modal')).toBe('true');
-    expect(document.activeElement).toBe(dialog);
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
 
     const runtime = await screen.findByLabelText('目标助手');
     fireEvent.click(runtime);

@@ -104,6 +104,24 @@ describe('NewSessionDialog readiness', () => {
     expect(screen.queryByText('正在读取会话配置…')).toBeNull();
   });
 
+  it('presents a settled empty adapter inventory directly without a false loading label', async () => {
+    vi.useFakeTimers();
+    const pendingDefaults = deferred<ReturnType<typeof sessionCreationDefaults>>();
+    window.api.listAdapters = vi.fn().mockResolvedValue([]);
+    window.api.getAdapterSessionCreationDefaults = vi.fn(() => pendingDefaults.promise);
+    render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
+
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByText('没有可用的助手')).toBeTruthy();
+    expect(screen.queryByText('正在读取助手配置…')).toBeNull();
+    expect(screen.queryByText('正在读取会话配置…')).toBeNull();
+
+    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS));
+    expect(screen.getByText('没有可用的助手')).toBeTruthy();
+    expect(screen.queryByText('正在读取助手配置…')).toBeNull();
+    await act(async () => pendingDefaults.resolve(sessionCreationDefaults()));
+  });
+
   it('starts a fresh hidden readiness cycle after close and reopen', async () => {
     vi.useFakeTimers();
     const reopenedDefaults = deferred<ReturnType<typeof sessionCreationDefaults> & {

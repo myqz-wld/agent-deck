@@ -135,6 +135,12 @@ export function hosts(
     },
     dataRevisionByProfile: new Map(),
     resourceRevisionsByProfile: new Map(),
+    mutations: {
+      profileRegistry: false,
+      sourceSelection: false,
+      connectingProfileIds: new Set(),
+      disconnectingProfileIds: new Set(),
+    },
     busy: false,
     error: null,
     snapshotError: null,

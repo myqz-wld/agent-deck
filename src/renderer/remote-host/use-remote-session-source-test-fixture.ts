@@ -98,6 +98,12 @@ export function hosts(profileId: string | null, dataRevision: number): RemoteHos
           Object.keys(emptyRemoteHostResourceRevisions()).map((key) => [key, dataRevision]),
         ) as ReturnType<typeof emptyRemoteHostResourceRevisions>]]
       : []),
+    mutations: {
+      profileRegistry: false,
+      sourceSelection: false,
+      connectingProfileIds: new Set(),
+      disconnectingProfileIds: new Set(),
+    },
     busy: false,
     error: null,
     snapshotError: null,

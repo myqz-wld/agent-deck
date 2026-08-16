@@ -140,7 +140,7 @@ export function NewSessionForm(props: Props): JSX.Element | null {
           <FormError error={props.error} onRetry={props.onRetryConfiguration} />
         ) : (
           <div className="text-[11px] text-deck-muted">
-            {configurationPending ? '正在读取助手配置…' : '没有可用的助手'}
+            没有可用的助手
           </div>
         ) : (
           <div className="flex flex-col gap-3">

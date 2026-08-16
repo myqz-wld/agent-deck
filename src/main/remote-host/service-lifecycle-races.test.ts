@@ -111,6 +111,33 @@ describe('RemoteHostService lifecycle admission', () => {
     expect((await context.service.getSnapshot()).sourceMode).toBe('local');
   });
 
+  it('disconnects a pending connection immediately and fences its later handshake', async () => {
+    const context = harness();
+    const gate = deferred<ReturnType<typeof remoteHello>>();
+    const client = context.clients.get(context.firstProfile.id)!;
+    vi.spyOn(client, 'connect').mockImplementation(async (hello) => {
+      client.connectHellos.push(hello);
+      return gate.promise;
+    });
+
+    const connecting = context.service.connect(context.firstProfile.id);
+    await Promise.resolve();
+    const disconnected = await context.service.disconnect(context.firstProfile.id);
+
+    expect(client.closeSpy).toHaveBeenCalledOnce();
+    expect(disconnected.states).toContainEqual(expect.objectContaining({
+      profileId: context.firstProfile.id,
+      status: 'offline',
+    }));
+
+    gate.resolve(remoteHello(context.firstProfile));
+    await expect(connecting).rejects.toThrow(/replaced/i);
+    expect((await context.service.getSnapshot()).states).toContainEqual(expect.objectContaining({
+      profileId: context.firstProfile.id,
+      status: 'offline',
+    }));
+  });
+
   it('starts local SSH retirement during shutdown without waiting for a pending connect', async () => {
     const brokerGate = deferred<void>();
     const context = harness({

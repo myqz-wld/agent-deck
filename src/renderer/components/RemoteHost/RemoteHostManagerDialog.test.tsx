@@ -62,6 +62,12 @@ function hosts(
     },
     dataRevisionByProfile: new Map(),
     resourceRevisionsByProfile: new Map(),
+    mutations: {
+      profileRegistry: false,
+      sourceSelection: false,
+      connectingProfileIds: new Set(),
+      disconnectingProfileIds: new Set(),
+    },
     busy: false,
     error: null,
     snapshotError: null,
@@ -212,17 +218,75 @@ describe('RemoteHostManagerDialog', () => {
     await waitFor(() => expect(current.removeProfile).toHaveBeenCalledWith(profile.id));
   });
 
-  it('disables mutating card actions while a connection operation is busy', () => {
+  it('keeps escape actions available while a connection is reconnecting', () => {
     const profile = remoteProfile(1);
+    const onClose = vi.fn();
+    const current = hosts([profile], [remoteState(profile.id, 'reconnecting')], {
+      busy: true,
+      mutations: {
+        profileRegistry: false,
+        sourceSelection: false,
+        connectingProfileIds: new Set([profile.id]),
+        disconnectingProfileIds: new Set(),
+      },
+    });
     render(<RemoteHostManagerDialog
       open
-      hosts={hosts([profile], [remoteState(profile.id)], { busy: true })}
-      onClose={vi.fn()}
+      hosts={current}
+      onClose={onClose}
     />);
 
-    for (const name of ['添加', '连接', '编辑', '删除配置']) {
+    for (const name of ['添加', '断开', '编辑', '删除配置', '关闭远程数据源设置']) {
+      expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(false);
+    }
+    fireEvent.click(screen.getByRole('button', { name: '断开' }));
+    expect(current.disconnect).toHaveBeenCalledWith(profile.id);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('offers disconnect as soon as a connect mutation starts, before status catches up', () => {
+    const profile = remoteProfile(1);
+    const current = hosts([profile], [remoteState(profile.id)], {
+      busy: true,
+      mutations: {
+        profileRegistry: false,
+        sourceSelection: false,
+        connectingProfileIds: new Set([profile.id]),
+        disconnectingProfileIds: new Set(),
+      },
+    });
+    render(<RemoteHostManagerDialog open hosts={current} onClose={vi.fn()} />);
+
+    const disconnect = screen.getByRole('button', { name: '断开' }) as HTMLButtonElement;
+    expect(disconnect.disabled).toBe(false);
+    fireEvent.click(disconnect);
+    expect(current.disconnect).toHaveBeenCalledWith(profile.id);
+    expect(current.connect).not.toHaveBeenCalled();
+  });
+
+  it('scopes registry mutation blocking without disabling close', () => {
+    const profile = remoteProfile(1);
+    const onClose = vi.fn();
+    render(<RemoteHostManagerDialog
+      open
+      hosts={hosts([profile], [remoteState(profile.id)], {
+        busy: true,
+        mutations: {
+          profileRegistry: true,
+          sourceSelection: false,
+          connectingProfileIds: new Set(),
+          disconnectingProfileIds: new Set(),
+        },
+      })}
+      onClose={onClose}
+    />);
+
+    for (const name of ['添加', '编辑', '删除配置']) {
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
     }
+    fireEvent.click(screen.getByRole('button', { name: '关闭远程数据源设置' }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('discards an edit overlay when the dialog closes or its profile disappears', () => {
