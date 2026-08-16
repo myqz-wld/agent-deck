@@ -29,7 +29,9 @@ export class RemoteHostProfileStore {
       this.backend.write(copyRemoteHostProfileDocument(initial));
       return initial;
     }
-    return copyRemoteHostProfileDocument(parseRemoteHostProfileDocument(persisted));
+    const parsed = parseRemoteHostProfileDocument(persisted);
+    if (parsed.migrated) this.backend.write(copyRemoteHostProfileDocument(parsed.document));
+    return copyRemoteHostProfileDocument(parsed.document);
   }
 
   save(
@@ -37,13 +39,13 @@ export class RemoteHostProfileStore {
     sourceMode: RemoteHostSourceMode,
     selectedRemoteProfileId: string | null,
   ): void {
-    const document = parseRemoteHostProfileDocument({
+    const parsed = parseRemoteHostProfileDocument({
       schemaVersion: REMOTE_HOST_PROFILE_SCHEMA_VERSION,
       sourceMode,
       selectedRemoteProfileId,
       profiles: structuredClone(profiles),
     });
-    this.backend.write(copyRemoteHostProfileDocument(document));
+    this.backend.write(copyRemoteHostProfileDocument(parsed.document));
   }
 
   private initialDocument(): RemoteHostProfileDocument {

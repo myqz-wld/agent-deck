@@ -64,6 +64,8 @@ export function RemoteConnectionCards({
         const connecting = mutations.connectingProfileIds.has(profile.id);
         const disconnecting = mutations.disconnectingProfileIds.has(profile.id);
         const usesDisconnectPath = active || connecting || disconnecting;
+        const credentialRefreshRequired =
+          !profile.credentials.connectionCredentialConfigured;
         return (
           <article
             key={profile.id}
@@ -119,10 +121,16 @@ export function RemoteConnectionCards({
               </div>
             )}
 
+            {credentialRefreshRequired && (
+              <div className="mx-3 mb-2 rounded-md border border-status-waiting/15 bg-status-waiting/[0.07] px-2.5 py-2 text-[9px] leading-relaxed text-status-waiting">
+                此配置来自旧版本，请编辑并重新导入连接凭据。
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center gap-1 border-t border-white/[0.055] px-2.5 py-2">
               <button
                 type="button"
-                disabled={disconnecting}
+                disabled={disconnecting || (!usesDisconnectPath && credentialRefreshRequired)}
                 onClick={() => usesDisconnectPath
                   ? onDisconnect(profile.id)
                   : onConnect(profile.id)}

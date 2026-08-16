@@ -6,6 +6,7 @@ import {
 } from '@hosts/electron';
 
 export const REMOTE_HOST_PROFILE_SCHEMA_VERSION = 4;
+const LEGACY_REMOTE_HOST_PROFILE_SCHEMA_VERSION = 3;
 const MAX_PROFILES = 50;
 
 export interface RemoteHostProfileDocument {
@@ -13,6 +14,11 @@ export interface RemoteHostProfileDocument {
   sourceMode: RemoteHostSourceMode;
   selectedRemoteProfileId: string | null;
   profiles: ElectronHostProfile[];
+}
+
+export interface ParsedRemoteHostProfileDocument {
+  document: RemoteHostProfileDocument;
+  migrated: boolean;
 }
 
 function record(value: unknown, field: string): Record<string, unknown> {
@@ -31,6 +37,14 @@ function text(value: unknown, field: string): string {
 
 function optionalText(value: unknown, field: string): string | undefined {
   return value === undefined || value === null ? undefined : text(value, field);
+}
+
+function connectionCredentialStatus(
+  value: unknown,
+): 'refresh-required' | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (value === 'refresh-required') return value;
+  throw new Error('Invalid persisted remote host field: connectionCredentialStatus');
 }
 
 function positiveInteger(value: unknown, field: string): number {
@@ -92,10 +106,26 @@ function parseProfile(value: unknown): ElectronHostProfile {
         label,
         clientId,
         topology: kind,
+        ...(connectionCredentialStatus(raw.connectionCredentialStatus)
+          ? { connectionCredentialStatus: 'refresh-required' as const }
+          : {}),
         ssh: parseSshProfile(raw, { id, label, topology: kind }),
       };
   validateElectronHostProfile(profile);
   return profile;
+}
+
+function migrateV3Profile(value: unknown): ElectronHostProfile {
+  const raw = record(value, 'profile');
+  const legacyTopology = raw.topology;
+  const migratedTopology = legacyTopology === 'server-core' ? 'full' : legacyTopology;
+  return parseProfile({
+    ...raw,
+    topology: migratedTopology,
+    ...(migratedTopology === 'standalone'
+      ? {}
+      : { connectionCredentialStatus: 'refresh-required' }),
+  });
 }
 
 function normalizeDocument(
@@ -134,19 +164,27 @@ function normalizeDocument(
 
 export function parseRemoteHostProfileDocument(
   value: unknown,
-): RemoteHostProfileDocument {
+): ParsedRemoteHostProfileDocument {
   const raw = record(value, 'document');
-  if (raw.schemaVersion !== REMOTE_HOST_PROFILE_SCHEMA_VERSION) {
+  if (
+    raw.schemaVersion !== REMOTE_HOST_PROFILE_SCHEMA_VERSION &&
+    raw.schemaVersion !== LEGACY_REMOTE_HOST_PROFILE_SCHEMA_VERSION
+  ) {
     throw new Error('Unsupported persisted remote host profile schema');
   }
   if (!Array.isArray(raw.profiles)) throw new Error('Invalid persisted remote host profiles');
-  return normalizeDocument(
-    raw.profiles.map(parseProfile),
-    text(raw.sourceMode, 'sourceMode') as RemoteHostSourceMode,
-    raw.selectedRemoteProfileId === null
-      ? null
-      : text(raw.selectedRemoteProfileId, 'selectedRemoteProfileId'),
-  );
+  const migrated = raw.schemaVersion === LEGACY_REMOTE_HOST_PROFILE_SCHEMA_VERSION;
+  const sourceMode = text(raw.sourceMode, 'sourceMode') as RemoteHostSourceMode;
+  return {
+    document: normalizeDocument(
+      raw.profiles.map(migrated ? migrateV3Profile : parseProfile),
+      migrated ? 'local' : sourceMode,
+      raw.selectedRemoteProfileId === null
+        ? null
+        : text(raw.selectedRemoteProfileId, 'selectedRemoteProfileId'),
+    ),
+    migrated,
+  };
 }
 
 export function copyRemoteHostProfileDocument(
