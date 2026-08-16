@@ -218,6 +218,24 @@ describe('RemoteHostManagerDialog', () => {
     await waitFor(() => expect(current.removeProfile).toHaveBeenCalledWith(profile.id));
   });
 
+  it('requires a migrated profile to refresh its credential before connecting', () => {
+    const profile = {
+      ...remoteProfile(1),
+      credentials: { connectionCredentialConfigured: false },
+    };
+    const current = hosts([profile], [remoteState(profile.id)]);
+    render(<RemoteHostManagerDialog open hosts={current} onClose={vi.fn()} />);
+
+    expect(screen.getByText('此配置来自旧版本，请编辑并重新导入连接凭据。')).toBeTruthy();
+    const connect = screen.getByRole('button', { name: '连接' }) as HTMLButtonElement;
+    expect(connect.disabled).toBe(true);
+    fireEvent.click(connect);
+    expect(current.connect).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: '编辑' }));
+    expect(screen.getByText('选择文件…')).toBeTruthy();
+  });
+
   it('keeps escape actions available while a connection is reconnecting', () => {
     const profile = remoteProfile(1);
     const onClose = vi.fn();

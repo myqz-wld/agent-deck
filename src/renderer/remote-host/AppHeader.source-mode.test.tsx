@@ -16,6 +16,7 @@ function renderHeader(
   remoteCapabilities: ReadonlySet<string> = new Set(),
   pending: number | null = 0,
   remoteUsable = true,
+  connectionCredentialConfigured = true,
 ) {
   const onSourceChange = vi.fn();
   render(
@@ -45,7 +46,7 @@ function renderHeader(
             username: 'agentdeck',
             hostKeyFingerprint: 'SHA256:test',
           },
-          credentials: { connectionCredentialConfigured: true },
+          credentials: { connectionCredentialConfigured },
         },
       ]}
       remoteCapabilities={remoteCapabilities}
@@ -82,6 +83,17 @@ describe('AppHeader source selection', () => {
     const pin = screen.getByRole('button', { name: '置顶' });
     expect(data.compareDocumentPosition(source) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(source.compareDocumentPosition(pin) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('keeps a migrated profile visible but disabled until its credential is refreshed', () => {
+    const onSourceChange = renderHeader('local', 1, new Set(), 0, true, false);
+    fireEvent.click(screen.getByRole('button', { name: '数据源' }));
+    const option = screen.getByRole('option', {
+      name: '远端 · 生产 Core · 需更新凭据',
+    }) as HTMLButtonElement;
+    expect(option.disabled).toBe(true);
+    fireEvent.click(option);
+    expect(onSourceChange).not.toHaveBeenCalled();
   });
 
   it('hides pages that the Remote Core does not advertise', () => {

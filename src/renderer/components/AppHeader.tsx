@@ -75,7 +75,10 @@ export function AppHeader({
       .filter((profile) => profile.scope === 'remote')
       .map((profile) => ({
         value: `remote:${profile.id}`,
-        label: `远端 · ${profile.label}`,
+        label: profile.credentials.connectionCredentialConfigured
+          ? `远端 · ${profile.label}`
+          : `远端 · ${profile.label} · 需更新凭据`,
+        disabled: !profile.credentials.connectionCredentialConfigured,
       })),
   ];
   const remote = authority === 'remote';
