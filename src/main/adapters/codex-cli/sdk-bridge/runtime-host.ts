@@ -3,6 +3,7 @@ import { desktopSessionModelControllerHost } from '@main/adapters/session-model-
 import { disposeSessionBrowser } from '@main/browser-use/session-browser';
 import { getAgentDeckCodexDeveloperInstructions } from '@main/codex-config/agents-md-installer';
 import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
+import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
 import {
   readTopLevelModelFromCodexConfig,
   readTopLevelModelReasoningEffortFromCodexConfig,
@@ -55,6 +56,8 @@ export const desktopCodexBridgeRuntimeHost: CodexBridgeRuntimeHost = {
     readApplicationInstructions: getAgentDeckCodexDeveloperInstructions,
     readConfiguredModel: readTopLevelModelFromCodexConfig,
     readConfiguredReasoningEffort: readTopLevelModelReasoningEffortFromCodexConfig,
+    readProviderConfigOverrides: (provider) =>
+      resolveCodexGatewayProfile(provider)?.configOverrides ?? null,
     readDefaultSandbox: () => settingsStore.get('codexSandbox'),
     validateModelProvider: (provider) => { resolveCodexModelProvider(provider); },
   },

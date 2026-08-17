@@ -307,6 +307,7 @@ export class CodexSdkBridge {
         readConfiguredModel: this.opts.runtimeHost.configuration.readConfiguredModel,
         readConfiguredReasoningEffort:
           this.opts.runtimeHost.configuration.readConfiguredReasoningEffort,
+        readProviderConfigOverrides: this.opts.runtimeHost.configuration.readProviderConfigOverrides,
       }),
       lifecycle: {
         allocateToken: (sid) => this.opts.runtimeHost.tokens.allocate(sid),

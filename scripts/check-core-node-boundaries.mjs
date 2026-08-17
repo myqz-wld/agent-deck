@@ -354,6 +354,11 @@ const candidates = Object.freeze([
     external: [],
   },
   {
+    name: 'codex-gateway-profiles-core',
+    entry: 'src/main/codex-config/gateway-profiles-core.ts',
+    external: [],
+  },
+  {
     name: 'codex-agents-md-store',
     entry: 'src/main/codex-config/agents-md-store.ts',
     external: [],

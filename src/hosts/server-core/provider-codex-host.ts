@@ -25,6 +25,7 @@ import {
   type CodexUsageSnapshotHost,
 } from '@main/adapters/codex-cli/usage-snapshot-core';
 import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
+import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
 import { HookRouteDiagnostics } from '@main/hook-server/route-diagnostics';
@@ -203,6 +204,10 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
     releaseInstance: (client) => {
       if (client instanceof CodexAppServerClient) client.dispose();
     },
+    resolveProviderConfigOverrides: (provider) =>
+      resolveCodexGatewayProfile(provider, {
+        gatewaysDir: join(input.workspaceBoundary.providerHomeRoot, '.codex', 'gateways'),
+      })?.configOverrides ?? null,
     createIsolatedCwd: () => {
       mkdirSync(input.workspaceBoundary.workspaceRoot, { recursive: true, mode: 0o700 });
       return mkdtempSync(join(
@@ -243,6 +248,10 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
             : undefined,
           readConfiguredModel: () => null,
           readConfiguredReasoningEffort: () => null,
+          readProviderConfigOverrides: (provider) =>
+            resolveCodexGatewayProfile(provider, {
+              gatewaysDir: join(input.workspaceBoundary.providerHomeRoot, '.codex', 'gateways'),
+            })?.configOverrides ?? null,
           readDefaultSandbox: () => input.settings.codexSandbox,
           validateModelProvider: (provider) => {
             resolveCodexModelProvider(provider);

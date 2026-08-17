@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { toCodexModelOverride } from '@main/adapters/codex-cli/sdk-model';
 import { toCodexAppServerInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
 import type { CodexThreadOptions } from '@main/adapters/codex-cli/sdk-bridge/thread-options-builder';
+import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import { DISABLED_EXECUTABLE_FEATURES } from '@main/session/continuation-context/codex-isolation';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
 import { buildSummarizeSystemPrompt } from './build-prompt';
@@ -33,6 +34,9 @@ export interface CodexOneshotClient {
 
 export interface CodexOneshotHost {
   readonly getInstance: () => Promise<CodexOneshotClient>;
+  readonly resolveProviderConfigOverrides?: (
+    provider: string | null | undefined,
+  ) => CodexConfigObject | null;
   readonly releaseInstance?: (instance: CodexOneshotClient) => void;
   readonly createIsolatedCwd?: () => string;
 }
@@ -50,6 +54,7 @@ export async function runCodexOneshotWithHost(
     const codex = await host.getInstance();
     instance = codex;
     const model = toCodexModelOverride(opts.model);
+    const providerConfigOverrides = host.resolveProviderConfigOverrides?.(opts.provider) ?? null;
     const thread = codex.startThread({
       workingDirectory: isolatedCwd,
       sandboxMode: 'read-only',
@@ -61,6 +66,7 @@ export async function runCodexOneshotWithHost(
       modelReasoningSummary: 'none',
       baseInstructions: opts.systemPrompt ?? buildSummarizeSystemPrompt('Agent'),
       configOverrides: {
+        ...(providerConfigOverrides ?? {}),
         features: { ...DISABLED_EXECUTABLE_FEATURES },
         mcp_servers: {},
         ...(opts.provider ? { model_provider: opts.provider } : {}),

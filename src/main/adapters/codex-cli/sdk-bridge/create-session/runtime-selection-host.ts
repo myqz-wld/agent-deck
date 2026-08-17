@@ -1,4 +1,5 @@
 import { getAgentDeckCodexDeveloperInstructions } from '@main/codex-config/agents-md-installer';
+import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
 import { readTopLevelModelReasoningEffortFromCodexConfig } from '@main/codex-config/toml-writer';
 import { sessionRepo } from '@main/store/session-repo';
 import { settingsStore } from '@main/store/settings-store';
@@ -25,6 +26,8 @@ export function resolveDesktopCodexCreateRuntime(
     resumeRecord,
     readApplicationInstructions: getAgentDeckCodexDeveloperInstructions,
     readConfiguredReasoningEffort: readTopLevelModelReasoningEffortFromCodexConfig,
+    readProviderConfigOverrides: (provider) =>
+      resolveCodexGatewayProfile(provider)?.configOverrides ?? null,
     readDefaultSandbox: () => settingsStore.get('codexSandbox'),
   });
 }

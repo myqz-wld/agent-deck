@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   getSetting: vi.fn(() => 'read-only'),
   readReasoning: vi.fn(() => 'high'),
+  resolveGatewayProfile: vi.fn(() => null),
 }));
 
 vi.mock('@main/codex-config/agents-md-installer', () => ({
@@ -13,6 +14,9 @@ vi.mock('@main/codex-config/agents-md-installer', () => ({
 }));
 vi.mock('@main/codex-config/toml-writer', () => ({
   readTopLevelModelReasoningEffortFromCodexConfig: mocks.readReasoning,
+}));
+vi.mock('@main/codex-config/gateway-profiles', () => ({
+  resolveCodexGatewayProfile: mocks.resolveGatewayProfile,
 }));
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: { get: mocks.getSession },
@@ -38,6 +42,7 @@ describe('desktop Codex live create runtime host', () => {
     expect(mocks.getSetting).toHaveBeenCalledWith('codexSandbox');
     expect(mocks.readReasoning).toHaveBeenCalledOnce();
     expect(mocks.getInstructions).toHaveBeenCalledOnce();
+    expect(mocks.resolveGatewayProfile).toHaveBeenCalledWith(undefined);
     expect(resolved).toMatchObject({
       developerInstructions: 'application',
       sandboxMode: 'read-only',

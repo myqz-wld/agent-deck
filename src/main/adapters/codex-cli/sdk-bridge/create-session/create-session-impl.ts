@@ -131,6 +131,8 @@ export async function createSessionImpl(
         deps.runtimeHost.configuration.readApplicationInstructions,
       readConfiguredReasoningEffort:
         deps.runtimeHost.configuration.readConfiguredReasoningEffort,
+      readProviderConfigOverrides:
+        deps.runtimeHost.configuration.readProviderConfigOverrides,
       readDefaultSandbox: deps.runtimeHost.configuration.readDefaultSandbox,
     });
     const {
@@ -139,6 +141,7 @@ export async function createSessionImpl(
       effectiveOpts,
       effectiveResumeThreadId,
       provider: sessionProvider,
+      providerConfigOverrides,
       sandboxMode,
       threadModelReasoningEffort,
     } = runtime;
@@ -166,6 +169,7 @@ export async function createSessionImpl(
           modelReasoningEffort: threadModelReasoningEffort,
           developerInstructions,
           configOverrides: opts.codexConfigOverrides,
+          providerConfigOverrides,
           networkAccessEnabled: opts.networkAccessEnabled,
           additionalDirectories: opts.additionalDirectories,
           extraAllowWrite: opts.extraAllowWrite,
@@ -182,6 +186,7 @@ export async function createSessionImpl(
           modelReasoningEffort: threadModelReasoningEffort,
           developerInstructions,
           configOverrides: opts.codexConfigOverrides,
+          providerConfigOverrides,
           networkAccessEnabled: opts.networkAccessEnabled,
           additionalDirectories: opts.additionalDirectories,
           extraAllowWrite: opts.extraAllowWrite,

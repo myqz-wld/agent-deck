@@ -63,6 +63,8 @@ export interface BuildCodexThreadOptionsArgs {
   developerInstructions?: string;
   /** Additional config layer parsed from custom-agent TOML. */
   configOverrides?: CodexConfigObject;
+  /** Optional config layer paired with the selected native model_provider. */
+  providerConfigOverrides?: CodexConfigObject;
   /** Replace the provider base prompt for isolated internal runtimes. */
   baseInstructions?: string;
   /** Internal isolation seam: false prevents inherited app/user config from entering thread params. */
@@ -91,6 +93,7 @@ export interface CodexThreadOptions {
   developerInstructions?: string;
   baseInstructions?: string;
   configOverrides?: CodexConfigObject;
+  providerConfigOverrides?: CodexConfigObject;
   useBaseConfig?: boolean;
   dynamicTools?: [];
   environments?: [];
@@ -132,6 +135,9 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
       : {}),
     ...(args.configOverrides !== undefined
       ? { configOverrides: args.configOverrides }
+      : {}),
+    ...(args.providerConfigOverrides !== undefined
+      ? { providerConfigOverrides: args.providerConfigOverrides }
       : {}),
     ...(args.useBaseConfig !== undefined ? { useBaseConfig: args.useBaseConfig } : {}),
     ...(args.dynamicTools !== undefined ? { dynamicTools: [] } : {}),

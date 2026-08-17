@@ -101,6 +101,7 @@ export function buildThreadConfig(
   baseConfig: CodexConfigObject | null,
 ): JsonObject {
   const config = options.useBaseConfig === false ? {} : cloneConfig(baseConfig);
+  mergeJsonObject(config, cloneConfig(options.providerConfigOverrides ?? null));
   mergeJsonObject(config, cloneConfig(options.configOverrides ?? null));
   if (options.skipGitRepoCheck) {
     config.skip_git_repo_check = true;

@@ -5,7 +5,8 @@
  * 覆盖 thread-options-builder.ts `buildCodexThreadOptions` 的字段收口逻辑：
  * - approvalPolicy 缺省时省略（交还 Codex config / provider default）；caller 显式时透传
  * - skipGitRepoCheck 恒 true
- * - provider / model / modelReasoningEffort / developerInstructions / configOverrides / networkAccessEnabled /
+ * - provider / model / modelReasoningEffort / developerInstructions / providerConfigOverrides /
+ *   configOverrides / networkAccessEnabled /
  *   additionalDirectories 条件 spread（undefined → 字段不出现）
  * - modelReasoningSummary 默认 auto，让应用内 Codex 会话请求可展示的思路摘要
  * - additionalDirectories / extraAllowWrite 合并去重并浅拷贝
@@ -67,7 +68,7 @@ describe('buildCodexThreadOptions', () => {
     expect('additionalDirectories' in omitted).toBe(false);
   });
 
-  it('model / modelReasoningEffort / developerInstructions / configOverrides / networkAccessEnabled / additionalDirectories 全缺省 → 仅 summary 默认出现', () => {
+  it('model / modelReasoningEffort / developerInstructions / config overrides / networkAccessEnabled / additionalDirectories 全缺省 → 仅 summary 默认出现', () => {
     const opts = buildCodexThreadOptions({
       workingDirectory: '/repo/x',
       sandboxMode: 'workspace-write',
@@ -77,12 +78,13 @@ describe('buildCodexThreadOptions', () => {
     expect('modelReasoningEffort' in opts).toBe(false);
     expect('developerInstructions' in opts).toBe(false);
     expect('configOverrides' in opts).toBe(false);
+    expect('providerConfigOverrides' in opts).toBe(false);
     expect('networkAccessEnabled' in opts).toBe(false);
     expect('additionalDirectories' in opts).toBe(false);
     expect(opts.modelReasoningSummary).toBe('auto');
   });
 
-  it('model / modelReasoningEffort / developerInstructions / configOverrides / networkAccessEnabled / additionalDirectories 显式传 → 全部出现在 return object', () => {
+  it('model / modelReasoningEffort / developerInstructions / config overrides / networkAccessEnabled / additionalDirectories 显式传 → 全部出现在 return object', () => {
     const opts = buildCodexThreadOptions({
       workingDirectory: '/repo/x',
       sandboxMode: 'workspace-write',
@@ -96,6 +98,10 @@ describe('buildCodexThreadOptions', () => {
           config: [{ name: 'agent-deck:deep-review' }],
         },
       },
+      providerConfigOverrides: {
+        model_context_window: 1_000_000,
+        model_auto_compact_token_limit: 900_000,
+      },
       networkAccessEnabled: true,
       additionalDirectories: ['/a', '/b'],
     });
@@ -108,6 +114,10 @@ describe('buildCodexThreadOptions', () => {
       skills: {
         config: [{ name: 'agent-deck:deep-review' }],
       },
+    });
+    expect(opts.providerConfigOverrides).toEqual({
+      model_context_window: 1_000_000,
+      model_auto_compact_token_limit: 900_000,
     });
     expect(opts.networkAccessEnabled).toBe(true);
     expect(opts.additionalDirectories).toEqual(['/a', '/b']);
