@@ -116,7 +116,7 @@ describe('SessionModelFields', () => {
     expect(summary?.textContent).not.toContain('模型：配置文件');
   });
 
-  it('Remote Gateway 与 Local 共用可输入 Combobox，并保留自动发现选项', () => {
+  it('Gateway 只能从自动发现的下拉选项中选择', () => {
     const onProviderChange = vi.fn();
     render(
       <SessionModelFields
@@ -134,15 +134,15 @@ describe('SessionModelFields', () => {
     const gateway = screen.getByRole('combobox', { name: '模型网关' });
     expect((gateway as HTMLInputElement).value).toBe('');
     expect((gateway as HTMLInputElement).placeholder).toBe('留空使用 settings.json');
+    expect((gateway as HTMLInputElement).readOnly).toBe(true);
     fireEvent.focus(gateway);
-    expect(screen.queryByRole('option', { name: '原生 settings.json' })).toBeNull();
     fireEvent.change(gateway, { target: { value: 'deep' } });
-    expect(onProviderChange).toHaveBeenCalledWith('deep');
+    expect(onProviderChange).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('option', { name: 'deepseek' }));
     expect(onProviderChange).toHaveBeenLastCalledWith('deepseek');
   });
 
-  it('Remote Codex 无自定义 Provider 时与 Local 一样以空值表达原生配置', () => {
+  it('无 Gateway 文件时只允许选择 Codex 原生配置', () => {
     const onProviderChange = vi.fn();
     render(
       <SessionModelFields
@@ -161,11 +161,10 @@ describe('SessionModelFields', () => {
     expect((provider as HTMLInputElement).value).toBe('');
     expect((provider as HTMLInputElement).placeholder).toBe('留空使用 config.toml');
     fireEvent.focus(provider);
-    expect(screen.queryByRole('option')).toBeNull();
-    expect(screen.getByText('没有匹配的模型网关，可直接输入或留空')).toBeTruthy();
-    expect(document.body.textContent).not.toContain('请检查');
+    expect(screen.getByRole('option', { name: '留空使用 config.toml' })).toBeTruthy();
+    expect(screen.getByText('未发现其他可用的模型网关')).toBeTruthy();
     fireEvent.change(provider, { target: { value: 'manual-provider' } });
-    expect(onProviderChange).toHaveBeenCalledWith('manual-provider');
+    expect(onProviderChange).not.toHaveBeenCalled();
   });
 
 });

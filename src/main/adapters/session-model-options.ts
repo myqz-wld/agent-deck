@@ -69,7 +69,7 @@ export function normalizeSessionModelOptions(
     ) {
       throw new SessionModelOptionsError(
         'provider',
-        `must be a safe ${adapterId === 'claude-code' ? 'Claude' : 'Codex'} Gateway profile id`,
+        `必须选择有效的 ${adapterId === 'claude-code' ? 'Claude' : 'Codex'} 模型网关`,
       );
     }
   }

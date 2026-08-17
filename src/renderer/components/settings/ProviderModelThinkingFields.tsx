@@ -228,7 +228,7 @@ export function ProviderModelThinkingFields({
                   ? '留空使用 Claude Code 设置'
                   : '留空使用 Codex 设置'
               }
-              emptyMessage="没有匹配的模型网关，可直接输入或留空"
+              emptyMessage="未发现其他可用的模型网关"
               onChange={onRuntimeProviderChange}
               disabled={disabled}
             />

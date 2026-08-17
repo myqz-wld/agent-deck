@@ -12,7 +12,6 @@ interface Props {
   thinking: SessionThinkingChoice;
   disabled?: boolean;
   providerOptions?: readonly { id: string; name?: string }[];
-  providerClosed?: boolean;
   thinkingOptions?: readonly DeckSelectOption<SessionThinkingChoice>[];
   disabledReasons?: {
     provider?: string | null;
@@ -32,7 +31,6 @@ export function SessionModelDisclosure({
   thinking,
   disabled = false,
   providerOptions,
-  providerClosed,
   thinkingOptions,
   disabledReasons,
   onProviderChange,
@@ -72,7 +70,6 @@ export function SessionModelDisclosure({
           disabled={disabled}
           allowUnsetThinking={false}
           providerOptions={providerOptions}
-          providerClosed={providerClosed}
           thinkingOptions={thinkingOptions}
           disabledReasons={disabledReasons}
           onProviderChange={onProviderChange}

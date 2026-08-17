@@ -102,7 +102,7 @@ describe('Session model controller Core', () => {
       agentId: 'codex-core',
       kind: 'message',
       payload: {
-        text: '⚠ 切换 provider、模型或思考程度失败：provider rejected。已恢复原设置。',
+        text: '⚠ 切换模型网关、模型或思考程度失败：provider rejected。已恢复原设置。',
         error: true,
       },
       ts: 9_000,
@@ -131,10 +131,40 @@ describe('Session model controller Core', () => {
       provider: 'gateway-new',
       model: 'model-new',
       thinking: 'high',
-    })).rejects.toThrow('provider cannot be changed');
+    })).rejects.toThrow('当前回复进行中，暂时不能切换模型网关');
 
     expect(current.runtimeProvider).toBe('gateway-old');
     expect(validate).not.toHaveBeenCalled();
     expect(applyLive).not.toHaveBeenCalled();
+  });
+
+  it('allows adapters to stage a provider switch while a turn is working', async () => {
+    const { current, host } = fixture({
+      runtimeProvider: 'gateway-old',
+      model: 'model-old',
+      thinking: 'low',
+      activity: 'working',
+    });
+    const applyLive = vi.fn(() => true);
+    const controller = new SessionModelControllerCore({
+      operations: new Map(),
+      agentId: 'codex-core',
+      emit: vi.fn(),
+      canStageProviderChange: true,
+      applyLive,
+    }, host);
+
+    await controller.setOptions('session-a', {
+      provider: 'gateway-new',
+      model: 'model-new',
+      thinking: 'high',
+    });
+
+    expect(current).toMatchObject({
+      runtimeProvider: 'gateway-new',
+      model: 'model-new',
+      thinking: 'high',
+    });
+    expect(applyLive).toHaveBeenCalledOnce();
   });
 });

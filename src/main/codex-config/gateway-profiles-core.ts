@@ -55,7 +55,7 @@ export function codexGatewayProfilePathCore(
 export function assertCodexGatewayProfileIdCore(profileId: string): void {
   if (!CODEX_GATEWAY_PROFILE_ID_PATTERN.test(profileId)) {
     throw new Error(
-      `Codex Gateway profile id "${profileId}" 无效；请使用 1-128 个字母、数字、点、下划线或连字符，且首字符必须是字母或数字。`,
+      `Codex 模型网关名称 "${profileId}" 无效；请从模型网关列表中重新选择。`,
     );
   }
 }
@@ -106,11 +106,11 @@ export function resolveCodexGatewayProfileCore(
   const profilePath = codexGatewayProfilePathCore(id, paths, host);
   if (!host.pathExists(profilePath)) {
     throw new Error(
-      `Codex Gateway profile "${id}" 不存在：${profilePath}。请创建该 TOML 文件或选择其他 Gateway。`,
+      `Codex 模型网关 "${id}" 不存在；请刷新列表后选择其他模型网关。`,
     );
   }
   if (!host.isFile(profilePath)) {
-    throw new Error(`Codex Gateway profile 不是常规文件：${profilePath}`);
+    throw new Error(`Codex 模型网关 "${id}" 的配置文件不可用。`);
   }
   return parseCodexGatewayProfileTextCore(id, profilePath, host.readText(profilePath));
 }
@@ -259,7 +259,7 @@ function tomlSyntaxSummary(error: unknown): Error {
 
 function profileReadError(profilePath: string, error: unknown): Error {
   return new Error(
-    `读取 Codex Gateway profile 失败（${profilePath}）：${
+    `读取 Codex 模型网关配置失败（${profilePath}）：${
       error instanceof Error ? error.message : String(error)
     }`,
   );

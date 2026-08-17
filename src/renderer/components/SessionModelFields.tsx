@@ -18,7 +18,6 @@ interface Props {
   disabled?: boolean;
   allowUnsetThinking?: boolean;
   providerOptions?: readonly { id: string; name?: string }[];
-  providerClosed?: boolean;
   thinkingOptions?: readonly DeckSelectOption<SessionThinkingChoice>[];
   disabledReasons?: {
     provider?: string | null;
@@ -70,7 +69,6 @@ export function SessionModelFields({
   disabled = false,
   allowUnsetThinking = true,
   providerOptions: providedProviderOptions,
-  providerClosed = false,
   thinkingOptions: providedThinkingOptions,
   disabledReasons = {},
   onProviderChange,
@@ -126,14 +124,13 @@ export function SessionModelFields({
               value={provider}
               options={providerOptions}
               disabled={disabled}
-              allowCustom={!providerClosed}
               ariaLabel="模型网关"
               placeholder={
                 adapterId === 'claude-code'
                   ? '留空使用 settings.json'
                   : '留空使用 config.toml'
               }
-              emptyMessage="没有匹配的模型网关，可直接输入或留空"
+              emptyMessage="未发现其他可用的模型网关"
               onChange={onProviderChange}
             />
           )}

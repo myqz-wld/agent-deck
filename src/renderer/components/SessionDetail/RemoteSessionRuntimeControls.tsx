@@ -23,6 +23,7 @@ import {
   isSelectablePermissionMode,
 } from '@shared/types';
 import { SessionRuntimeFieldsView } from './composer-sdk/SessionRuntimeFieldsView';
+import { errorMessage } from '@renderer/lib/error-message';
 
 const MODEL_PERSIST_DELAY_MS = 250;
 const CUSTOM_GROK_PROFILE = '__agent_deck_remote_custom_grok_sandbox__';
@@ -134,7 +135,7 @@ export function RemoteSessionRuntimeControls({
       return 'applied';
     } catch (cause) {
       if (mounted.current && activeIdentity.current === originIdentity) {
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(errorMessage(cause));
       }
       return 'failed';
     }
@@ -282,7 +283,6 @@ export function RemoteSessionRuntimeControls({
           model,
           thinking,
           disabled,
-          providerClosed: providerDescriptor ? !providerDescriptor.allowCustom : false,
           providerOptions: providerDescriptor?.allowedValues?.map((id) => ({ id })) ?? [],
           thinkingOptions: thinkingDescriptor?.allowedValues?.map((value) => ({
             value: value as SessionThinkingChoice,
@@ -298,9 +298,9 @@ export function RemoteSessionRuntimeControls({
           onModelBlur: flushSelection,
           onThinkingChange: (next) => updateSelection({ thinking: next }, true),
         }}
-        help={adapterId === 'codex-cli'
-          ? '已加载的 Codex 会话不能直接切换模型网关；模型与思考程度会在下一轮生效。'
-          : '当前回复不会中断，修改会自动保存并在下一轮生效。'}
+        help={adapterId === 'grok-build'
+          ? '当前回复不会中断，修改会自动保存并从下一轮生效。'
+          : '当前回复不会中断；模型网关、模型与思考程度会自动保存并从下一轮生效。'}
         error={null}
         onDismissError={() => undefined}
       />

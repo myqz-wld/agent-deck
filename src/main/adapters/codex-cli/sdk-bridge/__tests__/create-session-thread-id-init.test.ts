@@ -170,6 +170,7 @@ function trustedRecoveryTurn() {
 class ControlledThread {
   startedThreadId: string | null = null;
   rejectStreamed: ((err: Error) => void) | null = null;
+  stageGatewayOptions = vi.fn();
 
   runStreamed = vi.fn((_input: unknown, _opts: unknown) => {
     const startedThreadId = this.startedThreadId;
@@ -197,6 +198,7 @@ class PushThread {
   private queue: unknown[] = [];
   private waiters: Array<(value: unknown) => void> = [];
   rejectOnRun: Error | null = null;
+  stageGatewayOptions = vi.fn();
 
   runStreamed = vi.fn(async (_input: unknown, _opts: unknown) => {
     if (this.rejectOnRun) throw this.rejectOnRun;
@@ -527,7 +529,7 @@ describe('codex createSession new path latency', () => {
     expect(sessionRepo.setThinking).not.toHaveBeenCalled();
   });
 
-  it('rejects a loaded-thread provider switch before changing DB or live options', async () => {
+  it('stages a loaded-thread Gateway switch for the next turn', async () => {
     vi.useFakeTimers();
     const pushThread = new PushThread();
     appServerClientMock.nextThread = pushThread;
@@ -547,7 +549,7 @@ describe('codex createSession new path latency', () => {
       title: 't',
       source: 'sdk',
       lifecycle: 'active',
-      activity: 'idle',
+      activity: 'working',
       startedAt: 1,
       lastEventAt: 2,
       endedAt: null,
@@ -560,16 +562,25 @@ describe('codex createSession new path latency', () => {
     vi.mocked(sessionRepo.setModel).mockClear();
     vi.mocked(sessionRepo.setThinking).mockClear();
 
-    await expect(bridge.setSessionModelOptions(handle.sessionId, {
+    await bridge.setSessionModelOptions(handle.sessionId, {
       provider: 'new-provider',
       model: 'gpt-new',
       thinking: 'high',
-    })).rejects.toThrow(/已加载的会话切换模型网关/);
+    });
 
     expect(gatewayProfileMock.resolve).toHaveBeenCalledWith('new-provider');
-    expect(sessionRepo.setRuntimeProvider).not.toHaveBeenCalled();
-    expect(sessionRepo.setModel).not.toHaveBeenCalled();
-    expect(sessionRepo.setThinking).not.toHaveBeenCalled();
+    expect(sessionRepo.setRuntimeProvider).toHaveBeenCalledWith(
+      handle.sessionId,
+      'new-provider',
+    );
+    expect(sessionRepo.setModel).toHaveBeenCalledWith(handle.sessionId, 'gpt-new');
+    expect(sessionRepo.setThinking).toHaveBeenCalledWith(handle.sessionId, 'high');
+    expect(pushThread.stageGatewayOptions).toHaveBeenCalledWith({
+      gatewayConfigOverrides: {},
+      modelProvider: 'native-new-provider',
+      model: 'gpt-new',
+      effort: 'high',
+    });
     expect(appServerClientMock.startThreadOptions[0]).toMatchObject({
       modelProvider: 'native-working-provider',
       model: 'gpt-old',

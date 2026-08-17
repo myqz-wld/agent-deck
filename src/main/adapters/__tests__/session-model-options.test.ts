@@ -65,7 +65,7 @@ describe('session model option normalization', () => {
   it('requires Codex Gateway ids to be safe TOML filename stems', () => {
     expect(() =>
       normalizeSessionModelOptions('codex-cli', { provider: 'gateway/edge' }),
-    ).toThrow(/safe Codex Gateway profile id/);
+    ).toThrow(/有效的 Codex 模型网关/);
   });
 
   it('rejects an adapter-invalid thinking value', () => {
@@ -173,7 +173,7 @@ describe('SessionModelController', () => {
 
   it('rejects an invalid selection before changing persisted or live state', async () => {
     const validate = vi.fn(() => {
-      throw new Error('missing Gateway profile');
+      throw new Error('所选模型网关不存在');
     });
     const applyLive = vi.fn();
     const emit = vi.fn();
@@ -191,7 +191,7 @@ describe('SessionModelController', () => {
         model: 'new-model',
         thinking: 'high',
       }),
-    ).rejects.toThrow('missing Gateway profile');
+    ).rejects.toThrow('所选模型网关不存在');
 
     expect(validate).toHaveBeenCalledWith(
       'session-1',

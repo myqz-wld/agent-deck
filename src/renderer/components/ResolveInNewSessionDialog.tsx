@@ -179,7 +179,6 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
         provider: options.provider,
         model: options.model,
         thinking: options.thinking as SessionThinkingChoice,
-        providerClosed: false,
         providerOptions: options.providerOptions,
         onProviderChange: options.setProvider,
         onModelChange: options.setModel,

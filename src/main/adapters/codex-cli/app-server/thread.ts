@@ -10,13 +10,10 @@ import type {
   CodexAppServerNotification,
   CodexAppServerRunResult,
   CodexAppServerStreamEvent,
-  CodexAppServerThreadCreateResult,
   CodexAppServerUserInput,
   JsonObject,
 } from './protocol';
 import {
-  buildThreadResumeParams,
-  buildThreadStartParams,
   buildTurnStartParams,
 } from './thread-params';
 import {
@@ -31,6 +28,7 @@ import { CodexRuntimeIdentityTracker } from './runtime-identity';
 import {
   type CodexThreadMode,
   withApprovalPolicy,
+  withGatewayOptions,
   withModelOptions,
   withSandboxMode,
   withWorkingDirectory,
@@ -40,6 +38,11 @@ import {
   NOOP_CODEX_THREAD_DIAGNOSTICS,
   type CodexThreadDiagnostics,
 } from './thread-diagnostics-port';
+import {
+  createCodexThreadReadinessState,
+  ensureCodexThreadReady,
+  stageCodexThreadConfiguration,
+} from './thread-readiness';
 const MAX_PRE_ACCEPTANCE_TURNS = 8;
 type Unsubscribe = () => void;
 type QueuedNotification = Extract<
@@ -56,8 +59,7 @@ export interface CodexAppServerRunOptions {
 export class CodexAppServerThread {
   private threadId: string | null;
   private started = false;
-  private readyPromise: Promise<string> | null = null;
-  private readyGeneration = -1;
+  private readonly readiness;
   private activeTurnId: string | null = null;
   private activeTurnCancellation: AcceptedTurnCancellation | null = null;
   private readonly runtimeIdentity: CodexRuntimeIdentityTracker;
@@ -69,15 +71,12 @@ export class CodexAppServerThread {
     private readonly diagnostics: CodexThreadDiagnostics = NOOP_CODEX_THREAD_DIAGNOSTICS,
   ) {
     this.threadId = mode.mode === 'resume' ? mode.threadId : null;
+    this.readiness = createCodexThreadReadinessState(attachedGeneration, this.threadId);
     this.runtimeIdentity = new CodexRuntimeIdentityTracker(
       client.baseConfig,
       mode.options,
       initialRuntime,
     );
-    if (attachedGeneration !== undefined && this.threadId) {
-      this.readyGeneration = attachedGeneration;
-      this.readyPromise = Promise.resolve(this.threadId);
-    }
   }
   getRuntimeIdentity(): ContextRuntimeIdentityEvidence | null {
     return this.runtimeIdentity.snapshot();
@@ -108,6 +107,11 @@ export class CodexAppServerThread {
     model: CodexThreadOptions['model'] | null,
     effort: CodexThreadOptions['modelReasoningEffort'] | null,
   ): Promise<void> {
+    if (this.readiness.configurationRefreshPending) {
+      this.mode = withModelOptions(this.mode, model, effort);
+      stageCodexThreadConfiguration(this.readiness);
+      return;
+    }
     const threadId = await this.ensureThread();
     await this.runtimeIdentity.updateModelSettings(
       this.client,
@@ -117,6 +121,12 @@ export class CodexAppServerThread {
       effort,
     );
     this.mode = withModelOptions(this.mode, model, effort);
+  }
+
+  /** Stage a complete Gateway layer; ensureThread applies it before the next turn/start. */
+  stageGatewayOptions(input: Parameters<typeof withGatewayOptions>[1]): void {
+    this.mode = withGatewayOptions(this.mode, input);
+    stageCodexThreadConfiguration(this.readiness);
   }
 
   async runStreamed(
@@ -445,53 +455,15 @@ export class CodexAppServerThread {
   }
 
   private async ensureThread(signal?: AbortSignal): Promise<string> {
-    if (this.readyPromise && this.readyGeneration === this.client.generation) {
-      return signal
-        ? this.client.runGenerationOperation(
-            'thread readiness wait',
-            signal,
-            async () => this.readyPromise!,
-          )
-        : this.readyPromise;
-    }
-    this.readyGeneration = this.client.generation;
-    const attempt = this.client.runGenerationOperation(
-      this.threadId ? 'thread/resume readiness' : 'thread/start readiness',
+    return ensureCodexThreadReady({
+      client: this.client,
+      getMode: () => this.mode,
+      getThreadId: () => this.threadId,
+      setThreadId: (threadId) => { this.threadId = threadId; },
+      runtimeIdentity: this.runtimeIdentity,
       signal,
-      async (operation) => {
-        const options = await this.client.prepareThreadOptions(this.mode.options, operation);
-        if (this.threadId) {
-          const result = await operation.request<CodexAppServerThreadCreateResult>(
-            'thread/resume',
-            buildThreadResumeParams(this.threadId, options, this.client.baseConfig),
-          );
-          this.runtimeIdentity.observeThreadBoundary(result, options);
-          this.threadId = result.thread.id;
-          return this.threadId;
-        }
-
-        const result = await operation.request<CodexAppServerThreadCreateResult>(
-          'thread/start',
-          buildThreadStartParams(options, this.client.baseConfig),
-        );
-        this.runtimeIdentity.observeThreadBoundary(result, options);
-        this.threadId = result.thread.id;
-        return this.threadId;
-      },
-    );
-    this.readyPromise = attempt;
-    try {
-      return await attempt;
-    } catch (err) {
-      // A required MCP startup failure rejects thread/start or thread/resume while app-server stays
-      // alive. Do not pin that same-generation rejection forever: watcher/user retries must issue a
-      // fresh thread boundary RPC after the transient endpoint/auth problem is corrected.
-      if (this.readyPromise === attempt) {
-        this.readyPromise = null;
-        this.readyGeneration = -1;
-      }
-      throw err;
-    }
+      state: this.readiness,
+    });
   }
 }
 

@@ -5,6 +5,7 @@ import {
   type SessionThinkingChoice,
 } from '@renderer/components/SessionModelFields';
 import { SessionRuntimeFieldsView } from './SessionRuntimeFieldsView';
+import { errorMessage } from '@renderer/lib/error-message';
 
 function normalizeThinking(session: SessionRecord): SessionThinkingChoice {
   const value = session.thinking ?? '';
@@ -59,6 +60,8 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
   });
   const persistenceRef = useRef(new Map<string, PendingPersistence>());
   const mountedRef = useRef(true);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
 
   const getPendingPersistence = (key: string): PendingPersistence => {
     const existing = persistenceRef.current.get(key);
@@ -96,7 +99,12 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
       }
     } catch (err) {
       if (isCurrentSelection(selection)) {
-        setError(err instanceof Error ? err.message : String(err));
+        const restored = selectionFromSession(sessionRef.current, selection.revision + 1);
+        draftRef.current = { selection: restored, hasLocalEdits: false };
+        setProvider(restored.provider);
+        setModel(restored.model);
+        setThinking(restored.thinking);
+        setError(errorMessage(err));
       }
     } finally {
       pending.inFlight = false;
@@ -195,9 +203,9 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
         onModelChange: (next) => updateSelection({ model: next }, false),
         onThinkingChange: (next) => updateSelection({ thinking: next }, true),
       }}
-      help={session.agentId === 'codex-cli'
-        ? '已加载的 Codex 会话不能直接切换模型网关；模型与思考程度会在下一轮生效。'
-        : '当前回复不会中断，修改会自动保存并在下一轮生效。'}
+      help={session.agentId === 'grok-build'
+        ? '当前回复不会中断，修改会自动保存并从下一轮生效。'
+        : '当前回复不会中断；模型网关、模型与思考程度会自动保存并从下一轮生效。'}
       error={error}
       onDismissError={() => setError(null)}
     />

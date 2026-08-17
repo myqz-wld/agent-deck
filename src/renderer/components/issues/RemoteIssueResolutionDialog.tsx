@@ -147,7 +147,6 @@ export function RemoteIssueResolutionDialog({
           provider: options.provider ?? '',
           model: options.model ?? '',
           thinking: (options.thinking ?? '') as SessionThinkingChoice,
-          providerClosed: descriptor?.create.options.provider.allowCustom !== true,
           providerOptions: descriptor?.create.options.provider.allowedValues?.map((id) => ({ id })) ?? [],
           thinkingOptions: descriptor?.create.options.thinking.allowedValues?.map((value) => ({
             value: value as SessionThinkingChoice,

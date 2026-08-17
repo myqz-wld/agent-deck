@@ -322,7 +322,6 @@ export function NewSessionDialog({
           provider,
           model,
           thinking,
-          providerClosed: remoteMode && descriptor?.create.options.provider.allowCustom !== true,
           providerOptions: remoteMode
             ? descriptor?.create.options.provider.allowedValues?.map((id) => ({ id })) ?? []
             : localOptions.providerOptions,

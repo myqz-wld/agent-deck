@@ -31,7 +31,7 @@ describe('Claude Gateway profile Core', () => {
       claudeGatewaySettingsPathCore('deepseek-v4', paths, gatewayHost),
     ).toBe('/gateways/deepseek-v4.json');
     expect(() => assertClaudeGatewayProfileIdCore('../deepseek')).toThrow(
-      /Invalid Claude Gateway profile/,
+      /Claude 模型网关名称/,
     );
   });
 
@@ -105,7 +105,7 @@ describe('Claude Gateway profile Core', () => {
         paths,
         host({ pathExists: () => false }),
       ),
-    ).toThrow(/was not found at \/gateways\/missing\.json/);
+    ).toThrow(/Claude 模型网关 "missing" 不存在/);
     expect(() =>
       resolveClaudeGatewayProfileCore(
         'invalid-json',
@@ -113,7 +113,7 @@ describe('Claude Gateway profile Core', () => {
         host({ readText: () => '[]' }),
       ),
     ).toThrow(
-      /Failed to read Claude Gateway settings \/gateways\/invalid-json\.json: expected a JSON object/,
+      /读取 Claude 模型网关配置失败（\/gateways\/invalid-json\.json）：expected a JSON object/,
     );
   });
 });

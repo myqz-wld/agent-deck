@@ -297,6 +297,75 @@ describe('Codex app-server thread params', () => {
     ]);
   });
 
+  it('defers a Gateway change until the next thread readiness boundary', async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    class RecordingClient extends CodexAppServerClient {
+      override request<T = unknown>(method: string, params: unknown): Promise<T> {
+        calls.push({ method, params });
+        if (method === 'thread/start') {
+          return Promise.resolve({
+            thread: { id: 'thread-1', turns: [] },
+            model: 'old-model',
+            modelProvider: 'old-provider',
+          } as T);
+        }
+        if (method === 'thread/resume') {
+          return Promise.resolve({
+            thread: { id: 'thread-1', turns: [] },
+            model: 'gateway-model',
+            modelProvider: 'gateway-provider',
+          } as T);
+        }
+        return Promise.resolve({} as T);
+      }
+    }
+    const client = new RecordingClient({ env: {}, config: null });
+    const thread = client.startThread({
+      workingDirectory: '/repo',
+      sandboxMode: 'workspace-write',
+      approvalPolicy: 'never',
+      skipGitRepoCheck: true,
+      model: 'old-model',
+      modelReasoningEffort: 'low',
+    });
+
+    await thread.ensureReady();
+    thread.stageGatewayOptions({
+      gatewayConfigOverrides: {
+        model: 'gateway-model',
+        model_provider: 'gateway-provider',
+        model_context_window: 200_000,
+      },
+      modelProvider: 'gateway-provider',
+      model: 'gateway-model',
+      effort: 'max',
+    });
+    await thread.updateModelOptions('explicit-next-model', 'ultra');
+
+    expect(calls).toHaveLength(1);
+    await thread.ensureReady();
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toEqual({
+      method: 'thread/resume',
+      params: expect.objectContaining({
+        threadId: 'thread-1',
+        model: 'explicit-next-model',
+        modelProvider: 'gateway-provider',
+        config: expect.objectContaining({
+          model: 'gateway-model',
+          model_provider: 'gateway-provider',
+          model_context_window: 200_000,
+          model_reasoning_effort: 'ultra',
+        }),
+      }),
+    });
+    expect(thread.getRuntimeIdentity()).toEqual({
+      runtimeProvider: 'gateway-provider',
+      model: 'gateway-model',
+      capacityConfigFingerprint: 'model-context-window:200000',
+    });
+  });
+
   it('issues exact read, fork, inject, and delete RPC payloads through one client', async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     class RecordingClient extends CodexAppServerClient {

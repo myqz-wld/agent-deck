@@ -62,3 +62,21 @@ export function withModelOptions(
   else options.modelReasoningEffort = effort;
   return withOptions(mode, options);
 }
+
+export function withGatewayOptions(
+  mode: CodexThreadMode,
+  input: {
+    gatewayConfigOverrides: CodexThreadOptions['gatewayConfigOverrides'] | null;
+    modelProvider: CodexThreadOptions['modelProvider'] | null;
+    model: CodexThreadOptions['model'] | null;
+    effort: CodexThreadOptions['modelReasoningEffort'] | null;
+  },
+): CodexThreadMode {
+  const updated = withModelOptions(mode, input.model, input.effort);
+  const options = { ...updated.options };
+  if (input.gatewayConfigOverrides === null) delete options.gatewayConfigOverrides;
+  else options.gatewayConfigOverrides = input.gatewayConfigOverrides;
+  if (input.modelProvider === null) delete options.modelProvider;
+  else options.modelProvider = input.modelProvider;
+  return withOptions(updated, options);
+}

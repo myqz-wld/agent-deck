@@ -30,10 +30,10 @@ describe('Codex Gateway profile Core', () => {
       '/codex/gateways/openrouter.team.toml',
     );
     expect(() => assertCodexGatewayProfileIdCore('../escape')).toThrow(
-      /Codex Gateway profile id/,
+      /Codex 模型网关名称/,
     );
     expect(() => resolveCodexGatewayProfileCore('custom/provider', paths, host())).toThrow(
-      /Codex Gateway profile id/,
+      /Codex 模型网关名称/,
     );
   });
 
@@ -112,7 +112,7 @@ describe('Codex Gateway profile Core', () => {
     }))).toThrow(/不存在/);
     expect(() => resolveCodexGatewayProfileCore('directory', paths, host({
       isFile: () => false,
-    }))).toThrow(/不是常规文件/);
+    }))).toThrow(/配置文件不可用/);
   });
 
   it('fails closed for malformed TOML and inconsistent capacity values', () => {
