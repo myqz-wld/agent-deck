@@ -145,7 +145,7 @@ export interface ClaudeCreateOpts {
 export interface CodexCreateOpts {
   cwd: string;
   prompt?: string;
-  /** Native Codex `model_provider` id applied as a per-thread override. */
+  /** Codex Gateway id resolved from `$CODEX_HOME/gateways/<id>.toml`. */
   provider?: string;
   /** 传旧 sessionId 表示恢复历史会话。仅 SDK 通道有意义（hook 通道无状态）。 */
   resume?: string;
@@ -288,7 +288,7 @@ export interface CreateSessionOptionsRaw {
   prompt?: string;
   /** Claude Gateway profile id; only the Claude adapter consumes this field. */
   gateway?: string;
-  /** Native Codex `model_provider` id; only the Codex adapter consumes this field. */
+  /** Codex Gateway id; only the Codex adapter consumes this field. */
   provider?: string;
   permissionMode?: PermissionMode;
   resume?: string;

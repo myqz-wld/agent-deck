@@ -173,7 +173,7 @@ export function ProviderModelThinkingFields({
     const request =
       adapter === 'claude-code'
         ? window.api.listClaudeGatewayProfiles()
-        : window.api.listCodexModelProviders();
+        : window.api.listCodexGatewayProfiles();
     void request
       .then((options) => {
         if (!cancelled) setProviderOptions(options);
@@ -189,7 +189,7 @@ export function ProviderModelThinkingFields({
   const adapterLabel =
     ADAPTER_OPTIONS.find((candidate) => candidate.value === adapter)?.label ??
     adapter;
-  const providerLabel = adapter === 'claude-code' ? '模型网关' : '模型来源';
+  const providerLabel = '模型网关';
   const disabledControlClass =
     'disabled:cursor-not-allowed disabled:text-deck-muted disabled:opacity-50';
 
@@ -228,17 +228,13 @@ export function ProviderModelThinkingFields({
                   ? '留空使用 Claude Code 设置'
                   : '留空使用 Codex 设置'
               }
-              emptyMessage={
-                adapter === 'claude-code'
-                  ? '没有匹配的模型网关，可直接输入或留空'
-                  : '没有匹配的模型来源，可直接输入或留空'
-              }
+              emptyMessage="没有匹配的模型网关，可直接输入或留空"
               onChange={onRuntimeProviderChange}
               disabled={disabled}
             />
           ) : (
             <div
-              title="模型来源跟随 Grok Build 设置"
+              title="模型网关跟随 Grok Build 设置"
               className="min-w-0 truncate rounded border border-deck-border bg-white/[0.025] px-2 py-1 text-[11px] text-deck-muted/65"
             >
               跟随 Grok Build 设置

@@ -54,7 +54,7 @@ export interface CliNewSession {
   model?: string;
   /** Claude Code Gateway profile id for the lead session. */
   gateway?: string;
-  /** Codex CLI native `model_provider` id for the lead session. */
+  /** Codex Gateway id for the lead session. */
   provider?: string;
   /** Adapter-aware reasoning level for the lead session only. */
   thinking?: string;

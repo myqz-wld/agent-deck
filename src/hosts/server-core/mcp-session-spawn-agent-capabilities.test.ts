@@ -43,7 +43,7 @@ function realCapabilities(): ServerCoreSessionCreateCapabilities {
   mkdirSync(workspaceRoot);
   mkdirSync(providerHome, { mode: 0o700 });
   mkdirSync(join(providerSource, '.claude', 'gateways'), { recursive: true, mode: 0o700 });
-  mkdirSync(join(providerSource, '.codex'), { recursive: true, mode: 0o700 });
+  mkdirSync(join(providerSource, '.codex', 'gateways'), { recursive: true, mode: 0o700 });
   writeFileSync(join(providerSource, '.claude', 'gateways', 'deepseek.json'), JSON.stringify({
     env: { ANTHROPIC_MODEL: 'gateway-default' },
   }));
@@ -54,6 +54,14 @@ function realCapabilities(): ServerCoreSessionCreateCapabilities {
     'name = "Team"',
     '[model_providers.openai]',
     'name = "OpenAI"',
+  ].join('\n'));
+  writeFileSync(join(providerSource, '.codex', 'gateways', 'team.toml'), [
+    'model = "gateway-team"',
+    'model_provider = "internal-team"',
+  ].join('\n'));
+  writeFileSync(join(providerSource, '.codex', 'gateways', 'openai.toml'), [
+    'model = "gateway-openai"',
+    'model_provider = "openai"',
   ].join('\n'));
   projectProviderSessionFiles(providerSource, providerHome);
   const adapters = new Map<SessionAdapterId, AgentAdapter>([
@@ -132,7 +140,7 @@ describe('ServerCoreMcpSessionSpawner Agent capability selection', () => {
     });
   });
 
-  it('validates a Codex Agent against its non-default provider', async () => {
+  it('validates a Codex Agent against its selected Gateway', async () => {
     const capabilities = realCapabilities();
     const state = harness({
       capabilities,

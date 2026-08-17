@@ -27,8 +27,6 @@ const GROK_CONFIG_FILE = '.grok/config.toml';
 const SAFE_PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const SECRET_SHAPED = /(?:\b(?:AKIA|ASIA)[A-Z0-9]{12,}\b|\b(?:ghp_|github_pat_|sk-|xai-|gsk_|hf_)[A-Za-z0-9_-]{8,}\b)/u;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
-const PROVIDER_HEADER =
-  /^\s*\[model_providers\.(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|([A-Za-z0-9_-]+))\]\s*(?:#.*)?$/u;
 const TOP_LEVEL_CODEX_KEYS = new Set([
   'approval_policy',
   'model',
@@ -45,6 +43,7 @@ interface SafeProviderProfile {
   readonly id: string;
   readonly model: string;
   readonly thinking: string;
+  readonly approvalPolicy?: string;
 }
 
 function safeText(value: unknown, fallback: string, allowEmpty = false): string {
@@ -97,28 +96,6 @@ function quotedTopLevel(content: string, key: string): string | null {
   return null;
 }
 
-function decodeTomlKey(value: string): string {
-  if (!value.includes('\\')) return value;
-  try { return JSON.parse(`"${value}"`) as string; } catch { return ''; }
-}
-
-function codexProviderIds(content: string): string[] {
-  const providers = new Set<string>();
-  for (const line of content.split(/\r?\n/u)) {
-    const match = PROVIDER_HEADER.exec(line);
-    if (!match) continue;
-    const id = decodeTomlKey(match[1] ?? match[2] ?? match[3] ?? '');
-    if (SAFE_PROVIDER_ID.test(id)) providers.add(id);
-  }
-  const configured = safeText(quotedTopLevel(content, 'model_provider'), '', true);
-  if (SAFE_PROVIDER_ID.test(configured)) providers.add(configured);
-  return [...providers].sort((left, right) => {
-    if (left === configured) return -1;
-    if (right === configured) return 1;
-    return left.localeCompare(right);
-  }).slice(0, SESSION_CONSOLE_MAX_OPTION_VALUES);
-}
-
 function sanitizedCodexConfig(content: string): string {
   const output: string[] = [];
   let section: 'top' | 'provider' | 'drop' = 'top';
@@ -165,9 +142,9 @@ function codexGatewayDirectory(source: string): string[] {
   if (!before) return [];
   canonicalProviderDirectory(directory, 'Codex Gateway directory', false);
   const names = readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && !entry.isSymbolicLink() && entry.name.endsWith('.json'))
+    .filter((entry) => entry.isFile() && !entry.isSymbolicLink() && entry.name.endsWith('.toml'))
     .map((entry) => entry.name)
-    .filter((name) => SAFE_PROVIDER_ID.test(name.slice(0, -'.json'.length)))
+    .filter((name) => SAFE_PROVIDER_ID.test(name.slice(0, -'.toml'.length)))
     .sort()
     .slice(0, SESSION_CONSOLE_MAX_OPTION_VALUES);
   const after = lstatSync(directory);
@@ -232,45 +209,50 @@ function syncCodexGatewayFiles(
   source: string | null,
   destination: string,
   mode: ProviderProjectionMode,
-): string[] {
+): { readonly paths: string[]; readonly profiles: SafeProviderProfile[] } {
   const names = source ? codexGatewayDirectory(source) : [];
   const accepted = new Set<string>();
   const paths: string[] = [];
+  const profiles: SafeProviderProfile[] = [];
   for (const name of names) {
     const relative = `${CODEX_GATEWAYS_DIRECTORY}/${name}`;
     const bytes = readOptionalProviderFile(source!, relative);
     if (!bytes) continue;
     let profileText = '';
     try { profileText = bytes.toString('utf8'); } finally { bytes.fill(0); }
-    const id = name.slice(0, -'.json'.length);
+    const id = name.slice(0, -'.toml'.length);
     const projected = parseCodexGatewayProfileTextCore(id, relative, profileText);
-    const sanitized = Buffer.from(
-      `${JSON.stringify(projected.configOverrides, null, 2)}\n`,
-      'utf8',
-    );
-    try { writeProviderFile(destination, relative, sanitized, mode); } finally {
-      sanitized.fill(0);
+    const profileBytes = Buffer.from(profileText, 'utf8');
+    try { writeProviderFile(destination, relative, profileBytes, mode); } finally {
+      profileBytes.fill(0);
     }
     accepted.add(name);
     paths.push(relative);
+    profiles.push(Object.freeze({
+      id,
+      model: projected.defaultModel ?? '',
+      thinking: projected.defaultThinking ?? 'high',
+      approvalPolicy: projected.defaultApproval ?? 'never',
+    }));
   }
   const destinationDirectory = join(destination, CODEX_GATEWAYS_DIRECTORY);
   if (lstatSync(destinationDirectory, { throwIfNoEntry: false })) {
     canonicalProviderDirectory(destinationDirectory, 'projected Codex Gateway directory', true);
     for (const entry of readdirSync(destinationDirectory, { withFileTypes: true })) {
-      if (!entry.name.endsWith('.json') || accepted.has(entry.name)) continue;
+      if (!entry.name.endsWith('.toml') || accepted.has(entry.name)) continue;
       if (!entry.isFile() || entry.isSymbolicLink()) {
         throw new Error('projected Codex Gateway directory contains an unsafe entry');
       }
       removeProviderFile(destination, `${CODEX_GATEWAYS_DIRECTORY}/${entry.name}`);
     }
   }
-  return paths;
+  return { paths, profiles };
 }
 
 function catalog(
   source: string,
   claudeProfiles: readonly SafeProviderProfile[],
+  codexProfiles: readonly SafeProviderProfile[],
   codexContent: string,
 ): JsonObject {
   const claudeSettings = jsonObject(readOptionalProviderFile(source, CLAUDE_SETTINGS_FILE));
@@ -291,12 +273,6 @@ function catalog(
   const codexApproval = isCodexApprovalPolicy(codexApprovalValue)
     ? codexApprovalValue
     : 'never';
-  const codexProviders = codexProviderIds(codexContent);
-  const configuredCodexProvider = safeText(
-    quotedTopLevel(codexContent, 'model_provider'),
-    '',
-    true,
-  );
   const grokContent = (() => {
     const bytes = readOptionalProviderFile(source, GROK_CONFIG_FILE);
     if (!bytes) return '';
@@ -305,7 +281,7 @@ function catalog(
   const grokModel = safeText(quotedTopLevel(grokContent, 'model'), 'grok-4.5');
   const grokThinkingValue = quotedTopLevel(grokContent, 'reasoning_effort');
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     adapters: [
       {
         adapterId: 'claude-code',
@@ -317,8 +293,8 @@ function catalog(
       },
       {
         adapterId: 'codex-cli',
-        providers: codexProviders.map((id) => ({ id, model: codexModel, thinking: codexThinking })),
-        provider: codexProviders.includes(configuredCodexProvider) ? configuredCodexProvider : '',
+        providers: codexProfiles.map((profile) => ({ ...profile })),
+        provider: '',
         model: codexModel,
         thinking: codexThinking,
         approvalPolicy: codexApproval,
@@ -354,7 +330,7 @@ export function projectProviderSessionFiles(
     try { return codexBytes.toString('utf8'); } finally { codexBytes.fill(0); }
   })();
   const sanitizedConfig = sanitizedCodexConfig(codexContent);
-  const projected = [...gateways.paths, ...codexGateways];
+  const projected = [...gateways.paths, ...codexGateways.paths];
   if (sanitizedConfig) {
     const bytes = Buffer.from(sanitizedConfig, 'utf8');
     try { writeProviderFile(destination, CODEX_CONFIG_FILE, bytes, mode); } finally { bytes.fill(0); }
@@ -363,7 +339,12 @@ export function projectProviderSessionFiles(
     removeProviderFile(destination, CODEX_CONFIG_FILE);
   }
   const catalogBytes = Buffer.from(
-    `${JSON.stringify(catalog(source, gateways.profiles, codexContent), null, 2)}\n`,
+    `${JSON.stringify(catalog(
+      source,
+      gateways.profiles,
+      codexGateways.profiles,
+      codexContent,
+    ), null, 2)}\n`,
     'utf8',
   );
   try {

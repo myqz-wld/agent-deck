@@ -41,7 +41,7 @@ beforeEach(() => {
     value: {
       summarizerLastErrors: vi.fn().mockResolvedValue({}),
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-      listCodexModelProviders: vi.fn().mockResolvedValue([]),
+      listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
     },
   });
 });
@@ -67,7 +67,7 @@ describe('SummarySection provider-specific thinking levels', () => {
     );
     openSection();
     expect(
-      screen.getByText('留空时使用所选 Codex 模型来源的默认模型。'),
+      screen.getByText('留空时使用所选 Codex 模型网关的默认模型。'),
     ).toBeTruthy();
     expect(
       (screen.getByRole('textbox', { name: '总结模型 模型' }) as HTMLInputElement)
@@ -286,13 +286,13 @@ describe('SummarySection provider-specific thinking levels', () => {
     expect(group.querySelector('[data-generator-field="thinking"]')?.className)
       .toContain('min-[420px]:col-span-1');
     expect(group.textContent).toContain('助手');
-    expect(group.textContent).toContain('模型来源');
+    expect(group.textContent).toContain('模型网关');
     expect(group.textContent).toContain('模型');
     expect(group.textContent).toContain('思考程度');
 
     const adapter = screen.getByRole('button', { name: '总结模型 助手' }) as HTMLButtonElement;
     const provider = screen.getByRole('combobox', {
-      name: '总结模型 模型来源',
+      name: '总结模型 模型网关',
     }) as HTMLInputElement;
     const model = screen.getByRole('textbox', { name: '总结模型 模型' }) as HTMLInputElement;
     const thinking = screen.getByRole('button', {

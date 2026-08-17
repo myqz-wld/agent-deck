@@ -192,8 +192,8 @@ function resolveCodexSpawnAgent(agentName: string, cwd: string): ResolvedSpawnAg
       ? getBundledAgentRuntimeOverride('codex-cli', resolved.agent.name)
       : {};
   const model = override.model ?? resolved.agent.model;
-  // A bundled app-owned override may select a model_provider. A custom Agent's own
-  // model_provider remains in that Agent's config layer and is not persisted as a session selector.
+  // A bundled app-owned override may select a Codex Gateway. A custom Agent's own
+  // model_provider remains in that Agent's config layer and is not persisted as a Gateway selector.
   const provider = override.provider;
   const effort =
     (override.thinking as SpawnCodexReasoningEffort | undefined) ??

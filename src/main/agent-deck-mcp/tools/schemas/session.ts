@@ -278,7 +278,7 @@ export const PROJECTED_SESSION_OUTPUT_SCHEMA = z
       .string()
       .min(1)
       .nullable()
-      .describe('Codex model_provider id; null for Claude/Grok or Codex config.toml default.'),
+      .describe('Codex Gateway id in the provider field; null for Claude/Grok or Codex native default.'),
     cwd: z.string().min(1).max(4096),
     lifecycle: z.enum(['active', 'dormant', 'closed']),
     title: z.string().nullable(),

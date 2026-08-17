@@ -15,7 +15,7 @@ interface Props {
 }
 
 function buildModelHint(adapter: GeneratorAdapter, runtimeProvider: string): string {
-  if (adapter === 'codex-cli') return '留空时使用所选 Codex 模型来源的默认模型';
+  if (adapter === 'codex-cli') return '留空时使用所选 Codex 模型网关的默认模型';
   if (adapter === 'grok-build') return '留空时使用 Grok Build 配置中的默认模型';
   return runtimeProvider
     ? `留空时使用 ${runtimeProvider} 模型网关的 Haiku 路由`

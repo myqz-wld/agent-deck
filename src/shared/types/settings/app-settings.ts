@@ -44,7 +44,7 @@ export interface AppSettings {
   summaryTimeoutMs: number;
   /** 周期简报使用的隔离运行时 adapter，与被总结会话自身的 adapter 无关。 */
   summaryAdapter: GeneratorAdapterId;
-  /** Claude Gateway profile id 或 Codex model_provider；Grok 必须为空。 */
+  /** Claude 或 Codex Gateway profile id；Grok 必须为空。 */
   summaryRuntimeProvider: string;
   /** 空字符串委托给所选 adapter/provider 的原生默认模型。 */
   summaryModel: string;
@@ -52,7 +52,7 @@ export interface AppSettings {
   summaryThinking: SessionThinkingLevel;
   /** 续接检查点生成器 adapter，与 successor adapter 独立。 */
   continuationCheckpointAdapter: GeneratorAdapterId;
-  /** Claude Gateway profile id 或 Codex model_provider；Grok 必须为空。 */
+  /** Claude 或 Codex Gateway profile id；Grok 必须为空。 */
   continuationCheckpointRuntimeProvider: string;
   /** 空字符串委托给所选 adapter/provider 的原生默认模型。 */
   continuationCheckpointModel: string;
@@ -202,7 +202,7 @@ export interface AppSettings {
   injectAgentDeckGrokAgents: boolean;
   /**
    * Runtime-only deltas for immutable bundled Agents, keyed by `adapter:name`.
-   * User/project Agents and native provider definitions are never copied into this map.
+   * User/project Agents and native Gateway/config definitions are never copied into this map.
    */
   bundledAgentRuntimeOverrides: BundledAgentRuntimeOverrideMap;
   /**

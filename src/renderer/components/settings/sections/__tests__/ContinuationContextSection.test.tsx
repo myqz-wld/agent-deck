@@ -36,7 +36,7 @@ beforeEach(() => {
     configurable: true,
     value: {
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-      listCodexModelProviders: vi.fn().mockResolvedValue([]),
+      listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
     },
   });
 });
@@ -68,7 +68,7 @@ describe('ContinuationContextSection', () => {
       ),
     ).not.toBeNull();
     expect(
-      screen.getByText('留空时使用所选 Codex 模型来源的默认模型。'),
+      screen.getByText('留空时使用所选 Codex 模型网关的默认模型。'),
     ).not.toBeNull();
     expect(
       (screen.getByRole('textbox', { name: '上下文整理模型 模型' }) as HTMLInputElement)
@@ -283,7 +283,7 @@ describe('ContinuationContextSection', () => {
       name: '上下文整理模型 助手',
     }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('combobox', {
-      name: '上下文整理模型 模型来源',
+      name: '上下文整理模型 模型网关',
     }) as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole('textbox', {
       name: '上下文整理模型 模型',

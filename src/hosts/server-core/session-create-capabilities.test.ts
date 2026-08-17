@@ -59,7 +59,7 @@ ready: readonly SessionAdapterId[] = enabled): CapabilityHarness {
   mkdirSync(join(workspaceRoot, 'repo', 'nested'), { recursive: true });
   mkdirSync(providerHome, { mode: 0o700 });
   mkdirSync(join(providerSourceHome, '.claude', 'gateways'), { recursive: true, mode: 0o700 });
-  mkdirSync(join(providerSourceHome, '.codex'), { recursive: true, mode: 0o700 });
+  mkdirSync(join(providerSourceHome, '.codex', 'gateways'), { recursive: true, mode: 0o700 });
   mkdirSync(join(providerSourceHome, '.grok'), { recursive: true, mode: 0o700 });
   writeFileSync(join(providerSourceHome, '.claude', 'gateways', 'deepseek.json'), JSON.stringify({
     env: { ANTHROPIC_MODEL: 'gateway-sonnet', ANTHROPIC_AUTH_TOKEN: 'must-not-leak' },
@@ -72,6 +72,15 @@ ready: readonly SessionAdapterId[] = enabled): CapabilityHarness {
     'name = "Team"',
     '[model_providers.openai]',
     'name = "OpenAI"',
+  ].join('\n'));
+  writeFileSync(join(providerSourceHome, '.codex', 'gateways', 'team.toml'), [
+    'model = "gateway-team"',
+    'model_provider = "internal-team"',
+    'model_reasoning_effort = "xhigh"',
+  ].join('\n'));
+  writeFileSync(join(providerSourceHome, '.codex', 'gateways', 'openai.toml'), [
+    'model = "gateway-openai"',
+    'model_provider = "openai"',
   ].join('\n'));
   writeFileSync(join(providerSourceHome, '.grok', 'config.toml'), 'model = "grok-remote"\n');
   projectProviderSessionFiles(providerSourceHome, providerHome);
@@ -190,8 +199,8 @@ describe('ServerCoreSessionCreateCapabilities', () => {
     expect(claude.create.options.provider.allowedValues).toEqual(['deepseek']);
     expect(claude.create.options.model.defaultValue).toBe('gateway-sonnet');
     const codex = await subject.describe(requests[1]);
-    expect(codex.create.options.provider.allowedValues).toEqual(['team', 'openai']);
-    expect(codex.create.options.provider.defaultValue).toBe('team');
+    expect(codex.create.options.provider.allowedValues).toEqual(['openai', 'team']);
+    expect(codex.create.options.provider.defaultValue).toBe('');
     expect(codex.create.options.model.defaultValue).toBe('gpt-remote');
     const grok = await subject.describe(requests[2]);
     expect(grok.create.options.grokSandbox).toMatchObject({

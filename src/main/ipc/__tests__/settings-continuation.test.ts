@@ -40,10 +40,10 @@ vi.mock('@main/codex-config/agents-md-installer', () => ({
   resetUserCodexAgentsMd: vi.fn(),
 }));
 vi.mock('@main/codex-config/skills-installer', () => ({ syncSkills: vi.fn() }));
-vi.mock('@main/codex-config/model-providers', () => ({
-  resolveCodexModelProvider: vi.fn((value: string) => {
-    if (value === 'missing') throw new Error('Codex model_provider "missing" 不存在');
-    return { id: value };
+vi.mock('@main/codex-config/gateway-profiles', () => ({
+  resolveCodexGatewayProfile: vi.fn((value: string) => {
+    if (value === 'missing') throw new Error('Codex Gateway profile "missing" 不存在');
+    return { id: value, profilePath: `/gateways/${value}.toml`, configOverrides: {} };
   }),
 }));
 vi.mock('../session-hand-off', () => ({
@@ -248,7 +248,7 @@ describe('SettingsSet continuation validation', () => {
     ).toThrow(/continuationCheckpointRuntimeProvider/);
   });
 
-  it('rejects nonexistent Codex generator providers before overwriting settings', () => {
+  it('rejects nonexistent Codex generator Gateways before overwriting settings', () => {
     settingsStoreMocks.getAll.mockReset().mockReturnValue(current({
       summaryAdapter: 'codex-cli',
       summaryRuntimeProvider: 'openai',
@@ -261,7 +261,7 @@ describe('SettingsSet continuation validation', () => {
 
     expect(() => setHandler!({} as never, {
       summaryRuntimeProvider: 'missing',
-    })).toThrow(/model_provider.*不存在/);
+    })).toThrow(/Gateway profile.*不存在/);
     expect(settingsStoreMocks.patch).not.toHaveBeenCalled();
   });
 

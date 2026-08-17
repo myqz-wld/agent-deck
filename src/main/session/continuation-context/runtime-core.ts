@@ -5,6 +5,7 @@ import type { ClaudeGatewayModelAliases } from '@main/adapters/claude-code/sdk-b
 import { toCodexAppServerInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
 import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
 import type { CodexAppServerClient } from '@main/adapters/codex-cli/app-server/client';
+import type { ResolvedCodexGatewayProfile } from '@main/codex-config/gateway-profiles-core';
 import type {
   GrokOneshotResult,
   RunGrokOneshotOptions,
@@ -43,6 +44,7 @@ export interface CheckpointGeneratorRuntimeHost {
   };
   resolveClaudeBinary(): string | null | undefined;
   resolveClaudeGatewayProfile(provider: string | null): ClaudeGatewayRuntimeProfile | null;
+  resolveCodexGatewayProfile(provider: string | null): ResolvedCodexGatewayProfile | null;
   getCodexInstance(): Promise<Pick<CodexAppServerClient, 'startThread'>>;
   runGrokOneshot(options: RunGrokOneshotOptions): Promise<GrokOneshotResult>;
   grokBinaryPath(): string | null;
@@ -336,11 +338,15 @@ async function runCodexCheckpoint(input: {
   const abort = () => controller.abort();
   input.request.signal?.addEventListener('abort', abort, { once: true });
   try {
+    const gatewayProfile = host.resolveCodexGatewayProfile(
+      input.generator.provider ?? null,
+    );
     codex = await host.getCodexInstance();
     const thread = codex.startThread(
       buildCodexCompactorThreadOptions({
         generator: input.generator,
         emptyWorkingDirectory: cwd,
+        gatewayProfile,
       }),
     );
     const work = thread.run(toCodexAppServerInput(input.request.prompt), {

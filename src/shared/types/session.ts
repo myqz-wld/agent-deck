@@ -134,7 +134,8 @@ export interface SessionRecord {
    * Adapter-scoped runtime provider.
    *
    * - claude-code: Gateway profile id resolved from ~/.claude/gateways/<id>.json
-   * - codex-cli: native `model_provider` id from `$CODEX_HOME/config.toml`
+   * - codex-cli: Gateway id from `$CODEX_HOME/gateways/<id>.toml`; the file's optional
+   *   `model_provider` remains an internal native Codex selector
    * - grok-build: always null; Grok keeps native model-alias routing
    */
   runtimeProvider?: string | null;
@@ -196,7 +197,7 @@ export interface SessionRecord {
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access' | null;
   /**
    * Explicit per-session Codex approval override. Null means Agent Deck leaves
-   * approval ownership to Codex config/provider defaults. Reviewer sessions
+   * approval ownership to the selected Codex Gateway or native config defaults. Reviewer sessions
    * persist `never` so dormant/app-restart recovery cannot become interactive.
    */
   codexApprovalPolicy?: CodexApprovalPolicy | null;
@@ -400,7 +401,7 @@ export type SessionAdapterId = RuntimeAdapterId;
 
 export interface SessionHandOffTarget {
   adapter: SessionAdapterId;
-  /** Claude Gateway profile id or Codex model_provider; null delegates to native defaults. */
+  /** Claude or Codex Gateway profile id; null delegates to native defaults. */
   provider?: string | null;
   /** Empty/null delegates model selection to the target provider. */
   model?: string | null;

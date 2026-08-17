@@ -24,7 +24,6 @@ import {
   readCodexUsageSnapshotWithHost,
   type CodexUsageSnapshotHost,
 } from '@main/adapters/codex-cli/usage-snapshot-core';
-import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
 import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import type { JsonObject } from '@main/adapters/codex-cli/app-server/protocol';
@@ -204,10 +203,10 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
     releaseInstance: (client) => {
       if (client instanceof CodexAppServerClient) client.dispose();
     },
-    resolveProviderConfigOverrides: (provider) =>
-      resolveCodexGatewayProfile(provider, {
+    resolveGatewayProfile: (gateway) =>
+      resolveCodexGatewayProfile(gateway, {
         gatewaysDir: join(input.workspaceBoundary.providerHomeRoot, '.codex', 'gateways'),
-      })?.configOverrides ?? null,
+      }),
     createIsolatedCwd: () => {
       mkdirSync(input.workspaceBoundary.workspaceRoot, { recursive: true, mode: 0o700 });
       return mkdtempSync(join(
@@ -248,13 +247,15 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
             : undefined,
           readConfiguredModel: () => null,
           readConfiguredReasoningEffort: () => null,
-          readProviderConfigOverrides: (provider) =>
-            resolveCodexGatewayProfile(provider, {
+          readGatewayProfile: (gateway) =>
+            resolveCodexGatewayProfile(gateway, {
               gatewaysDir: join(input.workspaceBoundary.providerHomeRoot, '.codex', 'gateways'),
-            })?.configOverrides ?? null,
+            }),
           readDefaultSandbox: () => input.settings.codexSandbox,
-          validateModelProvider: (provider) => {
-            resolveCodexModelProvider(provider);
+          validateGatewayProfile: (gateway) => {
+            resolveCodexGatewayProfile(gateway, {
+              gatewaysDir: join(input.workspaceBoundary.providerHomeRoot, '.codex', 'gateways'),
+            });
           },
         },
         clientRegistry: {
@@ -325,7 +326,9 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
     },
     hookInstallerObserver: { statusReadFailed: () => undefined },
     providerResolver: {
-      resolveProvider: (provider) => resolveCodexModelProvider(provider)?.id,
+      resolveProvider: (provider) => resolveCodexGatewayProfile(provider, {
+        gatewaysDir: join(input.workspaceBoundary.providerHomeRoot, '.codex', 'gateways'),
+      })?.id,
     },
     summary: {
       readSummaryModel: () => input.settings.summaryModel,

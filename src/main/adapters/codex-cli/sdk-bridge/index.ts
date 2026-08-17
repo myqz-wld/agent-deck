@@ -195,10 +195,10 @@ export class CodexSdkBridge {
       emit: opts.emit,
       validate: (sessionId, options, previous) => {
         if (options.provider !== previous.provider) {
-          opts.runtimeHost.configuration.validateModelProvider(options.provider);
+          opts.runtimeHost.configuration.validateGatewayProfile(options.provider);
           if (this.sessions.has(sessionId)) {
             throw new Error(
-              '当前 Codex 版本不支持为已加载的会话切换 model_provider；请新建会话，或在会话进入休眠后再切换。',
+              '当前 Codex 版本不支持为已加载的会话切换模型网关；请新建会话，或在会话进入休眠后再切换。',
             );
           }
         }
@@ -207,7 +207,7 @@ export class CodexSdkBridge {
         const internal = this.sessions.get(sessionId);
         if (!internal) return false;
         if (options.provider !== previous.provider) {
-          throw new Error('Codex live model_provider change passed the validation boundary');
+          throw new Error('Codex live Gateway change passed the validation boundary');
         }
         await internal.thread.updateModelOptions(
           options.model,
@@ -307,7 +307,7 @@ export class CodexSdkBridge {
         readConfiguredModel: this.opts.runtimeHost.configuration.readConfiguredModel,
         readConfiguredReasoningEffort:
           this.opts.runtimeHost.configuration.readConfiguredReasoningEffort,
-        readProviderConfigOverrides: this.opts.runtimeHost.configuration.readProviderConfigOverrides,
+        readGatewayProfile: this.opts.runtimeHost.configuration.readGatewayProfile,
       }),
       lifecycle: {
         allocateToken: (sid) => this.opts.runtimeHost.tokens.allocate(sid),

@@ -96,7 +96,7 @@ describe('agent-deck new model options', () => {
     });
   });
 
-  it('parses a Codex model_provider, free-form model, and thinking for the lead session', () => {
+  it('parses a Codex Gateway id, free-form model, and thinking for the lead session', () => {
     expect(
       parseCliInvocation([
         '/Applications/Agent Deck',

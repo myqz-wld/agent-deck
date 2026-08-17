@@ -22,17 +22,15 @@ Packaged app conventions, Agents, and Skills are immutable runtime resources. Th
 may attach an app-owned runtime delta to a bundled Agent without editing this directory:
 
 - Claude, Codex, and Grok bundled Agents may override model and thinking.
-- Claude bundled Agents may additionally override a Gateway profile. Codex bundled Agents may
-  select a native `model_provider` declared in `${CODEX_HOME:-~/.codex}/config.toml`.
+- Claude and Codex bundled Agents may additionally select their adapter's Gateway profile.
 - Reset removes the whole app-owned delta and exposes the packaged Agent defaults again.
 - Bundled Skills have no runtime override. Direct and Plugin Agents/Skills remain owned by their
   native adapter directories and are read-only in the Assets Library; Agent Deck provides no
   create, edit, delete, install, or enable operation for them.
 
 Provider endpoints, credentials, and alias definitions stay in each adapter's native configuration.
-The resource layer stores only adapter-native selector ids (Claude Gateway or Codex
-`model_provider`); it neither copies credentials nor writes user-level Claude, Codex, or Grok
-configuration.
+The resource layer stores only adapter-native Gateway ids; it neither stores credentials nor writes
+user-level Claude, Codex, or Grok configuration.
 
 ## claude-config/
 
@@ -56,14 +54,18 @@ The Codex adapter uses this resource root. Codex app-server has no Claude SDK `p
 - `agent-deck-plugin/skills/*/SKILL.md`: After resource placeholder replacement, mirrored into the Codex skills extraRoot under app userData and injected into in-app Codex sessions through app-server `skills/extraRoots/set`; it is not written to the user-level `~/.codex/skills/agent-deck/`.
 - Native Codex Plugins contribute Skills. Agent Deck additionally recognizes Plugin `agents/*.toml` as an Agent Deck extension and maps the same supported custom-agent fields into the existing Codex app-server session configuration; this is not a native Codex Plugin Agent component.
 - `spawn_session(agentName=...)` resolves bundled Agents, project `.codex/agents`, user `${CODEX_HOME:-~/.codex}/agents`, and the Plugin TOML extension. Plugin selectors use `<plugin>:<agent>`.
-- The public `provider` selector names a native `model_provider` available from
-  `${CODEX_HOME:-~/.codex}/config.toml` (including its top-level default) and applies it through the
-  app-server's supported thread configuration.
-- An optional `${CODEX_HOME:-~/.codex}/gateways/<provider>.json` pairs a safe provider id with
-  positive integer `model_context_window` and `model_auto_compact_token_limit` values. Agent Deck
-  projects only those two keys into Remote provider homes and applies them through thread-level
-  app-server `config` for new, resumed, forked, and internal Codex threads. A selected Codex Agent's
-  explicit config remains the higher-precedence layer; a missing profile preserves native defaults.
+- The public `provider` field is retained as the Codex API field name, but its value is a Gateway id
+  discovered only from `${CODEX_HOME:-~/.codex}/gateways/*.toml`. The filename stem is the id and
+  display name; file contents are not consulted during enumeration.
+- Each Codex Gateway file is a complete ordinary native Codex TOML config. `model_provider`,
+  `model_providers`, `model`, and other native keys are optional. Agent Deck applies the full config
+  to new, resumed, forked, and internal Codex threads; when present, top-level `model_provider` is
+  also sent through app-server `modelProvider` and is independent of the filename stem. Remote
+  provider homes receive the same validated TOML file. Agent Deck-owned MCP and runtime safety
+  boundaries remain authoritative.
+- An empty Codex Gateway selection delegates to `${CODEX_HOME:-~/.codex}/config.toml`. A non-empty
+  selection must resolve to the same-named `.toml`; JSON profiles and config.toml provider
+  enumeration are not supported.
 - The Assets Library shows user-root Agents/Skills, native Plugin Skills, and Plugin TOML Agent extensions. All direct and Plugin files are inspection-only and stay under Codex CLI ownership.
 - Agent Deck reads native Codex configuration and Gateway profiles but does not write
   `${CODEX_HOME:-~/.codex}/config.toml`, `${CODEX_HOME:-~/.codex}/gateways/`,

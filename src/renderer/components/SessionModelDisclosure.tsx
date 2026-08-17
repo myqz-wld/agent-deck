@@ -42,7 +42,7 @@ export function SessionModelDisclosure({
   const providerLabel =
     adapterId === 'grok-build'
       ? null
-      : `${adapterId === 'claude-code' ? '模型网关' : '模型来源'}：${
+      : `模型网关：${
           disabledReasons?.provider ? '不可用' : provider || '原生'
         }`;
   const modelLabel = disabledReasons?.model ? '不可用' : model || '配置文件';

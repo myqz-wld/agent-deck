@@ -5,7 +5,7 @@
  * 覆盖 thread-options-builder.ts `buildCodexThreadOptions` 的字段收口逻辑：
  * - approvalPolicy 缺省时省略（交还 Codex config / provider default）；caller 显式时透传
  * - skipGitRepoCheck 恒 true
- * - provider / model / modelReasoningEffort / developerInstructions / providerConfigOverrides /
+ * - modelProvider / model / modelReasoningEffort / developerInstructions / gatewayConfigOverrides /
  *   configOverrides / networkAccessEnabled /
  *   additionalDirectories 条件 spread（undefined → 字段不出现）
  * - modelReasoningSummary 默认 auto，让应用内 Codex 会话请求可展示的思路摘要
@@ -78,7 +78,7 @@ describe('buildCodexThreadOptions', () => {
     expect('modelReasoningEffort' in opts).toBe(false);
     expect('developerInstructions' in opts).toBe(false);
     expect('configOverrides' in opts).toBe(false);
-    expect('providerConfigOverrides' in opts).toBe(false);
+    expect('gatewayConfigOverrides' in opts).toBe(false);
     expect('networkAccessEnabled' in opts).toBe(false);
     expect('additionalDirectories' in opts).toBe(false);
     expect(opts.modelReasoningSummary).toBe('auto');
@@ -88,7 +88,7 @@ describe('buildCodexThreadOptions', () => {
     const opts = buildCodexThreadOptions({
       workingDirectory: '/repo/x',
       sandboxMode: 'workspace-write',
-      provider: '  openrouter  ',
+      modelProvider: '  internal-provider  ',
       model: 'gpt-5.5-codex',
       modelReasoningEffort: 'ultra',
       modelReasoningSummary: 'none',
@@ -98,14 +98,14 @@ describe('buildCodexThreadOptions', () => {
           config: [{ name: 'agent-deck:deep-review' }],
         },
       },
-      providerConfigOverrides: {
+      gatewayConfigOverrides: {
         model_context_window: 1_000_000,
         model_auto_compact_token_limit: 900_000,
       },
       networkAccessEnabled: true,
       additionalDirectories: ['/a', '/b'],
     });
-    expect(opts.modelProvider).toBe('openrouter');
+    expect(opts.modelProvider).toBe('internal-provider');
     expect(opts.model).toBe('gpt-5.5-codex');
     expect(opts.modelReasoningEffort).toBe('ultra');
     expect(opts.modelReasoningSummary).toBe('none');
@@ -115,7 +115,7 @@ describe('buildCodexThreadOptions', () => {
         config: [{ name: 'agent-deck:deep-review' }],
       },
     });
-    expect(opts.providerConfigOverrides).toEqual({
+    expect(opts.gatewayConfigOverrides).toEqual({
       model_context_window: 1_000_000,
       model_auto_compact_token_limit: 900_000,
     });
@@ -138,7 +138,7 @@ describe('buildCodexThreadOptions', () => {
     const options = buildCodexThreadOptions({
       workingDirectory: '/repo/x',
       sandboxMode: 'workspace-write',
-      provider: 'session-provider',
+      modelProvider: 'session-provider',
       configOverrides: { model_provider: 'agent-default' },
     });
 

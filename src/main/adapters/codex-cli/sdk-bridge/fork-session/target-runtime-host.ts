@@ -20,7 +20,6 @@ export function resolveDesktopCodexForkTargetRuntime(
     developerInstructions: getAgentDeckCodexDeveloperInstructions(),
     readConfiguredModel: readTopLevelModelFromCodexConfig,
     readConfiguredReasoningEffort: readTopLevelModelReasoningEffortFromCodexConfig,
-    readProviderConfigOverrides: (provider) =>
-      resolveCodexGatewayProfile(provider)?.configOverrides ?? null,
+    readGatewayProfile: resolveCodexGatewayProfile,
   });
 }

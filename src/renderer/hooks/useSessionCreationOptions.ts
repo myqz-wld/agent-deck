@@ -102,7 +102,7 @@ export function useSessionCreationOptions({
   const providerCatalogReaderAvailable = adapterId === 'claude-code'
     ? typeof window.api?.listClaudeGatewayProfiles === 'function'
     : adapterId === 'codex-cli'
-      ? typeof window.api?.listCodexModelProviders === 'function'
+      ? typeof window.api?.listCodexGatewayProfiles === 'function'
       : false;
   const providerCatalogKey = `${scopeKey}\u0000${adapterId}`;
 
@@ -165,7 +165,7 @@ export function useSessionCreationOptions({
     if (!active || !supportsProviderCatalog || !providerCatalogReaderAvailable) return;
     const request = adapterId === 'claude-code'
       ? window.api.listClaudeGatewayProfiles()
-      : window.api.listCodexModelProviders();
+      : window.api.listCodexGatewayProfiles();
     void request.then((options) => {
       if (providerCatalogGeneration.current === generation) {
         setProviderCatalog({ key: providerCatalogKey, options });

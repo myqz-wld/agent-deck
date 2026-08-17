@@ -64,13 +64,13 @@ function source(overrides: Partial<RemoteSessionSourceView> = {}): RemoteSession
 describe('RemoteSessionComposer parity and authority', () => {
   it('reuses the Local composer surface while routing message and runtime writes to Remote', async () => {
     const listLocalClaudeGateways = vi.fn();
-    const listLocalCodexProviders = vi.fn();
+    const listLocalCodexGateways = vi.fn();
     const confirmDialog = vi.fn().mockResolvedValue(true);
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
         listClaudeGatewayProfiles: listLocalClaudeGateways,
-        listCodexModelProviders: listLocalCodexProviders,
+        listCodexGatewayProfiles: listLocalCodexGateways,
         confirmDialog,
       },
     });
@@ -104,7 +104,7 @@ describe('RemoteSessionComposer parity and authority', () => {
     }));
 
     expect(listLocalClaudeGateways).not.toHaveBeenCalled();
-    expect(listLocalCodexProviders).not.toHaveBeenCalled();
+    expect(listLocalCodexGateways).not.toHaveBeenCalled();
   });
 
   it('routes active-turn Codex text and images through Remote steer', async () => {

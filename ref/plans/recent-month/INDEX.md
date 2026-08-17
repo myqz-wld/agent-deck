@@ -15,6 +15,9 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-08-09 | `PLAN_33_relay-quadlet-live-acceptance.md` | completed | Migrate AWS Relay to rootless Podman with an isolated Mac Worker | CHANGELOG_580-582 / REVIEW_219-221 |
+| 2026-08-09 | `PLAN_32_remote-local-capability-parity.md` | completed with external acceptance | Complete Local/Remote parity and Workspace-sandbox delivery | CHANGELOG_578 / REVIEW_217 |
+| 2026-08-08 | `PLAN_31_handoff-lifecycle-context-v2.md` | completed with documented residuals | Harden handoff context, lifecycle, and rollback boundaries | CHANGELOG_436 / REVIEW_216 |
 | 2026-08-06 | `PLAN_31_linux-remote-core-foundation.md` | completed with follow-up | Deliver Remote Core, Relay/Worker, Feishu, and Workspace foundations | CHANGELOG_565 / PLAN_32 |
 | 2026-08-03 | `PLAN_30_context-window-observation-unification.md` | completed | Unify observed context capacity across continuations | CHANGELOG_430 / REVIEW_212 |
 | 2026-07-31 | `PLAN_29_review-208-defect-remediation.md` | completed | Close all fifteen defects confirmed by REVIEW_208 | CHANGELOG_427 / REVIEW_209 |
@@ -32,5 +35,3 @@ This bucket contains only plans that currently belong to this mutually exclusive
 | 2026-07-23 | `PLAN_17_bundled-agent-runtime-overrides.md` | completed | Configure bundled Agent runtimes without editing packaged assets | CHANGELOG_384 / REVIEW_168 |
 | 2026-07-23 | `PLAN_16_grok-build-adapter-profiles.md` | completed | Add Grok Build through ACP and typed adapter runtime profiles | CHANGELOG_383 / REVIEW_167 |
 | 2026-07-21 | `PLAN_15_plan-review-pending-queue-composer.md` | completed | Isolate review, queue pending input, and expand the composer | CHANGELOG_379 / REVIEW_165 |
-| 2026-07-15 | `PLAN_14_checkpoint-patch-reduction.md` | completed | Let the LLM emit semantic patches while code owns checkpoint state | REVIEW_163 |
-| 2026-07-15 | `PLAN_13_history-search-case-insensitive.md` | completed | Rebuild History FTS case-insensitively while fully offline | CHANGELOG_374 |

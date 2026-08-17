@@ -147,7 +147,7 @@ describe('Remote handoff dialog authority', () => {
 
     await act(() => vi.advanceTimersByTimeAsync(0));
     fireEvent.click(screen.getByText('模型配置'));
-    fireEvent.change(screen.getByLabelText('模型来源'), {
+    fireEvent.change(screen.getByLabelText('模型网关'), {
       target: { value: 'openai-custom' },
     });
 

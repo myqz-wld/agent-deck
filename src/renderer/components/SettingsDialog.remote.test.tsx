@@ -211,7 +211,7 @@ describe('SettingsDialog adapter views', () => {
         hookStatus,
         setSettings,
         listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-        listCodexModelProviders: vi.fn().mockResolvedValue([]),
+        listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
         summarizerLastErrors: vi.fn().mockResolvedValue({}),
         getRemoteHostNodeConfiguration: vi.fn().mockResolvedValue(configuration({
             claudeCodeSandbox: 'strict', codexSandbox: 'read-only',

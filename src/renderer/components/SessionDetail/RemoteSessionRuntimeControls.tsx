@@ -299,7 +299,7 @@ export function RemoteSessionRuntimeControls({
           onThinkingChange: (next) => updateSelection({ thinking: next }, true),
         }}
         help={adapterId === 'codex-cli'
-          ? '已加载的 Codex 会话不能直接切换模型来源；模型与思考程度会在下一轮生效。'
+          ? '已加载的 Codex 会话不能直接切换模型网关；模型与思考程度会在下一轮生效。'
           : '当前回复不会中断，修改会自动保存并在下一轮生效。'}
         error={null}
         onDismissError={() => undefined}

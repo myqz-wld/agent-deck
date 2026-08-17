@@ -67,16 +67,15 @@ describe('BundledAgentRuntimeEditor', () => {
     expect(screen.getByRole('option', { name: 'xhigh' })).toBeTruthy();
   });
 
-  it('saves only runtime deltas and keeps Codex model providers native', async () => {
+  it('saves only runtime deltas and keeps Codex Gateway files native', async () => {
     const saveBundledAgentRuntime = vi.fn().mockResolvedValue({ ok: true });
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
-        listCodexModelProviders: vi.fn().mockResolvedValue([
+        listCodexGatewayProfiles: vi.fn().mockResolvedValue([
           {
             id: 'fable',
-            name: 'Fable',
-            configuredAsTopLevelDefault: false,
+            profilePath: '/codex/gateways/fable.toml',
           },
         ]),
         saveBundledAgentRuntime,
@@ -98,7 +97,7 @@ describe('BundledAgentRuntimeEditor', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '思考等级' }));
     fireEvent.click(screen.getByRole('option', { name: 'high' }));
-    fireEvent.change(screen.getByLabelText('模型来源'), {
+    fireEvent.change(screen.getByLabelText('模型网关'), {
       target: { value: 'fable' },
     });
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
@@ -121,7 +120,7 @@ describe('BundledAgentRuntimeEditor', () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
-        listCodexModelProviders: vi.fn().mockResolvedValue([]),
+        listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
         saveBundledAgentRuntime: vi.fn(),
         resetBundledAgentRuntime,
         confirmDialog: vi.fn(),
@@ -155,7 +154,7 @@ describe('BundledAgentRuntimeEditor', () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
-        listCodexModelProviders: vi.fn().mockResolvedValue([]),
+        listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
         saveBundledAgentRuntime: vi.fn(),
         resetBundledAgentRuntime: vi.fn(),
         confirmDialog: vi.fn(),
@@ -179,12 +178,12 @@ describe('BundledAgentRuntimeEditor', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('模型来源'), {
+    fireEvent.change(screen.getByLabelText('模型网关'), {
       target: { value: '' },
     });
 
     expect(
-      screen.getByText('内建默认 模型来源 不能为空；如需撤销自定义值，请恢复默认'),
+      screen.getByText('内建默认 模型网关 不能为空；如需撤销自定义值，请恢复默认'),
     ).toBeTruthy();
     expect(
       (screen.getByRole('button', { name: '保存' }) as HTMLButtonElement).disabled,

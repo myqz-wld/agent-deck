@@ -38,6 +38,20 @@ vi.mock('@main/adapters/codex-cli/codex-instance-pool', () => ({
     startThread: codexRuntime.startThread,
   })),
 }));
+vi.mock('@main/codex-config/gateway-profiles', () => ({
+  resolveCodexGatewayProfile: vi.fn((provider: string | null | undefined) =>
+    provider === 'openrouter'
+      ? {
+          id: 'openrouter',
+          profilePath: '/home/test/.codex/gateways/openrouter.toml',
+          modelProvider: 'internal-provider',
+          configOverrides: {
+            model_provider: 'internal-provider',
+            model_context_window: 272_000,
+          },
+        }
+      : null),
+}));
 
 import { clearGatewayCheckpointCapabilityCache, createCheckpointGeneratorRuntime } from '../runtime';
 import { unknownContextCapacity } from './capacity-fixtures';
@@ -330,7 +344,10 @@ describe('isolated Codex checkpoint runtime', () => {
 
     expect(codexRuntime.startThread).toHaveBeenCalledWith(expect.objectContaining({
       model: 'gpt-5.6-sol',
-      configOverrides: expect.objectContaining({ model_provider: 'openrouter' }),
+      modelProvider: 'internal-provider',
+      gatewayConfigOverrides: expect.objectContaining({
+        model_provider: 'internal-provider',
+      }),
     }));
     expect(result).toMatchObject({
       contextWindowTokens: 272_000,

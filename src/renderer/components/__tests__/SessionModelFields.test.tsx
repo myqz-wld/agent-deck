@@ -110,9 +110,9 @@ describe('SessionModelFields', () => {
     );
 
     const summary = screen.getByText('模型配置').closest('summary');
-    expect(summary?.textContent).toContain('模型来源：不可用');
+    expect(summary?.textContent).toContain('模型网关：不可用');
     expect(summary?.textContent).toContain('模型：不可用');
-    expect(summary?.textContent).not.toContain('模型来源：原生');
+    expect(summary?.textContent).not.toContain('模型网关：原生');
     expect(summary?.textContent).not.toContain('模型：配置文件');
   });
 
@@ -157,12 +157,12 @@ describe('SessionModelFields', () => {
       />,
     );
 
-    const provider = screen.getByRole('combobox', { name: '模型来源' });
+    const provider = screen.getByRole('combobox', { name: '模型网关' });
     expect((provider as HTMLInputElement).value).toBe('');
     expect((provider as HTMLInputElement).placeholder).toBe('留空使用 config.toml');
     fireEvent.focus(provider);
     expect(screen.queryByRole('option')).toBeNull();
-    expect(screen.getByText('没有匹配的模型来源，可直接输入或留空')).toBeTruthy();
+    expect(screen.getByText('没有匹配的模型网关，可直接输入或留空')).toBeTruthy();
     expect(document.body.textContent).not.toContain('请检查');
     fireEvent.change(provider, { target: { value: 'manual-provider' } });
     expect(onProviderChange).toHaveBeenCalledWith('manual-provider');

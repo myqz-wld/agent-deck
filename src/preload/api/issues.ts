@@ -52,16 +52,16 @@ export interface IssuesResolveInNewSessionArgs {
   /** optional — adapter 默认 + settings 白名单 */
   permissionMode?: string;
   sessionMode?: AdapterSessionMode;
-  /** optional — Codex thread-wide approval_policy；缺省时跟随 Codex config/provider。 */
+  /** optional — Codex thread-wide approval_policy；缺省时跟随所选 Gateway 或原生配置。 */
   approvalPolicy?: CodexApprovalPolicy;
   codexSandbox?: string;
   claudeCodeSandbox?: string;
   grokSandbox?: string;
-  /** Claude Gateway profile id or Codex native `model_provider` id. */
+  /** Claude or Codex Gateway profile id. */
   provider?: string;
-  /** optional — 空值不传，使用目标 provider 默认模型。 */
+  /** optional — 空值不传，使用目标 Gateway / adapter 默认模型。 */
   model?: string;
-  /** optional — adapter-aware 档位；空值不传，使用目标 provider 默认值。 */
+  /** optional — adapter-aware 档位；空值不传，使用目标 Gateway / adapter 默认值。 */
   thinking?: SessionThinkingLevel;
 }
 

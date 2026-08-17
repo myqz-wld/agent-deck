@@ -18,7 +18,7 @@ interface Props {
 }
 
 /**
- * App-styled combobox for Claude Gateway and Codex model_provider ids.
+ * App-styled combobox for Claude and Codex Gateway ids.
  * Local callers keep free-text entry; Remote callers use the same presentation with a Core-owned
  * closed option set so an unadvertised provider can never become a mutation value.
  */
@@ -27,9 +27,9 @@ export function ProviderCombobox({
   options,
   disabled = false,
   allowCustom = true,
-  ariaLabel = '模型来源',
+  ariaLabel = '模型网关',
   placeholder = '留空则跟随助手原生配置',
-  emptyMessage = '没有匹配项，可直接输入自定义模型来源',
+  emptyMessage = '没有匹配项，可直接输入自定义模型网关',
   onChange,
 }: Props): JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);

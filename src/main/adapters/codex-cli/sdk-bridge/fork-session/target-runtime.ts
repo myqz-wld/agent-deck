@@ -1,6 +1,6 @@
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import { CODEX_DEFAULT_BUCKET } from '@shared/model-normalize';
-import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
+import type { ResolvedCodexGatewayProfile } from '@main/codex-config/gateway-profiles-core';
 import { MAX_MESSAGE_LENGTH } from '../constants';
 import type { CreateSessionOpts } from '../create-session/_deps';
 import {
@@ -27,9 +27,9 @@ export interface CodexForkTargetRuntimeHost {
   readConfiguredModel: () => string | null;
   readConfiguredReasoningEffort: () =>
     NonNullable<CreateSessionOpts['modelReasoningEffort']> | null;
-  readProviderConfigOverrides: (
-    provider: string | null | undefined,
-  ) => CodexConfigObject | null;
+  readGatewayProfile: (
+    gateway: string | null | undefined,
+  ) => ResolvedCodexGatewayProfile | null;
 }
 
 export function resolveCodexForkTargetRuntime(
@@ -47,13 +47,16 @@ export function resolveCodexForkTargetRuntime(
 
   const cwd = resolveSpawnCwd(opts);
   const sandboxMode = opts.codexSandbox ?? host.defaultSandboxMode;
+  const gateway = host.readGatewayProfile(opts.provider);
   const hasReasoningConfigLayer = hasCodexReasoningConfigLayer(opts.codexConfigOverrides);
   const reasoning = resolveCodexReasoningEffort({
     explicit: opts.modelReasoningEffort,
     isResume: false,
     persisted: null,
     hasLayerOverride: hasReasoningConfigLayer,
-    readConfigured: host.readConfiguredReasoningEffort,
+    readConfigured: () => gateway
+      ? gateway.defaultThinking ?? null
+      : host.readConfiguredReasoningEffort(),
   });
   const effectiveDeveloperInstructions = combineCodexDeveloperInstructions(
     host.developerInstructions,
@@ -65,20 +68,20 @@ export function resolveCodexForkTargetRuntime(
     effectiveDeveloperInstructions,
     persistedModel:
       opts.model ??
-      host.readConfiguredModel() ??
+      gateway?.defaultModel ??
+      (gateway ? null : host.readConfiguredModel()) ??
       CODEX_DEFAULT_BUCKET,
     persistedReasoningEffort: reasoning.sessionValue,
     threadOptions: buildCodexThreadOptions({
       workingDirectory: cwd,
       sandboxMode,
       approvalPolicy: opts.approvalPolicy,
-      provider: opts.provider,
-      model: opts.model,
+      modelProvider: gateway?.modelProvider,
+      model: opts.model ?? gateway?.defaultModel,
       modelReasoningEffort: reasoning.threadValue,
       developerInstructions: effectiveDeveloperInstructions,
       configOverrides: opts.codexConfigOverrides,
-      providerConfigOverrides:
-        host.readProviderConfigOverrides(opts.provider) ?? undefined,
+      gatewayConfigOverrides: gateway?.configOverrides,
       networkAccessEnabled: opts.networkAccessEnabled,
       additionalDirectories: opts.additionalDirectories,
       extraAllowWrite: opts.extraAllowWrite,

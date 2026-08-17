@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   getUserAssetContent: vi.fn(),
   getBundledAssetPath: vi.fn(() => null as string | null),
   saveBundledAgentRuntimeOverride: vi.fn(),
-  resolveCodexModelProvider: vi.fn(),
+  resolveCodexGatewayProfile: vi.fn(),
 }));
 
 vi.mock('@main/bundled-assets', () => ({
@@ -24,9 +24,9 @@ vi.mock('@main/bundled-agent-runtime-overrides', () => ({
   saveBundledAgentRuntimeOverride: mocks.saveBundledAgentRuntimeOverride,
   resetBundledAgentRuntimeOverride: vi.fn(),
 }));
-vi.mock('@main/codex-config/model-providers', () => ({
-  listCodexModelProviders: vi.fn(() => []),
-  resolveCodexModelProvider: mocks.resolveCodexModelProvider,
+vi.mock('@main/codex-config/gateway-profiles', () => ({
+  listCodexGatewayProfiles: vi.fn(() => []),
+  resolveCodexGatewayProfile: mocks.resolveCodexGatewayProfile,
 }));
 vi.mock('@main/adapters/claude-code/gateway-profiles', () => ({
   listClaudeGatewayProfiles: vi.fn(() => []),
@@ -45,9 +45,9 @@ describe('Assets Library read-only IPC', () => {
     vi.clearAllMocks();
     mocks.getUserAssetContent.mockReturnValue({ ok: true, content: 'asset body' });
     mocks.getBundledAssetPath.mockReturnValue(null);
-    mocks.resolveCodexModelProvider.mockImplementation((provider: string) => {
-      if (provider === 'missing') throw new Error('Codex model_provider 不存在');
-      return { id: provider };
+    mocks.resolveCodexGatewayProfile.mockImplementation((provider: string) => {
+      if (provider === 'missing') throw new Error('Codex Gateway profile 不存在');
+      return { id: provider, profilePath: `/gateways/${provider}.toml`, configOverrides: {} };
     });
     registerAssetsIpc();
   });
@@ -78,7 +78,7 @@ describe('Assets Library read-only IPC', () => {
     expect(channels).not.toContain('assets:delete-user');
   });
 
-  it('rejects a nonexistent bundled Codex provider before saving prior state', () => {
+  it('rejects a nonexistent bundled Codex Gateway before saving prior state', () => {
     mocks.getBundledAssetPath.mockReturnValue('/bundled/reviewer-codex.toml');
 
     expect(() => handler(IpcInvoke.AssetsSaveBundledAgentRuntime)(
@@ -86,7 +86,7 @@ describe('Assets Library read-only IPC', () => {
       'codex-cli',
       'reviewer-codex',
       { provider: 'missing', model: 'gpt-5.6' },
-    )).toThrow(/model_provider 不存在/);
+    )).toThrow(/Gateway profile 不存在/);
     expect(mocks.saveBundledAgentRuntimeOverride).not.toHaveBeenCalled();
   });
 });

@@ -66,17 +66,24 @@ describe('provider session projection', () => {
       '[mcp_servers.private]',
       'command = "/private/mcp"',
     ].join('\n'));
-    sourceFile(source, '.codex/gateways/team.json', JSON.stringify({
-      name: 'large context',
-      model_context_window: 1_000_000,
-      model_auto_compact_token_limit: 900_000,
-      api_key: 'must-not-project',
-    }));
+    const fullGatewayToml = [
+      'model = "gateway-codex"',
+      'model_provider = "internal-team"',
+      'model_reasoning_effort = "ultra"',
+      'approval_policy = "on-request"',
+      'model_context_window = 1000000',
+      'model_auto_compact_token_limit = 900000',
+      '[model_providers.internal-team]',
+      'name = "Internal Team"',
+      'base_url = "https://gateway.example.test/v1"',
+      'experimental_bearer_token = "sk-must-stay-in-provider-home"',
+    ].join('\n');
+    sourceFile(source, '.codex/gateways/team.toml', fullGatewayToml);
     sourceFile(source, '.grok/config.toml', 'model = "grok-team"\n');
 
     expect(projectProviderSessionFiles(source, destination)).toEqual([
       '.claude/gateways/team.json',
-      '.codex/gateways/team.json',
+      '.codex/gateways/team.toml',
       '.codex/config.toml',
       PROVIDER_SESSION_CATALOG_FILE,
     ]);
@@ -96,22 +103,23 @@ describe('provider session projection', () => {
     expect(codex).toContain('base_url = "https://provider.example.test/v1"');
     expect(codex).not.toContain('mcp_servers');
     expect(codex).not.toContain('/private/mcp');
-    const codexGateway = JSON.parse(readFileSync(
-      join(destination, '.codex', 'gateways', 'team.json'),
+    const codexGateway = readFileSync(
+      join(destination, '.codex', 'gateways', 'team.toml'),
       'utf8',
-    )) as Record<string, unknown>;
-    expect(codexGateway).toEqual({
-      model_context_window: 1_000_000,
-      model_auto_compact_token_limit: 900_000,
-    });
-    expect(JSON.stringify(codexGateway)).not.toContain('must-not-project');
+    );
+    expect(codexGateway).toBe(fullGatewayToml);
     const catalog = readFileSync(join(destination, PROVIDER_SESSION_CATALOG_FILE), 'utf8');
     expect(catalog).toContain('gateway-sonnet');
     expect(catalog).toContain('gpt-team');
     expect(catalog).toContain('grok-team');
     expect(catalog).toContain('"id": "team"');
+    expect(catalog).toContain('gateway-codex');
+    expect(catalog).toContain('ultra');
+    expect(catalog).toContain('on-request');
     expect(catalog).not.toContain('private-claude-token');
     expect(catalog).not.toContain('provider.example.test');
+    expect(catalog).not.toContain('gateway.example.test');
+    expect(catalog).not.toContain('must-stay-in-provider-home');
     expect(catalog).not.toContain('/private');
   });
 
@@ -129,8 +137,8 @@ describe('provider session projection', () => {
     );
     const oldCodexGateway = sourceFile(
       source,
-      '.codex/gateways/old.json',
-      JSON.stringify({ model_context_window: 200_000 }),
+      '.codex/gateways/old.toml',
+      'model_context_window = 200000\n',
     );
     projectProviderSessionFiles(source, destination);
 
@@ -142,6 +150,7 @@ describe('provider session projection', () => {
       '.claude/gateways/new.json',
       JSON.stringify({ env: { ANTHROPIC_MODEL: 'new-model' } }),
     );
+    sourceFile(source, '.codex/gateways/new.toml', 'model = "new-codex"\n');
     syncProviderSessionFiles(source, destination);
 
     expect(() => readFileSync(join(destination, '.claude', 'gateways', 'old.json'))).toThrow();
@@ -149,11 +158,14 @@ describe('provider session projection', () => {
       .toContain('new-model');
     expect(() => readFileSync(join(destination, '.codex', 'config.toml'))).toThrow();
     expect(() => readFileSync(
-      join(destination, '.codex', 'gateways', 'old.json'),
+      join(destination, '.codex', 'gateways', 'old.toml'),
     )).toThrow();
+    expect(readFileSync(join(destination, '.codex', 'gateways', 'new.toml'), 'utf8'))
+      .toContain('new-codex');
     const catalog = readFileSync(join(destination, PROVIDER_SESSION_CATALOG_FILE), 'utf8');
     expect(catalog).toContain('new-model');
     expect(catalog).not.toContain('old-model');
     expect(catalog).not.toContain('old-codex');
+    expect(catalog).toContain('new-codex');
   });
 });

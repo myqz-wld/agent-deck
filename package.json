@@ -46,6 +46,7 @@
     "@anthropic-ai/sdk": "^0.117.1",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
+    "@iarna/toml": "3.0.0",
     "@larksuiteoapi/node-sdk": "1.70.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@monaco-editor/react": "^4.7.0",

@@ -138,13 +138,23 @@ describe('resolveSessionCreationDefaults', () => {
     });
   });
 
-  it('keeps a selected native model_provider while reading base config', async () => {
+  it('uses a selected Codex Gateway TOML instead of reading base config defaults', async () => {
     const root = tempRoot();
+    process.env.CODEX_HOME = root;
+    mkdirSync(join(root, 'gateways'), { recursive: true });
     const configPath = join(root, 'config.toml');
     writeFileSync(
       configPath,
-      'model = "base-model"\napproval_policy = "on-request"\n[model_providers.openrouter]\nname = "OpenRouter"\n',
+      'model = "base-model"\napproval_policy = "on-request"\n',
     );
+    writeFileSync(join(root, 'gateways', 'openrouter.toml'), [
+      'model = "gateway-model"',
+      'model_provider = "internal-provider"',
+      'model_reasoning_effort = "xhigh"',
+      'approval_policy = "untrusted"',
+      '[model_providers.internal-provider]',
+      'name = "Internal Provider"',
+    ].join('\n'));
     const readCodexConfig = vi.fn(async () => ({
       model: 'base-effective',
       model_reasoning_effort: 'ultra',
@@ -157,14 +167,14 @@ describe('resolveSessionCreationDefaults', () => {
       { settings, codexConfigPath: configPath, readCodexConfig },
     )).resolves.toMatchObject({
       provider: 'openrouter',
-      model: 'base-effective',
-      thinking: 'ultra',
+      model: 'gateway-model',
+      thinking: 'xhigh',
       approvalPolicy: 'untrusted',
     });
-    expect(readCodexConfig).toHaveBeenCalledWith(root, expect.any(AbortSignal));
+    expect(readCodexConfig).not.toHaveBeenCalled();
   });
 
-  it('surfaces an effective provider when native config declares it', async () => {
+  it('does not surface config.toml model_provider as a Gateway selection', async () => {
     const root = tempRoot();
     const configPath = join(root, 'config.toml');
     writeFileSync(configPath, '[model_providers.openrouter]\nname = "OpenRouter"\n');
@@ -177,7 +187,7 @@ describe('resolveSessionCreationDefaults', () => {
         codexConfigPath: configPath,
         readCodexConfig: async () => ({ model_provider: 'openrouter' }),
       },
-    )).resolves.toMatchObject({ provider: 'openrouter' });
+    )).resolves.toMatchObject({ provider: '' });
   });
 
   it('uses CODEX_HOME/config.toml when resolving Codex defaults', async () => {
@@ -193,7 +203,7 @@ describe('resolveSessionCreationDefaults', () => {
       { cwd: root },
       { settings, readCodexConfig: async () => ({}) },
     )).resolves.toMatchObject({
-      provider: 'team',
+      provider: '',
       model: 'gpt-custom-home',
     });
   });
