@@ -1,13 +1,4 @@
-// CHANGELOG_52 Step 4a-4c：拆 class 完成。本目录（sdk-bridge/）含 4 sub-module + index.ts (facade)。
-//
-// **TS module resolution 假设**（与 claude sdk-bridge 同款）：moduleResolution: node
-// 模式下 `import './sdk-bridge'` 优先匹配 `sdk-bridge.ts` 文件（不存在时才走 `sdk-bridge/index.ts`）。
-// Step 4c 删了原 `sdk-bridge.ts` 文件，import 自动切到本 index.ts；外部 import 站点
-// （`@main/adapters/codex-cli/sdk-bridge`）零变更继续工作。
-//
-// R37 P2-E Step 3.4a：抽 input-pack.ts (packCodexInput + extractAttachmentPaths 模块级纯函数)。
-// R37 P2-E Step 3.4b：抽 session-finalize.ts (persistSessionFields 收口 setCodexSandbox + setModel + warn)。
-// R37 P2-E Step 3.4c：抽 restart-controller.ts (RestartController sub-class 持 sandbox switch method)。
+// Codex bridge facade; lifecycle, turn-loop, recovery, and restart behavior lives in sibling modules.
 import { AGENT_ID } from './constants';
 import type { CodexBridgeOptions, CodexSessionHandle, InternalSession } from './types';
 import type { ForkedSessionHandle, ForkSessionSource } from '../../types/fork-session';
@@ -193,21 +184,25 @@ export class CodexSdkBridge {
       operations: this.recovering,
       agentId: AGENT_ID,
       emit: opts.emit,
-      validate: (sessionId, options, previous) => {
+      canStageProviderChange: true,
+      validate: (_sessionId, options, previous) => {
         if (options.provider !== previous.provider) {
           opts.runtimeHost.configuration.validateGatewayProfile(options.provider);
-          if (this.sessions.has(sessionId)) {
-            throw new Error(
-              '当前 Codex 版本不支持为已加载的会话切换模型网关；请新建会话，或在会话进入休眠后再切换。',
-            );
-          }
         }
       },
       applyLive: async (sessionId, options, previous) => {
         const internal = this.sessions.get(sessionId);
         if (!internal) return false;
         if (options.provider !== previous.provider) {
-          throw new Error('Codex live Gateway change passed the validation boundary');
+          const gateway = opts.runtimeHost.configuration.readGatewayProfile(options.provider);
+          internal.thread.stageGatewayOptions({
+            gatewayConfigOverrides: gateway?.configOverrides ?? null,
+            modelProvider: gateway?.modelProvider ?? null,
+            model: options.model ?? gateway?.defaultModel ?? null,
+            effort: (options.thinking ?? gateway?.defaultThinking ?? null) as
+              CreateSessionOpts['modelReasoningEffort'] | null,
+          });
+          return true;
         }
         await internal.thread.updateModelOptions(
           options.model,

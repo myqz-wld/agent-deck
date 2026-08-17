@@ -54,6 +54,11 @@ a non-empty selection must resolve to its same-named `.toml` file. There is no J
 or legacy provider enumeration. Claude Gateway profiles remain separate under
 `~/.claude/gateways/*.json`.
 
+Gateway controls in the app are choice-only: select a discovered filename stem or the empty native
+configuration entry; arbitrary text is not accepted. Changing the Gateway while a Codex turn is
+active leaves that turn untouched. Agent Deck saves the selection and refreshes the same thread with
+the new Gateway configuration through `thread/resume` before the next `turn/start`.
+
 ## Basic Workflow
 
 Use a lead session as the control point for the project:

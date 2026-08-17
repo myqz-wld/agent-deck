@@ -10,7 +10,6 @@ interface Props {
   value: string;
   options: readonly ProviderOption[];
   disabled?: boolean;
-  allowCustom?: boolean;
   ariaLabel?: string;
   placeholder?: string;
   emptyMessage?: string;
@@ -18,32 +17,25 @@ interface Props {
 }
 
 /**
- * App-styled combobox for Claude and Codex Gateway ids.
- * Local callers keep free-text entry; Remote callers use the same presentation with a Core-owned
- * closed option set so an unadvertised provider can never become a mutation value.
+ * Choice-only combobox for discovered Claude and Codex Gateway ids.
+ * Typing is intentionally disabled: every non-empty selection must come from the native catalog.
  */
 export function ProviderCombobox({
   value,
   options,
   disabled = false,
-  allowCustom = true,
   ariaLabel = '模型网关',
   placeholder = '留空则跟随助手原生配置',
-  emptyMessage = '没有匹配项，可直接输入自定义模型网关',
+  emptyMessage = '未发现其他可用的模型网关',
   onChange,
 }: Props): JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [closedQuery, setClosedQuery] = useState('');
-  const normalizedQuery = (allowCustom ? value : closedQuery).trim().toLocaleLowerCase();
-  const filtered = options.filter((option) => {
-    if (!normalizedQuery) return true;
-    return (
-      option.id.toLocaleLowerCase().includes(normalizedQuery) ||
-      option.name?.toLocaleLowerCase().includes(normalizedQuery)
-    );
-  });
+  const selectableOptions: readonly ProviderOption[] = [
+    { id: '', name: placeholder },
+    ...options.filter((option) => option.id !== ''),
+  ];
 
   useEffect(() => {
     if (!open) return;
@@ -51,7 +43,6 @@ export function ProviderCombobox({
       const target = event.target;
       if (target instanceof Node && !rootRef.current?.contains(target)) {
         setOpen(false);
-        setClosedQuery('');
       }
     };
     document.addEventListener('mousedown', closeOutside);
@@ -61,15 +52,15 @@ export function ProviderCombobox({
   const choose = (option: ProviderOption): void => {
     onChange(option.id);
     setOpen(false);
-    setClosedQuery('');
   };
 
-  const selectedIndex = Math.max(0, options.findIndex((option) => option.id === value));
-  const displayedValue = allowCustom || !open ? value : closedQuery;
+  const selectedIndex = Math.max(
+    0,
+    selectableOptions.findIndex((option) => option.id === value),
+  );
 
   const toggleOpen = (): void => {
-    setActiveIndex(allowCustom ? 0 : selectedIndex);
-    setClosedQuery(value);
+    setActiveIndex(selectedIndex);
     setOpen((current) => !current);
   };
 
@@ -78,34 +69,29 @@ export function ProviderCombobox({
       <input
         role="combobox"
         aria-label={ariaLabel}
-        aria-autocomplete="list"
+        aria-autocomplete="none"
         aria-expanded={open}
-        value={displayedValue}
+        value={value}
+        readOnly
         onFocus={() => {
-          setActiveIndex(allowCustom ? 0 : selectedIndex);
-          if (!allowCustom) setClosedQuery(value);
+          setActiveIndex(selectedIndex);
           setOpen(true);
         }}
-        onChange={(event) => {
-          if (allowCustom) onChange(event.target.value);
-          else setClosedQuery(event.target.value);
-          setActiveIndex(0);
-          setOpen(true);
-        }}
+        onClick={() => setOpen(true)}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown') {
             event.preventDefault();
             setOpen(true);
-            setActiveIndex((index) => Math.min(index + 1, Math.max(0, filtered.length - 1)));
+            setActiveIndex((index) =>
+              Math.min(index + 1, Math.max(0, selectableOptions.length - 1)));
           } else if (event.key === 'ArrowUp') {
             event.preventDefault();
             setActiveIndex((index) => Math.max(0, index - 1));
-          } else if (event.key === 'Enter' && open && filtered[activeIndex]) {
+          } else if (event.key === 'Enter' && open && selectableOptions[activeIndex]) {
             event.preventDefault();
-            choose(filtered[activeIndex]);
+            choose(selectableOptions[activeIndex]);
           } else if (event.key === 'Escape') {
             setOpen(false);
-            setClosedQuery(value);
           }
         }}
         disabled={disabled}
@@ -115,7 +101,7 @@ export function ProviderCombobox({
       />
       <button
         type="button"
-        aria-label="展开配置选项"
+        aria-label="展开模型网关选项"
         tabIndex={-1}
         disabled={disabled}
         onMouseDown={(event) => event.preventDefault()}
@@ -131,34 +117,33 @@ export function ProviderCombobox({
           role="listbox"
           className="absolute left-0 right-0 top-full z-20 mt-0.5 max-h-40 overflow-auto rounded-md border border-deck-border/80 bg-deck-bg-strong p-1 text-[11px] shadow-2xl"
         >
-          {filtered.length === 0 ? (
+          {selectableOptions.map((option, index) => (
+            <button
+              key={option.id || '__native_gateway__'}
+              type="button"
+              role="option"
+              aria-selected={option.id === value}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => choose(option)}
+              className={`block w-full rounded px-2 py-1.5 text-left transition ${
+                index === activeIndex
+                  ? 'bg-white/[0.1] text-deck-text'
+                  : 'text-deck-muted hover:bg-white/[0.07] hover:text-deck-text'
+              }`}
+            >
+              <span className="block truncate">{option.name ?? option.id}</span>
+              {option.name && option.id && (
+                <code className="block truncate text-[9px] text-deck-muted/60">
+                  {option.id}
+                </code>
+              )}
+            </button>
+          ))}
+          {options.length === 0 && (
             <div className="px-2 py-1.5 text-deck-muted/70">
               {emptyMessage}
             </div>
-          ) : (
-            filtered.map((option, index) => (
-              <button
-                key={option.id}
-                type="button"
-                role="option"
-                aria-selected={option.id === value}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => choose(option)}
-                className={`block w-full rounded px-2 py-1.5 text-left transition ${
-                  index === activeIndex
-                    ? 'bg-white/[0.1] text-deck-text'
-                    : 'text-deck-muted hover:bg-white/[0.07] hover:text-deck-text'
-                }`}
-              >
-                <span className="block truncate">{option.name ?? option.id}</span>
-                {option.name && (
-                  <code className="block truncate text-[9px] text-deck-muted/60">
-                    {option.id}
-                  </code>
-                )}
-              </button>
-            ))
           )}
         </div>
       )}

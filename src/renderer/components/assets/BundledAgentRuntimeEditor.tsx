@@ -257,7 +257,7 @@ export function BundledAgentRuntimeEditor({
                     ? '留空则使用 Claude 原生配置'
                     : '留空则跟随 Codex 原生配置'
                 }
-                emptyMessage="没有匹配的模型网关，可直接输入或留空"
+                emptyMessage="未发现其他可用的模型网关"
               />
               <DefaultHint
                 value={defaults.provider}

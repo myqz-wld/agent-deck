@@ -27,7 +27,6 @@ export interface NewSessionModelControl {
   adapterId: string;
   model: string;
   provider: string;
-  providerClosed: boolean;
   providerOptions?: readonly { id: string; name?: string }[];
   thinking: SessionThinkingChoice;
   thinkingOptions?: readonly DeckSelectOption<SessionThinkingChoice>[];
@@ -167,7 +166,6 @@ export function NewSessionForm(props: Props): JSX.Element | null {
               thinking={props.model.thinking}
               disabled={configurationDisabled}
               providerOptions={props.model.providerOptions}
-              providerClosed={props.model.providerClosed}
               thinkingOptions={props.model.thinkingOptions}
               disabledReasons={props.model.disabledReasons}
               onProviderChange={props.model.onProviderChange}

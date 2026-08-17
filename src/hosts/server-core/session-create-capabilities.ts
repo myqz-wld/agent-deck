@@ -163,7 +163,6 @@ function optionSchema(
       }),
       provider: enabledOption(defaults.provider, {
         allowedValues: providers,
-        allowCustom: true,
         allowEmpty: true,
       }),
       sessionMode: disabledOption(),
@@ -183,7 +182,6 @@ function optionSchema(
       permissionMode: disabledOption(),
       provider: enabledOption(defaults.provider, {
         allowedValues: providers,
-        allowCustom: true,
         allowEmpty: true,
       }),
       sessionMode: disabledOption(),
@@ -276,6 +274,12 @@ export class ServerCoreSessionCreateCapabilities {
     const catalog = this.options.catalog.get(requested, params.provider);
     const providers = catalog.providers;
     assertCatalogBounded(providers, requested);
+    if (params.provider && !providers.includes(params.provider)) {
+      throw new DaemonRequestError(
+        AgentDeckClientErrorCode.InvalidRequest,
+        'Remote model Gateway must be selected from the advertised catalog',
+      );
+    }
     const defaults = params.provider
       ? { ...catalog.defaults, provider: params.provider }
       : catalog.defaults;

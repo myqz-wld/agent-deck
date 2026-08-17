@@ -27,7 +27,7 @@ export interface ClaudeGatewayProfileHost {
 export function assertClaudeGatewayProfileIdCore(profileId: string): void {
   if (!CLAUDE_GATEWAY_PROFILE_ID_PATTERN.test(profileId)) {
     throw new Error(
-      `Invalid Claude Gateway profile "${profileId}". Use 1-128 letters, digits, dot, underscore, or hyphen; the first character must be alphanumeric.`,
+      `Claude 模型网关名称 "${profileId}" 无效；请从模型网关列表中重新选择。`,
     );
   }
 }
@@ -80,7 +80,7 @@ export function resolveClaudeGatewayProfileCore(
   const settingsPath = claudeGatewaySettingsPathCore(id, paths, host);
   if (!host.pathExists(settingsPath)) {
     throw new Error(
-      `Claude Gateway profile "${id}" was not found at ${settingsPath}. Create that settings file or choose another profile.`,
+      `Claude 模型网关 "${id}" 不存在；请刷新列表后选择其他模型网关。`,
     );
   }
   const parsed = readJsonObject(settingsPath, host);
@@ -119,7 +119,7 @@ function readJsonObject(
     return parsed as Record<string, unknown>;
   } catch (error) {
     throw new Error(
-      `Failed to read Claude Gateway settings ${path}: ${
+      `读取 Claude 模型网关配置失败（${path}）：${
         error instanceof Error ? error.message : String(error)
       }`,
     );

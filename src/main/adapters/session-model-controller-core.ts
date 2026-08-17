@@ -6,6 +6,8 @@ export interface SessionModelControllerContext {
   operations: Map<string, Promise<unknown>>;
   agentId: string;
   emit: (event: AgentEvent) => void;
+  /** The adapter can stage a provider change without mutating the active provider turn. */
+  canStageProviderChange?: boolean;
   /** Validate the requested selection before any persisted or live state is changed. */
   validate?: (
     sessionId: string,
@@ -65,9 +67,10 @@ export class SessionModelControllerCore {
     };
     if (
       options.provider !== previous.provider &&
+      !this.ctx.canStageProviderChange &&
       (record.activity === 'working' || record.activity === 'waiting')
     ) {
-      throw new Error('provider cannot be changed while the session is working or waiting');
+      throw new Error('当前回复进行中，暂时不能切换模型网关；请在回复完成后重试。');
     }
 
     const operation = (async () => {
@@ -119,7 +122,7 @@ export class SessionModelControllerCore {
           kind: 'message',
           payload: {
             text:
-              `⚠ 切换 provider、模型或思考程度失败：${error instanceof Error ? error.message : String(error)}。` +
+              `⚠ 切换模型网关、模型或思考程度失败：${error instanceof Error ? error.message : String(error)}。` +
               (persistenceAttempted ? '已恢复原设置。' : '原设置未变。'),
             error: true,
           },

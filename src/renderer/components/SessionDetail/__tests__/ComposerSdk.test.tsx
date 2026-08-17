@@ -520,9 +520,14 @@ describe('ComposerSdk unified input routing', () => {
   });
 
   it('shows and persists the Codex Gateway from the session runtime controls', async () => {
+    window.api.listCodexGatewayProfiles = vi.fn().mockResolvedValue([
+      { id: 'openai' },
+      { id: 'openai-custom' },
+    ]);
     render(
       <ComposerSdk
         session={makeSession({
+          activity: 'working',
           runtimeProvider: 'openai',
           model: 'gpt-old',
           thinking: 'low',
@@ -533,8 +538,10 @@ describe('ComposerSdk unified input routing', () => {
     fireEvent.click(screen.getByText('模型网关、模型与思考程度'));
     const provider = screen.getByLabelText('模型网关') as HTMLInputElement;
     expect(provider.value).toBe('openai');
+    expect(provider.readOnly).toBe(true);
     expect((screen.getByLabelText('模型') as HTMLInputElement).value).toBe('gpt-old');
-    fireEvent.change(provider, { target: { value: 'openai-custom' } });
+    fireEvent.focus(provider);
+    fireEvent.click(await screen.findByRole('option', { name: 'openai-custom' }));
 
     await waitFor(() => {
       expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
@@ -543,6 +550,37 @@ describe('ComposerSdk unified input routing', () => {
         thinking: 'low',
       });
     });
+  });
+
+  it('shows a concise runtime error and restores the last saved Gateway', async () => {
+    window.api.listCodexGatewayProfiles = vi.fn().mockResolvedValue([
+      { id: 'openai' },
+      { id: 'next-gateway' },
+    ]);
+    setSessionModelOptions.mockRejectedValueOnce(new Error(
+      "Error invoking remote method 'adapter:set-session-model-options': " +
+        'Error: 所选模型网关已不可用，请刷新列表后重试。',
+    ));
+    render(<ComposerSdk session={makeSession({
+      activity: 'working',
+      runtimeProvider: 'openai',
+      model: 'gpt-old',
+      thinking: 'low',
+    })} />);
+
+    fireEvent.click(screen.getByText('模型网关、模型与思考程度'));
+    const provider = screen.getByLabelText('模型网关') as HTMLInputElement;
+    fireEvent.focus(provider);
+    fireEvent.click(await screen.findByRole('option', { name: 'next-gateway' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(
+        '⚠️ 运行设置失败：所选模型网关已不可用，请刷新列表后重试。',
+      )).toBeTruthy();
+      expect(provider.value).toBe('openai');
+    });
+    expect(document.body.textContent).not.toContain('Error invoking remote method');
+    expect(document.body.textContent).not.toContain('profile');
   });
 
   it('sends the latest rapid edit after an older selection settles', async () => {

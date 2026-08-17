@@ -65,10 +65,10 @@ describe('Claude Gateway profiles', () => {
   it('rejects traversal and missing profile ids', () => {
     const paths = fixturePaths();
     expect(() => resolveClaudeGatewayProfile('../deepseek', paths)).toThrow(
-      /Invalid Claude Gateway profile/,
+      /Claude 模型网关名称/,
     );
     expect(() => resolveClaudeGatewayProfile('openrouter', paths)).toThrow(
-      /was not found/,
+      /模型网关 "openrouter" 不存在/,
     );
   });
 });
