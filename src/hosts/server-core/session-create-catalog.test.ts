@@ -71,6 +71,12 @@ describe('Server Core derived session creation catalog', () => {
       '[model_providers.team]',
       'name = "Team"',
     ].join('\n'));
+    sourceFile(source, '.codex/gateways/team.toml', [
+      'model = "gateway-gpt"',
+      'model_provider = "internal-team"',
+      'model_reasoning_effort = "ultra"',
+      'approval_policy = "on-request"',
+    ].join('\n'));
     projectProviderSessionFiles(source, destination);
 
     const catalog = resolveServerCoreSessionCreateCatalog(destination, settings);
@@ -84,10 +90,18 @@ describe('Server Core derived session creation catalog', () => {
     expect(catalog.get('codex-cli')).toMatchObject({
       providers: ['team'],
       defaults: {
-        provider: 'team',
+        provider: '',
         model: 'gpt-5.6',
         thinking: 'xhigh',
         approvalPolicy: 'never',
+      },
+    });
+    expect(catalog.get('codex-cli', 'team')).toMatchObject({
+      defaults: {
+        provider: 'team',
+        model: 'gateway-gpt',
+        thinking: 'ultra',
+        approvalPolicy: 'on-request',
       },
     });
   });
@@ -95,7 +109,7 @@ describe('Server Core derived session creation catalog', () => {
   it('rejects secret-shaped derived values', () => {
     const { destination } = fixture();
     projectedCatalog(destination, {
-      schemaVersion: 2,
+      schemaVersion: 3,
       adapters: [{
         adapterId: 'codex-cli',
         providers: [],
@@ -112,7 +126,7 @@ describe('Server Core derived session creation catalog', () => {
   it('rejects unknown derived snapshot fields', () => {
     const { destination } = fixture();
     projectedCatalog(destination, {
-      schemaVersion: 2,
+      schemaVersion: 3,
       adapters: [{
         adapterId: 'codex-cli',
         providers: [],

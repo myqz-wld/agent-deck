@@ -8,7 +8,7 @@
  *
  * **设计要点**:
  * - 纯函数,零闭包,零 side effect — caller 调一次拿一个 fresh ThreadOptions object
- * - approvalPolicy 缺省时不写字段，让 Codex 使用自身 config / provider default
+ * - approvalPolicy 缺省时不写字段，让 Codex 使用所选 Gateway / 原生 config 默认值
  * - model / networkAccessEnabled / additionalDirectories 用 spread spread 进 object 保持
  *   「caller 缺省 → 不写字段 → runtime 走默认值」的语义 (与 plan §P3 Step 3.5 + §不变量 6 一致)
  * - additionalDirectories 用 [...arr] 浅拷贝防 caller 后续 mutate 入参影响 SDK 内部
@@ -47,8 +47,8 @@ export interface BuildCodexThreadOptionsArgs {
   approvalPolicy?: 'untrusted' | 'on-request' | 'never';
   /** spawn handler custom-agent TOML `model` 字段 */
   model?: string;
-  /** Native Codex model provider selected for this thread. */
-  provider?: string;
+  /** Native Codex model provider resolved from the selected Gateway TOML. */
+  modelProvider?: string;
   /** Explicit caller/session value only; reviewer agent names never change this field. */
   networkAccessEnabled?: boolean;
   /** Caller 缺省 → 不写字段 → SDK 走默认值。 */
@@ -63,8 +63,8 @@ export interface BuildCodexThreadOptionsArgs {
   developerInstructions?: string;
   /** Additional config layer parsed from custom-agent TOML. */
   configOverrides?: CodexConfigObject;
-  /** Optional config layer paired with the selected native model_provider. */
-  providerConfigOverrides?: CodexConfigObject;
+  /** Complete config layer parsed from the selected Codex Gateway TOML. */
+  gatewayConfigOverrides?: CodexConfigObject;
   /** Replace the provider base prompt for isolated internal runtimes. */
   baseInstructions?: string;
   /** Internal isolation seam: false prevents inherited app/user config from entering thread params. */
@@ -93,7 +93,7 @@ export interface CodexThreadOptions {
   developerInstructions?: string;
   baseInstructions?: string;
   configOverrides?: CodexConfigObject;
-  providerConfigOverrides?: CodexConfigObject;
+  gatewayConfigOverrides?: CodexConfigObject;
   useBaseConfig?: boolean;
   dynamicTools?: [];
   environments?: [];
@@ -121,7 +121,7 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
       ? { approvalPolicy: args.approvalPolicy }
       : {}),
     skipGitRepoCheck: true,
-    ...(args.provider?.trim() ? { modelProvider: args.provider.trim() } : {}),
+    ...(args.modelProvider?.trim() ? { modelProvider: args.modelProvider.trim() } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(args.modelReasoningEffort !== undefined
       ? { modelReasoningEffort: args.modelReasoningEffort }
@@ -136,8 +136,8 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
     ...(args.configOverrides !== undefined
       ? { configOverrides: args.configOverrides }
       : {}),
-    ...(args.providerConfigOverrides !== undefined
-      ? { providerConfigOverrides: args.providerConfigOverrides }
+    ...(args.gatewayConfigOverrides !== undefined
+      ? { gatewayConfigOverrides: args.gatewayConfigOverrides }
       : {}),
     ...(args.useBaseConfig !== undefined ? { useBaseConfig: args.useBaseConfig } : {}),
     ...(args.dynamicTools !== undefined ? { dynamicTools: [] } : {}),

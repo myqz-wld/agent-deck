@@ -60,7 +60,7 @@ beforeEach(() => {
         { id: 'claude-code', displayName: 'Claude', capabilities: { canCreateSession: true } },
       ]),
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-      listCodexModelProviders: vi.fn().mockResolvedValue([]),
+      listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
       handOffPrepare: vi.fn().mockResolvedValue(preparation),
       handOffCommit,
       handOffCancel,

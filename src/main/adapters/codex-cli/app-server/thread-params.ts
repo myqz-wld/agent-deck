@@ -1,6 +1,9 @@
 import { isAbsolute, relative, resolve } from 'node:path';
 
-import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
+import {
+  AGENT_DECK_MCP_SERVER_NAME,
+  type CodexConfigObject,
+} from '@main/codex-config/agent-deck-mcp-injector';
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
 import type { CodexAppServerUserInput, JsonObject, JsonValue } from './protocol';
 import {
@@ -101,8 +104,11 @@ export function buildThreadConfig(
   baseConfig: CodexConfigObject | null,
 ): JsonObject {
   const config = options.useBaseConfig === false ? {} : cloneConfig(baseConfig);
-  mergeJsonObject(config, cloneConfig(options.providerConfigOverrides ?? null));
+  mergeJsonObject(config, cloneConfig(options.gatewayConfigOverrides ?? null));
   mergeJsonObject(config, cloneConfig(options.configOverrides ?? null));
+  if (options.useBaseConfig !== false) {
+    restoreAgentDeckMcpServer(config, baseConfig);
+  }
   if (options.skipGitRepoCheck) {
     config.skip_git_repo_check = true;
   }
@@ -148,6 +154,24 @@ export function buildThreadConfig(
     // arbitrary process configuration spawn children here would bypass the model tool profile.
   }
   return config;
+}
+
+/** Keep only Agent Deck's reserved MCP entry authoritative; other base keys remain overridable. */
+function restoreAgentDeckMcpServer(
+  config: JsonObject,
+  baseConfig: CodexConfigObject | null,
+): void {
+  const baseServers = baseConfig?.mcp_servers;
+  if (!isPlainJsonObject(baseServers)) return;
+  const agentDeck = baseServers[AGENT_DECK_MCP_SERVER_NAME];
+  if (!isPlainJsonObject(agentDeck)) return;
+  const currentServers = isPlainJsonObject(config.mcp_servers)
+    ? { ...config.mcp_servers }
+    : {};
+  currentServers[AGENT_DECK_MCP_SERVER_NAME] = cloneConfig(
+    agentDeck as CodexConfigObject,
+  );
+  config.mcp_servers = currentServers;
 }
 
 export function buildTurnStartParams(

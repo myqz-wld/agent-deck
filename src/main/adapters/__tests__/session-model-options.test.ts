@@ -62,10 +62,10 @@ describe('session model option normalization', () => {
     });
   });
 
-  it('does not reinterpret native Codex model_provider ids as filenames', () => {
-    expect(
+  it('requires Codex Gateway ids to be safe TOML filename stems', () => {
+    expect(() =>
       normalizeSessionModelOptions('codex-cli', { provider: 'gateway/edge' }),
-    ).toMatchObject({ provider: 'gateway/edge' });
+    ).toThrow(/safe Codex Gateway profile id/);
   });
 
   it('rejects an adapter-invalid thinking value', () => {
@@ -173,7 +173,7 @@ describe('SessionModelController', () => {
 
   it('rejects an invalid selection before changing persisted or live state', async () => {
     const validate = vi.fn(() => {
-      throw new Error('missing model_provider');
+      throw new Error('missing Gateway profile');
     });
     const applyLive = vi.fn();
     const emit = vi.fn();
@@ -191,7 +191,7 @@ describe('SessionModelController', () => {
         model: 'new-model',
         thinking: 'high',
       }),
-    ).rejects.toThrow('missing model_provider');
+    ).rejects.toThrow('missing Gateway profile');
 
     expect(validate).toHaveBeenCalledWith(
       'session-1',
@@ -215,7 +215,7 @@ describe('SessionModelController', () => {
   it('rejects a live provider switch before changing DB or live thread state', async () => {
     record.runtimeProvider = 'working-provider';
     const validate = vi.fn(() => {
-      throw new Error('当前 Codex 版本不支持为已加载的会话切换 model_provider');
+      throw new Error('当前 Codex 版本不支持为已加载的会话切换模型网关');
     });
     const applyLive = vi.fn();
     const controller = new SessionModelController({
@@ -230,7 +230,7 @@ describe('SessionModelController', () => {
       provider: 'new-provider',
       model: 'new-model',
       thinking: 'high',
-    })).rejects.toThrow(/不支持.*切换 model_provider/);
+    })).rejects.toThrow(/不支持.*切换模型网关/);
 
     expect(record).toMatchObject({
       runtimeProvider: 'working-provider',

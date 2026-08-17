@@ -2,7 +2,7 @@ import { settingsStore } from '@main/store/settings-store';
 import { CodexSdkBridge } from './sdk-bridge';
 import type { CodexAdapterInitHost } from './adapter-init-core';
 import { formatEventsForPrompt } from '@main/session/summarizer/event-formatter';
-import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
+import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
 import { desktopRecoveryContinuationHost } from '@main/session/continuation-context/recovery-host';
 import { desktopCodexBridgeRuntimeHost } from './sdk-bridge/runtime-host';
 import { createCodexCliAdapterHost } from './aggregate-host-core';
@@ -43,7 +43,7 @@ export const desktopCodexCliAdapterHost = createCodexCliAdapterHost({
     },
   },
   providerResolver: {
-    resolveProvider: (provider) => resolveCodexModelProvider(provider)?.id,
+    resolveProvider: (provider) => resolveCodexGatewayProfile(provider)?.id,
   },
   summary: {
     ...desktopCodexSummaryRunnerHost,

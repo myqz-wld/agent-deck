@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { getCodexHome } from './codex-home';
@@ -15,6 +15,12 @@ export function defaultDesktopCodexGatewayPaths(): CodexGatewayPaths {
 
 export const desktopCodexGatewayProfileHost: CodexGatewayProfileHost = {
   joinPath: (directory, name) => join(directory, name),
+  listDirectory: (directory) =>
+    readdirSync(directory, { withFileTypes: true }).map((entry) => ({
+      name: entry.name,
+      isFile: entry.isFile(),
+      isSymbolicLink: entry.isSymbolicLink(),
+    })),
   isFile: (path) => statSync(path).isFile(),
   pathExists: (path) => existsSync(path),
   readText: (path) => readFileSync(path, 'utf8'),

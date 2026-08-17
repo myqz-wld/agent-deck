@@ -19,8 +19,9 @@ export function getCodexConfigPath(): string {
  * codex 不显式传 model 时走 config.toml 默认；token 统计需要 effective model 才能按模型拆分，
  * 否则全折进 'codex-default' bucket（plan §已知踩坑 1）。
  *
- * **不引 TOML parser 依赖**（REVIEW_2 约定：@iarna/toml ~120KB / 半截
- * config.toml 解析失败教训）—— 行级扫描：
+ * This bounded base-config reader intentionally remains a line scanner so a partially edited
+ * `config.toml` can still yield its leading scalar defaults. Selected Gateway files use the full
+ * TOML parser in `gateway-profiles-core.ts` and fail closed as complete config documents.
  * - **section-aware**：遇第一个 `[section]` header 立即停（顶层 key 必在任何 table header 之前；
  *   不停会误读 `[model_providers.*]` 等段内的 `model = ...`）
  * - **精确锚 `model` 后紧跟 `=`/空格**：排除 `model_provider` / `model_providers` 误命中
@@ -38,13 +39,6 @@ export function readTopLevelModelFromCodexConfig(
 /** Parse the top-level model from an already-authorized config snapshot. */
 export function readTopLevelModelFromCodexConfigText(content: string): string | null {
   return readTopLevelQuotedStringFromCodexConfigText('model', content);
-}
-
-/** Read the native top-level Codex provider selection. */
-export function readTopLevelModelProviderFromCodexConfig(
-  configPath: string = getCodexConfigPath(),
-): string | null {
-  return readTopLevelQuotedStringFromCodexConfig('model_provider', configPath);
 }
 
 /**

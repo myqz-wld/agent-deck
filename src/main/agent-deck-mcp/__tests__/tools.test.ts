@@ -818,7 +818,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('deepseek-v4-flash');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('Suggestions are not an allowlist');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain(
-      'explicit model > resolved agent model > same-adapter source session > provider default',
+      'explicit model > resolved agent model > same-adapter source session > selected Gateway/native default',
     );
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('spawned session only');
     expect(SPAWN_SESSION_SCHEMA.thinking.unwrap().options).toEqual([
@@ -831,7 +831,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     ]);
     expect(SPAWN_SESSION_SCHEMA.thinking.safeParse('minimal').success).toBe(false);
     expect(SPAWN_SESSION_SCHEMA.thinking.description).toContain(
-      'explicit thinking > resolved agent effort > same-adapter source session > provider default',
+      'explicit thinking > resolved agent effort > same-adapter source session > selected Gateway/native default',
     );
     expect(SPAWN_SESSION_SCHEMA.thinking.description).toContain(
       'Claude accepts low, medium, high, xhigh, and max',
@@ -855,7 +855,8 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const description = tools.get('spawn_session').description as string;
     expect(description).toContain('Required fields: adapter, absolute cwd');
     expect(description).toContain('Use gateway only for a Claude Gateway');
-    expect(description).toContain('Use provider only for a Codex native model_provider');
+    expect(description).toContain('public field is named provider');
+    expect(description).toContain('$CODEX_HOME/gateways/<id>.toml');
     expect(description).toContain('Explicit runtime values and resolved bundled-Agent runtime values win');
     expect(description).toContain('persisted same-adapter caller');
     expect(description).toContain('cross-adapter targets use their own defaults');
@@ -1225,7 +1226,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     expect(createSessionCalls[0].claudeCodeEffortLevel).toBe('high');
   });
 
-  it('passes an explicit native Codex model_provider through the Codex adapter', async () => {
+  it('passes an explicit Codex Gateway id through the public provider field', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead', { cwd: '/repo', agentId: 'codex-cli' });
     const r = await tools.get('spawn_session').handler({

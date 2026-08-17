@@ -16,7 +16,7 @@ import type {
   AssetSource,
   BundledAssetsSnapshot,
   ClaudeGatewayProfileOption,
-  CodexModelProviderOption,
+  CodexGatewayProfileOption,
   CodexPermissionScanResult,
   ImageSource,
   GrokAuthProbeResult,
@@ -208,9 +208,9 @@ export const miscApi = {
   /** 只读扫描 ~/.claude/gateways/*.json，返回 profile id 与 settings 路径。 */
   listClaudeGatewayProfiles: (): Promise<ClaudeGatewayProfileOption[]> =>
     ipcRenderer.invoke(IpcInvoke.AssetsListClaudeGatewayProfiles),
-  /** 只读扫描 `$CODEX_HOME/config.toml` 的原生 model_providers，供自由输入提示。 */
-  listCodexModelProviders: (): Promise<CodexModelProviderOption[]> =>
-    ipcRenderer.invoke(IpcInvoke.AssetsListCodexModelProviders),
+  /** 只读扫描 `$CODEX_HOME/gateways/*.toml`，返回 Codex Gateway profile。 */
+  listCodexGatewayProfiles: (): Promise<CodexGatewayProfileOption[]> =>
+    ipcRenderer.invoke(IpcInvoke.AssetsListCodexGatewayProfiles),
   /**
    * 在 Finder / 资源管理器中显示对应文件，跨平台。
    *

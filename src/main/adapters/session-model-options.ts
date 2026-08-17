@@ -36,8 +36,8 @@ export function thinkingLevelsForAdapter(adapterId: AgentId): readonly string[] 
 }
 
 /**
- * Normalize untrusted UI / IPC values. Model ids deliberately remain open-ended: the target
- * provider is authoritative, while Agent Deck only enforces a bounded non-blank string.
+ * Normalize untrusted UI / IPC values. Model ids remain open-ended, while Claude/Codex Gateway
+ * selections must be safe filename stems under their native Gateway directories.
  */
 export function normalizeSessionModelOptions(
   adapterId: AgentId,
@@ -64,12 +64,12 @@ export function normalizeSessionModelOptions(
     }
     if (
       provider &&
-      adapterId === 'claude-code' &&
+      adapterId !== 'grok-build' &&
       !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(provider)
     ) {
       throw new SessionModelOptionsError(
         'provider',
-        'must be a safe Claude Gateway profile id',
+        `must be a safe ${adapterId === 'claude-code' ? 'Claude' : 'Codex'} Gateway profile id`,
       );
     }
   }

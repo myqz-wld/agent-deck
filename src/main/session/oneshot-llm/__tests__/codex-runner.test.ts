@@ -7,13 +7,22 @@ import type { CodexThreadOptions } from '@main/adapters/codex-cli/sdk-bridge/thr
 import { runCodexOneshotWithHost } from '../codex-runner-core';
 
 describe('Codex oneshot provider config', () => {
-  it('adds matching Gateway capacity without weakening isolated runtime controls', async () => {
+  it('adds the selected full Gateway config without weakening isolated runtime controls', async () => {
     const startThread = vi.fn((_options: CodexThreadOptions) => ({
       run: async () => ({ finalResponse: 'done' }),
     }));
-    const resolveProviderConfigOverrides = vi.fn(() => ({
-      model_context_window: 1_000_000,
-      model_auto_compact_token_limit: 900_000,
+    const resolveGatewayProfile = vi.fn(() => ({
+      id: 'openrouter',
+      profilePath: '/codex/gateways/openrouter.toml',
+      modelProvider: 'internal-provider',
+      defaultModel: 'gateway-model',
+      defaultThinking: 'xhigh' as const,
+      configOverrides: {
+        model: 'gateway-model',
+        model_provider: 'internal-provider',
+        model_context_window: 1_000_000,
+        model_auto_compact_token_limit: 900_000,
+      },
     }));
 
     await expect(runCodexOneshotWithHost({
@@ -24,20 +33,25 @@ describe('Codex oneshot provider config', () => {
       timeoutErrorMessage: 'timeout',
     }, {
       getInstance: async () => ({ startThread }),
-      resolveProviderConfigOverrides,
+      resolveGatewayProfile,
       createIsolatedCwd: () => mkdtempSync(join(tmpdir(), 'codex-oneshot-profile-')),
     })).resolves.toBe('done');
 
-    expect(resolveProviderConfigOverrides).toHaveBeenCalledWith('openrouter');
+    expect(resolveGatewayProfile).toHaveBeenCalledWith('openrouter');
     expect(startThread).toHaveBeenCalledWith(expect.objectContaining({
       sandboxMode: 'read-only',
       approvalPolicy: 'never',
       useBaseConfig: false,
       networkAccessEnabled: false,
-      configOverrides: expect.objectContaining({
-        model_provider: 'openrouter',
+      model: 'gateway-model',
+      modelProvider: 'internal-provider',
+      modelReasoningEffort: 'xhigh',
+      gatewayConfigOverrides: expect.objectContaining({
+        model_provider: 'internal-provider',
         model_context_window: 1_000_000,
         model_auto_compact_token_limit: 900_000,
+      }),
+      configOverrides: expect.objectContaining({
         mcp_servers: {},
       }),
     }));

@@ -27,9 +27,13 @@ const provider = z
   .trim()
   .min(1)
   .max(128)
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/,
+    'Codex Gateway id must be a safe TOML filename stem',
+  )
   .optional()
   .describe(
-    'Optional non-null Codex CLI model_provider id, trimmed to 1-128 characters. It must be available from $CODEX_HOME/config.toml, either as its top-level model_provider or a [model_providers.<id>] definition, and is passed as a supported per-thread model_provider override; Agent Deck never writes the file. Only Codex CLI accepts this field. Spawn precedence is explicit value, selected bundled-Agent runtime override, persisted same-adapter source, then Codex config.toml. Omission never cross-inherits; null and empty-after-trim values reject.',
+    'Optional non-null Codex CLI Gateway id in the public field named provider. It is the safe filename stem of $CODEX_HOME/gateways/<id>.toml, trimmed to 1-128 characters; the selected file is a complete native Codex config, and its optional top-level model_provider is the independent native app-server selector. Only Codex CLI accepts this field. Spawn precedence is explicit value, selected bundled-Agent runtime override, persisted same-adapter source, then no Gateway/native config.toml. Omission never cross-inherits; null, empty-after-trim, unsafe ids, missing files, and malformed TOML reject.',
   );
 
 const model = z
@@ -39,14 +43,14 @@ const model = z
   .max(256)
   .optional()
   .describe(
-    'Optional non-null free-text model override, trimmed to 1-256 characters; for spawn_session it applies to the spawned session only. Suggested values include Claude Code haiku, sonnet, opus, and fable; Codex CLI gpt-5.6-sol, gpt-5.6-terra, and gpt-5.6-luna; and Grok Build grok-4.5. Suggestions are not an allowlist; the selected provider validates the value. Spawn precedence is explicit model > resolved agent model > same-adapter source session > provider default. Omission never cross-inherits; null and empty-after-trim values reject.',
+    'Optional non-null free-text model override, trimmed to 1-256 characters; for spawn_session it applies to the spawned session only. Suggested values include Claude Code haiku, sonnet, opus, and fable; Codex CLI gpt-5.6-sol, gpt-5.6-terra, and gpt-5.6-luna; and Grok Build grok-4.5. Suggestions are not an allowlist; the selected runtime validates the value. Spawn precedence is explicit model > resolved agent model > same-adapter source session > selected Gateway/native default. Omission never cross-inherits; null and empty-after-trim values reject.',
   );
 
 const thinking = z
   .enum(SESSION_THINKING_LEVELS)
   .optional()
   .describe(
-    'Optional non-null target reasoning level. Claude accepts low, medium, high, xhigh, and max; Codex CLI also accepts ultra; Grok Build accepts low, medium, high, and xhigh. Spawn precedence is explicit thinking > resolved agent effort > same-adapter source session > provider default. Omission never cross-inherits. Adapter-invalid values and null reject before creation.',
+    'Optional non-null target reasoning level. Claude accepts low, medium, high, xhigh, and max; Codex CLI also accepts ultra; Grok Build accepts low, medium, high, and xhigh. Spawn precedence is explicit thinking > resolved agent effort > same-adapter source session > selected Gateway/native default. Omission never cross-inherits. Adapter-invalid values and null reject before creation.',
   );
 
 const permissionMode = z

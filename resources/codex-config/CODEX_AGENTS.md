@@ -62,7 +62,7 @@ universal-message-watcher; the receiver never polls for delivery.
   stop/report conditions. Keep coupled producer/consumer files together and parallelize only
   independent batches. `spawn_session` non-idempotently starts one parallel target; a duplicate can create another target.
 - Omitted `contextMode` is `fresh`. Use `fork` only when native caller history is required; it
-  requires the same adapter, the same Codex `model_provider` selection (including native default),
+  requires the same adapter, the same Codex Gateway selection (including native default),
   and realpath cwd, and never silently falls back.
   Follow a fork error's hint or retry with `fresh` when inherited history is unnecessary.
 - Treat `spawnLimits` as recursion/rate guard state, not promised capacity. On a post-creation

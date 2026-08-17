@@ -28,25 +28,31 @@ Bundled runtimes are selected by default. Configure an external runtime path onl
 
 ### Codex Gateway profiles
 
-Codex providers can use different context and compaction limits without changing the whole
-app-server process. Create an optional JSON file at
-`${CODEX_HOME:-~/.codex}/gateways/<provider>.json`, where `<provider>` exactly matches a native
-`model_provider` id from `${CODEX_HOME:-~/.codex}/config.toml`:
+Agent Deck discovers Codex Gateways only from
+`${CODEX_HOME:-~/.codex}/gateways/*.toml`. The filename stem is the public Gateway id and display
+name: `xaminim.toml` appears as `xaminim`. Each file is a complete ordinary Codex configuration,
+with the same TOML shape as `config.toml`:
 
-```json
-{
-  "model_context_window": 1000000,
-  "model_auto_compact_token_limit": 900000
-}
+```toml
+model = "vendor-model"
+model_provider = "vendor-api"
+model_reasoning_effort = "high"
+
+[model_providers.vendor-api]
+name = "Vendor API"
+base_url = "https://example.com/v1"
+env_key = "VENDOR_API_KEY"
 ```
 
-Agent Deck reads only these two positive integer fields and sends them through the app-server
-thread `config` whenever that provider is selected, resumed, forked, or used by an internal Codex
-task. The compaction limit must not exceed the context window. A missing profile keeps native Codex
-defaults, while a selected Codex Agent's explicit config remains the higher-precedence thread
-layer. Provider ids outside the safe filename form (1–128 letters, digits, dots, underscores, or
-hyphens, starting with a letter or digit) remain valid native providers but cannot use a file-backed
-profile. Claude Gateway profiles remain separate under `~/.claude/gateways/`.
+`model`, `model_provider`, and `model_providers` are all optional, just as they are in an ordinary
+Codex config. Selecting a Gateway applies the complete parsed TOML at every new, resumed, forked,
+or internal thread boundary. When present, its top-level `model_provider` is also passed through the
+app-server's native `modelProvider` field so the matching `model_providers` entry is loaded; it does
+not need to match the Gateway filename. Agent Deck's own MCP and runtime safety boundaries remain
+authoritative. An empty Gateway selection delegates to the ordinary `${CODEX_HOME:-~/.codex}/config.toml`;
+a non-empty selection must resolve to its same-named `.toml` file. There is no JSON Gateway format
+or legacy provider enumeration. Claude Gateway profiles remain separate under
+`~/.claude/gateways/*.json`.
 
 ## Basic Workflow
 

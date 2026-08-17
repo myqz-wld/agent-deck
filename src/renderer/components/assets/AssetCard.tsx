@@ -57,7 +57,7 @@ export function AssetCard({
             <button
               type="button"
               onClick={() => onConfigure(asset)}
-              title="配置内置助手使用的模型、思考程度和模型来源"
+              title="配置内置助手使用的模型、思考程度和模型网关"
               className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
             >
               <PencilIcon className="mr-1 inline h-3 w-3" />配置
@@ -71,7 +71,7 @@ export function AssetCard({
           {asset.thinking && <span>思考程度：<code className="break-all rounded bg-white/5 px-1">{asset.thinking}</code></span>}
           {asset.provider && (
             <span>
-              {asset.adapter === 'claude-code' ? '模型网关' : '模型来源'}：
+              模型网关：
               <code className="break-all rounded bg-white/5 px-1">{asset.provider}</code>
             </span>
           )}

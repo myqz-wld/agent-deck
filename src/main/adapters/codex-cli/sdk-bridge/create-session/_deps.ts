@@ -40,7 +40,7 @@ export type CodexSandboxMode = 'workspace-write' | 'read-only' | 'danger-full-ac
 export interface CreateSessionOpts {
   cwd: string;
   prompt?: string;
-  /** Native Codex model_provider applied at the thread boundary. */
+  /** Public Codex Gateway id; its TOML may select a native model_provider. */
   provider?: string;
   /** Main-only branded continuation turn; absent from public adapter create options. */
   trustedContinuation?: TrustedContinuationInitialTurn;
@@ -61,7 +61,7 @@ export interface CreateSessionOpts {
    *   字段 → runtime 真正按 agent TOML 标的 model 跑
    * - 同时 setModel 持久化到 sessions 表(UI / resume 一致 + DB 记账)
    *
-   * model 字段未传 → Codex runtime fallback 到 `$CODEX_HOME/config.toml` 顶层 `model` 配置。
+   * model 字段未传 → 先用所选 Gateway TOML 的顶层 `model`，无 Gateway 时由 Codex 原生配置决定。
    */
   model?: string;
   /**

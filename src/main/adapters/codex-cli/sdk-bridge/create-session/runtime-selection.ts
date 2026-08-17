@@ -1,6 +1,6 @@
 import type { SessionRecord } from '@shared/types';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
-import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
+import type { ResolvedCodexGatewayProfile } from '@main/codex-config/gateway-profiles-core';
 import { combineCodexDeveloperInstructions } from '../fork-session/target-runtime';
 import type { CreateSessionOpts, CodexSandboxMode } from './_deps';
 import {
@@ -21,9 +21,9 @@ export interface CodexCreateRuntimeHostValues {
   resumeRecord: CodexCreateResumeRecord | null;
   readApplicationInstructions: () => string | undefined;
   readConfiguredReasoningEffort: () => CodexThinkingLevel | null;
-  readProviderConfigOverrides: (
-    provider: string | null | undefined,
-  ) => CodexConfigObject | null;
+  readGatewayProfile: (
+    gateway: string | null | undefined,
+  ) => ResolvedCodexGatewayProfile | null;
   readDefaultSandbox: () => CodexSandboxMode;
 }
 
@@ -32,8 +32,9 @@ export interface ResolvedCodexCreateRuntime {
   developerInstructions?: string;
   effectiveOpts: CreateSessionOpts;
   effectiveResumeThreadId: string | null;
+  gatewayConfigOverrides?: ResolvedCodexGatewayProfile['configOverrides'];
+  modelProvider?: string;
   provider?: string;
-  providerConfigOverrides?: CodexConfigObject;
   sandboxMode: CodexSandboxMode;
   threadModelReasoningEffort?: CodexThinkingLevel;
 }
@@ -45,6 +46,8 @@ export function resolveCodexCreateRuntime(
 ): ResolvedCodexCreateRuntime {
   const record = host.resumeRecord;
   const provider = opts.provider ?? record?.runtimeProvider ?? undefined;
+  const gateway = host.readGatewayProfile(provider);
+  const model = opts.model ?? gateway?.defaultModel;
   const approvalPolicy =
     opts.approvalPolicy ?? record?.codexApprovalPolicy ?? undefined;
   const sandboxMode =
@@ -54,16 +57,20 @@ export function resolveCodexCreateRuntime(
     isResume: opts.resume !== undefined,
     persisted: record?.thinking,
     hasLayerOverride: hasCodexReasoningConfigLayer(opts.codexConfigOverrides),
-    readConfigured: host.readConfiguredReasoningEffort,
+    readConfigured: () => gateway
+      ? gateway.defaultThinking ?? null
+      : host.readConfiguredReasoningEffort(),
   });
   const effectiveOpts =
     reasoning.sessionValue === opts.modelReasoningEffort &&
     provider === opts.provider &&
+    model === opts.model &&
     approvalPolicy === opts.approvalPolicy
       ? opts
       : {
           ...opts,
           provider,
+          model,
           approvalPolicy,
           modelReasoningEffort: reasoning.sessionValue,
         };
@@ -71,8 +78,6 @@ export function resolveCodexCreateRuntime(
     host.readApplicationInstructions(),
     opts.developerInstructions,
   );
-  const providerConfigOverrides =
-    host.readProviderConfigOverrides(provider) ?? undefined;
   const effectiveResumeThreadId =
     opts.resume && opts.resumeMode !== 'fresh-cli-reuse-app'
       ? (opts.resumeCliSid ?? record?.cliSessionId ?? opts.resume)
@@ -83,8 +88,9 @@ export function resolveCodexCreateRuntime(
     developerInstructions,
     effectiveOpts,
     effectiveResumeThreadId,
+    gatewayConfigOverrides: gateway?.configOverrides,
+    modelProvider: gateway?.modelProvider,
     provider,
-    providerConfigOverrides,
     sandboxMode,
     threadModelReasoningEffort: reasoning.threadValue,
   };

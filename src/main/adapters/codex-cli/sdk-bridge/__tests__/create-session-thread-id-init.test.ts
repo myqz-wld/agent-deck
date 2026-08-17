@@ -54,9 +54,16 @@ const appServerClientMock = vi.hoisted(() => {
 const reasoningConfigMock = vi.hoisted(() => ({
   readTopLevel: vi.fn(() => 'xhigh' as const),
 }));
-const modelProviderMock = vi.hoisted(() => ({
+const gatewayProfileMock = vi.hoisted(() => ({
   resolve: vi.fn((provider: string | null | undefined) =>
-    provider?.trim() ? { id: provider.trim(), configuredAsTopLevelDefault: false } : null),
+    provider?.trim()
+      ? {
+          id: provider.trim(),
+          profilePath: `/codex/gateways/${provider.trim()}.toml`,
+          modelProvider: `native-${provider.trim()}`,
+          configOverrides: {},
+        }
+      : null),
 }));
 
 // 与 early-err-cleanup test 同款入口模块 stub
@@ -78,8 +85,8 @@ vi.mock('@main/codex-config/toml-writer', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@main/codex-config/toml-writer')>()),
   readTopLevelModelReasoningEffortFromCodexConfig: reasoningConfigMock.readTopLevel,
 }));
-vi.mock('@main/codex-config/model-providers', () => ({
-  resolveCodexModelProvider: modelProviderMock.resolve,
+vi.mock('@main/codex-config/gateway-profiles', () => ({
+  resolveCodexGatewayProfile: gatewayProfileMock.resolve,
 }));
 vi.mock('@main/codex-config/agent-deck-mcp-injector', () => ({
   buildAgentDeckMcpConfigForCodex: () => null,
@@ -238,7 +245,7 @@ beforeEach(() => {
   vi.mocked(sessionRepo.setThinking).mockReset();
   reasoningConfigMock.readTopLevel.mockReset();
   reasoningConfigMock.readTopLevel.mockReturnValue('xhigh');
-  modelProviderMock.resolve.mockClear();
+  gatewayProfileMock.resolve.mockClear();
   vi.mocked(sessionManager.claimAsSdk).mockReset();
   vi.mocked(sessionManager.releaseSdkClaim).mockReset();
   vi.mocked(sessionManager.renameSdkSession).mockReset();
@@ -497,27 +504,27 @@ describe('codex createSession internal.threadId init (REVIEW_79 MED-1)', () => {
 });
 
 describe('codex createSession new path latency', () => {
-  it('an explicit model provider still inherits the top-level reasoning effort', async () => {
+  it('an explicit Gateway uses its native provider without inheriting config.toml reasoning', async () => {
     vi.useFakeTimers();
     const pushThread = new PushThread();
     appServerClientMock.nextThread = pushThread;
 
-    const handle = await makeBridge().createSession({
+    await makeBridge().createSession({
       cwd: '/repo',
       prompt: 'hi',
       provider: 'openrouter',
       codexSandbox: 'workspace-write',
     });
 
-    expect(reasoningConfigMock.readTopLevel).toHaveBeenCalledOnce();
+    expect(reasoningConfigMock.readTopLevel).not.toHaveBeenCalled();
     expect(appServerClientMock.startThreadOptions).toHaveLength(1);
     expect(appServerClientMock.startThreadOptions[0]).toMatchObject({
-      modelProvider: 'openrouter',
+      modelProvider: 'native-openrouter',
     });
     expect(appServerClientMock.startThreadOptions[0]).not.toHaveProperty(
       'modelReasoningEffort',
     );
-    expect(sessionRepo.setThinking).toHaveBeenCalledWith(handle.sessionId, 'xhigh');
+    expect(sessionRepo.setThinking).not.toHaveBeenCalled();
   });
 
   it('rejects a loaded-thread provider switch before changing DB or live options', async () => {
@@ -557,14 +564,14 @@ describe('codex createSession new path latency', () => {
       provider: 'new-provider',
       model: 'gpt-new',
       thinking: 'high',
-    })).rejects.toThrow(/已加载的会话切换 model_provider/);
+    })).rejects.toThrow(/已加载的会话切换模型网关/);
 
-    expect(modelProviderMock.resolve).toHaveBeenCalledWith('new-provider');
+    expect(gatewayProfileMock.resolve).toHaveBeenCalledWith('new-provider');
     expect(sessionRepo.setRuntimeProvider).not.toHaveBeenCalled();
     expect(sessionRepo.setModel).not.toHaveBeenCalled();
     expect(sessionRepo.setThinking).not.toHaveBeenCalled();
     expect(appServerClientMock.startThreadOptions[0]).toMatchObject({
-      modelProvider: 'working-provider',
+      modelProvider: 'native-working-provider',
       model: 'gpt-old',
       modelReasoningEffort: 'low',
     });

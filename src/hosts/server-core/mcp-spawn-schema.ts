@@ -14,6 +14,10 @@ const text = (maximum: number) => z.string().min(1).max(maximum).refine(
 );
 
 const optionalRuntimeText = text(256).optional();
+const optionalGatewayId = z.string().trim().min(1).max(128).regex(
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/,
+  'Use a safe Gateway filename stem',
+).optional();
 const agentName = z.string().min(1).max(257).regex(
   /^[a-zA-Z0-9._-]{1,128}(?::[a-zA-Z0-9._-]{1,128})?$/,
   'Use an Agent name containing letters, digits, dot, underscore, or hyphen',
@@ -46,8 +50,10 @@ export const SERVER_CORE_SPAWN_SESSION_SCHEMA = {
   agentName: agentName.optional().describe(
     'Optional built-in Agent Deck Agent selector. Its model and reasoning settings come from this node; explicit runtime fields win.',
   ),
-  gateway: optionalRuntimeText.describe('Claude Gateway profile id; Claude targets only.'),
-  provider: optionalRuntimeText.describe('Codex model_provider id; Codex targets only.'),
+  gateway: optionalGatewayId.describe('Claude Gateway profile id; Claude targets only.'),
+  provider: optionalGatewayId.describe(
+    'Codex Gateway id from $CODEX_HOME/gateways/<id>.toml; Codex targets only.',
+  ),
   model: optionalRuntimeText.describe('Optional provider model override.'),
   thinking: z.enum(SESSION_THINKING_LEVELS).optional(),
   permissionMode: z.enum(PERMISSION_MODES).optional(),

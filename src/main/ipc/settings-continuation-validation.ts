@@ -16,7 +16,7 @@ import {
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { IpcInputError } from './_helpers';
 import { CLAUDE_GATEWAY_PROFILE_ID_PATTERN } from '@main/adapters/claude-code/gateway-profiles';
-import { resolveCodexModelProvider } from '@main/codex-config/model-providers';
+import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
 
 const GENERATOR_ADAPTERS: readonly GeneratorAdapterId[] = [
   'claude-code',
@@ -67,7 +67,7 @@ function assertRuntimeProvider(
   }
   if (adapter === 'codex-cli' && value.trim() && validateSelection) {
     try {
-      resolveCodexModelProvider(value.trim());
+      resolveCodexGatewayProfile(value.trim());
     } catch (error) {
       throw new IpcInputError(
         field,

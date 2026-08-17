@@ -9,7 +9,7 @@ import type {
   SessionRecord,
   UploadedAttachmentRef,
 } from '@shared/types';
-import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
+import type { ResolvedCodexGatewayProfile } from '@main/codex-config/gateway-profiles-core';
 
 import type { CodexAppServerClient } from '../app-server/client';
 import type { CodexLiveRateHost } from './live-token-rate-core';
@@ -55,11 +55,9 @@ export interface CodexBridgeConfigurationPort {
   readApplicationInstructions(): string | undefined;
   readConfiguredModel(): string | null;
   readConfiguredReasoningEffort(): CodexThinkingLevel | null;
-  readProviderConfigOverrides(
-    provider: string | null | undefined,
-  ): CodexConfigObject | null;
+  readGatewayProfile(gateway: string | null | undefined): ResolvedCodexGatewayProfile | null;
   readDefaultSandbox(): 'workspace-write' | 'read-only' | 'danger-full-access';
-  validateModelProvider(provider: string | null | undefined): void;
+  validateGatewayProfile(gateway: string | null | undefined): void;
 }
 
 export interface CodexBridgeClientRegistryPort {

@@ -28,6 +28,7 @@ interface ServerCoreSessionCreateProviderProfile {
   readonly id: string;
   readonly model: string;
   readonly thinking: SessionCreationDefaults['thinking'];
+  readonly approvalPolicy?: SessionCreationDefaults['approvalPolicy'];
 }
 
 export interface ServerCoreSessionCreateCatalogEntry {
@@ -106,17 +107,30 @@ function parseProfile(
   field: string,
 ): ServerCoreSessionCreateProviderProfile {
   if (!isJsonObject(value)) fail(field);
-  exact(value, ['id', 'model', 'thinking'], field);
+  exact(
+    value,
+    adapterId === 'codex-cli'
+      ? ['approvalPolicy', 'id', 'model', 'thinking']
+      : ['id', 'model', 'thinking'],
+    field,
+  );
   const id = safeProvider(value.id, `${field}.id`);
   const model = safeText(value.model, `${field}.model`, true);
   const thinking = safeText(value.thinking, `${field}.thinking`);
   if (!getAdapterRuntimeProfile(adapterId).model.thinkingLevels.includes(thinking)) {
     fail(`${field}.thinking`);
   }
+  const approvalPolicy = adapterId === 'codex-cli'
+    ? value.approvalPolicy
+    : undefined;
+  if (adapterId === 'codex-cli' && !isCodexApprovalPolicy(approvalPolicy)) {
+    fail(`${field}.approvalPolicy`);
+  }
   return Object.freeze({
     id,
     model,
     thinking: thinking as SessionCreationDefaults['thinking'],
+    ...(isCodexApprovalPolicy(approvalPolicy) ? { approvalPolicy } : {}),
   });
 }
 
@@ -208,7 +222,7 @@ export function resolveServerCoreSessionCreateCatalog(
   const entries = new Map<SessionAdapterId, ServerCoreSessionCreateCatalogEntry>();
   if (raw !== null) {
     exact(raw, ['adapters', 'schemaVersion'], 'root');
-    if (raw.schemaVersion !== 2) fail('schemaVersion');
+    if (raw.schemaVersion !== 3) fail('schemaVersion');
     if (!Array.isArray(raw.adapters) || raw.adapters.length > ADAPTER_IDS.length) {
       fail('adapters');
     }
@@ -235,6 +249,9 @@ export function resolveServerCoreSessionCreateCatalog(
           provider: profile.id,
           model: profile.model,
           thinking: profile.thinking,
+          ...(profile.approvalPolicy !== undefined
+            ? { approvalPolicy: profile.approvalPolicy }
+            : {}),
         }),
       });
     },

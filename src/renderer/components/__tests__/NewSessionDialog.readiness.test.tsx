@@ -36,7 +36,7 @@ beforeEach(() => {
       }]),
       getAdapterSessionCreationDefaults: vi.fn().mockResolvedValue(sessionCreationDefaults()),
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-      listCodexModelProviders: vi.fn().mockResolvedValue([]),
+      listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
       chooseDirectory: vi.fn(),
       createAdapterSession: vi.fn(),
     },

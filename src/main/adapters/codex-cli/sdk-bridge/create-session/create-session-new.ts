@@ -101,10 +101,13 @@ export async function runCreateSessionNewPath(
   // plan model-token-stats §Phase 1 A4c（deep-review R1 F2 双方独立）：codex turn.completed 不带
   // model，token 统计从 sessions.model 取。新建路径 resolve effective model 持久化，避免交互式
   // codex（不显式传 model 走 $CODEX_HOME/config.toml 默认）落 null → 全折进 unknown bucket。
-  // effective = opts.model > config.toml 顶层 model > 'codex-default' 占位。**仅新建路径**做此
-  // resolve（resume 路径保留 sessions.model 原值，不在此覆盖）。
-  const effectiveModel =
-    opts.model ?? deps.runtimeHost.configuration.readConfiguredModel() ?? CODEX_DEFAULT_BUCKET;
+  // effective = explicit/Gateway model > native config model when no Gateway is selected >
+  // `codex-default` placeholder. A selected Gateway with no `model` never borrows config.toml.
+  const effectiveModel = opts.model ?? (
+    opts.provider
+      ? CODEX_DEFAULT_BUCKET
+      : deps.runtimeHost.configuration.readConfiguredModel() ?? CODEX_DEFAULT_BUCKET
+  );
   persistSessionFields({
     runtimeHost: deps.runtimeHost,
     sessionId: internal.applicationSid,

@@ -57,6 +57,9 @@ describe('MCP target runtime schemas', () => {
     expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
       extraAllowWrite: ['relative/path'],
     }).success).toBe(false);
+    expect(MCP_TARGET_RUNTIME_SCHEMAS['codex-cli'].safeParse({
+      provider: 'native/provider',
+    }).success).toBe(false);
   });
 
   it('accepts only Grok-owned mode and native sandbox controls', () => {

@@ -97,7 +97,7 @@ export function SessionModelFields({
     const request =
       adapterId === 'claude-code'
         ? window.api.listClaudeGatewayProfiles()
-        : window.api.listCodexModelProviders();
+        : window.api.listCodexGatewayProfiles();
     void request
       .then((options) => {
         if (!cancelled) setDiscoveredProviderOptions(options);
@@ -117,7 +117,7 @@ export function SessionModelFields({
       {providerEnabled && onProviderChange && (
         <div className="flex min-w-0 flex-col gap-1">
           <label className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-            {adapterId === 'claude-code' ? '模型网关' : '模型来源'}
+            模型网关
           </label>
           {disabledReasons.provider ? (
             <UnavailableField reason={disabledReasons.provider} />
@@ -127,17 +127,13 @@ export function SessionModelFields({
               options={providerOptions}
               disabled={disabled}
               allowCustom={!providerClosed}
-              ariaLabel={adapterId === 'claude-code' ? '模型网关' : '模型来源'}
+              ariaLabel="模型网关"
               placeholder={
                 adapterId === 'claude-code'
                   ? '留空使用 settings.json'
                   : '留空使用 config.toml'
               }
-              emptyMessage={
-                adapterId === 'claude-code'
-                  ? '没有匹配的模型网关，可直接输入或留空'
-                  : '没有匹配的模型来源，可直接输入或留空'
-              }
+              emptyMessage="没有匹配的模型网关，可直接输入或留空"
               onChange={onProviderChange}
             />
           )}

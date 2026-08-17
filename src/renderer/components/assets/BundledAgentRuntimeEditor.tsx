@@ -55,14 +55,14 @@ export function BundledAgentRuntimeEditor({
     const request =
       asset.adapter === 'claude-code'
         ? window.api.listClaudeGatewayProfiles()
-        : window.api.listCodexModelProviders();
+        : window.api.listCodexGatewayProfiles();
     void request
       .then((items) => {
         if (!cancelled) setProviders(items);
       })
       .catch((reason: unknown) => {
         if (!cancelled) {
-          const source = asset.adapter === 'claude-code' ? 'Claude 模型网关' : 'Codex 模型来源';
+          const source = asset.adapter === 'claude-code' ? 'Claude 模型网关' : 'Codex 模型网关';
           setError(`${source} 读取失败：${reason instanceof Error ? reason.message : String(reason)}`);
         }
       });
@@ -74,7 +74,7 @@ export function BundledAgentRuntimeEditor({
   const normalizedModel = model.trim();
   const normalizedThinking = thinking.trim();
   const normalizedProvider = provider.trim();
-  const providerLabel = asset.adapter === 'codex-cli' ? '模型来源' : '模型网关';
+  const providerLabel = '模型网关';
   const dirty =
     normalizedModel !== (asset.model ?? '') ||
     normalizedThinking !== (asset.thinking ?? '') ||
@@ -257,11 +257,7 @@ export function BundledAgentRuntimeEditor({
                     ? '留空则使用 Claude 原生配置'
                     : '留空则跟随 Codex 原生配置'
                 }
-                emptyMessage={
-                  asset.adapter === 'claude-code'
-                    ? '没有匹配的模型网关，可直接输入或留空'
-                    : '没有匹配的模型来源，可直接输入或留空'
-                }
+                emptyMessage="没有匹配的模型网关，可直接输入或留空"
               />
               <DefaultHint
                 value={defaults.provider}
@@ -340,7 +336,7 @@ function invalidSingleLine(value: string): boolean {
 
 function nativeConfigHint(adapter: AssetMeta['adapter']): string {
   if (adapter === 'codex-cli') {
-    return '模型来源仍由 $CODEX_HOME/config.toml 中的对应配置管理。';
+    return 'Codex 模型网关由 $CODEX_HOME/gateways/<id>.toml 管理；文件名（不含 .toml）就是展示名称。';
   }
   if (adapter === 'grok-build') {
     return '自定义模型别名仍由 ~/.grok/config.toml 的 [model.<alias>] 管理。';

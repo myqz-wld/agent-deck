@@ -19,7 +19,7 @@ describe('Codex fork target runtime boundary', () => {
       developerInstructions: 'application instructions',
       readConfiguredModel: () => 'gpt-configured',
       readConfiguredReasoningEffort: () => 'max',
-      readProviderConfigOverrides: () => null,
+      readGatewayProfile: () => null,
     });
 
     expect(runtime).toMatchObject({
@@ -43,13 +43,19 @@ describe('Codex fork target runtime boundary', () => {
       codexSandbox: 'danger-full-access',
       model: 'gpt-explicit',
       modelReasoningEffort: 'ultra',
+      provider: 'xaminim',
     }), {
       defaultSandboxMode: 'read-only',
       readConfiguredModel: () => 'gpt-configured',
       readConfiguredReasoningEffort: () => 'low',
-      readProviderConfigOverrides: () => ({
-        model_context_window: 1_000_000,
-        model_auto_compact_token_limit: 900_000,
+      readGatewayProfile: () => ({
+        id: 'xaminim',
+        profilePath: '/codex/gateways/xaminim.toml',
+        modelProvider: 'internal-provider',
+        configOverrides: {
+          model_context_window: 1_000_000,
+          model_auto_compact_token_limit: 900_000,
+        },
       }),
     });
 
@@ -62,7 +68,8 @@ describe('Codex fork target runtime boundary', () => {
       sandboxMode: 'danger-full-access',
       model: 'gpt-explicit',
       modelReasoningEffort: 'ultra',
-      providerConfigOverrides: {
+      modelProvider: 'internal-provider',
+      gatewayConfigOverrides: {
         model_context_window: 1_000_000,
         model_auto_compact_token_limit: 900_000,
       },

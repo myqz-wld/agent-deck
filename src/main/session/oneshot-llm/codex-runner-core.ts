@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { toCodexModelOverride } from '@main/adapters/codex-cli/sdk-model';
 import { toCodexAppServerInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
 import type { CodexThreadOptions } from '@main/adapters/codex-cli/sdk-bridge/thread-options-builder';
-import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
+import type { ResolvedCodexGatewayProfile } from '@main/codex-config/gateway-profiles-core';
 import { DISABLED_EXECUTABLE_FEATURES } from '@main/session/continuation-context/codex-isolation';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
 import { buildSummarizeSystemPrompt } from './build-prompt';
@@ -34,9 +34,9 @@ export interface CodexOneshotClient {
 
 export interface CodexOneshotHost {
   readonly getInstance: () => Promise<CodexOneshotClient>;
-  readonly resolveProviderConfigOverrides?: (
-    provider: string | null | undefined,
-  ) => CodexConfigObject | null;
+  readonly resolveGatewayProfile?: (
+    gateway: string | null | undefined,
+  ) => ResolvedCodexGatewayProfile | null;
   readonly releaseInstance?: (instance: CodexOneshotClient) => void;
   readonly createIsolatedCwd?: () => string;
 }
@@ -53,24 +53,22 @@ export async function runCodexOneshotWithHost(
   const work = (async () => {
     const codex = await host.getInstance();
     instance = codex;
-    const model = toCodexModelOverride(opts.model);
-    const providerConfigOverrides = host.resolveProviderConfigOverrides?.(opts.provider) ?? null;
+    const gateway = host.resolveGatewayProfile?.(opts.provider) ?? null;
+    const model = toCodexModelOverride(opts.model ?? gateway?.defaultModel);
+    const thinking = opts.modelReasoningEffort ?? gateway?.defaultThinking;
     const thread = codex.startThread({
       workingDirectory: isolatedCwd,
       sandboxMode: 'read-only',
       approvalPolicy: 'never',
       skipGitRepoCheck: true,
-      ...(opts.modelReasoningEffort
-        ? { modelReasoningEffort: opts.modelReasoningEffort }
-        : {}),
+      ...(thinking ? { modelReasoningEffort: thinking } : {}),
       modelReasoningSummary: 'none',
       baseInstructions: opts.systemPrompt ?? buildSummarizeSystemPrompt('Agent'),
       configOverrides: {
-        ...(providerConfigOverrides ?? {}),
         features: { ...DISABLED_EXECUTABLE_FEATURES },
         mcp_servers: {},
-        ...(opts.provider ? { model_provider: opts.provider } : {}),
       },
+      gatewayConfigOverrides: gateway?.configOverrides,
       useBaseConfig: false,
       networkAccessEnabled: false,
       additionalDirectories: [],
@@ -79,6 +77,7 @@ export async function runCodexOneshotWithHost(
       runtimeWorkspaceRoots: [],
       selectedCapabilityRoots: [],
       ephemeral: true,
+      ...(gateway?.modelProvider ? { modelProvider: gateway.modelProvider } : {}),
       ...(model !== undefined ? { model } : {}),
     });
     return thread.run(toCodexAppServerInput(opts.prompt), { signal: controller.signal });

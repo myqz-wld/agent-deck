@@ -7,6 +7,7 @@ import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import { resolveClaudeBinary } from '@main/adapters/claude-code/resolve-claude-binary';
 import { resolveClaudeGatewayProfile } from '@main/adapters/claude-code/gateway-profiles';
 import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
+import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
 import { runGrokOneshot } from '@main/session/oneshot-llm';
 import { settingsStore } from '@main/store/settings-store';
 import type { ResolvedContinuationGenerator } from './types';
@@ -23,6 +24,7 @@ const desktopHost: CheckpointGeneratorRuntimeHost = {
   claudeRuntimeOptions: getSdkRuntimeOptions,
   resolveClaudeBinary,
   resolveClaudeGatewayProfile: (provider) => resolveClaudeGatewayProfile(provider),
+  resolveCodexGatewayProfile: (provider) => resolveCodexGatewayProfile(provider),
   getCodexInstance,
   runGrokOneshot,
   grokBinaryPath: () => settingsStore.get('grokCliPath'),

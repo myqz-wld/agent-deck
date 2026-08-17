@@ -27,6 +27,7 @@ import {
   createServerCoreCodexClient,
   HEADLESS_CODEX_EXECUTABLE,
 } from './provider-codex-host';
+import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
 import { HEADLESS_GROK_EXECUTABLE } from './provider-grok-host';
 
 export function createServerCoreCheckpointGenerator(
@@ -44,6 +45,9 @@ export function createServerCoreCheckpointGenerator(
       input.settings.claudeCliPath ?? HEADLESS_CLAUDE_EXECUTABLE,
     resolveClaudeGatewayProfile: (provider) =>
       resolveServerCoreClaudeGatewayProfile(input, provider),
+    resolveCodexGatewayProfile: (provider) => resolveCodexGatewayProfile(provider, {
+      gatewaysDir: join(input.workspaceBoundary.providerHomeRoot, '.codex', 'gateways'),
+    }),
     getCodexInstance: async () => createServerCoreCodexClient({
       codexPathOverride: input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,
       config: null,

@@ -40,7 +40,7 @@ export const HAND_OFF_SESSION_SHAPE = {
     .enum(['claude-code', 'codex-cli', 'grok-build'])
     .optional()
     .describe(
-      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Select a Claude Gateway with gateway or a Codex model_provider with provider.',
+      'Optional adapter for the fresh successor. Omit it to inherit the caller adapter. Supported values: claude-code, codex-cli, and grok-build. Select a Claude Gateway with gateway or a Codex Gateway with the public field named provider.',
     ),
   ...MCP_TARGET_RUNTIME_SUPERSET_SHAPE,
 };
@@ -122,7 +122,7 @@ export interface HandOffSessionResult {
   adapter: 'claude-code' | 'codex-cli' | 'grok-build';
   /** Resolved Claude Gateway profile; null for Codex/Grok or Claude-native default. */
   gateway: string | null;
-  /** Resolved Codex model_provider; null for Claude/Grok or Codex config.toml default. */
+  /** Resolved Codex Gateway id; null for Claude/Grok or Codex native default. */
   provider: string | null;
   cwd: string;
   continuationContext: {

@@ -61,7 +61,7 @@ beforeEach(() => {
         sessionCreationDefaults('untrusted'),
       ),
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-      listCodexModelProviders: vi.fn().mockResolvedValue([]),
+      listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
       issuesResolveInNewSession,
     },
   });
@@ -94,7 +94,7 @@ describe('ResolveInNewSessionDialog model options', () => {
     expect(disclosure?.open).toBe(false);
     fireEvent.click(screen.getByText('模型配置'));
     expect(disclosure?.open).toBe(true);
-    fireEvent.change(await screen.findByLabelText('模型来源'), {
+    fireEvent.change(await screen.findByLabelText('模型网关'), {
       target: { value: 'openai-custom' },
     });
     fireEvent.change(await screen.findByLabelText('模型'), {
@@ -144,7 +144,7 @@ describe('ResolveInNewSessionDialog model options', () => {
         ]),
         getAdapterSessionCreationDefaults: vi.fn().mockResolvedValue(sessionCreationDefaults()),
         listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-        listCodexModelProviders: vi.fn().mockResolvedValue([]),
+        listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
         issuesResolveInNewSession,
       },
     });

@@ -37,7 +37,7 @@ export interface PersistSessionFieldsArgs {
   sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';
   /** Explicit override only; undefined preserves provider-owned approval policy. */
   approvalPolicy?: CodexApprovalPolicy;
-  /** Native Codex model_provider; undefined preserves an existing session value. */
+  /** Public Codex Gateway id; undefined preserves an existing session value. */
   provider?: string;
   /**
    * plan model-wiring-and-handoff-20260514 Step 2.5 + prompt-asset-review-optimize-20260527 修订:

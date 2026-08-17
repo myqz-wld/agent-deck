@@ -3,11 +3,13 @@ import {
   isClaudeThinkingLevel,
   isCodexThinkingLevel,
   isGrokThinkingLevel,
+  type CodexThinkingLevel,
   type SessionThinkingLevel,
 } from '@shared/session-metadata';
 import {
   isCodexApprovalPolicy,
   type AppSettings,
+  type CodexApprovalPolicy,
   type SessionAdapterId,
   type SessionCreationDefaults,
 } from '@shared/types';
@@ -54,10 +56,13 @@ export interface SessionCreationDefaultsHost {
   userHome(): string;
   anthropicModel(): string | undefined;
   codexConfigPath(): string;
-  resolveCodexModelProvider(
-    provider: string,
-    configPath: string,
-  ): { id: string } | null;
+  resolveCodexGatewayProfile(provider: string): {
+    id: string;
+    configOverrides: SessionCreationConfigRecord;
+    defaultModel?: string;
+    defaultThinking?: CodexThinkingLevel;
+    defaultApproval?: CodexApprovalPolicy;
+  } | null;
   claudeGatewaySettingsPath(provider: string, gatewaysDir: string): string;
 }
 
@@ -198,32 +203,30 @@ async function resolveCodexDefaults(
 ): Promise<SessionCreationDefaults> {
   const configPath = deps.codexConfigPath ?? host.codexConfigPath();
   const requestedProvider = options.provider?.trim() || undefined;
-  if (requestedProvider) host.resolveCodexModelProvider(requestedProvider, configPath);
-  const [config, fileContent] = await Promise.all([
-    readBoundedCodexConfig(options.cwd, deps),
-    readConfigText(configPath, 'codex-config', deps),
-  ]);
+  const gateway = requestedProvider
+    ? host.resolveCodexGatewayProfile(requestedProvider)
+    : null;
+  const [config, fileContent] = gateway
+    ? [gateway.configOverrides, null] as const
+    : await Promise.all([
+        readBoundedCodexConfig(options.cwd, deps),
+        readConfigText(configPath, 'codex-config', deps),
+      ]);
 
-  // config/read can report Codex's implicit built-in provider even when the user did not select
-  // one. Do not turn that effective default into an explicit override that our config-backed
-  // validator cannot later reproduce. A provider is surfaced only when native config discovery
-  // can resolve it; otherwise an empty selection delegates back to Codex.
-  const configuredProvider =
-    nonBlank(config.model_provider) ??
-    readTopLevelQuotedString(fileContent, 'model_provider');
-  const provider =
-    requestedProvider ?? resolveDiscoveredCodexProvider(configuredProvider, configPath, host);
+  const provider = gateway?.id ?? '';
   const model =
+    gateway?.defaultModel ??
     nonBlank(config.model) ??
     readTopLevelQuotedString(fileContent, 'model') ??
     '';
   const configuredThinking = config.model_reasoning_effort;
   const fileThinking = readTopLevelQuotedString(fileContent, 'model_reasoning_effort');
-  const thinking = isCodexThinkingLevel(configuredThinking)
-    ? configuredThinking
-    : isCodexThinkingLevel(fileThinking)
-      ? fileThinking
-      : 'high';
+  const thinking = gateway?.defaultThinking ??
+    (isCodexThinkingLevel(configuredThinking)
+      ? configuredThinking
+      : isCodexThinkingLevel(fileThinking)
+        ? fileThinking
+        : 'high');
   const configuredApproval = config.approval_policy;
   const fileApproval = readTopLevelQuotedString(fileContent, 'approval_policy');
 
@@ -232,25 +235,12 @@ async function resolveCodexDefaults(
     provider,
     model,
     thinking,
-    approvalPolicy: isCodexApprovalPolicy(configuredApproval)
+    approvalPolicy: gateway?.defaultApproval ?? (isCodexApprovalPolicy(configuredApproval)
       ? configuredApproval
       : isCodexApprovalPolicy(fileApproval)
         ? fileApproval
-        : 'never',
+        : 'never'),
   };
-}
-
-function resolveDiscoveredCodexProvider(
-  provider: string | null,
-  configPath: string,
-  host: SessionCreationDefaultsHost,
-): string {
-  if (!provider) return '';
-  try {
-    return host.resolveCodexModelProvider(provider, configPath)?.id ?? '';
-  } catch {
-    return '';
-  }
 }
 
 async function resolveGrokDefaults(

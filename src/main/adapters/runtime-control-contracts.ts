@@ -35,7 +35,7 @@ export function targetRuntimeFieldsForAdapter(
   const profile = getAdapterRuntimeProfile(adapterId);
   const fields: AdapterTargetRuntimeField[] = [];
   if (profile.runtimeControls.providerOverride === 'claude-gateway') fields.push('gateway');
-  if (profile.runtimeControls.providerOverride === 'codex-model-provider') {
+  if (profile.runtimeControls.providerOverride === 'codex-gateway') {
     fields.push('provider');
   }
   if (profile.capabilities.canSetSessionModelOptions) fields.push('model', 'thinking');

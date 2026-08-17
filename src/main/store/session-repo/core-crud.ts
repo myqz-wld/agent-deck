@@ -244,7 +244,7 @@ export function setAgentRuntimeProfile(
     });
 }
 
-/** Persist a Claude Gateway profile id or Codex model_provider id for the session. */
+/** Persist a Claude or Codex Gateway profile id for the session. */
 export function setRuntimeProvider(id: string, provider: string | null): void {
   getDb()
     .prepare(
@@ -278,7 +278,7 @@ export function setCodexSandbox(
   getDb().prepare(`UPDATE sessions SET codex_sandbox = ? WHERE id = ?`).run(sandbox, id);
 }
 
-/** Persist an explicit Codex approval override; null delegates to Codex config/provider defaults. */
+/** Persist an explicit Codex approval override; null delegates to Gateway/native config defaults. */
 export function setCodexApprovalPolicy(
   id: string,
   policy: CodexApprovalPolicy | null,

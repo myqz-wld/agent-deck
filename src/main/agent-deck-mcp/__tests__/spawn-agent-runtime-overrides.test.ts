@@ -129,7 +129,7 @@ describe('spawn Agent bundled runtime overrides', () => {
     expect(mocks.getBundledAgentRuntimeOverride).not.toHaveBeenCalled();
   });
 
-  it('returns a bundled Codex model_provider without replacing agent configuration', () => {
+  it('returns a bundled Codex Gateway without replacing native agent configuration', () => {
     mocks.resolveCodexAgentContent.mockReturnValue({
       ok: true,
       agent: {

@@ -26,8 +26,7 @@ export function resolveDesktopCodexCreateRuntime(
     resumeRecord,
     readApplicationInstructions: getAgentDeckCodexDeveloperInstructions,
     readConfiguredReasoningEffort: readTopLevelModelReasoningEffortFromCodexConfig,
-    readProviderConfigOverrides: (provider) =>
-      resolveCodexGatewayProfile(provider)?.configOverrides ?? null,
+    readGatewayProfile: resolveCodexGatewayProfile,
     readDefaultSandbox: () => settingsStore.get('codexSandbox'),
   });
 }

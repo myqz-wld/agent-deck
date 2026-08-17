@@ -5,14 +5,23 @@ import {
 } from './session-creation-defaults-core';
 
 function host(): SessionCreationDefaultsHost & {
-  resolveCodexModelProvider: ReturnType<typeof vi.fn>;
+  resolveCodexGatewayProfile: ReturnType<typeof vi.fn>;
   claudeGatewaySettingsPath: ReturnType<typeof vi.fn>;
 } {
   return {
     userHome: () => '/core-home',
     anthropicModel: () => 'environment-model',
     codexConfigPath: () => '/core-home/.codex/config.toml',
-    resolveCodexModelProvider: vi.fn((provider: string) => ({ id: provider })),
+    resolveCodexGatewayProfile: vi.fn((provider: string) => ({
+      id: provider,
+      configOverrides: {
+        model: 'gateway/model',
+        model_provider: 'internal-provider',
+        model_reasoning_effort: 'xhigh',
+      },
+      defaultModel: 'gateway/model',
+      defaultThinking: 'xhigh' as const,
+    })),
     claudeGatewaySettingsPath: vi.fn(
       (provider: string, gatewaysDir: string) => `${gatewaysDir}/${provider}.json`,
     ),
@@ -26,28 +35,44 @@ const settings = {
 };
 
 describe('Session creation defaults Core host boundary', () => {
-  it('resolves Codex provider identity only through the injected config host', async () => {
+  it('uses the selected Codex Gateway as the complete defaults source', async () => {
     const ports = host();
 
     const result = await resolveSessionCreationDefaultsCore('codex-cli', {
       cwd: '/workspace',
+      provider: 'xaminim',
     }, {
       settings,
       readCodexConfig: async () => ({
-        model_provider: 'team-provider',
-        model: 'provider/model',
+        model_provider: 'ignored-config-provider',
+        model: 'ignored/config-model',
       }),
       readConfigFile: async () => '',
     }, ports);
 
     expect(result).toMatchObject({
-      provider: 'team-provider',
-      model: 'provider/model',
+      provider: 'xaminim',
+      model: 'gateway/model',
+      thinking: 'xhigh',
     });
-    expect(ports.resolveCodexModelProvider).toHaveBeenCalledWith(
-      'team-provider',
-      '/core-home/.codex/config.toml',
-    );
+    expect(ports.resolveCodexGatewayProfile).toHaveBeenCalledWith('xaminim');
+  });
+
+  it('does not expose config.toml model_provider as a Gateway when none is selected', async () => {
+    const ports = host();
+    const result = await resolveSessionCreationDefaultsCore('codex-cli', {
+      cwd: '/workspace',
+    }, {
+      settings,
+      readCodexConfig: async () => ({
+        model_provider: 'native-provider',
+        model: 'native/model',
+      }),
+      readConfigFile: async () => '',
+    }, ports);
+
+    expect(result).toMatchObject({ provider: '', model: 'native/model' });
+    expect(ports.resolveCodexGatewayProfile).not.toHaveBeenCalled();
   });
 
   it('uses injected home, Gateway path, and environment model without desktop globals', async () => {
