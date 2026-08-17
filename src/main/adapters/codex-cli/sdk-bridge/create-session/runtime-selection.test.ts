@@ -10,6 +10,9 @@ describe('Codex live create runtime policy', () => {
   it('adopts persisted resume identity and avoids unused global readers', () => {
     const readDefaultSandbox = vi.fn(() => 'danger-full-access' as const);
     const readConfiguredReasoningEffort = vi.fn(() => 'low' as const);
+    const readProviderConfigOverrides = vi.fn(() => ({
+      model_context_window: 1_000_000,
+    }));
     const resolved = resolveCodexCreateRuntime(opts({
       resume: 'application-id',
       developerInstructions: 'delegated',
@@ -23,6 +26,7 @@ describe('Codex live create runtime policy', () => {
       },
       readApplicationInstructions: () => 'application',
       readConfiguredReasoningEffort,
+      readProviderConfigOverrides,
       readDefaultSandbox,
     });
 
@@ -31,6 +35,7 @@ describe('Codex live create runtime policy', () => {
       developerInstructions: 'application\n\n---\n\ndelegated',
       effectiveResumeThreadId: 'native-id',
       provider: 'openrouter',
+      providerConfigOverrides: { model_context_window: 1_000_000 },
       sandboxMode: 'read-only',
       threadModelReasoningEffort: 'max',
     });
@@ -41,6 +46,7 @@ describe('Codex live create runtime policy', () => {
     });
     expect(readDefaultSandbox).not.toHaveBeenCalled();
     expect(readConfiguredReasoningEffort).not.toHaveBeenCalled();
+    expect(readProviderConfigOverrides).toHaveBeenCalledWith('openrouter');
   });
 
   it('uses current defaults for a new session while leaving native reasoning implicit', () => {
@@ -48,6 +54,7 @@ describe('Codex live create runtime policy', () => {
       resumeRecord: null,
       readApplicationInstructions: () => undefined,
       readConfiguredReasoningEffort: () => 'xhigh',
+      readProviderConfigOverrides: () => null,
       readDefaultSandbox: () => 'workspace-write',
     });
 
@@ -73,10 +80,17 @@ describe('Codex live create runtime policy', () => {
       },
       readApplicationInstructions: () => undefined,
       readConfiguredReasoningEffort: () => 'low',
+      readProviderConfigOverrides: (provider) =>
+        provider === 'team'
+          ? { model_auto_compact_token_limit: 900_000 }
+          : null,
       readDefaultSandbox: () => 'read-only',
     });
 
     expect(resolved.effectiveResumeThreadId).toBeNull();
     expect(resolved.provider).toBe('team');
+    expect(resolved.providerConfigOverrides).toEqual({
+      model_auto_compact_token_limit: 900_000,
+    });
   });
 });

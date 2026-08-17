@@ -9,6 +9,7 @@ import type {
   SessionRecord,
   UploadedAttachmentRef,
 } from '@shared/types';
+import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 
 import type { CodexAppServerClient } from '../app-server/client';
 import type { CodexLiveRateHost } from './live-token-rate-core';
@@ -54,6 +55,9 @@ export interface CodexBridgeConfigurationPort {
   readApplicationInstructions(): string | undefined;
   readConfiguredModel(): string | null;
   readConfiguredReasoningEffort(): CodexThinkingLevel | null;
+  readProviderConfigOverrides(
+    provider: string | null | undefined,
+  ): CodexConfigObject | null;
   readDefaultSandbox(): 'workspace-write' | 'read-only' | 'danger-full-access';
   validateModelProvider(provider: string | null | undefined): void;
 }

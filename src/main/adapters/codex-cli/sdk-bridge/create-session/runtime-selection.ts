@@ -1,5 +1,6 @@
 import type { SessionRecord } from '@shared/types';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
+import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import { combineCodexDeveloperInstructions } from '../fork-session/target-runtime';
 import type { CreateSessionOpts, CodexSandboxMode } from './_deps';
 import {
@@ -20,6 +21,9 @@ export interface CodexCreateRuntimeHostValues {
   resumeRecord: CodexCreateResumeRecord | null;
   readApplicationInstructions: () => string | undefined;
   readConfiguredReasoningEffort: () => CodexThinkingLevel | null;
+  readProviderConfigOverrides: (
+    provider: string | null | undefined,
+  ) => CodexConfigObject | null;
   readDefaultSandbox: () => CodexSandboxMode;
 }
 
@@ -29,6 +33,7 @@ export interface ResolvedCodexCreateRuntime {
   effectiveOpts: CreateSessionOpts;
   effectiveResumeThreadId: string | null;
   provider?: string;
+  providerConfigOverrides?: CodexConfigObject;
   sandboxMode: CodexSandboxMode;
   threadModelReasoningEffort?: CodexThinkingLevel;
 }
@@ -66,6 +71,8 @@ export function resolveCodexCreateRuntime(
     host.readApplicationInstructions(),
     opts.developerInstructions,
   );
+  const providerConfigOverrides =
+    host.readProviderConfigOverrides(provider) ?? undefined;
   const effectiveResumeThreadId =
     opts.resume && opts.resumeMode !== 'fresh-cli-reuse-app'
       ? (opts.resumeCliSid ?? record?.cliSessionId ?? opts.resume)
@@ -77,6 +84,7 @@ export function resolveCodexCreateRuntime(
     effectiveOpts,
     effectiveResumeThreadId,
     provider,
+    providerConfigOverrides,
     sandboxMode,
     threadModelReasoningEffort: reasoning.threadValue,
   };

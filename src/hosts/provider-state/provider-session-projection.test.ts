@@ -66,10 +66,17 @@ describe('provider session projection', () => {
       '[mcp_servers.private]',
       'command = "/private/mcp"',
     ].join('\n'));
+    sourceFile(source, '.codex/gateways/team.json', JSON.stringify({
+      name: 'large context',
+      model_context_window: 1_000_000,
+      model_auto_compact_token_limit: 900_000,
+      api_key: 'must-not-project',
+    }));
     sourceFile(source, '.grok/config.toml', 'model = "grok-team"\n');
 
     expect(projectProviderSessionFiles(source, destination)).toEqual([
       '.claude/gateways/team.json',
+      '.codex/gateways/team.json',
       '.codex/config.toml',
       PROVIDER_SESSION_CATALOG_FILE,
     ]);
@@ -89,7 +96,15 @@ describe('provider session projection', () => {
     expect(codex).toContain('base_url = "https://provider.example.test/v1"');
     expect(codex).not.toContain('mcp_servers');
     expect(codex).not.toContain('/private/mcp');
-
+    const codexGateway = JSON.parse(readFileSync(
+      join(destination, '.codex', 'gateways', 'team.json'),
+      'utf8',
+    )) as Record<string, unknown>;
+    expect(codexGateway).toEqual({
+      model_context_window: 1_000_000,
+      model_auto_compact_token_limit: 900_000,
+    });
+    expect(JSON.stringify(codexGateway)).not.toContain('must-not-project');
     const catalog = readFileSync(join(destination, PROVIDER_SESSION_CATALOG_FILE), 'utf8');
     expect(catalog).toContain('gateway-sonnet');
     expect(catalog).toContain('gpt-team');
@@ -112,10 +127,16 @@ describe('provider session projection', () => {
       '.codex/config.toml',
       'model = "old-codex"\n[model_providers.old]\nname = "Old"\n',
     );
+    const oldCodexGateway = sourceFile(
+      source,
+      '.codex/gateways/old.json',
+      JSON.stringify({ model_context_window: 200_000 }),
+    );
     projectProviderSessionFiles(source, destination);
 
     unlinkSync(oldGateway);
     unlinkSync(codex);
+    unlinkSync(oldCodexGateway);
     sourceFile(
       source,
       '.claude/gateways/new.json',
@@ -127,6 +148,9 @@ describe('provider session projection', () => {
     expect(readFileSync(join(destination, '.claude', 'gateways', 'new.json'), 'utf8'))
       .toContain('new-model');
     expect(() => readFileSync(join(destination, '.codex', 'config.toml'))).toThrow();
+    expect(() => readFileSync(
+      join(destination, '.codex', 'gateways', 'old.json'),
+    )).toThrow();
     const catalog = readFileSync(join(destination, PROVIDER_SESSION_CATALOG_FILE), 'utf8');
     expect(catalog).toContain('new-model');
     expect(catalog).not.toContain('old-model');

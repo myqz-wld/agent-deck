@@ -8,6 +8,7 @@ import {
   isGrokThinkingLevel,
 } from '@shared/session-metadata';
 import { isCodexApprovalPolicy } from '@shared/types';
+import { parseCodexGatewayProfileTextCore } from '@main/codex-config/gateway-profiles-core';
 
 import {
   canonicalProviderDirectory,
@@ -21,6 +22,7 @@ export const PROVIDER_SESSION_CATALOG_FILE = '.agent-deck/session-create-catalog
 const CLAUDE_SETTINGS_FILE = '.claude/settings.json';
 const CLAUDE_GATEWAYS_DIRECTORY = '.claude/gateways';
 const CODEX_CONFIG_FILE = '.codex/config.toml';
+const CODEX_GATEWAYS_DIRECTORY = '.codex/gateways';
 const GROK_CONFIG_FILE = '.grok/config.toml';
 const SAFE_PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const SECRET_SHAPED = /(?:\b(?:AKIA|ASIA)[A-Z0-9]{12,}\b|\b(?:ghp_|github_pat_|sk-|xai-|gsk_|hf_)[A-Za-z0-9_-]{8,}\b)/u;
@@ -157,6 +159,25 @@ function gatewayDirectory(source: string): string[] {
   return names;
 }
 
+function codexGatewayDirectory(source: string): string[] {
+  const directory = join(source, CODEX_GATEWAYS_DIRECTORY);
+  const before = lstatSync(directory, { throwIfNoEntry: false });
+  if (!before) return [];
+  canonicalProviderDirectory(directory, 'Codex Gateway directory', false);
+  const names = readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && !entry.isSymbolicLink() && entry.name.endsWith('.json'))
+    .map((entry) => entry.name)
+    .filter((name) => SAFE_PROVIDER_ID.test(name.slice(0, -'.json'.length)))
+    .sort()
+    .slice(0, SESSION_CONSOLE_MAX_OPTION_VALUES);
+  const after = lstatSync(directory);
+  if (
+    realpathSync(directory) !== directory || before.dev !== after.dev || before.ino !== after.ino ||
+    before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+  ) throw new Error('Codex Gateway directory changed while it was listed');
+  return names;
+}
+
 function sanitizeGateway(value: Record<string, unknown>): JsonObject {
   const env = Object.fromEntries(Object.entries(stringRecord(value.env)).filter(
     ([key]) => !BLOCKED_GATEWAY_ENV.has(key),
@@ -205,6 +226,46 @@ function syncGatewayFiles(
     }
   }
   return { paths, profiles };
+}
+
+function syncCodexGatewayFiles(
+  source: string | null,
+  destination: string,
+  mode: ProviderProjectionMode,
+): string[] {
+  const names = source ? codexGatewayDirectory(source) : [];
+  const accepted = new Set<string>();
+  const paths: string[] = [];
+  for (const name of names) {
+    const relative = `${CODEX_GATEWAYS_DIRECTORY}/${name}`;
+    const bytes = readOptionalProviderFile(source!, relative);
+    if (!bytes) continue;
+    let profileText = '';
+    try { profileText = bytes.toString('utf8'); } finally { bytes.fill(0); }
+    const id = name.slice(0, -'.json'.length);
+    const projected = parseCodexGatewayProfileTextCore(id, relative, profileText);
+    const sanitized = Buffer.from(
+      `${JSON.stringify(projected.configOverrides, null, 2)}\n`,
+      'utf8',
+    );
+    try { writeProviderFile(destination, relative, sanitized, mode); } finally {
+      sanitized.fill(0);
+    }
+    accepted.add(name);
+    paths.push(relative);
+  }
+  const destinationDirectory = join(destination, CODEX_GATEWAYS_DIRECTORY);
+  if (lstatSync(destinationDirectory, { throwIfNoEntry: false })) {
+    canonicalProviderDirectory(destinationDirectory, 'projected Codex Gateway directory', true);
+    for (const entry of readdirSync(destinationDirectory, { withFileTypes: true })) {
+      if (!entry.name.endsWith('.json') || accepted.has(entry.name)) continue;
+      if (!entry.isFile() || entry.isSymbolicLink()) {
+        throw new Error('projected Codex Gateway directory contains an unsafe entry');
+      }
+      removeProviderFile(destination, `${CODEX_GATEWAYS_DIRECTORY}/${entry.name}`);
+    }
+  }
+  return paths;
 }
 
 function catalog(
@@ -286,13 +347,14 @@ export function projectProviderSessionFiles(
     true,
   );
   const gateways = syncGatewayFiles(source, destination, mode);
+  const codexGateways = syncCodexGatewayFiles(source, destination, mode);
   const codexBytes = readOptionalProviderFile(source, CODEX_CONFIG_FILE);
   const codexContent = (() => {
     if (!codexBytes) return '';
     try { return codexBytes.toString('utf8'); } finally { codexBytes.fill(0); }
   })();
   const sanitizedConfig = sanitizedCodexConfig(codexContent);
-  const projected = [...gateways.paths];
+  const projected = [...gateways.paths, ...codexGateways];
   if (sanitizedConfig) {
     const bytes = Buffer.from(sanitizedConfig, 'utf8');
     try { writeProviderFile(destination, CODEX_CONFIG_FILE, bytes, mode); } finally { bytes.fill(0); }
@@ -326,6 +388,7 @@ export function syncProviderSessionFiles(
     true,
   );
   syncGatewayFiles(null, destination, 'replace');
+  syncCodexGatewayFiles(null, destination, 'replace');
   removeProviderFile(destination, CODEX_CONFIG_FILE);
   removeProviderFile(destination, PROVIDER_SESSION_CATALOG_FILE);
   return Object.freeze([]);

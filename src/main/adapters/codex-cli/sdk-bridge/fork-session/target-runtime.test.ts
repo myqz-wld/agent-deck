@@ -19,6 +19,7 @@ describe('Codex fork target runtime boundary', () => {
       developerInstructions: 'application instructions',
       readConfiguredModel: () => 'gpt-configured',
       readConfiguredReasoningEffort: () => 'max',
+      readProviderConfigOverrides: () => null,
     });
 
     expect(runtime).toMatchObject({
@@ -46,6 +47,10 @@ describe('Codex fork target runtime boundary', () => {
       defaultSandboxMode: 'read-only',
       readConfiguredModel: () => 'gpt-configured',
       readConfiguredReasoningEffort: () => 'low',
+      readProviderConfigOverrides: () => ({
+        model_context_window: 1_000_000,
+        model_auto_compact_token_limit: 900_000,
+      }),
     });
 
     expect(runtime).toMatchObject({
@@ -57,6 +62,10 @@ describe('Codex fork target runtime boundary', () => {
       sandboxMode: 'danger-full-access',
       model: 'gpt-explicit',
       modelReasoningEffort: 'ultra',
+      providerConfigOverrides: {
+        model_context_window: 1_000_000,
+        model_auto_compact_token_limit: 900_000,
+      },
     });
   });
 });

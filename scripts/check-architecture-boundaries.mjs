@@ -912,6 +912,21 @@ const rules = [
     forbiddenPackages: ['electron', 'electron-log'],
   },
   {
+    name: 'codex-gateway-profiles-core',
+    root: 'src/main/codex-config/gateway-profiles-core.ts',
+    forbiddenTargets: [
+      'src/main/codex-config/gateway-profiles',
+      'src/main/codex-config/gateway-profiles-host',
+      'src/main/event-bus',
+      'src/main/runtime-host',
+      'src/main/session',
+      'src/main/store',
+      'src/main/utils',
+    ],
+    forbidNodeBuiltins: true,
+    forbiddenPackages: ['electron', 'electron-log'],
+  },
+  {
     name: 'codex-agents-md-store',
     root: 'src/main/codex-config/agents-md-store.ts',
     forbiddenTargets: [

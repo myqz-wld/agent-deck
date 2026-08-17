@@ -59,8 +59,15 @@ The Codex adapter uses this resource root. Codex app-server has no Claude SDK `p
 - The public `provider` selector names a native `model_provider` available from
   `${CODEX_HOME:-~/.codex}/config.toml` (including its top-level default) and applies it through the
   app-server's supported thread configuration.
+- An optional `${CODEX_HOME:-~/.codex}/gateways/<provider>.json` pairs a safe provider id with
+  positive integer `model_context_window` and `model_auto_compact_token_limit` values. Agent Deck
+  projects only those two keys into Remote provider homes and applies them through thread-level
+  app-server `config` for new, resumed, forked, and internal Codex threads. A selected Codex Agent's
+  explicit config remains the higher-precedence layer; a missing profile preserves native defaults.
 - The Assets Library shows user-root Agents/Skills, native Plugin Skills, and Plugin TOML Agent extensions. All direct and Plugin files are inspection-only and stay under Codex CLI ownership.
-- Agent Deck reads native Codex configuration but does not write `${CODEX_HOME:-~/.codex}/config.toml`, `~/.codex/AGENTS.md`, or `~/.codex/skills/agent-deck/`.
+- Agent Deck reads native Codex configuration and Gateway profiles but does not write
+  `${CODEX_HOME:-~/.codex}/config.toml`, `${CODEX_HOME:-~/.codex}/gateways/`,
+  `~/.codex/AGENTS.md`, or `~/.codex/skills/agent-deck/`.
 
 ## grok-config/
 

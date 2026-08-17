@@ -1,4 +1,5 @@
 import { getAgentDeckCodexDeveloperInstructions } from '@main/codex-config/agents-md-installer';
+import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
 import {
   readTopLevelModelFromCodexConfig,
   readTopLevelModelReasoningEffortFromCodexConfig,
@@ -19,5 +20,7 @@ export function resolveDesktopCodexForkTargetRuntime(
     developerInstructions: getAgentDeckCodexDeveloperInstructions(),
     readConfiguredModel: readTopLevelModelFromCodexConfig,
     readConfiguredReasoningEffort: readTopLevelModelReasoningEffortFromCodexConfig,
+    readProviderConfigOverrides: (provider) =>
+      resolveCodexGatewayProfile(provider)?.configOverrides ?? null,
   });
 }

@@ -26,6 +26,28 @@ Before creating a session, authenticate each agent through its normal CLI workfl
 
 Bundled runtimes are selected by default. Configure an external runtime path only when you need a different installation.
 
+### Codex Gateway profiles
+
+Codex providers can use different context and compaction limits without changing the whole
+app-server process. Create an optional JSON file at
+`${CODEX_HOME:-~/.codex}/gateways/<provider>.json`, where `<provider>` exactly matches a native
+`model_provider` id from `${CODEX_HOME:-~/.codex}/config.toml`:
+
+```json
+{
+  "model_context_window": 1000000,
+  "model_auto_compact_token_limit": 900000
+}
+```
+
+Agent Deck reads only these two positive integer fields and sends them through the app-server
+thread `config` whenever that provider is selected, resumed, forked, or used by an internal Codex
+task. The compaction limit must not exceed the context window. A missing profile keeps native Codex
+defaults, while a selected Codex Agent's explicit config remains the higher-precedence thread
+layer. Provider ids outside the safe filename form (1–128 letters, digits, dots, underscores, or
+hyphens, starting with a letter or digit) remain valid native providers but cannot use a file-backed
+profile. Claude Gateway profiles remain separate under `~/.claude/gateways/`.
+
 ## Basic Workflow
 
 Use a lead session as the control point for the project:

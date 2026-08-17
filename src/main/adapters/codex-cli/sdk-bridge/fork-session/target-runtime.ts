@@ -1,5 +1,6 @@
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import { CODEX_DEFAULT_BUCKET } from '@shared/model-normalize';
+import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import { MAX_MESSAGE_LENGTH } from '../constants';
 import type { CreateSessionOpts } from '../create-session/_deps';
 import {
@@ -26,6 +27,9 @@ export interface CodexForkTargetRuntimeHost {
   readConfiguredModel: () => string | null;
   readConfiguredReasoningEffort: () =>
     NonNullable<CreateSessionOpts['modelReasoningEffort']> | null;
+  readProviderConfigOverrides: (
+    provider: string | null | undefined,
+  ) => CodexConfigObject | null;
 }
 
 export function resolveCodexForkTargetRuntime(
@@ -73,6 +77,8 @@ export function resolveCodexForkTargetRuntime(
       modelReasoningEffort: reasoning.threadValue,
       developerInstructions: effectiveDeveloperInstructions,
       configOverrides: opts.codexConfigOverrides,
+      providerConfigOverrides:
+        host.readProviderConfigOverrides(opts.provider) ?? undefined,
       networkAccessEnabled: opts.networkAccessEnabled,
       additionalDirectories: opts.additionalDirectories,
       extraAllowWrite: opts.extraAllowWrite,

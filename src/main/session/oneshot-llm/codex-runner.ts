@@ -1,4 +1,5 @@
 import { getCodexInstance } from '@main/adapters/codex-cli/codex-instance-pool';
+import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
 import {
   runCodexOneshotWithHost,
   type CodexOneshotOptions,
@@ -15,5 +16,7 @@ export { runCodexOneshotWithHost } from './codex-runner-core';
 export function runCodexOneshot(options: CodexOneshotOptions): Promise<string> {
   return runCodexOneshotWithHost(options, {
     getInstance: getCodexInstance,
+    resolveProviderConfigOverrides: (provider) =>
+      resolveCodexGatewayProfile(provider)?.configOverrides ?? null,
   });
 }
