@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
     setGrokUsageWatermark: vi.fn(),
   },
   transaction: vi.fn((operation: () => unknown) => operation),
+  prepareBrowser: vi.fn(() => ({ environment: { PATH: '/browser-bin:/usr/bin' } })),
+  revokeBrowser: vi.fn(),
 }));
 
 vi.mock('@main/event-bus', () => ({ eventBus: { emit: mocks.emit } }));
@@ -37,6 +39,10 @@ vi.mock('./bridge-diagnostics-host', () => ({
 }));
 vi.mock('./live-token-rate-host', () => ({
   desktopGrokLiveRateObserver: mocks.liveRate,
+}));
+vi.mock('@main/browser-use/browser-runtime-context-host', () => ({
+  prepareBrowserRuntimeEnvironment: mocks.prepareBrowser,
+  revokeBrowserRuntimeSession: mocks.revokeBrowser,
 }));
 
 import { desktopGrokBridgeRuntimeHost as host } from './bridge-runtime-host';
@@ -71,5 +77,14 @@ describe('desktop Grok bridge runtime host', () => {
       agentId: 'grok-build',
     });
     expect(host.hasPendingWorktreeTransition('session-a')).toBe(true);
+    expect(host.prepareBrowserRuntimeEnvironment?.('session-a')).toEqual({
+      PATH: '/browser-bin:/usr/bin',
+    });
+    expect(mocks.prepareBrowser).toHaveBeenCalledWith(expect.objectContaining({
+      applicationSessionId: 'session-a',
+      adapterId: 'grok-build',
+    }));
+    host.revokeBrowserRuntime?.('session-a');
+    expect(mocks.revokeBrowser).toHaveBeenCalledWith('session-a');
   });
 });

@@ -7,6 +7,10 @@ import { sessionRepo } from '@main/store/session-repo';
 import { desktopGrokBridgeDiagnostics } from './bridge-diagnostics-host';
 import type { GrokBridgeRuntimeHost } from './bridge-runtime-core';
 import { desktopGrokLiveRateObserver } from './live-token-rate-host';
+import {
+  prepareBrowserRuntimeEnvironment,
+  revokeBrowserRuntimeSession,
+} from '@main/browser-use/browser-runtime-context-host';
 
 export const desktopGrokBridgeRuntimeHost: GrokBridgeRuntimeHost = {
   diagnostics: desktopGrokBridgeDiagnostics,
@@ -36,4 +40,18 @@ export const desktopGrokBridgeRuntimeHost: GrokBridgeRuntimeHost = {
     guardHandOffSourceIngress({ ...args, agentId: 'grok-build' }),
   hasPendingWorktreeTransition: (sessionId) =>
     worktreeToolInvocationRegistry.hasPendingTransition(sessionId),
+  prepareBrowserRuntimeEnvironment: (applicationSessionId) => {
+    const environment: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined) environment[key] = value;
+    }
+    return prepareBrowserRuntimeEnvironment({
+      applicationSessionId,
+      adapterId: 'grok-build',
+      environment,
+    })?.environment ?? null;
+  },
+  revokeBrowserRuntime: (applicationSessionId) => {
+    revokeBrowserRuntimeSession(applicationSessionId);
+  },
 };

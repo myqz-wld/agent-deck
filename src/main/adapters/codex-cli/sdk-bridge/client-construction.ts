@@ -7,6 +7,7 @@ import type { CodexAppServerOptions } from '../app-server/protocol';
 import type { CodexAppServerClient } from '../app-server/client';
 import type { AppSettings } from '@shared/types';
 import type { CodexBridgeOptions } from './types';
+import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 
 export interface CodexClientConstructionHost {
   createClient(options: CodexAppServerOptions): CodexAppServerClient;
@@ -14,6 +15,12 @@ export interface CodexClientConstructionHost {
   readSettings(): AppSettings;
   readSkillExtraRoots(): string[];
   snapshotProcessEnv(): Record<string, string>;
+  prepareBrowserRuntime?(
+    sessionId: string,
+    environment: Readonly<Record<string, string>>,
+  ): { environment: Record<string, string> } | null;
+  browserSocketConfig?(environment: Readonly<Record<string, string>>): CodexConfigObject | null;
+  revokeBrowserRuntime?(sessionId: string): void;
 }
 
 export interface EnsureCodexClientOptions {
@@ -41,13 +48,26 @@ export function ensureCodexClientWithHost(
   const env = host.snapshotProcessEnv();
   env[AGENT_DECK_MCP_TOKEN_ENV] = options.sessionToken;
   env.AGENT_DECK_ORIGIN = 'sdk';
-  const client = host.createClient({
-    codexPathOverride,
-    config: mergeCodexConfig(null, agentDeckMcpConfig),
-    env,
-    skillExtraRoots: host.readSkillExtraRoots(),
-    nodeReplBrowserBootstrap: true,
-  });
+  const browserRuntime = host.prepareBrowserRuntime?.(options.sessionId, env) ?? null;
+  const browserConfig = browserRuntime == null
+    ? null
+    : host.browserSocketConfig?.(browserRuntime.environment) ?? null;
+  let client: CodexAppServerClient;
+  try {
+    client = host.createClient({
+      codexPathOverride,
+      config: mergeCodexConfig(
+        mergeCodexConfig(null, agentDeckMcpConfig),
+        browserConfig,
+      ),
+      env: browserRuntime?.environment ?? env,
+      skillExtraRoots: host.readSkillExtraRoots(),
+      nodeReplBrowserBootstrap: true,
+    });
+  } catch (error) {
+    host.revokeBrowserRuntime?.(options.sessionId);
+    throw error;
+  }
   options.clients.set(options.sessionId, client);
   return client;
 }

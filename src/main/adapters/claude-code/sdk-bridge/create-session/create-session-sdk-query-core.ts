@@ -24,6 +24,12 @@ export type ClaudeSdkQueryOptionsArgs = Omit<
 export interface ClaudeCreateSessionSdkQueryHost {
   loadSdk(): Promise<Pick<typeof import('@anthropic-ai/claude-agent-sdk'), 'query'>>;
   runtimeOptions(): ClaudeSdkRuntimeOptions;
+  prepareBrowserRuntime?(
+    applicationSessionId: string,
+    environment: Readonly<Record<string, string>>,
+  ): { environment: Record<string, string> } | null;
+  revokeBrowserRuntime?(applicationSessionId: string): void;
+  allowBrowserSocket?(sandboxOptions: GatewaySandboxOptions): GatewaySandboxOptions;
   resolveBinary(): string | undefined;
   buildSandboxOptions(
     mode: SandboxMode | undefined,

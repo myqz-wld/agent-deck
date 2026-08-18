@@ -23,6 +23,7 @@ import { handOffCutoverCoordinator } from '../hand-off/cutover-coordinator';
 import { getDb } from '@main/store/db';
 import { worktreeTransitionRepo } from '@main/store/worktree-transition-repo';
 import { worktreeToolInvocationRegistry } from '../worktree-transition/tool-invocation-registry';
+import { renameBrowserRuntimeOwner } from '@main/browser-use/browser-runtime-lifecycle';
 
 const logger = log.scope('session-manager-rename');
 
@@ -79,6 +80,7 @@ export function renameSdkSessionImpl(
   state.recentlyDeleted.set(fromId, Date.now());
   // ④ token map rename(claude 路径 noop 静默)
   mcpSessionTokenMap.rename(fromId, toId);
+  renameBrowserRuntimeOwner(fromId, toId);
   // ⑤ emit session-renamed
   eventBus.emit('session-renamed', { from: fromId, to: toId });
   // ⑥ emit upserted + hook 派发

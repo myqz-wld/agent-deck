@@ -71,7 +71,7 @@ export function buildGrokLaunchSpec(
     // cross-adapter hook scanners. fd 3 keeps ACP stdout separate from shell startup text.
     args: [
       '-ilc',
-      'export AGENT_DECK_ORIGIN=sdk GROK_CLAUDE_HOOKS_ENABLED=0 GROK_CURSOR_HOOKS_ENABLED=0; exec "$@" 1>&3',
+      'export AGENT_DECK_ORIGIN=sdk GROK_CLAUDE_HOOKS_ENABLED=0 GROK_CURSOR_HOOKS_ENABLED=0; if [ -n "${AGENT_DECK_BROWSER_BIN_DIR:-}" ]; then PATH="$AGENT_DECK_BROWSER_BIN_DIR:$PATH"; export PATH; fi; exec "$@" 1>&3',
       'agent-deck-grok',
       binary,
       ...args,

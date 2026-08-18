@@ -12,6 +12,7 @@ import log from '@main/utils/logger';
 import { getBrowserEngine } from './engine/registry';
 import type { BrowserOwnerHandle } from './engine/registry';
 import type { BrowserOwnerKey } from './engine/types';
+import { revokeBrowserRuntimeOwner } from './browser-runtime-lifecycle';
 
 const logger = log.scope('browser-engine');
 
@@ -29,6 +30,7 @@ export function acquireSessionBrowser(sessionId: string): BrowserOwnerHandle {
  * and safe to call twice; failures are logged instead of breaking a lifecycle transition.
  */
 export async function disposeSessionBrowser(sessionId: string): Promise<void> {
+  revokeBrowserRuntimeOwner(sessionId);
   try {
     const engine = getBrowserEngine();
     if (engine.peek(sessionBrowserOwner(sessionId)) == null) return;

@@ -81,6 +81,23 @@ export async function runCreateSessionSdkQuery(
       settingsPath: opts.settingsPath,
       sandboxOpts,
     });
+    const runtimeWithGateway = Object.keys(preparedGatewaySettings.childEnv).length > 0
+      ? {
+          ...runtime,
+          env: { ...runtime.env, ...preparedGatewaySettings.childEnv },
+        }
+      : runtime;
+    const browserRuntime = host.prepareBrowserRuntime?.(
+      internal.applicationSid,
+      runtimeWithGateway.env,
+    ) ?? null;
+    const runtimeWithBrowser = browserRuntime == null
+      ? runtimeWithGateway
+      : { ...runtimeWithGateway, env: browserRuntime.environment };
+    const sandboxWithBrowser = browserRuntime == null
+      ? preparedGatewaySettings.sandboxOpts
+      : host.allowBrowserSocket?.(preparedGatewaySettings.sandboxOpts)
+        ?? preparedGatewaySettings.sandboxOpts;
     internal.gatewaySandboxSettingsCleanup = preparedGatewaySettings.cleanup;
     observeWithoutThrow(() => host.observeSandboxConfiguration(
       `[sandbox] mode=${claudeSandboxMode} → ${
@@ -143,19 +160,10 @@ export async function runCreateSessionSdkQuery(
         // 反向 rename 后 appSid != cliSid 时让 CLI 找正确 jsonl 文件)。
         resume: effectiveResumeCliSid,
         canUseTool,
-        sandboxOpts: preparedGatewaySettings.sandboxOpts,
+        sandboxOpts: sandboxWithBrowser,
         systemPromptAppend: host.systemPromptAppend(),
         plugins: host.plugins(opts.claudePluginDir),
-        runtime:
-          Object.keys(preparedGatewaySettings.childEnv).length > 0
-            ? {
-                ...runtime,
-                env: {
-                  ...runtime.env,
-                  ...preparedGatewaySettings.childEnv,
-                },
-              }
-            : runtime,
+        runtime: runtimeWithBrowser,
         claudeBinary,
         mcpServers,
         model: claudeModel,
@@ -213,6 +221,7 @@ export async function runCreateSessionSdkQuery(
     // 注册到 SessionManager 的 sdk-owned 集合，后续 hook 回环将被去重
     deps.sessionManager.claimAsSdk(realId);
   } catch (err) {
+    host.revokeBrowserRuntime?.(internal.applicationSid);
     // 任何中间步骤抛错：回滚 sessions / 释放 pending，再 throw 给上层 IPC 显错
     // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.5 修法 (H2 + A1-HIGH-1 race 双保险 (A) abort consume)**:
     // catch 块入口立刻 set expectedClose=true + fire-and-forget interrupt() 防 detached SDK

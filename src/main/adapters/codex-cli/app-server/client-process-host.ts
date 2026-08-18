@@ -4,6 +4,7 @@ import {
   resolveCodexBinary,
 } from '../sdk-bridge/codex-binary';
 import type { CodexAppServerProcessStart } from './client-host-port';
+import { refreshBrowserRuntimeFromEnvironment } from '@main/browser-use/browser-runtime-context-host';
 
 export interface CodexAppServerProcessHostDependencies {
   spawnProcess: typeof spawn;
@@ -21,6 +22,7 @@ export function createCodexAppServerProcessStarter(
   dependencies: CodexAppServerProcessHostDependencies = desktopDependencies,
 ): (input: CodexAppServerProcessStart) => ChildProcessWithoutNullStreams {
   return (input) => {
+    refreshBrowserRuntimeFromEnvironment(input.env);
     const override = input.codexPathOverride?.trim() ?? '';
     const command = override || dependencies.resolveBinary() || 'codex';
     const env = { ...input.env };

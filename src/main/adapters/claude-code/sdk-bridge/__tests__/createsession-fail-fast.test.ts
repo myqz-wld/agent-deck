@@ -670,6 +670,9 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
         executable: 'node' as const,
         env: { INJECTED_QUERY_HOST: '1' },
       })),
+      prepareBrowserRuntime: vi.fn((_applicationSessionId, environment) => ({
+        environment: { ...environment, PATH: '/private/browser-bin:/usr/bin' },
+      })),
       resolveBinary: vi.fn(() => '/injected/claude'),
       buildSandboxOptions: vi.fn(() => ({})),
       prepareGatewaySandboxSettings: vi.fn(({ settingsPath, sandboxOpts }) => ({
@@ -706,6 +709,10 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
     await expect(createPromise).resolves.toMatchObject({ sessionId: 'sdk-query-host-sid' });
     expect(createSessionSdkQueryHost.loadSdk).toHaveBeenCalledOnce();
     expect(createSessionSdkQueryHost.runtimeOptions).toHaveBeenCalledOnce();
+    expect(createSessionSdkQueryHost.prepareBrowserRuntime).toHaveBeenCalledWith(
+      expect.any(String),
+      { INJECTED_QUERY_HOST: '1' },
+    );
     expect(createSessionSdkQueryHost.resolveBinary).toHaveBeenCalledOnce();
     expect(createSessionSdkQueryHost.observeSandboxConfiguration).toHaveBeenCalledOnce();
     expect(buildQueryOptions).toHaveBeenCalledWith(expect.objectContaining({
@@ -713,7 +720,10 @@ describe('createSession A1-HIGH-1 失败语义 — SDK 流终止前没 emit firs
       systemPromptAppend: 'INJECTED SYSTEM PROMPT',
       runtime: {
         executable: 'node',
-        env: { INJECTED_QUERY_HOST: '1' },
+        env: {
+          INJECTED_QUERY_HOST: '1',
+          PATH: '/private/browser-bin:/usr/bin',
+        },
       },
     }));
   });

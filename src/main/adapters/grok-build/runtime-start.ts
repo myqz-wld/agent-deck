@@ -195,12 +195,21 @@ export async function startGrokRuntime(
   } else {
     const binary = await resolveGrokBinary(context.binaryPath);
     if (!context.isCurrentRuntime(runtime) || runtime.closed) return false;
-    process = await GrokAcpProcess.start({
-      ...clientOptions,
-      binary,
-      cwd: runtime.cwd,
-      sandboxProfile: runtime.grokSandbox,
-    });
+    const browserEnvironment = runtimeHost.prepareBrowserRuntimeEnvironment?.(
+      runtime.applicationSessionId,
+    ) ?? null;
+    try {
+      process = await GrokAcpProcess.start({
+        ...clientOptions,
+        binary,
+        cwd: runtime.cwd,
+        ...(browserEnvironment ? { environment: browserEnvironment } : {}),
+        sandboxProfile: runtime.grokSandbox,
+      });
+    } catch (error) {
+      runtimeHost.revokeBrowserRuntime?.(runtime.applicationSessionId);
+      throw error;
+    }
   }
   if (!context.isCurrentRuntime(runtime) || runtime.closed) {
     await process.stop();

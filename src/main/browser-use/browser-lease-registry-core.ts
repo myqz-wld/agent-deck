@@ -152,6 +152,44 @@ export class BrowserLeaseRegistryCore {
     return leases.length;
   }
 
+  renameSession(fromApplicationSessionId: string, toApplicationSessionId: string): number {
+    if (fromApplicationSessionId === toApplicationSessionId) return 0;
+    if (toApplicationSessionId.length === 0 || Buffer.byteLength(toApplicationSessionId) > 512) {
+      throw new Error('Invalid Browser runtime applicationSessionId.');
+    }
+    const leases = [...(this.leasesBySession.get(fromApplicationSessionId) ?? [])];
+    let renamed = 0;
+    for (const lease of leases) {
+      const record = this.records.get(lease);
+      if (record == null) continue;
+      const replacementIdentity = {
+        ...record.binding,
+        applicationSessionId: toApplicationSessionId,
+      };
+      const replacementKey = runtimeKey(replacementIdentity);
+      const conflicting = this.leaseByRuntime.get(replacementKey);
+      if (conflicting != null && conflicting !== lease) this.remove(conflicting);
+      if (this.leaseByRuntime.get(record.runtimeKey) === lease) {
+        this.leaseByRuntime.delete(record.runtimeKey);
+      }
+      const replacement: LeaseRecord = {
+        binding: Object.freeze(replacementIdentity),
+        runtimeKey: replacementKey,
+      };
+      this.records.set(lease, replacement);
+      this.leaseByRuntime.set(replacementKey, lease);
+      this.leasesBySession.get(fromApplicationSessionId)?.delete(lease);
+      const target = this.leasesBySession.get(toApplicationSessionId) ?? new Set<string>();
+      target.add(lease);
+      this.leasesBySession.set(toApplicationSessionId, target);
+      renamed += 1;
+    }
+    if (this.leasesBySession.get(fromApplicationSessionId)?.size === 0) {
+      this.leasesBySession.delete(fromApplicationSessionId);
+    }
+    return renamed;
+  }
+
   revokeRuntime(identity: BrowserRuntimeIdentity): boolean {
     const lease = this.leaseByRuntime.get(runtimeKey(identity));
     if (lease == null) return false;

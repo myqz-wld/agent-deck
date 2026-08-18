@@ -15,12 +15,27 @@ import {
   prepareGatewaySandboxSettings,
 } from './gateway-sandbox-settings';
 import type { ClaudeCreateSessionSdkQueryHost } from './create-session-sdk-query-core';
+import {
+  prepareBrowserRuntimeEnvironment,
+  revokeBrowserRuntimeSession,
+  allowClaudeBrowserSocket,
+} from '@main/browser-use/browser-runtime-context-host';
 
 const logger = log.scope('claude-sdk-query');
 
 export const desktopClaudeCreateSessionSdkQueryHost: ClaudeCreateSessionSdkQueryHost = {
   loadSdk,
   runtimeOptions: getSdkRuntimeOptions,
+  prepareBrowserRuntime: (applicationSessionId, environment) =>
+    prepareBrowserRuntimeEnvironment({
+      applicationSessionId,
+      adapterId: 'claude-code',
+      environment,
+    }),
+  revokeBrowserRuntime: (applicationSessionId) => {
+    revokeBrowserRuntimeSession(applicationSessionId);
+  },
+  allowBrowserSocket: allowClaudeBrowserSocket,
   resolveBinary: resolveClaudeBinary,
   buildSandboxOptions,
   prepareGatewaySandboxSettings,
