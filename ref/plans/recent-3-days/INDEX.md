@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-08-18 | `PLAN_43_unified-browser-skill-cli-iab.md` | completed with Remote live gate retained | Unify Browser skill, CLI, responsive IAB, and annotation | CHANGELOG_618 / REVIEW_255 |
 | 2026-08-18 | `PLAN_42_summary-settings-layout-and-timeout-policy.md` | completed | Align generator settings order and internalize summary timeout | REVIEW_254 |
 | 2026-08-18 | `PLAN_41_current-only-gap-sweep.md` | completed | Close remaining utility, root-config, prompt, and settings-copy gaps | REVIEW_253 |
 | 2026-08-17 | `PLAN_40_current-only-compatibility-sweep.md` | completed | Remove unsupported compatibility code by functional boundary | REVIEW_252 |
