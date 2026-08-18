@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useMemo, useState, type JSX } from 'react';
 import {
   isSelectablePermissionMode,
   type AdapterSessionMode,
@@ -20,6 +20,10 @@ import {
   PERMISSION_MODE_OPTIONS,
 } from './composer-sdk/SandboxSelects';
 import { SessionComposerView } from './SessionComposerView';
+import {
+  useRegisterIabComposerTarget,
+  type IabComposerTarget,
+} from './iab-composer-bridge';
 
 /** SDK 会话输入区及其按逻辑会话隔离的异步操作。 */
 export function ComposerSdk({
@@ -100,6 +104,36 @@ export function ComposerSdk({
   const steerActionLabel = agentId === 'codex-cli' ? '修正' : '插入';
   const canUseAttachments =
     canAcceptAttachments && (!isSteerMode || canSteerTurnAttachments);
+  const iabTarget = useMemo<IabComposerTarget>(() => {
+    if (adapterRuntime.loading) {
+      return {
+        key: `local:${sessionId}`,
+        status: 'loading',
+        reason: '正在读取当前会话的图片输入能力…',
+      };
+    }
+    if (canUseAttachments) {
+      return {
+        key: `local:${sessionId}`,
+        status: 'supported',
+        reason: '',
+        addPng: (file) => imgs.add([file]),
+      };
+    }
+    const reason = !canAcceptAttachments
+      ? `${agentDisplayName} 当前运行时没有声明图片输入能力，因此不能把 IAB 标注加入消息。`
+      : `${agentDisplayName} 当前轮次的${steerActionLabel}只支持文字，任务结束或中断后才能添加 IAB 标注。`;
+    return { key: `local:${sessionId}`, status: 'unsupported', reason };
+  }, [
+    adapterRuntime.loading,
+    agentDisplayName,
+    canAcceptAttachments,
+    canUseAttachments,
+    imgs.add,
+    sessionId,
+    steerActionLabel,
+  ]);
+  useRegisterIabComposerTarget(iabTarget);
 
   const send = async (): Promise<boolean> => {
     const originSessionId = sessionId;

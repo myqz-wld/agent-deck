@@ -14,7 +14,16 @@ class PresentableSurface implements EngineTabSurface {
   readonly window = new FakeWindow(new FakeSession());
   readonly webContents = this.window.webContents as unknown as WebContents;
   readonly present = vi.fn((_window: BrowserWindow, bounds: Electron.Rectangle) => ({ ...bounds }));
-  readonly park = vi.fn(() => true);
+  readonly park = vi.fn(() => {
+    if (this.parkViewportRevision != null) {
+      this.viewportRevisionValue = this.parkViewportRevision;
+      this.deviceScaleFactorValue = 1;
+    }
+    return true;
+  });
+  deviceScaleFactorValue = 1;
+  viewportRevisionValue = 1;
+  parkViewportRevision: number | null = null;
   private closed: (() => void) | null = null;
 
   isDestroyed(): boolean { return this.window.destroyed; }
@@ -24,14 +33,15 @@ class PresentableSurface implements EngineTabSurface {
     this.window.destroy();
     this.closed?.();
   }
-  deviceScaleFactor(): number { return 1; }
+  deviceScaleFactor(): number { return this.deviceScaleFactorValue; }
   canSendInputEvents(): boolean { return false; }
   onActivated(): () => void { return () => undefined; }
   onClosed(listener: () => void): () => void {
     this.closed = listener;
     return () => { if (this.closed === listener) this.closed = null; };
   }
-  viewportRevision(): number { return 1; }
+  viewportRevision(): number { return this.viewportRevisionValue; }
+  zoomFactor(): number { return 1; }
 }
 
 const source: BrowserStateSource = { kind: 'local', sessionId: 'session-a' };
@@ -125,5 +135,68 @@ describe('Browser presentation controller', () => {
 
     expect(host.parkAll).toHaveBeenCalledTimes(2);
     expect(controller.park(42, lease.leaseId)).toBe(false);
+  });
+
+  it('freezes a credential-stripped viewport PNG and parks the native view', async () => {
+    const { controller, snapshot } = await setup(1);
+    const lease = controller.begin(42, source, snapshot.revision);
+    controller.update(42, lease.leaseId, 1, bounds);
+    const png = Buffer.alloc(24);
+    Buffer.from('89504e470d0a1a0a', 'hex').copy(png, 0);
+    png.writeUInt32BE(912, 16);
+    png.writeUInt32BE(642, 20);
+    const surface = surfaces[0]!;
+    surface.deviceScaleFactorValue = 2;
+    surface.parkViewportRevision = 2;
+    surface.window.url = 'https://user:secret@example.test/path?q=1';
+    surface.window.jsHandler = () => ({
+      scrollX: 12, scrollY: 34, width: 456, height: 321,
+    });
+    surface.window.webContents.capturePage.mockResolvedValue({
+      toPNG: () => png,
+      getSize: () => ({ width: 912, height: 642 }),
+      resize: () => ({ toPNG: () => png }),
+    });
+
+    const capture = await controller.captureAnnotation(42, lease.leaseId, 1);
+
+    expect(capture).toMatchObject({
+      protocolVersion: 1,
+      source,
+      tabId: 1,
+      url: 'https://example.test/path?q=1',
+      viewportRevision: 2,
+      presentationBounds: bounds,
+      cssViewport: { width: 456, height: 321 },
+      physicalPixels: { width: 912, height: 642 },
+      scroll: { x: 12, y: 34 },
+      deviceScaleFactor: 2,
+      zoomFactor: 1,
+      pngBase64: png.toString('base64'),
+    });
+    expect(surface.park).toHaveBeenCalledOnce();
+    expect(capture.snapshot.tabs[0]?.viewportRevision).toBe(capture.viewportRevision);
+    expect(JSON.stringify(capture)).not.toContain('secret');
+    expect(JSON.stringify(capture)).not.toContain('opaque-owner');
+  });
+
+  it('rejects an unsafe physical canvas size before parking the live view', async () => {
+    const { controller, snapshot } = await setup(1);
+    const lease = controller.begin(42, source, snapshot.revision);
+    controller.update(42, lease.leaseId, 1, bounds);
+    const png = Buffer.alloc(24);
+    Buffer.from('89504e470d0a1a0a', 'hex').copy(png, 0);
+    png.writeUInt32BE(8_000, 16);
+    png.writeUInt32BE(6_000, 20);
+    const surface = surfaces[0]!;
+    surface.window.webContents.capturePage.mockResolvedValue({
+      toPNG: () => png,
+      getSize: () => ({ width: 8_000, height: 6_000 }),
+      resize: () => ({ toPNG: () => png }),
+    });
+
+    await expect(controller.captureAnnotation(42, lease.leaseId, 1))
+      .rejects.toThrow(/safe canvas limit/);
+    expect(surface.park).not.toHaveBeenCalled();
   });
 });

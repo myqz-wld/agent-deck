@@ -1,12 +1,21 @@
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 
 import {
   browserStateSourceIdentity,
+  sanitizedBrowserUrl,
+  type BrowserAnnotationCapture,
   type BrowserPresentationLease,
   type BrowserStateSnapshot,
   type BrowserStateSource,
   type BrowserViewBounds,
 } from '@shared/browser-view';
+import { IabAnnotationCanvas } from './IabAnnotationCanvas';
+import { useIabComposerTarget } from './iab-composer-bridge';
+
+interface AnnotationDraft {
+  readonly capture: BrowserAnnotationCapture;
+  readonly targetKey: string;
+}
 
 function tabTitle(value: string): string {
   const title = value.trim() || '新标签页';
@@ -24,6 +33,11 @@ function integerBounds(element: HTMLElement): BrowserViewBounds | null {
   return bounds.width < 1 || bounds.height < 1 ? null : bounds;
 }
 
+function sameBounds(left: BrowserViewBounds, right: BrowserViewBounds): boolean {
+  return left.x === right.x && left.y === right.y &&
+    left.width === right.width && left.height === right.height;
+}
+
 export function IabPanel({
   source,
   snapshot,
@@ -36,17 +50,51 @@ export function IabPanel({
   const [selectedTabId, setSelectedTabId] = useState<number | null>(activeId);
   const [leaseId, setLeaseId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [closingTabId, setClosingTabId] = useState<number | null>(null);
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [annotation, setAnnotation] = useState<AnnotationDraft | null>(null);
+  const [placementEpoch, setPlacementEpoch] = useState(0);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const leaseRef = useRef<BrowserPresentationLease | null>(null);
+  const captureRequestRef = useRef(0);
+  const selectedTabIdRef = useRef(selectedTabId);
+  selectedTabIdRef.current = selectedTabId;
+  const composerTarget = useIabComposerTarget();
+  const composerTargetRef = useRef(composerTarget);
+  composerTargetRef.current = composerTarget;
   const sourceRef = useRef(source);
   sourceRef.current = source;
   const beginRevisionRef = useRef<number | null>(null);
   const lastPlacementRef = useRef<string | null>(null);
+  const selectedTab = useMemo(
+    () => snapshot.tabs.find((tab) => tab.id === selectedTabId) ?? snapshot.tabs[0] ?? null,
+    [selectedTabId, snapshot.tabs],
+  );
+
+  const restorePresentation = useCallback((message: string | null): void => {
+    captureRequestRef.current += 1;
+    setCaptureBusy(false);
+    setAnnotation(null);
+    setNotice(message);
+    lastPlacementRef.current = null;
+    setPlacementEpoch((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     if (activeId != null) setSelectedTabId(activeId);
   }, [activeId]);
+
+  useEffect(() => {
+    captureRequestRef.current += 1;
+    beginRevisionRef.current = null;
+    lastPlacementRef.current = null;
+    setLeaseId(null);
+    setCaptureBusy(false);
+    setAnnotation(null);
+    setError(null);
+    setNotice(null);
+  }, [sourceIdentity]);
 
   useEffect(() => {
     if (leaseRef.current != null || beginRevisionRef.current === snapshot.revision) return;
@@ -70,10 +118,34 @@ export function IabPanel({
   }, [snapshot.revision, sourceIdentity]);
 
   useEffect(() => () => {
+    captureRequestRef.current += 1;
     const lease = leaseRef.current;
     leaseRef.current = null;
     if (lease != null) void window.api.parkBrowserPresentation({ leaseId: lease.leaseId });
   }, [sourceIdentity]);
+
+  useEffect(() => {
+    if (annotation == null) return;
+    const capture = annotation.capture;
+    const tab = snapshot.tabs.find((candidate) => candidate.id === capture.tabId);
+    let reason: string | null = null;
+    if (browserStateSourceIdentity(capture.source) !== sourceIdentity) {
+      reason = 'IAB 来源已变化，未完成的标注已取消。';
+    } else if (selectedTabId !== capture.tabId) {
+      reason = 'IAB 标签已切换，未完成的标注已取消。';
+    } else if (composerTarget.key !== annotation.targetKey || composerTarget.status !== 'supported') {
+      reason = '当前会话的图片输入能力已变化，未完成的标注已取消。';
+    } else if (tab == null) {
+      reason = '原 IAB 标签已关闭，未完成的标注已取消。';
+    } else if (
+      sanitizedBrowserUrl(tab.url) !== capture.url ||
+      tab.viewportRevision !== capture.viewportRevision
+    ) {
+      reason = '页面内容或视口已变化，未完成的标注已取消。';
+    }
+    if (reason != null) restorePresentation(reason);
+  }, [annotation, composerTarget.key, composerTarget.status, restorePresentation,
+    selectedTabId, snapshot.tabs, sourceIdentity]);
 
   useEffect(() => {
     const element = viewportRef.current;
@@ -84,7 +156,13 @@ export function IabPanel({
       frame = 0;
       const bounds = integerBounds(element);
       if (bounds == null) return;
-      const placementKey = JSON.stringify([leaseId, selectedTabId, bounds]);
+      if (annotation != null) {
+        if (!sameBounds(bounds, annotation.capture.presentationBounds)) {
+          restorePresentation('IAB 面板尺寸已变化，未完成的标注已取消。');
+        }
+        return;
+      }
+      const placementKey = JSON.stringify([leaseId, selectedTabId, bounds, placementEpoch]);
       if (placementKey === lastPlacementRef.current) return;
       lastPlacementRef.current = placementKey;
       void window.api.updateBrowserPresentation({
@@ -109,15 +187,76 @@ export function IabPanel({
       window.removeEventListener('resize', schedule);
       if (frame !== 0) cancelAnimationFrame(frame);
     };
-  }, [leaseId, selectedTabId]);
+  }, [annotation, leaseId, placementEpoch, restorePresentation, selectedTabId]);
 
-  const selectedTab = useMemo(
-    () => snapshot.tabs.find((tab) => tab.id === selectedTabId) ?? snapshot.tabs[0] ?? null,
-    [selectedTabId, snapshot.tabs],
-  );
+  const selectTab = (tabId: number): void => {
+    if (tabId !== selectedTabId && annotation != null) {
+      restorePresentation('IAB 标签已切换，未完成的标注已取消。');
+    }
+    setSelectedTabId(tabId);
+    setError(null);
+  };
+
+  const beginAnnotation = async (): Promise<void> => {
+    const selectedId = selectedTab?.id;
+    const currentLease = leaseRef.current;
+    if (
+      captureBusy || selectedId == null || currentLease == null ||
+      composerTarget.status !== 'supported'
+    ) return;
+    const requestId = captureRequestRef.current + 1;
+    captureRequestRef.current = requestId;
+    setCaptureBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const capture = await window.api.captureBrowserAnnotation({
+        leaseId: currentLease.leaseId,
+        tabId: selectedId,
+      });
+      const currentTarget = composerTargetRef.current;
+      if (
+        captureRequestRef.current !== requestId ||
+        leaseRef.current?.leaseId !== currentLease.leaseId ||
+        selectedTabIdRef.current !== selectedId ||
+        currentTarget.key !== composerTarget.key || currentTarget.status !== 'supported'
+      ) {
+        lastPlacementRef.current = null;
+        setPlacementEpoch((value) => value + 1);
+        return;
+      }
+      setAnnotation({ capture, targetKey: currentTarget.key });
+    } catch (cause) {
+      if (captureRequestRef.current === requestId) {
+        setError(cause instanceof Error ? cause.message : '无法创建 IAB 标注截图。');
+      }
+    } finally {
+      if (captureRequestRef.current === requestId) setCaptureBusy(false);
+    }
+  };
+
+  const completeAnnotation = async (file: File): Promise<boolean> => {
+    const draft = annotation;
+    const target = composerTargetRef.current;
+    if (
+      draft == null || target.status !== 'supported' || target.addPng == null ||
+      target.key !== draft.targetKey
+    ) return false;
+    const completionGeneration = captureRequestRef.current;
+    const added = await target.addPng(file);
+    if (!added) return false;
+    if (
+      captureRequestRef.current === completionGeneration &&
+      composerTargetRef.current.key === draft.targetKey
+    ) {
+      restorePresentation('标注图片已加入消息附件，请在下方补充文字后手动发送。');
+    }
+    return true;
+  };
 
   const closeTab = (tabId: number): void => {
     if (leaseId == null || closingTabId != null) return;
+    if (annotation != null) restorePresentation('IAB 标签已关闭，未完成的标注已取消。');
     setClosingTabId(tabId);
     void window.api.closeBrowserPresentationTab({ leaseId, tabId }).then((result) => {
       const next = result.snapshot?.tabs.find((tab) => tab.active)?.id ??
@@ -142,7 +281,7 @@ export function IabPanel({
               type="button"
               className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-[10px] text-deck-text"
               title={tab.title || tab.url}
-              onClick={() => { setSelectedTabId(tab.id); setError(null); }}
+              onClick={() => selectTab(tab.id)}
             >
               {tabTitle(tab.title)}
             </button>
@@ -158,15 +297,45 @@ export function IabPanel({
           </div>
         ))}
       </div>
-      <div className="shrink-0 truncate border-b border-deck-border/40 bg-black/10 px-2 py-1 text-[9px] text-deck-muted" title={selectedTab?.url}>
-        {selectedTab?.url ?? 'about:blank'}
+      <div className="flex shrink-0 items-center gap-2 border-b border-deck-border/40 bg-black/10 px-2 py-1 text-[9px] text-deck-muted">
+        <span className="min-w-0 flex-1 truncate" title={selectedTab == null ? undefined : sanitizedBrowserUrl(selectedTab.url)}>
+          {selectedTab == null ? 'about:blank' : sanitizedBrowserUrl(selectedTab.url)}
+        </span>
+        {composerTarget.status === 'supported' && (
+          <button
+            type="button"
+            className="shrink-0 rounded border border-deck-border/60 px-1.5 py-0.5 text-[9px] text-deck-text hover:bg-white/10 disabled:opacity-40"
+            disabled={leaseId == null || captureBusy || annotation != null}
+            onClick={() => void beginAnnotation()}
+          >
+            {captureBusy ? '截图中…' : '标注'}
+          </button>
+        )}
       </div>
+      {composerTarget.status !== 'supported' && (
+        <div role="status" className="shrink-0 border-b border-deck-border/40 bg-white/[0.03] px-2 py-1 text-[9px] text-deck-muted" data-iab-annotation-reason>
+          暂不可标注：{composerTarget.reason}
+        </div>
+      )}
       {error && (
         <div role="status" className="shrink-0 border-b border-amber-400/15 bg-amber-500/10 px-2 py-1 text-[9px] text-amber-100">
           {error}
         </div>
       )}
-      <div ref={viewportRef} className="min-h-0 min-w-0 flex-1 bg-white" data-iab-viewport />
+      {notice && (
+        <div role="status" className="shrink-0 border-b border-emerald-400/15 bg-emerald-500/10 px-2 py-1 text-[9px] text-emerald-100">
+          {notice}
+        </div>
+      )}
+      <div ref={viewportRef} className="min-h-0 min-w-0 flex-1 bg-white" data-iab-viewport>
+        {annotation != null && (
+          <IabAnnotationCanvas
+            capture={annotation.capture}
+            onCancel={() => restorePresentation('已取消 IAB 标注，未添加任何附件。')}
+            onComplete={completeAnnotation}
+          />
+        )}
+      </div>
     </section>
   );
 }

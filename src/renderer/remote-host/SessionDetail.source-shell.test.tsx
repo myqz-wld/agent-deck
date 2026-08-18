@@ -6,6 +6,21 @@ import { SessionDetail } from '@renderer/components/SessionDetail';
 import { registerBuiltinDiffRenderers } from '@renderer/components/diff/install';
 import { remoteSource } from './session-detail-source-shell-test-fixture';
 
+vi.mock('@renderer/components/SessionDetail/IabAnnotationCanvas', () => ({
+  IabAnnotationCanvas: ({ onComplete }: {
+    onComplete: (file: File) => Promise<boolean>;
+  }) => (
+    <button
+      type="button"
+      onClick={() => void onComplete(new File(['png'], 'iab-annotation.png', {
+        type: 'image/png',
+      }))}
+    >
+      完成远程标注
+    </button>
+  ),
+}));
+
 afterEach(() => {
   vi.useRealTimers();
   cleanup();
@@ -318,6 +333,105 @@ describe('SessionDetail source shell', () => {
     } finally {
       rect.mockRestore();
       globalThis.ResizeObserver = resizeObserver;
+    }
+  });
+
+  it('adds an IAB PNG to the Remote composer without sending or steering', async () => {
+    const source = remoteSource();
+    source.capabilities = new Set([...source.capabilities, 'session-console.read']);
+    source.getSessionCapabilities = vi.fn().mockResolvedValue({
+      create: {
+        attachments: {
+          disabledReason: null,
+          enabled: true,
+          maxBytesEach: 2 * 1024 * 1024,
+          maxBytesTotal: 4 * 1024 * 1024,
+          maxCount: 4,
+          mimeTypes: ['image/png'],
+        },
+        options: { fields: [] },
+      },
+    } as never);
+    const browserSource = {
+      kind: 'remote' as const,
+      profileId: 'remote-a',
+      coreId: 'authoritative-a',
+      generation: null,
+      sessionId: 'same-session',
+    };
+    const snapshot = {
+      protocolVersion: 1 as const,
+      source: browserSource,
+      revision: 4,
+      tabs: [{
+        id: 1, title: 'Annotate me', url: 'https://example.test/page',
+        active: true, viewportRevision: 2,
+      }],
+    };
+    const capture = {
+      protocolVersion: 1 as const,
+      source: browserSource,
+      snapshot,
+      tabId: 1,
+      url: 'https://example.test/page',
+      viewportRevision: 2,
+      presentationBounds: { x: 10, y: 100, width: 420, height: 480 },
+      cssViewport: { width: 420, height: 480 },
+      physicalPixels: { width: 840, height: 960 },
+      scroll: { x: 0, y: 0 },
+      deviceScaleFactor: 2,
+      zoomFactor: 1,
+      pngBase64: 'cG5n',
+    };
+    window.api = {
+      getBrowserState: vi.fn(async () => snapshot),
+      onBrowserStateChanged: vi.fn(() => () => undefined),
+      beginBrowserPresentation: vi.fn(async () => ({
+        leaseId: 'lease-annotation', source: browserSource, snapshot,
+      })),
+      updateBrowserPresentation: vi.fn(async (request) => ({
+        snapshot, appliedBounds: request.bounds,
+      })),
+      captureBrowserAnnotation: vi.fn(async () => capture),
+      closeBrowserPresentationTab: vi.fn(),
+      parkBrowserPresentation: vi.fn(async () => true),
+    } as unknown as typeof window.api;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const OriginalImage = globalThis.Image;
+    globalThis.ResizeObserver = class {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element): void {
+        this.callback([{ target } as ResizeObserverEntry], this as unknown as ResizeObserver);
+      }
+      disconnect(): void {}
+      unobserve(): void {}
+    };
+    class FailedImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_value: string) { queueMicrotask(() => this.onerror?.()); }
+    }
+    globalThis.Image = FailedImage as unknown as typeof Image;
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 10, y: 100, width: 420, height: 480,
+      top: 100, left: 10, right: 430, bottom: 580,
+      toJSON: () => ({}),
+    });
+
+    try {
+      render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'IAB' }));
+      fireEvent.click(await screen.findByRole('button', { name: '标注' }));
+      fireEvent.click(await screen.findByRole('button', { name: '完成远程标注' }));
+
+      expect(await screen.findByAltText('iab-annotation.png')).toBeTruthy();
+      expect(source.send).not.toHaveBeenCalled();
+      expect(source.steer).not.toHaveBeenCalled();
+      expect(screen.getByText(/请在下方补充文字后手动发送/)).toBeTruthy();
+    } finally {
+      rect.mockRestore();
+      globalThis.Image = OriginalImage;
+      globalThis.ResizeObserver = originalResizeObserver;
     }
   });
 });

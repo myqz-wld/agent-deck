@@ -6,6 +6,7 @@ interface AdapterRuntimeInfo {
   canSetPermissionMode: boolean;
   canSetSessionMode: boolean;
   sessionModes: AdapterSessionMode[];
+  loading: boolean;
 }
 
 const unavailable: AdapterRuntimeInfo = {
@@ -13,6 +14,7 @@ const unavailable: AdapterRuntimeInfo = {
   canSetPermissionMode: false,
   canSetSessionMode: false,
   sessionModes: [],
+  loading: true,
 };
 
 export function useAdapterRuntimeInfo(agentId: string): AdapterRuntimeInfo {
@@ -36,12 +38,13 @@ export function useAdapterRuntimeInfo(agentId: string): AdapterRuntimeInfo {
                 canSetSessionMode:
                   adapter.capabilities.canSetSessionMode === true,
                 sessionModes: adapter.sessionModes ?? [],
+                loading: false,
               }
-            : unavailable,
+            : { ...unavailable, loading: false },
         );
       })
       .catch(() => {
-        if (!cancelled) setInfo(unavailable);
+        if (!cancelled) setInfo({ ...unavailable, loading: false });
       });
     return () => {
       cancelled = true;

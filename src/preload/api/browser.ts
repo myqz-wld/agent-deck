@@ -1,6 +1,8 @@
 import { ipcRenderer } from 'electron';
 
 import type {
+  BrowserAnnotationCapture,
+  BrowserAnnotationCaptureRequest,
   BrowserPresentationBeginRequest,
   BrowserPresentationLease,
   BrowserPresentationParkRequest,
@@ -39,4 +41,8 @@ export const browserApi = {
   onBrowserStateChanged: (
     callback: (event: BrowserStateProjectionEvent) => void,
   ): (() => void) => subscribe(IpcEvent.BrowserStateChanged, callback),
+  captureBrowserAnnotation: (
+    request: BrowserAnnotationCaptureRequest,
+  ): Promise<BrowserAnnotationCapture> =>
+    ipcRenderer.invoke(IpcInvoke.BrowserAnnotationCapture, request),
 };

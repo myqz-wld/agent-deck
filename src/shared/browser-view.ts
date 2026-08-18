@@ -22,6 +22,20 @@ export function browserStateSourceIdentity(source: BrowserStateSource): string {
       ]);
 }
 
+/** Renderer-safe URL text. Credentials never cross the browser projection boundary. */
+export function sanitizedBrowserUrl(value: string): string {
+  const bounded = value.slice(0, 4_096);
+  try {
+    const parsed = new URL(bounded);
+    if (!parsed.username && !parsed.password) return bounded;
+    parsed.username = '';
+    parsed.password = '';
+    return parsed.toString().slice(0, 4_096);
+  } catch {
+    return 'about:blank';
+  }
+}
+
 export interface ProjectedBrowserTab {
   readonly id: number;
   readonly title: string;
@@ -79,4 +93,22 @@ export interface BrowserPresentationParkRequest {
 export interface BrowserPresentationResult {
   readonly snapshot: BrowserStateSnapshot | null;
   readonly appliedBounds: BrowserViewBounds | null;
+}
+
+export interface BrowserAnnotationCaptureRequest extends BrowserPresentationTabRequest {}
+
+export interface BrowserAnnotationCapture {
+  readonly protocolVersion: 1;
+  readonly source: BrowserStateSource;
+  readonly snapshot: BrowserStateSnapshot;
+  readonly tabId: number;
+  readonly url: string;
+  readonly viewportRevision: number;
+  readonly presentationBounds: BrowserViewBounds;
+  readonly cssViewport: { readonly width: number; readonly height: number };
+  readonly physicalPixels: { readonly width: number; readonly height: number };
+  readonly scroll: { readonly x: number; readonly y: number };
+  readonly deviceScaleFactor: number;
+  readonly zoomFactor: number;
+  readonly pngBase64: string;
 }

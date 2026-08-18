@@ -138,12 +138,18 @@ class WebContentsViewTabSurface implements EngineTabSurface {
   }
 
   viewportRevision(): number {
-    const zoomFactor = this.isDestroyed() ? 1 : this.webContents.getZoomFactor();
+    const zoomFactor = this.zoomFactor();
     this.placement.updateVisualMetrics({
       deviceScaleFactor: this.deviceScaleFactor(),
       zoomFactor,
     });
     return this.placement.viewportRevision;
+  }
+
+  zoomFactor(): number {
+    if (this.isDestroyed()) return 1;
+    const value = this.webContents.getZoomFactor();
+    return Number.isFinite(value) && value > 0 ? value : 1;
   }
 
   present(window: BrowserWindow, bounds: Electron.Rectangle): Electron.Rectangle | null {

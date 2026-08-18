@@ -46,4 +46,8 @@ export function registerBrowserIpc(): void {
     const request = parseBrowserPresentationPark(value);
     return controller.park(event.sender.id, request.leaseId);
   });
+  on(IpcInvoke.BrowserAnnotationCapture, (event, value) => {
+    const request = parseBrowserPresentationTab(value);
+    return controller.captureAnnotation(event.sender.id, request.leaseId, request.tabId);
+  });
 }

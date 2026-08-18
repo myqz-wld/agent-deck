@@ -228,7 +228,7 @@ describe('useImageAttachments — remove preserves sibling in-flight work', () =
   it('多图批量上传，删第一张（已入列）→ 仍 in-flight 的 B/C 不被丢弃', async () => {
     const { result: hook } = renderHook(() => useImageAttachments());
 
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       addDone = hook.current.add([png('A'), png('B'), png('C')]);
       await new Promise((r) => setTimeout(r, 0));
@@ -259,7 +259,7 @@ describe('useImageAttachments — remove preserves sibling in-flight work', () =
 
   it('删 in-flight 期间的某张已入列图，剩余兄弟数量正确（删中间 B，A/C 保留）', async () => {
     const { result: hook } = renderHook(() => useImageAttachments());
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       addDone = hook.current.add([png('A'), png('B'), png('C')]);
       await new Promise((r) => setTimeout(r, 0));
@@ -283,7 +283,7 @@ describe('useImageAttachments — remove preserves sibling in-flight work', () =
 describe('useImageAttachments — clear/unmount 整批取消（generation bump 正确语义）', () => {
   it('clear() 期间的 in-flight 图被整批丢弃（A 已入列也被清，B 在飞被丢）', async () => {
     const { result: hook } = renderHook(() => useImageAttachments());
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       addDone = hook.current.add([png('A'), png('B')]);
       await new Promise((r) => setTimeout(r, 0));
@@ -306,7 +306,7 @@ describe('useImageAttachments — clear/unmount 整批取消（generation bump �
   it('clear() 期间失配的 add 即使有 error 也不回灌（setError generation 守卫）', async () => {
     const { result: hook } = renderHook(() => useImageAttachments());
     const badMime = new File([new Uint8Array(10)], 'x.bmp', { type: 'image/bmp' });
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       // bad-mime 同步 push error + continue（不入 imageOnloadQueue）；good-png 走 await 卡 thumb
       addDone = hook.current.add([badMime, png('good')]);
@@ -330,7 +330,7 @@ describe('useImageAttachments — clear/unmount 整批取消（generation bump �
   // Post-unmount work must settle without hanging or throwing.
   it('post-unmount：in-flight 图 resolve 能 settle（不 hang / 不抛错，smoke）', async () => {
     const { result: hook, unmount } = renderHook(() => useImageAttachments());
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       addDone = hook.current.add([png('A')]);
       await new Promise((r) => setTimeout(r, 0));
@@ -353,7 +353,7 @@ describe('useImageAttachments — logical session isolation', () => {
       ({ sessionId }) => useImageAttachments(sessionId),
       { initialProps: { sessionId: 'session-A' } },
     );
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       addDone = hook.current.add([png('A.png')]);
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -381,7 +381,7 @@ describe('useImageAttachments — logical session isolation', () => {
       ({ sessionId }) => useImageAttachments(sessionId),
       { initialProps: { sessionId: 'session-A' } },
     );
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       addDone = hook.current.add([png('huge-A.png', 5 * 1024 * 1024)]);
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -402,7 +402,7 @@ describe('useImageAttachments — logical session isolation', () => {
 describe('useImageAttachments — removing a missing id is a no-op', () => {
   it('remove 一个还在 in-flight（尚无 id）的图是 no-op，该图 resolve 后正常入列', async () => {
     const { result: hook } = renderHook(() => useImageAttachments());
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       addDone = hook.current.add([png('M')]);
       await new Promise((r) => setTimeout(r, 0));
@@ -423,7 +423,7 @@ describe('useImageAttachments — makeThumbnail img.onerror 安全回退', () =>
   it('缩略图 Image decode 失败 → 使用 blob URL，完整 base64 不进入 React state', async () => {
     setMockImageFail(true);
     const { result: hook } = renderHook(() => useImageAttachments());
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       addDone = hook.current.add([png('broken.png')]);
       await new Promise((r) => setTimeout(r, 0));
@@ -454,7 +454,7 @@ describe('useImageAttachments — oversized image JPEG compression attempts', ()
       { size: MAX_BASE64_BYTES_FOR_API - 1000 }, // 档 4 命中（< MAX）
     ]);
     const { result: hook } = renderHook(() => useImageAttachments());
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       addDone = hook.current.add([png('big.png', 5 * 1024 * 1024)]); // 5MB raw → 必然超 base64 阈值
       await new Promise((r) => setTimeout(r, 0));
@@ -490,7 +490,7 @@ describe('useImageAttachments — oversized image JPEG compression attempts', ()
       allOversize, allOversize, allOversize, allOversize, allOversize, allOversize, allOversize,
     ]);
     const { result: hook } = renderHook(() => useImageAttachments());
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       addDone = hook.current.add([png('huge.png', 5 * 1024 * 1024)]);
       await new Promise((r) => setTimeout(r, 0));
@@ -510,7 +510,7 @@ describe('useImageAttachments — oversized image JPEG compression attempts', ()
     setMockBigBase64(6 * 1024 * 1024);
     setMockCompressLengths(['no-ctx', { size: MAX_BASE64_BYTES_FOR_API - 1000 }]);
     const { result: hook } = renderHook(() => useImageAttachments());
-    let addDone!: Promise<void>;
+    let addDone!: Promise<boolean>;
     await act(async () => {
       addDone = hook.current.add([png('noctx.png', 5 * 1024 * 1024)]);
       await new Promise((r) => setTimeout(r, 0));
