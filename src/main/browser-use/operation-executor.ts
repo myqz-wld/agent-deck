@@ -2,6 +2,8 @@ import * as actions from './engine/actions';
 import type { BrowserOwnerHandle } from './engine/registry';
 import type { EngineTab } from './engine/tab';
 import { BrowserTabLimitError } from './engine/types';
+import type { BrowserStateSource } from '@shared/browser-view';
+import { getBrowserStateProjectionRegistry } from './browser-state-projection';
 import {
   browserOperationFailure,
   browserOperationSuccess,
@@ -20,6 +22,7 @@ const DEFAULT_SCREENSHOT_MAX_WIDTH = 1_024;
 export interface ResolvedBrowserOperationOwner {
   readonly applicationSessionId: string;
   readonly handle: BrowserOwnerHandle;
+  readonly projectionSource?: BrowserStateSource;
 }
 
 export interface BrowserOperationBinaryArtifact {
@@ -364,5 +367,16 @@ export async function executeBrowserOperation<Operation extends BrowserOperation
     return result as BrowserOperationExecutionResult<Operation>;
   } catch (error) {
     return browserOperationFailure(request.operation, errorDetail(error));
+  } finally {
+    if (owner.projectionSource != null) {
+      try {
+        getBrowserStateProjectionRegistry().publish(
+          owner.projectionSource,
+          owner.applicationSessionId,
+        );
+      } catch {
+        // Presentation state is best-effort and must never change Browser operation semantics.
+      }
+    }
   }
 }

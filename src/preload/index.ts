@@ -9,6 +9,7 @@ import { eventsApi } from './api/events';
 import { issuesApi } from './api/issues';
 import { planReviewApi } from './api/plan-review';
 import { remoteHostApi } from './api/remote-host';
+import { browserApi } from './api/browser';
 
 const api = {
   ...sessionsApi,
@@ -18,6 +19,7 @@ const api = {
   ...issuesApi,
   ...planReviewApi,
   ...remoteHostApi,
+  ...browserApi,
 };
 
 try {

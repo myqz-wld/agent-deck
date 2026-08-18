@@ -43,6 +43,7 @@ export function resolveOwner(
   return {
     applicationSessionId,
     handle: acquireSessionBrowser(applicationSessionId),
+    projectionSource: { kind: 'local', sessionId: applicationSessionId },
   };
 }
 

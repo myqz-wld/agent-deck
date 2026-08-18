@@ -33,6 +33,7 @@ import { registerTokenUsageIpc } from './token-usage';
 import { registerProviderUsageIpc } from './provider-usage';
 import { registerPlanReviewIpc } from './plan-review';
 import { registerRemoteHostIpc } from './remote-host';
+import { registerBrowserIpc } from './browser';
 
 export function bootstrapIpc(): void {
   registerWindowAppIpc();
@@ -50,4 +51,5 @@ export function bootstrapIpc(): void {
   registerTokenUsageIpc();
   registerProviderUsageIpc();
   registerRemoteHostIpc();
+  registerBrowserIpc();
 }

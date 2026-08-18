@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type JSX } from 'react';
 
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
+import type { BrowserStateSource } from '@shared/browser-view';
 import { useRemoteSessionTabData } from '@renderer/remote-host/use-remote-session-tab-data';
 import { RuntimeMetadataChips } from '../SessionMetadataChips';
 import {
@@ -15,6 +16,7 @@ import { TaskRecordsView } from './TasksPanel';
 import {
   createSessionDetailTabs,
   SessionDetailShell,
+  type SessionDetailTabModel,
   type SessionDetailTabId,
 } from './SessionDetailShell';
 import { RemoteSessionComposer } from './RemoteSessionComposer';
@@ -23,6 +25,8 @@ import { SessionMessagesView } from './MessagesPanel';
 import { SourceBadge } from './SourceBadge';
 import { SessionPinControl } from '../SessionPinButton';
 import { RemotePendingRequestRow } from '../pending-rows/RemotePendingRequests';
+import { IabPanel } from './IabPanel';
+import { useBrowserState } from './use-browser-state';
 
 interface HandOffNotice {
   sessionId: string;
@@ -45,6 +49,23 @@ export function RemoteSessionDetail({
     ? [...(source.sessions ?? []), ...(source.historySessions ?? [])]
         .find((item) => item.id === session.id) ?? null
     : null;
+  const browserSource = useMemo<BrowserStateSource | null>(() => {
+    const coreId = source.state?.authoritativeCoreId;
+    if (!session || !source.profile || !coreId) return null;
+    return {
+      kind: 'remote',
+      profileId: source.profile.id,
+      coreId,
+      generation: source.state?.workerGeneration ?? null,
+      sessionId: session.id,
+    };
+  }, [
+    session?.id,
+    source.profile?.id,
+    source.state?.authoritativeCoreId,
+    source.state?.workerGeneration,
+  ]);
+  const browserState = useBrowserState(browserSource);
   const detailIdentity = `${source.identity}\u0000${session?.id ?? 'none'}`;
   const [requestedTabState, setRequestedTabState] = useState<{
     identity: string;
@@ -71,7 +92,7 @@ export function RemoteSessionDetail({
   const changeTab = (next: SessionDetailTabId): void => {
     setRequestedTabState({ identity: detailIdentity, tab: next });
   };
-  const tabs = useMemo(() => createSessionDetailTabs({
+  const baseTabs = useMemo(() => createSessionDetailTabs({
     activity: (
         <ActivityRecordsView
           events={source.events?.events ?? []}
@@ -140,6 +161,24 @@ export function RemoteSessionDetail({
     canReadMessages, canReadSummaries, canReadTasks,
     session?.id, source, tabData,
   ]);
+  const tabs = useMemo<readonly SessionDetailTabModel[]>(() => {
+    if (browserSource == null || browserState.snapshot == null) return baseTabs;
+    return [
+      ...baseTabs,
+      {
+        id: 'browser',
+        label: 'IAB',
+        fullBleed: true,
+        content: <IabPanel source={browserSource} snapshot={browserState.snapshot} />,
+      },
+    ];
+  }, [baseTabs, browserSource, browserState.snapshot]);
+
+  useEffect(() => {
+    if (requestedTab === 'browser' && browserState.snapshot == null) {
+      setRequestedTabState({ identity: detailIdentity, tab: 'activity' });
+    }
+  }, [browserState.snapshot, detailIdentity, requestedTab]);
 
   if (!session) {
     return <RemoteDetailLoading source={source} onClose={onClose} />;

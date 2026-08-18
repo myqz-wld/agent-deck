@@ -84,6 +84,14 @@ export const IpcInvoke = {
   GrokAuthProbe: 'grok-auth:probe',
   SummarizerLastErrors: 'summarizer:last-errors',
 
+  // Session-scoped in-app Browser state and native view presentation.
+  BrowserStateGet: 'browser:state-get',
+  BrowserPresentationBegin: 'browser:presentation-begin',
+  BrowserPresentationUpdate: 'browser:presentation-update',
+  BrowserPresentationSelect: 'browser:presentation-select',
+  BrowserPresentationClose: 'browser:presentation-close',
+  BrowserPresentationPark: 'browser:presentation-park',
+
   // Issue Tracker UI channels are separate from agent-facing MCP tools.
   IssuesList: 'issues:list',
   IssuesGet: 'issues:get',
@@ -217,6 +225,9 @@ export const IpcEvent = {
   CallerArchiveFailed: 'event:caller-archive-failed',
   /** Redacted invalidation signal; renderer refreshes typed business snapshots via invoke. */
   RemoteHostChanged: 'event:remote-host-changed',
+
+  /** Source-qualified Browser tab metadata; never contains the private engine owner id. */
+  BrowserStateChanged: 'event:browser-state-changed',
 
   /** message 入队 / 状态变迁：聚合数组 payload，16ms debounce + per-message 累加。 */
   AgentDeckMessageChanged: 'event:agent-deck-message-changed',

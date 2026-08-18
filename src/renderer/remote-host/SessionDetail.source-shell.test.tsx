@@ -243,4 +243,81 @@ describe('SessionDetail source shell', () => {
     expect(screen.queryByRole('button', { name: '发送' })).toBeNull();
     expect(screen.queryByRole('button', { name: '接力' })).toBeNull();
   });
+
+  it('adds IAB after cross-session without auto-selecting and binds the Remote source', async () => {
+    const source = remoteSource();
+    const snapshot = {
+      protocolVersion: 1 as const,
+      source: {
+        kind: 'remote' as const,
+        profileId: 'remote-a',
+        coreId: 'authoritative-a',
+        generation: null,
+        sessionId: 'same-session',
+      },
+      revision: 4,
+      tabs: [
+        { id: 1, title: 'First page', url: 'https://one.test', active: true, viewportRevision: 1 },
+        { id: 2, title: 'Second page', url: 'https://two.test', active: false, viewportRevision: 1 },
+      ],
+    };
+    const begin = vi.fn(async () => ({ leaseId: 'lease-1', source: snapshot.source, snapshot }));
+    const update = vi.fn(async (request) => ({
+      snapshot,
+      appliedBounds: request.bounds,
+    }));
+    window.api = {
+      getBrowserState: vi.fn(async () => snapshot),
+      onBrowserStateChanged: vi.fn(() => () => undefined),
+      beginBrowserPresentation: begin,
+      updateBrowserPresentation: update,
+      closeBrowserPresentationTab: vi.fn(async () => ({ snapshot, appliedBounds: null })),
+      parkBrowserPresentation: vi.fn(async () => true),
+    } as unknown as typeof window.api;
+    const resizeObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element): void {
+        this.callback([{ target } as ResizeObserverEntry], this as unknown as ResizeObserver);
+      }
+      disconnect(): void {}
+      unobserve(): void {}
+    };
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 11, y: 123, width: 360, height: 420,
+      top: 123, left: 11, right: 371, bottom: 543,
+      toJSON: () => ({}),
+    });
+
+    try {
+      render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
+      const iab = await screen.findByRole('button', { name: 'IAB' });
+      const messages = screen.getByRole('button', { name: '跨会话' });
+      expect(messages.compareDocumentPosition(iab) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.getByText('remote-only activity')).toBeTruthy();
+      expect(begin).not.toHaveBeenCalled();
+
+      fireEvent.click(iab);
+      await waitFor(() => expect(begin).toHaveBeenCalledWith({
+        source: snapshot.source,
+        expectedRevision: 4,
+      }));
+      expect(screen.getByRole('button', { name: '关闭 First page' })).toBeTruthy();
+      expect(screen.getByRole('button', { name: '关闭 Second page' })).toBeTruthy();
+      await waitFor(() => expect(update).toHaveBeenCalledWith({
+        leaseId: 'lease-1',
+        tabId: 1,
+        bounds: { x: 11, y: 123, width: 360, height: 420 },
+      }));
+      fireEvent.click(screen.getByRole('button', { name: 'Second page' }));
+      await waitFor(() => expect(update).toHaveBeenCalledWith({
+        leaseId: 'lease-1',
+        tabId: 2,
+        bounds: { x: 11, y: 123, width: 360, height: 420 },
+      }));
+    } finally {
+      rect.mockRestore();
+      globalThis.ResizeObserver = resizeObserver;
+    }
+  });
 });
