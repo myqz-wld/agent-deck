@@ -37,6 +37,10 @@ import {
 } from './SessionDetailShell';
 import { IabPanel } from './IabPanel';
 import { useBrowserState } from './use-browser-state';
+import {
+  IabComposerBridgeProvider,
+  unsupportedIabComposerTarget,
+} from './iab-composer-bridge';
 
 type DiffMode = 'single' | 'final';
 const EMPTY_EVENTS_FOR_TOAST: AgentEvent[] = [];
@@ -320,22 +324,33 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
         </div>
       )
     : undefined;
+  const iabComposerFallback = useMemo(
+    () => isSdk
+      ? undefined
+      : unsupportedIabComposerTarget(
+          `local:${session.id}`,
+          '此会话来自外部终端，Agent Deck 无法向它添加图片消息，因此不提供 IAB 标注。',
+        ),
+    [isSdk, session.id],
+  );
   return (
-    <SessionDetailShell
-      title={session.title}
-      sourceBadge={<SourceBadge isSdk={isSdk} />}
-      subtitle={session.cwd}
-      metadata={<><SessionMetadataChips session={session} branch={gitBranch} compact /><SessionContextUsageChip session={session} /></>}
-      headerActions={canPin ? <SessionPinButton key={session.id} session={session} /> : undefined}
-      notice={notice}
-      tabs={tabs}
-      activeTab={tab}
-      onTabChange={changeTab}
-      composer={isSdk
-        ? <ComposerSdk session={session} onHandOff={() => setHandOffOpen(true)} turnBusy={turnBusy} canSteerTurn={canSteerTurn} canSteerTurnAttachments={canSteerTurnAttachments} />
-        : <CliFooter agentId={session.agentId} />}
-      overlay={<HandOffPreviewDialog open={handOffOpen} session={session} onClose={() => setHandOffOpen(false)} />}
-      onClose={onClose}
-    />
+    <IabComposerBridgeProvider fallback={iabComposerFallback}>
+      <SessionDetailShell
+        title={session.title}
+        sourceBadge={<SourceBadge isSdk={isSdk} />}
+        subtitle={session.cwd}
+        metadata={<><SessionMetadataChips session={session} branch={gitBranch} compact /><SessionContextUsageChip session={session} /></>}
+        headerActions={canPin ? <SessionPinButton key={session.id} session={session} /> : undefined}
+        notice={notice}
+        tabs={tabs}
+        activeTab={tab}
+        onTabChange={changeTab}
+        composer={isSdk
+          ? <ComposerSdk session={session} onHandOff={() => setHandOffOpen(true)} turnBusy={turnBusy} canSteerTurn={canSteerTurn} canSteerTurnAttachments={canSteerTurnAttachments} />
+          : <CliFooter agentId={session.agentId} />}
+        overlay={<HandOffPreviewDialog open={handOffOpen} session={session} onClose={() => setHandOffOpen(false)} />}
+        onClose={onClose}
+      />
+    </IabComposerBridgeProvider>
   );
 }

@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   handle: vi.fn(),
   controller: {
     get: vi.fn(), begin: vi.fn(), update: vi.fn(), select: vi.fn(), close: vi.fn(),
-    park: vi.fn(), observeProjection: vi.fn(),
+    park: vi.fn(), captureAnnotation: vi.fn(), observeProjection: vi.fn(),
   },
   subscribe: vi.fn(),
   safeSend: vi.fn(),
@@ -55,6 +55,10 @@ describe('Browser presentation IPC registration', () => {
     expect(mocks.controller.update).toHaveBeenCalledWith(
       73, 'lease-a', 4, { x: 10, y: 100, width: 480, height: 600 },
     );
+
+    const capture = handler(IpcInvoke.BrowserAnnotationCapture);
+    capture({ sender: { id: 73 } }, { leaseId: 'lease-a', tabId: 4 });
+    expect(mocks.controller.captureAnnotation).toHaveBeenCalledWith(73, 'lease-a', 4);
   });
 
   it('reconciles native presentation before projecting metadata to renderer', () => {

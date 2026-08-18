@@ -256,6 +256,10 @@ export class EngineTab {
     return this.surface.viewportRevision();
   }
 
+  zoomFactor(): number {
+    return this.surface.zoomFactor();
+  }
+
   present(window: BrowserWindow, bounds: Electron.Rectangle): Electron.Rectangle | null {
     return this.surface.present(window, bounds);
   }

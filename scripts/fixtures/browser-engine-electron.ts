@@ -198,7 +198,23 @@ async function main(): Promise<void> {
       [480, 500],
       'presented page viewport must follow the narrow panel bounds',
     );
-    assert.ok((await primary.tab.capturePng()).byteLength > 0, 'presented view must keep painting');
+    const annotationPng = await primary.tab.capturePng();
+    const annotationSize = nativeImage.createFromBuffer(annotationPng).getSize();
+    const annotationScale = primary.tab.deviceScaleFactor();
+    assert.deepEqual(
+      annotationSize,
+      {
+        width: Math.round(480 * annotationScale),
+        height: Math.round(500 * annotationScale),
+      },
+      'annotation capture must preserve the presented viewport at physical-pixel resolution',
+    );
+    assert.equal(primary.tab.zoomFactor(), 1, 'annotation metadata must report page zoom');
+    assert.deepEqual(
+      await primary.tab.executeJs('[window.scrollX, window.scrollY, innerWidth, innerHeight]'),
+      [0, 0, 480, 500],
+      'annotation metadata must describe the captured CSS viewport and scroll position',
+    );
     primary.tab.park();
     assert.ok((await primary.tab.capturePng()).byteLength > 0, 'reparked view must retain state');
     assert.equal(focusedWindows, 0, 'showInactive presentation must not steal focus');

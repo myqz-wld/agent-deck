@@ -25,7 +25,7 @@ export interface ImageAttachmentLimits {
 export interface UseImageAttachmentsResult {
   attachments: UploadedAttachmentEntry[];
   error: string | null;
-  add: (files: FileList | File[] | null | undefined) => Promise<void>;
+  add: (files: FileList | File[] | null | undefined) => Promise<boolean>;
   remove: (id: string) => void;
   clear: () => void;
   onPaste: (event: React.ClipboardEvent) => void;

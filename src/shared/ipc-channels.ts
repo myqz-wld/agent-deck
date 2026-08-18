@@ -91,6 +91,7 @@ export const IpcInvoke = {
   BrowserPresentationSelect: 'browser:presentation-select',
   BrowserPresentationClose: 'browser:presentation-close',
   BrowserPresentationPark: 'browser:presentation-park',
+  BrowserAnnotationCapture: 'browser:annotation-capture',
 
   // Issue Tracker UI channels are separate from agent-facing MCP tools.
   IssuesList: 'issues:list',

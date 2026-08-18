@@ -27,6 +27,7 @@ import { SessionPinControl } from '../SessionPinButton';
 import { RemotePendingRequestRow } from '../pending-rows/RemotePendingRequests';
 import { IabPanel } from './IabPanel';
 import { useBrowserState } from './use-browser-state';
+import { IabComposerBridgeProvider } from './iab-composer-bridge';
 
 interface HandOffNotice {
   sessionId: string;
@@ -200,41 +201,43 @@ export function RemoteSessionDetail({
     ? <div role="alert" className="border-t border-red-400/15 bg-red-500/10 px-3 py-1.5 text-[10px] text-red-200">{alertText}</div>
     : undefined;
   return (
-    <SessionDetailShell
-      title={session.title ?? '未命名会话'}
-      sourceBadge={<SourceBadge isSdk={presentation?.source !== 'cli'} />}
-      subtitle={`${source.profile?.label ?? '远程主机'} · ${presentation?.workspaceLabel ?? '远程工作区'}`}
-      metadata={<RemoteSessionMetadata source={source} presentation={presentation} />}
-      headerActions={<SessionPinControl pinned={presentation?.pinned ?? false} disabled disabledReason="远程会话暂不支持修改置顶状态" />}
-      banner={banner}
-      tabs={tabs}
-      activeTab={requestedTab}
-      onTabChange={changeTab}
-      alert={alert}
-      composer={(
-        <RemoteSessionComposer
-          source={source}
-          adapterId={session.adapterId}
-          sessionId={session.id}
-          onHandOff={() => { setHandOffNotice(null); setHandOffOpen(true); }}
-        />
-      )}
-      overlay={handOffOpen ? (
-        <RemoteHandOffDialog
-          source={source}
-          sessionId={session.id}
-          onClose={() => setHandOffOpen(false)}
-          onCommitted={(result) => {
-            setHandOffOpen(false);
-            setHandOffNotice(result.sourceFinalizationWarning
-              ? { sessionId: result.successorSessionId, text: result.sourceFinalizationWarning }
-              : null);
-            source.selectSession(result.successorSessionId);
-          }}
-        />
-      ) : undefined}
-      onClose={onClose}
-    />
+    <IabComposerBridgeProvider>
+      <SessionDetailShell
+        title={session.title ?? '未命名会话'}
+        sourceBadge={<SourceBadge isSdk={presentation?.source !== 'cli'} />}
+        subtitle={`${source.profile?.label ?? '远程主机'} · ${presentation?.workspaceLabel ?? '远程工作区'}`}
+        metadata={<RemoteSessionMetadata source={source} presentation={presentation} />}
+        headerActions={<SessionPinControl pinned={presentation?.pinned ?? false} disabled disabledReason="远程会话暂不支持修改置顶状态" />}
+        banner={banner}
+        tabs={tabs}
+        activeTab={requestedTab}
+        onTabChange={changeTab}
+        alert={alert}
+        composer={(
+          <RemoteSessionComposer
+            source={source}
+            adapterId={session.adapterId}
+            sessionId={session.id}
+            onHandOff={() => { setHandOffNotice(null); setHandOffOpen(true); }}
+          />
+        )}
+        overlay={handOffOpen ? (
+          <RemoteHandOffDialog
+            source={source}
+            sessionId={session.id}
+            onClose={() => setHandOffOpen(false)}
+            onCommitted={(result) => {
+              setHandOffOpen(false);
+              setHandOffNotice(result.sourceFinalizationWarning
+                ? { sessionId: result.successorSessionId, text: result.sourceFinalizationWarning }
+                : null);
+              source.selectSession(result.successorSessionId);
+            }}
+          />
+        ) : undefined}
+        onClose={onClose}
+      />
+    </IabComposerBridgeProvider>
   );
 }
 

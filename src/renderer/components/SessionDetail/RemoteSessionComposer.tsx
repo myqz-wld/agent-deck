@@ -15,6 +15,10 @@ import { ErrorBanner } from './composer-sdk/ErrorBanner';
 import { RemoteSessionRuntimeControls } from './RemoteSessionRuntimeControls';
 import { RemotePendingOutgoingQueue } from './RemotePendingOutgoingQueue';
 import { SessionComposerView } from './SessionComposerView';
+import {
+  useRegisterIabComposerTarget,
+  type IabComposerTarget,
+} from './iab-composer-bridge';
 
 export function RemoteSessionComposer({
   source,
@@ -37,6 +41,7 @@ export function RemoteSessionComposer({
   const [sessionCapabilities, setSessionCapabilities] = useState<
     SessionConsoleCapabilitiesResult | null
   >(null);
+  const [attachmentPolicyLoading, setAttachmentPolicyLoading] = useState(false);
   const turnBusy = source.selectedSession?.status.endsWith('-working') === true;
   const turnWaiting = source.selectedSession?.status.endsWith('-waiting') === true;
   const activeInput = source.inputCapabilities?.adapterId === adapterId
@@ -75,7 +80,11 @@ export function RemoteSessionComposer({
     let cancelled = false;
     setAttachmentPolicy(null);
     setSessionCapabilities(null);
-    if (!source.usable || !source.capabilities.has('session-console.read')) return;
+    if (!source.usable || !source.capabilities.has('session-console.read')) {
+      setAttachmentPolicyLoading(false);
+      return;
+    }
+    setAttachmentPolicyLoading(true);
     void source.getSessionCapabilities({
       adapterId,
       provider: runtimeString(source.runtime?.values ?? null, 'provider'),
@@ -84,11 +93,13 @@ export function RemoteSessionComposer({
       if (!cancelled) {
         setAttachmentPolicy(result.create.attachments);
         setSessionCapabilities(result);
+        setAttachmentPolicyLoading(false);
       }
     }).catch(() => {
       if (!cancelled) {
         setAttachmentPolicy(null);
         setSessionCapabilities(null);
+        setAttachmentPolicyLoading(false);
       }
     });
     return () => { cancelled = true; };
@@ -124,6 +135,57 @@ export function RemoteSessionComposer({
     }
   };
   const canUseAttachments = effectiveAttachmentPolicy?.enabled === true;
+  const iabTarget = useMemo<IabComposerTarget>(() => {
+    const key = `remote:${identity}`;
+    if (!canWrite) {
+      return {
+        key,
+        status: 'unsupported',
+        reason: '当前远程会话不可写，因此不能把 IAB 标注加入消息。',
+      };
+    }
+    if (!turnBusy && attachmentPolicyLoading) {
+      return { key, status: 'loading', reason: '正在读取远程会话的图片输入能力…' };
+    }
+    if (effectiveAttachmentPolicy == null) {
+      const reason = turnBusy
+        ? source.inputLoadError ?? '当前远程轮次尚未提供图片输入能力。'
+        : '当前远程运行时没有提供图片附件策略。';
+      return { key, status: 'unsupported', reason };
+    }
+    if (!effectiveAttachmentPolicy.enabled) {
+      return {
+        key,
+        status: 'unsupported',
+        reason: effectiveAttachmentPolicy.disabledReason ??
+          '当前远程 Provider 运行时未声明图片输入能力。',
+      };
+    }
+    const acceptedMimeTypes = effectiveAttachmentPolicy.mimeTypes ??
+      SESSION_CONSOLE_REMOTE_ATTACHMENT_MIME_TYPES;
+    if (!acceptedMimeTypes.includes('image/png')) {
+      return {
+        key,
+        status: 'unsupported',
+        reason: '当前远程会话的附件策略不接受 PNG，因此不能添加 IAB 标注。',
+      };
+    }
+    return {
+      key,
+      status: 'supported',
+      reason: '',
+      addPng: (file) => imgs.add([file]),
+    };
+  }, [
+    attachmentPolicyLoading,
+    canWrite,
+    effectiveAttachmentPolicy,
+    identity,
+    imgs.add,
+    source.inputLoadError,
+    turnBusy,
+  ]);
+  useRegisterIabComposerTarget(iabTarget);
   const canSubmit = canWrite && !source.busy &&
     (text.trim().length > 0 || (canUseAttachments && imgs.attachments.length > 0));
   const agentName = adapterId === 'codex-cli'

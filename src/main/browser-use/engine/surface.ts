@@ -11,6 +11,7 @@ export interface EngineTabSurface {
   onActivated(listener: () => void): () => void;
   onClosed(listener: () => void): () => void;
   viewportRevision(): number;
+  zoomFactor(): number;
   present(window: BrowserWindow, bounds: Electron.Rectangle): Electron.Rectangle | null;
   park(): boolean;
 }
@@ -67,6 +68,12 @@ export class BrowserWindowTabSurface implements EngineTabSurface {
 
   viewportRevision(): number {
     return 1;
+  }
+
+  zoomFactor(): number {
+    const contents = this.webContents as WebContents & { getZoomFactor?: () => number };
+    const value = contents.getZoomFactor?.() ?? 1;
+    return Number.isFinite(value) && value > 0 ? value : 1;
   }
 
   present(_window: BrowserWindow, _bounds: Electron.Rectangle): Electron.Rectangle | null {

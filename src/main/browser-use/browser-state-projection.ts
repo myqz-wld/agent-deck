@@ -4,6 +4,7 @@ import type {
   BrowserStateSnapshot,
   BrowserStateSource,
 } from '@shared/browser-view';
+import { sanitizedBrowserUrl } from '@shared/browser-view';
 
 export type {
   BrowserStateProjectionEvent,
@@ -46,10 +47,14 @@ export class BrowserStateProjectionRegistry implements BrowserStateProjectionPor
 
   publish(source: BrowserStateSource, ownerId: string): BrowserStateProjectionEvent {
     const handle = getBrowserEngine().peek({ kind: 'session', id: ownerId });
-    const tabs = handle?.listTabs().map((tab) => ({
-      ...tab.info(handle.isActive(tab.id)),
-      viewportRevision: tab.viewportRevision(),
-    })) ?? [];
+    const tabs = handle?.listTabs().map((tab) => {
+      const info = tab.info(handle.isActive(tab.id));
+      return {
+        ...info,
+        url: sanitizedBrowserUrl(info.url),
+        viewportRevision: tab.viewportRevision(),
+      };
+    }) ?? [];
     if (tabs.length === 0) return this.clear(source);
     const key = browserStateSourceKey(source);
     const existing = this.snapshots.get(key);

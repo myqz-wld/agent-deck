@@ -78,10 +78,10 @@ export function useImageAttachments(
 
   const add = useCallback(async (
     filesIn: FileList | File[] | null | undefined,
-  ): Promise<void> => {
-    if (!filesIn) return;
+  ): Promise<boolean> => {
+    if (!filesIn) return false;
     const files = Array.from(filesIn).filter((file): file is File => file instanceof File);
-    if (files.length === 0) return;
+    if (files.length === 0) return false;
     ensureComposerSession(logicalSessionId, ephemeral);
     const generation = currentComposer(logicalSessionId).attachmentGeneration;
     const errors: string[] = [];
@@ -175,6 +175,7 @@ export function useImageAttachments(
             : current.attachmentError,
       };
     });
+    return added;
   }, [
     ensureComposerSession,
     ephemeral,
