@@ -60,6 +60,7 @@ function localExecutor(
     const execution = await executeBrowserOperation({
       applicationSessionId: binding.applicationSessionId,
       handle: acquireSessionBrowser(binding.applicationSessionId),
+      projectionSource: { kind: 'local', sessionId: binding.applicationSessionId },
     }, request);
     if (!execution.ok) return safeExecutionFailure(execution);
     const artifacts: BrowserOperationArtifact[] = [];

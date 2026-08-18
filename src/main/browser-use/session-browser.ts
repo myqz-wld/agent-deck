@@ -13,6 +13,7 @@ import { getBrowserEngine } from './engine/registry';
 import type { BrowserOwnerHandle } from './engine/registry';
 import type { BrowserOwnerKey } from './engine/types';
 import { revokeBrowserRuntimeOwner } from './browser-runtime-lifecycle';
+import { getBrowserStateProjectionRegistry } from './browser-state-projection';
 
 const logger = log.scope('browser-engine');
 
@@ -31,6 +32,7 @@ export function acquireSessionBrowser(sessionId: string): BrowserOwnerHandle {
  */
 export async function disposeSessionBrowser(sessionId: string): Promise<void> {
   revokeBrowserRuntimeOwner(sessionId);
+  getBrowserStateProjectionRegistry().clearOwner(sessionId);
   try {
     const engine = getBrowserEngine();
     if (engine.peek(sessionBrowserOwner(sessionId)) == null) return;

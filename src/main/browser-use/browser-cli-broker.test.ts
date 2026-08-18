@@ -15,6 +15,11 @@ import {
 } from './browser-cli-broker';
 import { BrowserRuntimeContextManager } from './browser-runtime-context';
 import { browserOperationSuccess } from './operation-contract';
+import {
+  BrowserStateProjectionRegistry,
+  getBrowserStateProjectionRegistry,
+  setBrowserStateProjectionRegistry,
+} from './browser-state-projection';
 
 interface CliApi {
   invokeBroker(context: Record<string, unknown>, request: unknown): Promise<any>;
@@ -32,12 +37,16 @@ const IDENTITY = {
   sourceIdentity: 'runtime-a',
 } as const;
 
-beforeEach(() => setBrowserEngine(new BrowserEngine(fakeWindowFactory())));
+beforeEach(() => {
+  setBrowserEngine(new BrowserEngine(fakeWindowFactory()));
+  setBrowserStateProjectionRegistry(new BrowserStateProjectionRegistry());
+});
 
 afterEach(async () => {
   await Promise.all(handles.splice(0).map((handle) => handle.shutdown()));
   await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
   setBrowserEngine(null);
+  setBrowserStateProjectionRegistry(null);
 });
 
 async function setup() {
@@ -78,6 +87,9 @@ describe('Browser CLI private broker', () => {
     expect(opened).toMatchObject({ ok: true, operation: 'open', data: { tabId: 1 } });
     expect(tabs).toMatchObject({ ok: true, operation: 'tabs', data: { tabs: [{ id: 1 }] } });
     expect(JSON.stringify({ opened, tabs })).not.toMatch(/session-a|runtime-a|lease/);
+    expect(getBrowserStateProjectionRegistry().get({
+      kind: 'local', sessionId: 'session-a',
+    })).toMatchObject({ tabs: [{ id: 1, active: true }] });
   });
 
   it('allows a trusted Core executor to receive resolved identity out of band', async () => {

@@ -6,13 +6,17 @@ export type SessionDetailTabId =
   | 'tasks'
   | 'diff'
   | 'summary'
-  | 'messages';
+  | 'messages'
+  | 'browser';
+
+export type BaseSessionDetailTabId = Exclude<SessionDetailTabId, 'browser'>;
 
 export interface SessionDetailTabModel {
   id: SessionDetailTabId;
   label: string;
   content: ReactNode;
   unavailableReason?: string;
+  fullBleed?: boolean;
 }
 
 export const SESSION_DETAIL_TABS = Object.freeze([
@@ -21,11 +25,11 @@ export const SESSION_DETAIL_TABS = Object.freeze([
   { id: 'diff', label: '改动' },
   { id: 'summary', label: '总结' },
   { id: 'messages', label: '跨会话' },
-] satisfies ReadonlyArray<{ id: SessionDetailTabId; label: string }>);
+] satisfies ReadonlyArray<{ id: BaseSessionDetailTabId; label: string }>);
 
 export function createSessionDetailTabs(
-  content: Readonly<Record<SessionDetailTabId, ReactNode>>,
-  unavailable: Partial<Record<SessionDetailTabId, string>> = {},
+  content: Readonly<Record<BaseSessionDetailTabId, ReactNode>>,
+  unavailable: Partial<Record<BaseSessionDetailTabId, string>> = {},
 ): readonly SessionDetailTabModel[] {
   return SESSION_DETAIL_TABS.map((tab) => ({
     ...tab,
@@ -105,7 +109,9 @@ export function SessionDetailShell({
           </button>
         ))}
       </nav>
-      <div className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-deck px-3 py-2">
+      <div className={selected?.fullBleed
+        ? 'relative min-w-0 flex-1 overflow-hidden'
+        : 'min-w-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-deck px-3 py-2'}>
         {selected?.unavailableReason
           ? <SessionCapabilityPlaceholder reason={selected.unavailableReason} />
           : selected?.content}

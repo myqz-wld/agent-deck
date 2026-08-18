@@ -25,10 +25,10 @@ describe('Browser state projection registry', () => {
     const listener = vi.fn();
     registry.subscribe(listener);
     const owner = acquireSessionBrowser('opaque-desktop-owner');
-    const first = await owner.openTab();
+    await owner.openTab();
 
     const opened = registry.publish(source, 'opaque-desktop-owner');
-    owner.markActive(first.id);
+    await owner.openTab();
     const updated = registry.publish(source, 'opaque-desktop-owner');
 
     expect(opened.snapshot).toMatchObject({
@@ -37,9 +37,23 @@ describe('Browser state projection registry', () => {
       source,
       tabs: [{ id: 1, active: true, viewportRevision: 1 }],
     });
-    expect(updated.revision).toBe(2);
+    expect(updated).toMatchObject({ revision: 2, snapshot: { tabs: [{ id: 1 }, { id: 2 }] } });
     expect(listener).toHaveBeenCalledTimes(2);
     expect(JSON.stringify(updated)).not.toContain('opaque-desktop-owner');
+  });
+
+  it('does not increment or emit when projected state is unchanged', async () => {
+    const registry = new BrowserStateProjectionRegistry();
+    const listener = vi.fn();
+    registry.subscribe(listener);
+    await acquireSessionBrowser('owner-stable').openTab();
+
+    const first = registry.publish(source, 'owner-stable');
+    const second = registry.publish(source, 'owner-stable');
+
+    expect(second.revision).toBe(first.revision);
+    expect(listener).toHaveBeenCalledOnce();
+    expect(registry.owner(source)).toBe('owner-stable');
   });
 
   it('emits a revisioned removal when the last tab or source retires', async () => {
@@ -62,5 +76,18 @@ describe('Browser state projection registry', () => {
     expect(browserStateSourceKey(source)).not.toBe(browserStateSourceKey({
       ...source, sessionId: 'session-b',
     }));
+  });
+
+  it('clears every source bound to one private owner without exposing the owner', async () => {
+    const registry = new BrowserStateProjectionRegistry();
+    await acquireSessionBrowser('owner-retired').openTab();
+    const local = { kind: 'local' as const, sessionId: 'session-local' };
+    registry.publish(local, 'owner-retired');
+    registry.publish(source, 'owner-retired');
+
+    registry.clearOwner('owner-retired');
+
+    expect(registry.get(local)).toBeNull();
+    expect(registry.get(source)).toBeNull();
   });
 });

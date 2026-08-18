@@ -5,6 +5,7 @@ import type {
   FileFinalDiffResult,
   SessionRecord,
 } from '@shared/types';
+import type { BrowserStateSource } from '@shared/browser-view';
 import { ActivityFeed } from '../activity-feed';
 import { SummaryView } from '../SummaryView';
 import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
@@ -31,8 +32,11 @@ import { RemoteSessionDetail } from './RemoteSessionDetail';
 import {
   createSessionDetailTabs,
   SessionDetailShell,
+  type SessionDetailTabModel,
   type SessionDetailTabId,
 } from './SessionDetailShell';
+import { IabPanel } from './IabPanel';
+import { useBrowserState } from './use-browser-state';
 
 type DiffMode = 'single' | 'final';
 const EMPTY_EVENTS_FOR_TOAST: AgentEvent[] = [];
@@ -64,6 +68,11 @@ export function SessionDetail(props: LocalProps | RemoteProps): JSX.Element {
 
 function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
   const [tab, changeTab] = useState<SessionDetailTabId>('activity');
+  const browserSource = useMemo<BrowserStateSource>(
+    () => ({ kind: 'local', sessionId: session.id }),
+    [session.id],
+  );
+  const browserState = useBrowserState(browserSource);
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
@@ -243,7 +252,7 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
     selection.selectFile(group.filePath, group.items[group.items.length - 1].id);
     setFinalDiff(null);
   };
-  const tabs = createSessionDetailTabs({
+  const baseTabs = createSessionDetailTabs({
     activity: <ActivityFeed sessionId={session.id} agentId={session.agentId} isSdk={isSdk} />,
     tasks: <TasksPanel sessionId={session.id} />,
     diff: (
@@ -278,6 +287,25 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
     summary: <SummaryView sessionId={session.id} />,
     messages: <MessagesPanel sessionId={session.id} />,
   });
+  const tabs: readonly SessionDetailTabModel[] = browserState.snapshot == null
+    ? baseTabs
+    : [
+        ...baseTabs,
+        {
+          id: 'browser',
+          label: 'IAB',
+          fullBleed: true,
+          content: (
+            <IabPanel
+              source={browserSource}
+              snapshot={browserState.snapshot}
+            />
+          ),
+        },
+      ];
+  useEffect(() => {
+    if (tab === 'browser' && browserState.snapshot == null) changeTab('activity');
+  }, [browserState.snapshot, tab]);
   const notice = cancelToasts.length > 0
     ? (
         <div className="shrink-0 border-b border-deck-border/40 bg-white/[0.03] px-3 py-1.5">
