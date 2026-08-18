@@ -48,9 +48,6 @@ export default defineConfig({
     plugins: [react()],
     build: {
       outDir: 'build/renderer',
-      rollupOptions: {
-        input: resolve(__dirname, 'src/renderer/index.html'),
-      },
     },
     server: {
       port: 5173,

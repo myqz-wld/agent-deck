@@ -30,7 +30,6 @@ export const desktopGrokBuildAdapterHost = createGrokBuildAdapterHost({
     readPermissionTimeoutMs: () => settingsStore.get('permissionTimeoutMs'),
     readSummaryModel: () => settingsStore.get('summaryModel'),
     readSummaryReasoning: () => settingsStore.get('summaryThinking'),
-    readSummaryTimeoutMs: () => settingsStore.get('summaryTimeoutMs'),
   },
   hookDiagnostics: hookRouteDiagnostics,
   hookInstallerObserver: desktopGrokHookInstallerObserver,

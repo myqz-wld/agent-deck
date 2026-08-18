@@ -325,7 +325,7 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
       // Presentation metadata cannot make a committed provider/team spawn ambiguous to its caller.
     }
     const provider = options.provider || null;
-    return {
+    const result = {
       sessionId,
       adapter: args.adapter,
       gateway: args.adapter === 'claude-code' ? provider : null,
@@ -339,10 +339,10 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
       spawnLimits: lease.snapshot(),
       sentAt: this.now(),
       spawnPromptMessageId: anchorId,
-      ...(contextMode === 'fork'
-        ? { contextMode: 'fork', forkedFromSessionId: callerSessionId }
-        : { contextMode: 'fresh' }),
     };
+    return contextMode === 'fork'
+      ? { ...result, contextMode: 'fork', forkedFromSessionId: callerSessionId }
+      : result;
   }
 
   private assertSpawnLink(

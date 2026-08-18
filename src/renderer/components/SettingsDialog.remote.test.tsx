@@ -65,7 +65,6 @@ function configuration(
       summaryModel: DEFAULT_SETTINGS.summaryModel,
       summaryRuntimeProvider: DEFAULT_SETTINGS.summaryRuntimeProvider,
       summaryThinking: DEFAULT_SETTINGS.summaryThinking,
-      summaryTimeoutMs: DEFAULT_SETTINGS.summaryTimeoutMs,
       ...overrides,
     },
     sessionLifecycle: {
@@ -149,7 +148,6 @@ describe('SettingsDialog adapter views', () => {
             permissionTimeoutMs: 30 * 60_000,
             summaryModel: 'summary-model',
             summaryThinking: 'low',
-            summaryTimeoutMs: 60_000,
           })),
         getRemoteHostNodeHookStatus: remoteHookStatus,
       },
@@ -216,7 +214,7 @@ describe('SettingsDialog adapter views', () => {
         getRemoteHostNodeConfiguration: vi.fn().mockResolvedValue(configuration({
             claudeCodeSandbox: 'strict', codexSandbox: 'read-only',
             enableAgentDeckMcp: true, grokSandbox: 'off', permissionTimeoutMs: 30 * 60_000,
-            summaryModel: 'summary-model', summaryThinking: 'low', summaryTimeoutMs: 60_000,
+            summaryModel: 'summary-model', summaryThinking: 'low',
           })),
         getRemoteHostNodeHookStatus: remoteHookStatus,
       },
@@ -309,7 +307,7 @@ describe('SettingsDialog adapter views', () => {
     const remoteConfiguration = vi.fn().mockResolvedValue(configuration({
         claudeCodeSandbox: 'strict', codexSandbox: 'read-only',
         enableAgentDeckMcp: true, grokSandbox: 'off', permissionTimeoutMs: 30_000,
-        summaryModel: '', summaryThinking: 'low', summaryTimeoutMs: 60_000,
+        summaryModel: '', summaryThinking: 'low',
       }, 8));
     const remoteHookStatus = vi.fn().mockResolvedValue({
       adapterId: 'claude-code', revision: 8, status: REMOTE_HOOK_STATUS,
@@ -384,7 +382,6 @@ describe('SettingsDialog adapter views', () => {
         permissionTimeoutMs: 30_000,
         summaryModel: 'stale-worker-model',
         summaryThinking: 'low',
-        summaryTimeoutMs: 60_000,
       }, 99));
     await Promise.resolve();
     expect(screen.queryByText('stale-worker-model')).toBeNull();

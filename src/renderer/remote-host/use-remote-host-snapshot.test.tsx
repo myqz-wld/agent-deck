@@ -138,7 +138,6 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
         label: 'Relay',
         scope: 'remote',
         endpoint: null,
-        credentials: { connectionCredentialConfigured: true },
       }],
       states: [{
         profileId: 'remote-a',
@@ -157,7 +156,7 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
       states: [{
         ...remote.states[0]!,
         status: 'connected',
-        capabilities: ['sessions.read', 'issues', 'usage'],
+        capabilities: ['sessions.presentation.read', 'issues', 'usage'],
       }],
     };
     getSnapshot.mockResolvedValue(remote);
@@ -187,7 +186,7 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
         recovery: null,
         authoritativeCoreId: 'core-a',
         workerGeneration: 1,
-        capabilities: ['sessions.read'],
+        capabilities: ['sessions.presentation.read'],
         eventRevision: 1,
         error: null,
       }],
@@ -223,7 +222,7 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
         recovery: null,
         authoritativeCoreId: 'core-a',
         workerGeneration: 1,
-        capabilities: ['sessions.read'],
+        capabilities: ['sessions.presentation.read'],
         eventRevision: 1,
         error: null,
       }],
@@ -243,7 +242,10 @@ describe('useRemoteHostSnapshot invalidation coalescing', () => {
     getSnapshot.mockResolvedValue(connected);
     connectRemoteHost.mockResolvedValue({
       ...reconnected,
-      states: [{ ...connected.states[0]!, capabilities: ['sessions.read', 'issues', 'usage'] }],
+      states: [{
+        ...connected.states[0]!,
+        capabilities: ['sessions.presentation.read', 'issues', 'usage'],
+      }],
     });
     window.api.setRemoteHostSourceMode = vi.fn()
       .mockResolvedValueOnce(local)

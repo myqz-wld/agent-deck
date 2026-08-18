@@ -7,7 +7,6 @@ import {
   type JsonValue,
   type ProjectListParams,
   type ProjectListResult,
-  type ProjectResolveResult,
   type SessionConsoleCapabilitiesParams,
   type SessionConsoleCapabilitiesResult,
   type SessionConsoleAttachmentInput,
@@ -267,17 +266,6 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
         ? cursor('projects', nextOffset)
         : null,
       total: this.options.projects.length,
-      revision: this.options.metadata.currentRevision(),
-    };
-  }
-
-  resolveProject(
-    params: { alias: string },
-    _context: SessionConsoleExecutionContext,
-  ): ProjectResolveResult {
-    const project = this.options.projects.find((candidate) => candidate.alias === params.alias);
-    return {
-      project: project ? publicServerCoreProject(project) : null,
       revision: this.options.metadata.currentRevision(),
     };
   }

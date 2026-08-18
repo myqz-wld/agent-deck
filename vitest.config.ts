@@ -2,12 +2,8 @@ import { defineConfig } from 'vitest/config';
 import { resolve } from 'path';
 
 /**
- * Vitest 独立配置（不与 electron.vite.config.ts 共享：electron-vite 是给 main/preload/renderer
- * 三段编译的，Vitest 只跑 node 环境单测，不需要 plugin react / electron build chain）。
- *
- * Alias 与 electron.vite.config.ts 保持一致，让测试文件可以用 `@main` / `@shared` / `@renderer` 引用。
- *
- * Keep all three aliases aligned with electron.vite.config.ts so tests exercise production imports.
+ * Vitest stays separate from the Electron Vite main/preload/renderer build chain.
+ * Keep its aliases aligned with the production configs so tests resolve the same imports.
  */
 export default defineConfig({
   resolve: {
@@ -25,19 +21,15 @@ export default defineConfig({
     },
   },
   test: {
-    // 默认 node 环境（main/preload/纯逻辑测试）。需要 DOM 的 React hook 测试在文件顶部用
-    // `// @vitest-environment jsdom` docblock 单文件切 jsdom（见 hooks/__tests__/useImageBlob.test.tsx
-    // / useImageAttachments.test.tsx），不污染其余 node 测试、也不引入全局 jsdom 启动开销。
+    // Main, preload, and pure-logic tests use Node. DOM tests opt into happy-dom per file.
     environment: 'node',
-    // 同时收 src 下的 TypeScript 测试和 scripts 下的 Node ESM 自动化测试。
+    // Cover TypeScript tests under src and Node ESM automation tests under scripts.
     include: [
       'src/**/*.test.ts',
       'src/**/*.test.tsx',
       'scripts/deployment/**/*.test.mjs',
     ],
-    // 全局 mock electron + electron-log/main + electron-store + electron-log/renderer
-    // —— Plan runtime-logging-electron-log-20260529 §D15 + §Step 3.0.2.5 + §Step 3.5.1.5 实证扩展.
-    // 详 vitest-setup.ts 头注.
+    // Install deterministic application paths and shared Electron-only module mocks.
     setupFiles: ['./vitest-setup.ts'],
   },
 });

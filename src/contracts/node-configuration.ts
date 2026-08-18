@@ -56,7 +56,6 @@ export interface NodeProviderDefaultsDto extends JsonObject {
   summaryModel: string;
   summaryRuntimeProvider: string;
   summaryThinking: NodeConfigurationThinkingLevel;
-  summaryTimeoutMs: number;
 }
 
 export interface NodeSessionLifecycleDto extends JsonObject {
@@ -282,7 +281,7 @@ export function parseNodeConfigurationGetResult(value: unknown): NodeConfigurati
     'mcpMaxSpawnDepth', 'mcpSpawnRatePerMinute', 'permissionTimeoutMs',
     'summaryAdapter', 'summaryEnabled', 'summaryEventCount', 'summaryIntervalMs',
     'summaryMaxConcurrent', 'summaryModel', 'summaryRuntimeProvider',
-    'summaryThinking', 'summaryTimeoutMs',
+    'summaryThinking',
   ], 'node.configuration.providerDefaults');
   const field = (name: string): string => `node.configuration.providerDefaults.${name}`;
   const booleanKeys = [
@@ -429,9 +428,6 @@ export function parseNodeConfigurationGetResult(value: unknown): NodeConfigurati
       summaryThinking: enumText(
         defaults.summaryThinking, NODE_CONFIGURATION_THINKING_LEVELS,
         field('summaryThinking'),
-      ),
-      summaryTimeoutMs: integer(
-        defaults.summaryTimeoutMs, field('summaryTimeoutMs'), 0, 86_400_000,
       ),
     },
     sessionLifecycle: {

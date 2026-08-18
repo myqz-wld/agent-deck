@@ -331,7 +331,7 @@ function RemoteHistoryPanel({
               <li>
                 <button
                   type="button"
-                  disabled={source.historyPaginationBusy ?? source.busy}
+                  disabled={source.historyPaginationBusy}
                   onClick={() => void source.loadMoreHistorySessions()}
                   className="w-full rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
                 >

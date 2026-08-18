@@ -46,6 +46,8 @@ function singleQuestionDisplay(question: string) {
   };
 }
 
+const unavailablePlanReviewTransport = (): null => null;
+
 afterEach(cleanup);
 
 describe('RemotePendingRequests', () => {
@@ -96,6 +98,7 @@ describe('RemotePendingRequests', () => {
         sourceIdentity="remote-a:core-a:1"
         busy={false}
         onRespond={respond}
+        planReviewTransport={unavailablePlanReviewTransport}
       />,
     );
 
@@ -130,6 +133,7 @@ describe('RemotePendingRequests', () => {
         sourceIdentity="remote-a:core-a:1"
         busy={false}
         onRespond={respond}
+        planReviewTransport={unavailablePlanReviewTransport}
       />,
     );
 
@@ -149,6 +153,7 @@ describe('RemotePendingRequests', () => {
         sourceIdentity="remote-a:core-a:1"
         busy={false}
         onRespond={respond}
+        planReviewTransport={unavailablePlanReviewTransport}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
@@ -164,6 +169,7 @@ describe('RemotePendingRequests', () => {
         sourceIdentity="remote-a:core-a:1"
         busy={false}
         onRespond={respond}
+        planReviewTransport={unavailablePlanReviewTransport}
       />,
     );
     const answer = screen.getByRole('button', { name: 'Continue' });
@@ -178,6 +184,7 @@ describe('RemotePendingRequests', () => {
         sourceIdentity="remote-a:core-a:1"
         busy={false}
         onRespond={respond}
+        planReviewTransport={unavailablePlanReviewTransport}
       />,
     );
     const revisedAnswer = screen.getByRole('button', { name: 'Continue' });
@@ -193,7 +200,12 @@ describe('RemotePendingRequests', () => {
 
   it('isolates answer state for the same request id across source identities', () => {
     const request = pending('ask-a', 'ask-user-question', singleQuestionDisplay('Continue?'));
-    const props = { pending: { requests: [request], revision: 3 }, busy: false, onRespond: vi.fn() };
+    const props = {
+      pending: { requests: [request], revision: 3 },
+      busy: false,
+      onRespond: vi.fn(),
+      planReviewTransport: unavailablePlanReviewTransport,
+    };
     const view = render(<RemotePendingRequests {...props} sourceIdentity="remote-a:core-a:1" />);
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     view.rerender(<RemotePendingRequests {...props} sourceIdentity="remote-b:core-b:1" />);
@@ -223,6 +235,7 @@ describe('RemotePendingRequests', () => {
         sourceIdentity="remote-a:core-a:1"
         busy={false}
         onRespond={respond}
+        planReviewTransport={unavailablePlanReviewTransport}
       />,
     );
 
@@ -263,6 +276,7 @@ describe('RemotePendingRequests', () => {
         agentId="claude-code"
         busy={false}
         onRespond={respond}
+        planReviewTransport={unavailablePlanReviewTransport}
       />,
     );
 
@@ -294,6 +308,7 @@ describe('RemotePendingRequests', () => {
       agentId="claude-code"
       busy={false}
       onRespond={vi.fn()}
+      planReviewTransport={unavailablePlanReviewTransport}
     />);
 
     expect(screen.getAllByText('共享差异视图')).toHaveLength(2);
@@ -329,6 +344,7 @@ describe('RemotePendingRequests', () => {
         agentId="codex-cli"
         busy={false}
         onRespond={respond}
+        planReviewTransport={unavailablePlanReviewTransport}
       />,
     );
 
@@ -370,6 +386,7 @@ describe('RemotePendingRequests', () => {
       agentId="codex-cli"
       busy
       onRespond={respond}
+      planReviewTransport={unavailablePlanReviewTransport}
     />);
 
     expect((screen.getByRole('button', { name: '确认计划' }) as HTMLButtonElement).disabled)

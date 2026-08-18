@@ -31,7 +31,7 @@ describe('SshAgentDeckClient protocol transport', () => {
     await connected;
 
     const first = client.request('system.health', {}, { requestId: 'request-1' });
-    const second = client.request('session.list', {}, { requestId: 'request-2' });
+    const second = client.request('session.console.list', { limit: 25 }, { requestId: 'request-2' });
     expect(process.takeWrittenMessages().filter((message) => hasMessageType(message, 'request'))).toHaveLength(
       2,
     );
@@ -136,14 +136,13 @@ describe('SshAgentDeckClient protocol transport', () => {
     const harness = new FakeSpawnHarness();
     const client = makeClient(harness, 'capabilities');
     const process = await completeConnect(client, harness, 'desktop-capabilities', 'full', {
-      capabilities: [AgentDeckCapability.SessionsRead],
+      capabilities: [AgentDeckCapability.SessionConsoleRead],
     });
     process.takeWrittenMessages();
     await expect(
-      client.request('session.create', {
-        adapterId: 'codex-cli',
-        cwd: '/remote/project',
-        options: {},
+      client.request('session.send', {
+        sessionId: 'session-a',
+        text: 'Inspect',
       }),
     ).rejects.toMatchObject({ code: 'capability_unavailable' });
     expect(process.takeWrittenMessages()).toEqual([]);
@@ -162,14 +161,18 @@ describe('SshAgentDeckClient protocol transport', () => {
     );
     inFlightProcess.takeWrittenMessages();
     const first = inFlightClient.request('system.health', {}, { requestId: 'one' });
-    const second = inFlightClient.request('session.list', {}, { requestId: 'two' });
+    const second = inFlightClient.request(
+      'session.console.list',
+      { limit: 25 },
+      { requestId: 'two' },
+    );
     const firstOutcome = first.catch((error: unknown) => error);
     const secondOutcome = second.catch((error: unknown) => error);
     expect(inFlightProcess.takeWrittenMessages()).toEqual([
       expect.objectContaining({ type: 'request', requestId: 'one' }),
     ]);
     await expect(
-      inFlightClient.request('session.get', { sessionId: 's' }, { requestId: 'three' }),
+      inFlightClient.request('session.console.get', { sessionId: 's' }, { requestId: 'three' }),
     ).rejects.toMatchObject({ code: 'in_flight_limit' });
     inFlightProcess.emitMessage({
       type: 'result', requestId: 'one', result: { ok: true, revision: 1 }, revision: 1,
@@ -195,11 +198,19 @@ describe('SshAgentDeckClient protocol transport', () => {
     const process = await completeConnect(queueClient, queueHarness, 'desktop-queue');
     process.stdin.blocked = true;
     const one = queueClient.request('system.health', {}, { requestId: 'queued-1' });
-    const two = queueClient.request('session.list', {}, { requestId: 'queued-2' });
+    const two = queueClient.request(
+      'session.console.list',
+      { limit: 25 },
+      { requestId: 'queued-2' },
+    );
     void one.catch(() => undefined);
     void two.catch(() => undefined);
     await expect(
-      queueClient.request('session.get', { sessionId: 's' }, { requestId: 'queued-3' }),
+      queueClient.request(
+        'session.console.get',
+        { sessionId: 's' },
+        { requestId: 'queued-3' },
+      ),
     ).rejects.toMatchObject({ code: 'write_queue_limit' });
     await queueClient.close();
   });
@@ -284,8 +295,16 @@ describe('SshAgentDeckClient protocol transport', () => {
       firstProcess.takeWrittenMessages();
       const results = [
         client.request('system.health', {}, { requestId: 'retained-one' }),
-        client.request('session.list', {}, { requestId: 'retained-two' }),
-        client.request('session.get', { sessionId: 's' }, { requestId: 'retained-three' }),
+        client.request(
+          'session.console.list',
+          { limit: 25 },
+          { requestId: 'retained-two' },
+        ),
+        client.request(
+          'session.console.get',
+          { sessionId: 's' },
+          { requestId: 'retained-three' },
+        ),
       ];
       firstProcess.takeWrittenMessages();
       firstProcess.exit(255);

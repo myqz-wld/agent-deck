@@ -21,12 +21,14 @@ are the SSOT for fields, defaults, nullability, side effects, time bounds, retri
 shapes. This baseline adds sequencing and lifecycle rules, not a second schema.
 
 Provider-native tools, approval policy, and sandbox remain owned by Codex. Teammates run under their
-own runtime access; a lead cannot approve on their behalf. Target fields are adapter-scoped: Claude
-accepts `permissionMode`, `claudeCodeSandbox`, and `extraAllowWrite`; Codex accepts
-`approvalPolicy`, `codexSandbox`, and `extraAllowWrite`; Grok accepts `sessionMode` and
-`grokSandbox`. Reject incompatible fields instead of assuming they were ignored. Explicit values
-win; omitted runtime values inherit only from a persisted same-adapter source, while cross-adapter
-targets use target defaults. A `reviewer-*` name grants no hidden runtime access.
+own runtime access; a lead cannot approve on their behalf. Target runtime controls are adapter- and
+tool-scoped: Claude may accept `permissionMode` and `claudeCodeSandbox`; Codex may accept
+`approvalPolicy` and `codexSandbox`; Grok may accept `sessionMode` and `grokSandbox`. Desktop-local
+spawn and handoff tools may also expose `extraAllowWrite` for Claude and Codex; Server Core omits it
+and enforces the Core Workspace ceiling. Pass only fields exposed by the live schema; reject
+incompatible fields instead of assuming they were ignored. Explicit values win; omitted runtime
+values inherit only from a persisted same-adapter source, while cross-adapter targets use target
+defaults. A `reviewer-*` name grants no hidden runtime access.
 
 Codex targets default to `never` approval when no explicit or inherited value exists.
 `codexSandbox` controls native `sandboxMode`; Agent Deck surfaces native approval requests and uses
@@ -95,10 +97,11 @@ selected from `reviewer-claude` (`claude-code`), `reviewer-codex` (`codex-cli`),
 
 ## Browser Work
 
-Use the official Browser plugin for Codex browser work with Agent Deck's session-private `iab` backend.
-Agent Deck intentionally exposes no `browser_*` MCP tools to Codex; use the plugin tools actually
-present in the session. Tabs share no cookies or storage with other sessions and close with the
-session or handoff.
+Use the browser capability exposed in the current session. Desktop-local Codex normally uses the
+official Browser plugin with Agent Deck's session-private `iab` backend; Server Core may expose
+Agent Deck `browser_*` tools backed by the connected desktop. Read the live contract before
+interaction. Tabs share no cookies or storage with other sessions and close with the session or
+handoff.
 
 - Snapshot before interaction and act only through returned references. Navigation or reload
   invalidates earlier references; take a fresh snapshot instead of guessing or using CSS selectors.
@@ -130,8 +133,11 @@ stop on `decision: "timeout"`.
 Use Agent Deck `enter_worktree` / `exit_worktree` when isolation is required; Codex sessions expose
 no native EnterWorktree / ExitWorktree lifecycle.
 
-- `enter_worktree` requires an explicit Git `startPoint`. Agent Deck resolves it once to `startCommit` and creates the worktree with detached HEAD. Omit custom paths unless required; the default is under
-  `<main-repo>/.agent-deck/worktrees`, which requires an exact `.agent-deck/` ignore entry.
+- `enter_worktree` requires an explicit Git `startPoint`. Agent Deck resolves it once to `startCommit` and creates the worktree with detached HEAD.
+  Follow the live path domain: Desktop-local tools use
+  local absolute paths and derive an omitted path under `<main-repo>/.agent-deck/worktrees`, which
+  requires an exact `.agent-deck/` ignore entry; Server Core accepts only Workspace-relative paths
+  and applies its Workspace default.
 - A success with `state: "waiting-tool-result"` is durable asynchronous acceptance, not proof that the current turn already runs in the worktree. Do not `cd`, edit through the old cwd, or send a follow-up. Agent Deck fences the old turn, switches runtime and database cwd, then starts one internal continuation before any user input buffered during the transition. Follow an error hint; it implies no switch.
 - Before normal exit, preserve intended files and make the worktree clean. `exit_worktree` requires
   the active lease. An active structured lease is required. Success with `state: "waiting-tool-result"` accepts the reverse transition; it does not mean the worktree was already removed. Agent Deck restores cwd before cleanup. Preserve a
@@ -152,8 +158,8 @@ move with the committed ownership transfer; historical provenance remains unchan
 Call handoff only after all source-side preparation, as the final tool action and never in parallel.
 Any successful result containing a successor `sessionId` is terminal for the source, even if
 `callerClosed` failed or warnings exist: stop immediately and emit at most one acknowledgement line.
-Only an error without a successor id leaves the source usable. For long context, place a bounded
-file under `/tmp` and name its absolute path in the prompt.
+Only an error without a successor id leaves the source usable. If the prompt references a context
+file, use only a bounded path the successor can read under the live tool and Workspace contract.
 
 ## Recovery And Lifecycle
 

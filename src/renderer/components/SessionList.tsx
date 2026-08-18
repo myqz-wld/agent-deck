@@ -264,7 +264,7 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
       {source.hasMoreSessions && (
         <button
           type="button"
-          disabled={source.livePaginationBusy ?? source.busy}
+          disabled={source.livePaginationBusy}
           onClick={() => void source.loadMoreSessions()}
           className="rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
         >

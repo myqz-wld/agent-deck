@@ -156,6 +156,7 @@ describe('NewSessionDialog readiness', () => {
   it('keeps the complete form mounted and delays progress during later revalidation', async () => {
     vi.useFakeTimers();
     const refreshedDefaults = deferred<ReturnType<typeof sessionCreationDefaults>>();
+    window.api.listClaudeGatewayProfiles = vi.fn().mockResolvedValue([{ id: 'gateway-a' }]);
     window.api.getAdapterSessionCreationDefaults = vi.fn()
       .mockResolvedValueOnce(sessionCreationDefaults())
       .mockReturnValueOnce(refreshedDefaults.promise);
@@ -167,7 +168,8 @@ describe('NewSessionDialog readiness', () => {
     });
     fireEvent.click(screen.getByText('模型配置'));
     const provider = screen.getByLabelText('模型网关') as HTMLInputElement;
-    fireEvent.change(provider, { target: { value: 'gateway-a' } });
+    fireEvent.click(provider);
+    fireEvent.click(screen.getByRole('option', { name: 'gateway-a' }));
 
     expect(provider.disabled).toBe(false);
     expect(screen.getByText('模型配置')).toBeTruthy();

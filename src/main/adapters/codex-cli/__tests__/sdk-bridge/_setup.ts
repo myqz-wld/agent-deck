@@ -94,11 +94,11 @@ function preparedRecovery(
   spoolId: string,
 ): PreparedContinuationContext {
   return {
-    version: 1,
+    version: 2,
     providerPrompt,
     persistedUserText: instruction,
     source: { eventRevision: 7, rebuildAfterRevision: 0, maxEventId: 7 },
-    checkpoint: { id: null, throughRevision: 0, formatVersion: 1, refreshed: false },
+    checkpoint: { id: null, throughRevision: 0, formatVersion: 2, refreshed: false },
     projection: { canonicalHash: null, omittedFacts: 0 },
     quality,
     metrics: {

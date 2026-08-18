@@ -70,7 +70,6 @@ beforeEach(() => {
   vi.stubEnv('ANTHROPIC_DEFAULT_HAIKU_MODEL', '');
   settings.values.summaryModel = '';
   settings.values.summaryThinking = 'medium';
-  settings.values.summaryTimeoutMs = 0;
   vi.clearAllMocks();
   installSdk();
 });

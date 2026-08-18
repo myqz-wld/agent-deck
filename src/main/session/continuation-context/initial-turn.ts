@@ -1,5 +1,6 @@
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import { assertContinuationPromptByteLimit } from './budget-policy';
+import { CONTINUATION_CONTEXT_FORMAT_VERSION } from './renderer';
 import { estimateContinuationTokens } from './token-estimator';
 import type { PreparedContinuationContext } from './types';
 
@@ -11,7 +12,7 @@ export interface OrdinaryInitialTurn {
 }
 
 export interface TrustedContinuationMetadata {
-  formatVersion: number;
+  formatVersion: typeof CONTINUATION_CONTEXT_FORMAT_VERSION;
   checkpointId: number | null;
   sourceSessionId: string;
   sourceEventRevision: number;

@@ -53,7 +53,7 @@ describe('ToolStartRow tool input disclosure', () => {
           toolInput: {
             subagent_type: 'reviewer-codex',
             prompt: 'review this patch',
-            model_reasoning_effort: 'xhigh',
+            reasoning_effort: 'xhigh',
           },
         })}
         sessionId="s"
@@ -62,10 +62,10 @@ describe('ToolStartRow tool input disclosure', () => {
 
     expect(screen.getByRole('button', { name: '查看指令' })).toBeTruthy();
     expect(container.textContent).toContain('默认模型 · xhigh');
-    expect(container.textContent).not.toContain('"model_reasoning_effort": "xhigh"');
+    expect(container.textContent).not.toContain('"reasoning_effort": "xhigh"');
     expect(screen.queryByRole('button', { name: '查看入参' })).toBeNull();
     fireEvent.click(within(container).getByRole('button', { name: /Agent/ }));
-    expect(container.textContent).toContain('"model_reasoning_effort": "xhigh"');
+    expect(container.textContent).toContain('"reasoning_effort": "xhigh"');
   });
 
   it('surfaces Codex collab operation, runtime, targets, and full raw parameters', () => {

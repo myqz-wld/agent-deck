@@ -58,7 +58,7 @@ function session(): SessionRecord {
 
 function prepared(spoolId: string): PreparedContinuationContext {
   return {
-    version: 1,
+    version: 2,
     providerPrompt: 'trusted provider prompt',
     persistedUserText: 'continue now',
     source: { eventRevision: 1, rebuildAfterRevision: 0, maxEventId: 1 },

@@ -30,8 +30,7 @@ describe('Remote Owner Product v1 grant policy', () => {
     const feishu = issueRemoteOwnerGrantClaim('feishu');
     expect(desktop.productMethods).toEqual(feishu.productMethods);
     expect(desktop.productMethods).toContain('session.delete');
-    expect(desktop.productMethods).not.toContain('project.resolve');
-    expect(desktop.productMethods).not.toContain('node.assets.list');
+    expect(UNGRANTED_REMOTE_CORE_METHODS).toEqual(['system.health']);
     expect(desktop.channelMethods).toEqual(['desktop.broker.next', 'desktop.broker.respond']);
     expect(feishu.channelMethods).toEqual(['subscription.set']);
     expect(() => assertRemoteOwnerGrantForSurface(desktop, 'feishu')).toThrow('surface');

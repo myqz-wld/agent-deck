@@ -2,7 +2,6 @@ import type { AccessContext } from './access';
 import type { AuthoritativeCoreLocation, DeploymentTopology } from './topology';
 
 export const AgentDeckCapability = {
-  SessionsRead: 'sessions.read',
   SessionsWrite: 'sessions.write',
   SessionConsoleRead: 'session-console.read',
   SessionConsoleCreate: 'session-console.create',
@@ -30,17 +29,12 @@ export const AgentDeckCapability = {
   Usage: 'usage',
   NodeConfiguration: 'node.configuration',
   NodeHooksRead: 'node.hooks.read',
-  NodeHooksWrite: 'node.hooks.write',
   NodeAssets: 'node.assets',
   NodeAssetsBound: 'node.assets.bound',
   Tasks: 'tasks',
   Issues: 'issues',
-  Files: 'files',
-  Blobs: 'blobs',
   Browser: 'browser',
   Assets: 'assets',
-  ProviderDiagnostics: 'providers.diagnostics',
-  CredentialAdministration: 'credentials.admin',
   Replay: 'events.replay',
 } as const;
 

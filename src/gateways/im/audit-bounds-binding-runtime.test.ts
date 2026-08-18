@@ -16,7 +16,6 @@ import {
   project,
   select,
   session,
-  sessionSummary,
   setup,
   testNonce,
 } from './__tests__/fixture';
@@ -29,9 +28,9 @@ describe('bounded Core response processing', () => {
     sessionClient.requestHook = (call) => call.method === 'session.console.list'
       ? {
           sessions: [
-            sessionSummary(session('session-1')),
-            sessionSummary(session('session-2')),
-            sessionSummary(session('session-3')),
+            session('session-1'),
+            session('session-2'),
+            session('session-3'),
           ],
           nextCursor: null,
           total: 3,
@@ -221,7 +220,7 @@ describe('revocation, subscription fanout, and runtime value domains', () => {
     await flush();
     store.enroll({ ...credential, status: 'revoked' });
     release({
-      sessions: [sessionSummary(session('session-1'))],
+      sessions: [session('session-1')],
       nextCursor: null,
       total: 1,
       revision: 10,

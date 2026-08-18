@@ -47,12 +47,11 @@ const text = process.env.FAKE_GROK_RESPONSE ?? `echo:${prompt}`;
 process.stdout.write(JSON.stringify({
   ...(process.env.FAKE_GROK_STRUCTURED_OUTPUT
     ? { structuredOutput: JSON.parse(process.env.FAKE_GROK_STRUCTURED_OUTPUT) }
-    : { content: text }),
+    : { text }),
   stopReason: 'EndTurn',
   sessionId,
   usage: {
-    inputTokens: 13,
-    outputTokens: 5,
-    contextWindowTokens: 1_048_576,
+    input_tokens: 13,
+    output_tokens: 5,
   },
 }));

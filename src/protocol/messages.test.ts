@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { issueRemoteOwnerGrantClaim } from '@contracts/index';
 
 import {
+  assertClientHello,
   assertHostHello,
   assertProtocolMessageEnvelope,
   parseProtocolMessageEnvelope,
@@ -9,11 +10,25 @@ import {
 } from './messages';
 
 describe('protocol message envelope', () => {
-  it('accepts additive fields on a valid request envelope', () => {
+  it('accepts only the exact current ClientHello fields', () => {
+    const hello = {
+      protocolVersion: { major: 2, minor: 7 },
+      appVersion: '0.1.0',
+      clientId: 'desktop-a',
+      requestedTopology: 'full',
+      lastEventRevision: 4,
+    } as const;
+    expect(() => assertClientHello(hello)).not.toThrow();
+    expect(() => assertClientHello({ ...hello, previousTopology: 'server-core' })).toThrow(
+      'fields do not match the current protocol',
+    );
+  });
+
+  it('rejects additive fields outside the exact current request envelope', () => {
     const value = {
       type: 'request',
       requestId: 'request-1',
-      method: 'session.list',
+      method: 'system.health',
       params: {},
       idempotencyKey: null,
       expectedRevision: null,
@@ -21,7 +36,9 @@ describe('protocol message envelope', () => {
       futureMinorField: true,
     };
 
-    expect(() => assertProtocolMessageEnvelope(value)).not.toThrow();
+    expect(() => assertProtocolMessageEnvelope(value)).toThrow(
+      'fields do not match the current protocol',
+    );
   });
 
   it('rejects unknown message types and malformed revisions', () => {
@@ -42,7 +59,7 @@ describe('protocol message envelope', () => {
       assertProtocolMessageEnvelope({
         type: 'request',
         requestId: 'request-3',
-        method: 'session.list',
+        method: 'system.health',
         params: [],
         idempotencyKey: null,
         expectedRevision: null,
@@ -56,10 +73,10 @@ describe('protocol message envelope', () => {
       assertProtocolMessageEnvelope({
         type: 'request',
         requestId: 'request-4',
-        method: 'session.list',
+        method: 'system.health',
         params: {},
       }),
-    ).toThrowError('idempotencyKey must be null or a non-empty string');
+    ).toThrowError('fields do not match the current protocol');
   });
 
   it.each(['cancelled', 'internal_error'] as const)(
@@ -103,7 +120,7 @@ describe('protocol message envelope', () => {
         surface: 'feishu',
         grant: issueRemoteOwnerGrantClaim('feishu'),
       },
-      capabilities: ['sessions.read'],
+      capabilities: ['session-console.read'],
       limits: {
         maxFrameBytes: 1024,
         maxBlobBytes: 4096,
@@ -120,6 +137,17 @@ describe('protocol message envelope', () => {
         access: { ...hello.access, surface: 'desktop' },
       }),
     ).toThrowError('Invalid authenticated client access context');
+    expect(() => assertHostHello({ ...hello, futureField: true })).toThrowError(
+      'fields do not match the current protocol',
+    );
+    expect(() => assertHostHello({
+      ...hello,
+      protocolVersion: { ...hello.protocolVersion, patch: 1 },
+    })).toThrowError('fields do not match the current protocol');
+    expect(() => assertHostHello({
+      ...hello,
+      access: { ...hello.access, previousCredentialId: 'credential-old' },
+    })).toThrowError('fields do not match the current protocol');
   });
 
   it('rejects retired topology and surface vocabulary without normalization', () => {

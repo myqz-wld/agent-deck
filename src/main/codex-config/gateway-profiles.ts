@@ -1,6 +1,4 @@
 import {
-  assertCodexGatewayProfileIdCore,
-  codexGatewayProfilePathCore,
   listCodexGatewayProfilesCore,
   resolveCodexGatewayProfileCore,
   type CodexGatewayPaths,
@@ -19,21 +17,6 @@ export {
 
 export function defaultCodexGatewayPaths(): CodexGatewayPaths {
   return defaultDesktopCodexGatewayPaths();
-}
-
-export function codexGatewayProfilePath(
-  profileId: string,
-  paths: CodexGatewayPaths = defaultCodexGatewayPaths(),
-): string {
-  return codexGatewayProfilePathCore(
-    profileId,
-    paths,
-    desktopCodexGatewayProfileHost,
-  );
-}
-
-export function assertCodexGatewayProfileId(profileId: string): void {
-  assertCodexGatewayProfileIdCore(profileId);
 }
 
 export function listCodexGatewayProfiles(

@@ -137,7 +137,7 @@ describe('ElectronHostRegistry resilience boundaries', () => {
     expect(registry.state(profile.id)).toMatchObject({ status: 'connected', eventRevision: 1 });
     const leaked = registry.state(profile.id);
     (leaked.capabilities as string[]).push('mutated');
-    expect(registry.state(profile.id).capabilities).toEqual(['sessions.read']);
+    expect(registry.state(profile.id).capabilities).toEqual(['session-console.read']);
     await registry.stopAll();
   });
 
@@ -318,7 +318,7 @@ describe('ElectronHostRegistry resilience boundaries', () => {
     emitHello(harness, relayWireHello(profile, 'worker-live', 1));
     await connected;
     const process = harness.latest;
-    const offline = client.request('session.list', {}, { requestId: 'offline' });
+    const offline = client.request('system.health', {}, { requestId: 'offline' });
     process.emitMessage({
       type: 'error',
       requestId: 'offline',

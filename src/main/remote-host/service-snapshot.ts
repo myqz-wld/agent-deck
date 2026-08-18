@@ -19,10 +19,6 @@ function publicProfile(profile: ElectronHostProfile): RemoteHostProfileDto {
       username: profile.ssh.username,
       hostKeyFingerprint: profile.ssh.hostKeyFingerprint ?? null,
     },
-    credentials: {
-      connectionCredentialConfigured: profile.topology !== 'standalone' &&
-        profile.connectionCredentialStatus !== 'refresh-required',
-    },
   };
 }
 

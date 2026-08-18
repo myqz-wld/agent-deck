@@ -193,7 +193,6 @@ describe('App source authority', () => {
     selectedRemoteProfileId: 'remote-a',
     profiles: [{
       id: 'remote-a', label: 'Remote A', scope: 'remote', endpoint: null,
-      credentials: { connectionCredentialConfigured: true },
     }],
     states: [{
       profileId: 'remote-a', status: 'connected', recovery: null,

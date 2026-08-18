@@ -30,7 +30,20 @@ function renderSection(api: {
   fireEvent.click(screen.getByRole('button', { name: '日志' }));
 }
 
-describe('LogsSection invoke failures', () => {
+describe('LogsSection', () => {
+  it('uses the directory action without duplicating platform log paths', () => {
+    renderSection({
+      logsOpenDirectory: vi.fn(),
+      logsTruncateToday: vi.fn(),
+    });
+
+    expect(screen.getByRole('button', { name: /打开日志目录/ })).toBeTruthy();
+    expect(screen.getByText('按天分文件，保留 14 天。')).toBeTruthy();
+    expect(screen.queryByText(/Library\/Logs\/Agent Deck/)).toBeNull();
+    expect(screen.queryByText(/APPDATA.*Agent Deck.*logs/)).toBeNull();
+    expect(screen.queryByText(/\.config\/Agent Deck\/logs/)).toBeNull();
+  });
+
   it('shows a concise local error when opening the directory rejects', async () => {
     renderSection({
       logsOpenDirectory: vi.fn().mockRejectedValue(new Error('transport detail must stay local')),

@@ -143,15 +143,15 @@ describe('NewSessionDialog model options', () => {
   it('把 Gateway、自由文本模型与 adapter-aware 思考程度透传给创建 IPC', async () => {
     const onCreated = vi.fn();
     const onClose = vi.fn();
+    window.api.listClaudeGatewayProfiles = vi.fn().mockResolvedValue([{ id: 'deepseek' }]);
     render(<NewSessionDialog open={true} onClose={onClose} onCreated={onCreated} />);
 
     const disclosure = (await screen.findByText('模型配置')).closest('details');
     expect(disclosure?.open).toBe(false);
     fireEvent.click(screen.getByText('模型配置'));
     expect(disclosure?.open).toBe(true);
-    fireEvent.change(await screen.findByLabelText('模型网关'), {
-      target: { value: 'deepseek' },
-    });
+    fireEvent.click(await screen.findByLabelText('模型网关'));
+    fireEvent.click(screen.getByRole('option', { name: 'deepseek' }));
     fireEvent.change(await screen.findByLabelText('模型'), {
       target: { value: 'claude-custom-preview' },
     });

@@ -17,11 +17,11 @@ import type { PreparedContinuationContext } from '@main/session/continuation-con
 import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 const prepared: PreparedContinuationContext = {
-  version: 1,
+  version: 2,
   providerPrompt: 'FULL CODEX PROVIDER CONTEXT',
   persistedUserText: 'Persist only this instruction.',
   source: { eventRevision: 12, rebuildAfterRevision: 0, maxEventId: 12 },
-  checkpoint: { id: 5, throughRevision: 12, formatVersion: 1, refreshed: true },
+  checkpoint: { id: 5, throughRevision: 12, formatVersion: 2, refreshed: true },
   projection: { canonicalHash: 'a'.repeat(64), omittedFacts: 0 },
   quality: 'full',
   metrics: {

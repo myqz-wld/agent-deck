@@ -175,8 +175,12 @@ describe('SettingsDialog adapter views', () => {
       }) as HTMLInputElement).placeholder,
     ).toBe('输入自定义 sandbox.toml 配置名称');
     expect(container.textContent).toContain(
-      '可选广泛只读、工作目录可写、完全开放，或输入 sandbox.toml 中定义的配置名称；企业托管要求仍可能覆盖这里的请求。',
+      '广泛只读：可读取系统文件，仅 Grok Build 配置和临时目录可写；子进程网络受限',
     );
+    expect(container.textContent).toContain(
+      '自定义配置：使用 sandbox.toml 中定义的配置名称；企业托管要求仍可能覆盖这里的请求',
+    );
+    expect(container.textContent).not.toContain('macOS 上 Grok Build');
 
     fireEvent.click(
       screen.getByRole('button', { name: 'Grok Build 沙盒请求档位' }),

@@ -41,8 +41,8 @@ describe('SSH wire identifier byte and control bounds', () => {
     const idempotencyKey = '😀'.repeat(SSH_TEXT_LIMITS.idempotencyKey / 4);
     expect(utf8ByteLength(idempotencyKey)).toBe(SSH_TEXT_LIMITS.idempotencyKey);
     const mutation = client.request(
-      'session.create',
-      { adapterId: 'codex-cli', cwd: '/remote', options: {} },
+      'session.send',
+      { sessionId: 'session-a', text: 'Inspect' },
       { requestId: 'mutation-byte-boundary', idempotencyKey },
     );
     expect(process.takeWrittenMessages()).toContainEqual(
@@ -57,8 +57,8 @@ describe('SSH wire identifier byte and control bounds', () => {
     await mutation;
     await expect(
       client.request(
-        'session.create',
-        { adapterId: 'codex-cli', cwd: '/remote', options: {} },
+        'session.send',
+        { sessionId: 'session-a', text: 'Inspect' },
         { requestId: 'mutation-too-large', idempotencyKey: `${idempotencyKey}😀` },
       ),
     ).rejects.toMatchObject({ code: 'invalid_request' });
@@ -77,8 +77,8 @@ describe('SSH wire identifier byte and control bounds', () => {
       ).rejects.toMatchObject({ code: 'invalid_request' });
       await expect(
         client.request(
-          'session.create',
-          { adapterId: 'codex-cli', cwd: '/remote', options: {} },
+          'session.send',
+          { sessionId: 'session-a', text: 'Inspect' },
           { requestId: `mutation-${control.codePointAt(0)}`, idempotencyKey: `bad${control}key` },
         ),
       ).rejects.toMatchObject({ code: 'invalid_request' });

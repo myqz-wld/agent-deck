@@ -7,14 +7,12 @@ export interface BaseGrokHookPayload {
   cwd?: string;
   workspaceRoot?: string;
   hookEventName?: string;
-  model?: string;
   modelId?: string;
   timestamp?: string | number;
   transcriptPath?: string;
   permissionMode?: string;
   promptId?: string;
-  agentId?: string;
-  agentType?: string;
+  subagentType?: string;
 }
 
 type AnyRecord = Record<string, unknown>;
@@ -33,36 +31,23 @@ function event<P>(
   };
 }
 
-function firstString(payload: AnyRecord, keys: string[], fallback = ''): string {
-  for (const key of keys) {
-    const value = payload[key];
-    if (typeof value === 'string' && value.trim()) return value;
-  }
-  return fallback;
+function stringField(payload: AnyRecord, key: string, fallback = ''): string {
+  const value = payload[key];
+  return typeof value === 'string' && value.trim() ? value : fallback;
 }
 
-function firstRawString(payload: AnyRecord, keys: string[], fallback = ''): string {
-  for (const key of keys) {
-    const value = payload[key];
-    if (typeof value === 'string') return value;
-  }
-  return fallback;
+function rawStringField(payload: AnyRecord, key: string, fallback = ''): string {
+  const value = payload[key];
+  return typeof value === 'string' ? value : fallback;
 }
 
-function firstValue(payload: AnyRecord, keys: string[]): unknown {
-  for (const key of keys) {
-    if (payload[key] !== undefined) return payload[key];
-  }
-  return undefined;
-}
-
-function firstNumber(payload: AnyRecord, keys: string[]): number | undefined {
-  const value = firstValue(payload, keys);
+function numberField(payload: AnyRecord, key: string): number | undefined {
+  const value = payload[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-function firstBoolean(payload: AnyRecord, keys: string[]): boolean | undefined {
-  const value = firstValue(payload, keys);
+function booleanField(payload: AnyRecord, key: string): boolean | undefined {
+  const value = payload[key];
   return typeof value === 'boolean' ? value : undefined;
 }
 
@@ -82,37 +67,24 @@ function commonPayload(
     cwd: payload.cwd,
     workspaceRoot: payload.workspaceRoot,
     hookEventName: payload.hookEventName,
-    model: firstString(payload, ['modelId', 'model']) || undefined,
+    model: stringField(payload, 'modelId') || undefined,
     timestamp: payload.timestamp,
-    transcriptPath:
-      firstString(payload, ['transcriptPath', 'transcript_path']) || undefined,
-    permissionMode:
-      firstString(payload, ['permissionMode', 'permission_mode']) || undefined,
-    promptId: firstString(payload, ['promptId', 'prompt_id']) || undefined,
-    agentId: firstString(payload, ['agentId', 'agent_id']) || undefined,
-    agentType: firstString(payload, ['agentType', 'agent_type']) || undefined,
+    transcriptPath: stringField(payload, 'transcriptPath') || undefined,
+    permissionMode: stringField(payload, 'permissionMode') || undefined,
+    promptId: stringField(payload, 'promptId') || undefined,
+    subagentType: stringField(payload, 'subagentType') || undefined,
   };
 }
 
 function toolFields(payload: BaseGrokHookPayload & AnyRecord): Record<string, unknown> {
   return {
-    toolName: firstString(payload, ['toolName', 'tool_name']) || undefined,
-    toolInput: firstValue(payload, ['toolInput', 'tool_input']),
-    toolUseId:
-      firstString(payload, ['toolUseId', 'toolCallId', 'tool_use_id']) || undefined,
-    toolInputTruncated: firstBoolean(payload, [
-      'toolInputTruncated',
-      'tool_input_truncated',
-    ]),
-    toolResultTruncated: firstBoolean(payload, [
-      'toolResultTruncated',
-      'tool_result_truncated',
-    ]),
-    durationMs: firstNumber(payload, ['durationMs', 'duration_ms']),
-    isBackgrounded: firstBoolean(payload, ['isBackgrounded', 'is_backgrounded']),
-    isInterrupt: firstBoolean(payload, ['isInterrupt', 'is_interrupt']),
-    subagentType:
-      firstString(payload, ['subagentType', 'subagent_type']) || undefined,
+    toolName: stringField(payload, 'toolName') || undefined,
+    toolInput: payload.toolInput,
+    toolUseId: stringField(payload, 'toolUseId') || undefined,
+    toolInputTruncated: booleanField(payload, 'toolInputTruncated'),
+    toolResultTruncated: booleanField(payload, 'toolResultTruncated'),
+    durationMs: numberField(payload, 'durationMs'),
+    isBackgrounded: booleanField(payload, 'isBackgrounded'),
   };
 }
 
@@ -154,16 +126,16 @@ export function translateGrokSessionStart(
 ): AgentEvent {
   return event(payload, 'session-start', {
     ...commonPayload(payload),
-    source: firstString(payload, ['source']) || undefined,
+    source: stringField(payload, 'source') || undefined,
   });
 }
 
 export function translateGrokUserPrompt(
   payload: BaseGrokHookPayload & AnyRecord,
 ): AgentEvent {
-  const rawText = firstRawString(
+  const rawText = rawStringField(
     payload,
-    ['prompt', 'userPrompt', 'message'],
+    'prompt',
     'Grok Build 提示已提交',
   );
   const normalized = normalizeGrokHookPrompt(rawText);
@@ -193,13 +165,7 @@ export function translateGrokPostToolUse(
   return event(payload, 'tool-use-end', {
     ...commonPayload(payload),
     ...toolFields(payload),
-    toolResult: firstValue(payload, [
-      'toolResult',
-      'toolOutput',
-      'toolResponse',
-      'tool_result',
-      'tool_output',
-    ]),
+    toolResult: payload.toolResult,
     status: 'completed',
   });
 }
@@ -211,14 +177,8 @@ export function translateGrokPostToolUseFailure(
     ...commonPayload(payload),
     ...toolFields(payload),
     status: 'failed',
-    error:
-      firstString(
-        payload,
-        ['error', 'errorMessage', 'message'],
-        'Grok Build 工具调用失败',
-      ),
-    errorDetails:
-      firstString(payload, ['errorDetails', 'error_details']) || undefined,
+    error: stringField(payload, 'error', 'Grok Build 工具调用失败'),
+    errorDetails: stringField(payload, 'errorDetails') || undefined,
   });
 }
 
@@ -229,12 +189,7 @@ export function translateGrokPermissionDenied(
     ...commonPayload(payload),
     ...toolFields(payload),
     status: 'denied',
-    error:
-      firstString(
-        payload,
-        ['reason', 'error', 'message'],
-        'Grok Build 工具权限被拒绝',
-      ),
+    error: stringField(payload, 'reason', 'Grok Build 工具权限被拒绝'),
   });
 }
 
@@ -243,23 +198,21 @@ export function translateGrokPreCompact(
 ): AgentEvent {
   return event(payload, 'context-compaction-start', {
     ...commonPayload(payload),
-    trigger: firstString(payload, ['trigger']) || undefined,
-    source: firstString(payload, ['source']) || undefined,
-    customInstructions:
-      firstString(payload, ['customInstructions', 'custom_instructions']) || undefined,
+    trigger: stringField(payload, 'trigger') || undefined,
+    source: stringField(payload, 'source') || undefined,
+    customInstructions: stringField(payload, 'customInstructions') || undefined,
   });
 }
 
 export function translateGrokPostCompact(
   payload: BaseGrokHookPayload & AnyRecord,
 ): AgentEvent {
-  const trigger = firstString(payload, ['trigger']);
-  const summary =
-    firstString(payload, ['compactSummary', 'compact_summary', 'summary']) || undefined;
+  const trigger = stringField(payload, 'trigger');
+  const summary = stringField(payload, 'compactSummary') || undefined;
   return event(payload, 'context-compaction-end', {
     ...commonPayload(payload),
     trigger: trigger || undefined,
-    source: firstString(payload, ['source']) || undefined,
+    source: stringField(payload, 'source') || undefined,
     summary,
     text: `Grok Build 上下文已压缩${trigger ? `（${trigger}）` : ''}`,
   });
@@ -270,13 +223,9 @@ export function translateGrokSubagentStart(
 ): AgentEvent {
   return event(payload, 'subagent-start', {
     ...commonPayload(payload),
-    subagentId:
-      firstString(payload, ['subagentId', 'subagent_id', 'agentId', 'agent_id']) ||
-      undefined,
-    subagentType:
-      firstString(payload, ['subagentType', 'subagent_type', 'agentType', 'agent_type']) ||
-      undefined,
-    description: firstString(payload, ['description']) || undefined,
+    subagentId: stringField(payload, 'subagentId') || undefined,
+    subagentType: stringField(payload, 'subagentType') || undefined,
+    description: stringField(payload, 'description') || undefined,
   });
 }
 
@@ -285,27 +234,20 @@ export function translateGrokSubagentStop(
 ): AgentEvent {
   return event(payload, 'subagent-end', {
     ...commonPayload(payload),
-    subagentId:
-      firstString(payload, ['subagentId', 'subagent_id', 'agentId', 'agent_id']) ||
-      undefined,
-    subagentType:
-      firstString(payload, ['subagentType', 'subagent_type', 'agentType', 'agent_type']) ||
-      undefined,
-    phase: firstString(payload, ['phase']) || undefined,
-    stopHookActive: firstBoolean(payload, ['stopHookActive', 'stop_hook_active']),
-    lastAssistantMessage:
-      firstString(payload, ['lastAssistantMessage', 'last_assistant_message']) ||
-      undefined,
+    subagentId: stringField(payload, 'subagentId') || undefined,
+    subagentType: stringField(payload, 'subagentType') || undefined,
+    phase: stringField(payload, 'phase') || undefined,
+    stopHookActive: booleanField(payload, 'stopHookActive'),
+    lastAssistantMessage: stringField(payload, 'lastAssistantMessage') || undefined,
   });
 }
 
 export function translateGrokNotification(
   payload: BaseGrokHookPayload & AnyRecord,
 ): AgentEvent {
-  const notificationType =
-    firstString(payload, ['notificationType', 'notification_type', 'type']) || undefined;
-  const title = firstString(payload, ['title']) || undefined;
-  const message = firstString(payload, ['message', 'title'], 'Grok Build 通知');
+  const notificationType = stringField(payload, 'notificationType') || undefined;
+  const title = stringField(payload, 'title') || undefined;
+  const message = stringField(payload, 'message', title ?? 'Grok Build 通知');
   const actionRequiredTypes = new Set([
     'permission_prompt',
     'permission_request',
@@ -322,7 +264,7 @@ export function translateGrokNotification(
         notification: true,
         notificationType,
         title,
-        level: firstString(payload, ['level']) || undefined,
+        level: stringField(payload, 'level') || undefined,
       },
     });
   }
@@ -337,8 +279,7 @@ export function translateGrokNotification(
 export function translateGrokStop(
   payload: BaseGrokHookPayload & AnyRecord,
 ): AgentEvent[] {
-  const lastAssistantMessage =
-    firstString(payload, ['lastAssistantMessage', 'lastMessage']) || undefined;
+  const lastAssistantMessage = stringField(payload, 'lastAssistantMessage') || undefined;
   const events: AgentEvent[] = [];
   if (lastAssistantMessage) {
     events.push(
@@ -352,9 +293,9 @@ export function translateGrokStop(
   events.push(event(payload, 'finished', {
     ok: true,
     subtype: 'success',
-    stopReason: firstString(payload, ['stopReason', 'reason']) || undefined,
-    backgroundTasks: firstValue(payload, ['backgroundTasks', 'background_tasks']),
-    sessionCrons: firstValue(payload, ['sessionCrons', 'session_crons']),
+    stopReason: stringField(payload, 'reason') || undefined,
+    backgroundTasks: payload.backgroundTasks,
+    sessionCrons: payload.sessionCrons,
     ...commonPayload(payload),
   }));
   return events;
@@ -363,8 +304,7 @@ export function translateGrokStop(
 export function translateGrokStopFailure(
   payload: BaseGrokHookPayload & AnyRecord,
 ): AgentEvent[] {
-  const lastAssistantMessage =
-    firstString(payload, ['lastAssistantMessage', 'lastMessage']) || undefined;
+  const lastAssistantMessage = stringField(payload, 'lastAssistantMessage') || undefined;
   const events: AgentEvent[] = [];
   if (lastAssistantMessage) {
     events.push(
@@ -378,10 +318,8 @@ export function translateGrokStopFailure(
   events.push(event(payload, 'finished', {
     ok: false,
     subtype: 'error',
-    error:
-      firstString(payload, ['error', 'errorMessage', 'message'], 'Grok Build 轮次失败'),
-    errorDetails:
-      firstString(payload, ['errorDetails', 'error_details']) || undefined,
+    error: stringField(payload, 'error', 'Grok Build 轮次失败'),
+    errorDetails: stringField(payload, 'errorDetails') || undefined,
     ...commonPayload(payload),
   }));
   return events;
@@ -392,6 +330,6 @@ export function translateGrokSessionEnd(
 ): AgentEvent {
   return event(payload, 'session-end', {
     ...commonPayload(payload),
-    reason: firstString(payload, ['reason']) || undefined,
+    reason: stringField(payload, 'reason') || undefined,
   });
 }

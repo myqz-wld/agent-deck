@@ -89,7 +89,7 @@ describe('claude finalizeSessionStart', () => {
       cwd: '/repo',
       prompt: 'Only this next-step instruction is visible.',
       continuationMetadata: {
-        formatVersion: 1,
+        formatVersion: 2,
         checkpointId: 7,
         sourceSessionId: 'source',
         sourceEventRevision: 42,

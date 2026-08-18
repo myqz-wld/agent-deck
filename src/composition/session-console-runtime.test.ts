@@ -30,10 +30,6 @@ function authority(): AuthoritativeSessionConsolePort {
       total: 1,
       revision: 4,
     }),
-    resolveProject: () => ({
-      project: { projectId: 'project-a', projectRef: 'opaque-a', alias: 'a', title: 'A' },
-      revision: 4,
-    }),
     getCapabilities: () => sessionConsoleCapabilitiesFixture(),
     listWorkspaceDirectories: ({ directory }) => ({
       directory, directories: [], truncated: false, revision: 4,

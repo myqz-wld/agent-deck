@@ -2,9 +2,11 @@ import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import {
   APPEND_ISSUE_CONTEXT_SCHEMA,
   REPORT_ISSUE_SCHEMA,
+  REPORT_ISSUE_OUTPUT_SCHEMA,
   UPDATE_ISSUE_STATUS_SCHEMA,
   type AppendIssueContextArgs,
   type ReportIssueArgs,
@@ -22,6 +24,9 @@ import { serverCoreMcpError, serverCoreMcpOk } from './mcp-result';
 
 const MUTATION_HINT =
   'Do not retry automatically after an ambiguous storage failure. Read the Issues board first, then retry only if the requested mutation is absent.';
+const SERVER_CORE_ISSUE_OUTPUT_SCHEMA = REPORT_ISSUE_OUTPUT_SCHEMA.extend({
+  appendicesTruncated: z.boolean(),
+}).strict();
 
 function inside(root: string, target: string): boolean {
   const child = relative(root, target);
@@ -163,13 +168,16 @@ export function registerServerCoreIssueTools(
   server.registerTool('report_issue', {
     description: 'Report one issue owned by this authenticated session inside the Workspace.',
     inputSchema: REPORT_ISSUE_SCHEMA,
+    outputSchema: SERVER_CORE_ISSUE_OUTPUT_SCHEMA,
   }, (args) => reportIssue(args, context));
   server.registerTool('append_issue_context', {
     description: 'Append bounded context to an issue owned by this session lineage.',
     inputSchema: APPEND_ISSUE_CONTEXT_SCHEMA,
+    outputSchema: SERVER_CORE_ISSUE_OUTPUT_SCHEMA,
   }, (args) => appendIssue(args, context));
   server.registerTool('update_issue_status', {
     description: 'Update status for an issue owned by this source or resolution lineage.',
     inputSchema: UPDATE_ISSUE_STATUS_SCHEMA,
+    outputSchema: SERVER_CORE_ISSUE_OUTPUT_SCHEMA,
   }, (args) => updateIssueStatus(args, context));
 }

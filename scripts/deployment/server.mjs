@@ -277,6 +277,18 @@ async function ensureRelayAuthority(config, mode) {
   }
 }
 
+export function parseVerification(stdout, config, expectedImage = '-') {
+  const output = stdout.trim();
+  const match = /^VERIFY_OK topology=(relay|full) instance=([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?) image=(\S+@sha256:[a-f0-9]{64}) health=healthy feishuRuntime=ready$/u.exec(output);
+  if (
+    !match || match[1] !== config.topology || match[2] !== config.instance.id ||
+    (expectedImage !== '-' && match[3] !== expectedImage)
+  ) {
+    throw new Error('远程部署验证返回了无效或不匹配的当前结果。');
+  }
+  return output;
+}
+
 async function verify(config, expectedImage = '-') {
   const result = await runRemoteScript(
     config.ssh,
@@ -284,9 +296,7 @@ async function verify(config, expectedImage = '-') {
     [...remoteIdentity(config), expectedImage],
     { timeoutMs: 120_000 },
   );
-  const output = result.stdout.trim();
-  if (!output.startsWith('VERIFY_OK ')) throw new Error('远程部署验证返回了未知结果。');
-  return output;
+  return parseVerification(result.stdout, config, expectedImage);
 }
 
 async function prepareMutableRelease(config) {

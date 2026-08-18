@@ -211,9 +211,6 @@ describe('Feishu session-console methods', () => {
     expect(() => assertFeishuMethod(client.hello, 'system.health')).toThrowError(
       /outside the Server-issued Feishu grant/,
     );
-    expect(() => assertFeishuMethod(client.hello, 'session.list')).toThrowError(
-      /outside the Server-issued Feishu grant/,
-    );
     expect(() => assertFeishuMethod(client.hello, 'session.console.list')).toThrowError(
       /does not advertise/,
     );

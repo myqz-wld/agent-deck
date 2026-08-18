@@ -99,11 +99,6 @@ export function useSessionCreationOptions({
     ? selection.value
     : initial;
   const supportsProviderCatalog = adapterId === 'claude-code' || adapterId === 'codex-cli';
-  const providerCatalogReaderAvailable = adapterId === 'claude-code'
-    ? typeof window.api?.listClaudeGatewayProfiles === 'function'
-    : adapterId === 'codex-cli'
-      ? typeof window.api?.listCodexGatewayProfiles === 'function'
-      : false;
   const providerCatalogKey = `${scopeKey}\u0000${adapterId}`;
 
   useEffect(() => {
@@ -111,11 +106,6 @@ export function useSessionCreationOptions({
     if (!active) {
       resolvedScope.current = null;
       setResolvedRequestKey(null);
-      return;
-    }
-    if (typeof window.api?.getAdapterSessionCreationDefaults !== 'function') {
-      resolvedScope.current = scopeKey;
-      setResolvedRequestKey(requestKey);
       return;
     }
     const timer = window.setTimeout(() => {
@@ -162,7 +152,7 @@ export function useSessionCreationOptions({
 
   useEffect(() => {
     const generation = ++providerCatalogGeneration.current;
-    if (!active || !supportsProviderCatalog || !providerCatalogReaderAvailable) return;
+    if (!active || !supportsProviderCatalog) return;
     const request = adapterId === 'claude-code'
       ? window.api.listClaudeGatewayProfiles()
       : window.api.listCodexGatewayProfiles();
@@ -185,13 +175,12 @@ export function useSessionCreationOptions({
     active,
     adapterId,
     providerCatalogKey,
-    providerCatalogReaderAvailable,
     supportsProviderCatalog,
   ]);
 
   const defaultsLoading = active && resolvedRequestKey !== requestKey;
   const providerOptionsLoading = active && supportsProviderCatalog &&
-    providerCatalogReaderAvailable && providerCatalog.key !== providerCatalogKey;
+    providerCatalog.key !== providerCatalogKey;
   const providerOptions = supportsProviderCatalog && providerCatalog.key === providerCatalogKey
     ? providerCatalog.options
     : [];

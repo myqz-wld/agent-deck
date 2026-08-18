@@ -183,7 +183,8 @@ describe('report_issue — happy path + cwd 兜底 + 默认值', () => {
       }),
     );
     expect(result.isError).toBeFalsy();
-    expect(JSON.parse(result.content[0].text)).toMatchObject({ id: 'i1', title: 'T1' });
+    expect(result.content).toEqual([]);
+    expect(result.structuredContent).toMatchObject({ id: 'i1', title: 'T1' });
   });
 
   it('cwd 兜底：args.cwd 未传 → fallback sessionRepo.cwd', async () => {
@@ -370,7 +371,8 @@ describe('append_issue_context — owner-only / non-existent / resolved reject (
     expect(mockIssueRepo.appendContext).toHaveBeenCalledWith(expect.objectContaining({
       appendedSessionId: 'sess-new-after-handoff',
     }));
-    expect(JSON.parse(result.content[0].text).sourceSessionId).toBe('sess-old-pre-handoff');
+    expect(result.content).toEqual([]);
+    expect(result.structuredContent?.sourceSessionId).toBe('sess-old-pre-handoff');
   });
 
   it('handoff 提交后旧 source 不再能追加 issue context', async () => {
@@ -477,7 +479,8 @@ describe('append_issue_context — happy path + logsRef 透传 + emit', () => {
       }),
     );
     expect(result.isError).toBeFalsy();
-    expect(JSON.parse(result.content[0].text).appendices).toHaveLength(1);
+    expect(result.content).toEqual([]);
+    expect(result.structuredContent?.appendices).toHaveLength(1);
   });
 
   it('args.logsRef 未传时 → 透传 null（appendContext 内 skip merge — §D17 SSOT「args.logsRef==null/undefined 时跳过」）', async () => {
@@ -716,7 +719,8 @@ describe('update_issue_status — 源/解决会话自助改 status', () => {
       expect.objectContaining({ kind: 'updated', issueId: 'issue-1' }),
     );
     expect(result.isError).toBeFalsy();
-    expect(JSON.parse(result.content[0].text)).toMatchObject({ id: 'issue-1', status: 'resolved' });
+    expect(result.content).toEqual([]);
+    expect(result.structuredContent).toMatchObject({ id: 'issue-1', status: 'resolved' });
   });
 
   it('解决会话授权：resolutionSessionId === callerSid 放行（source 是别人）', async () => {

@@ -26,7 +26,7 @@ const target: ResolvedSuccessorSpec = {
 
 function prepared(): PreparedContinuationContext {
   return {
-    version: 1, providerPrompt: 'provider prompt', persistedUserText: 'continue',
+    version: 2, providerPrompt: 'provider prompt', persistedUserText: 'continue',
     source: { eventRevision: 9, rebuildAfterRevision: 0, maxEventId: 9 },
     checkpoint: { id: 4, throughRevision: 9, formatVersion: 1, refreshed: true },
     projection: { canonicalHash: 'hash', omittedFacts: 0 }, quality: 'full',

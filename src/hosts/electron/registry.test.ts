@@ -71,7 +71,7 @@ function standaloneHello(clientId: string): HostHello {
       authority: 'local-owner',
       surface: 'desktop',
     },
-    capabilities: [AgentDeckCapability.SessionsRead],
+    capabilities: [AgentDeckCapability.SessionConsoleRead],
     limits: {
       maxFrameBytes: 1024,
       maxBlobBytes: 4096,
@@ -102,7 +102,7 @@ function remoteHello(profile: RemoteElectronHostProfile): HostHello {
       connectionScope: `credential-${profile.id}`,
       surface: 'desktop',
     }),
-    capabilities: [AgentDeckCapability.SessionsRead],
+    capabilities: [AgentDeckCapability.SessionConsoleRead],
     limits: {
       maxFrameBytes: 1024,
       maxBlobBytes: 4096,
@@ -275,7 +275,7 @@ describe('ElectronHostRegistry', () => {
     } as never);
     await connected;
 
-    const result = registry.getClient(profile.id)?.request('session.list', {}, {
+    const result = registry.getClient(profile.id)?.request('system.health', {}, {
       requestId: 'relay-list',
     });
     process.emitMessage({

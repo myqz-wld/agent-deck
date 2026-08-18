@@ -22,7 +22,6 @@ function supportedMethods(base: DaemonCoreRuntime): readonly CoreMethod[] {
     ...new Set<CoreMethod>([
       ...base.supportedMethods,
       'project.list',
-      'project.resolve',
       'session.console.capabilities',
       'session.console.create',
       'session.console.get',

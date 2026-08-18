@@ -129,6 +129,8 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
         },
       },
     });
+    expect((result.result as { providerDefaults: object }).providerDefaults)
+      .not.toHaveProperty('summaryTimeoutMs');
   });
 
   it('never advertises Hook mutation even when the Worker adapter can install Hooks', async () => {
@@ -167,8 +169,6 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
         releaseMutationClaim: vi.fn(),
       },
     });
-    expect(runtime.supportedMethods).not.toContain('node.hook.projection.install');
-    expect(runtime.supportedMethods).not.toContain('node.hook.projection.uninstall');
     await expect(runtime.execute(request(
       'node.hook.projection.get',
       { adapterId: 'claude-code' },
@@ -277,7 +277,6 @@ describe('ServerCoreNodeConfigurationRuntime', () => {
     ))).resolves.toMatchObject({
       result: { status: { supported: false, state: 'unavailable', writeAllowed: false } },
     });
-    expect(runtime.supportedMethods).not.toContain('node.hook.projection.install');
     expect(installIntegration).not.toHaveBeenCalled();
   });
 });

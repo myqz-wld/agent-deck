@@ -319,6 +319,26 @@ export const GET_SESSION_OUTPUT_SCHEMA = PROJECTED_SESSION_OUTPUT_SCHEMA;
 export type GetSessionResult = ProjectedSession;
 
 /** list_session_events ok return shape（list-session-events.ts handler）。 */
+export const LIST_SESSION_EVENTS_OUTPUT_SCHEMA = z
+  .object({
+    sessionId: z.string(),
+    hasMore: z.boolean(),
+    events: z.array(
+      z
+        .object({
+          id: z.number().int().positive(),
+          sessionId: z.string(),
+          agentId: z.string(),
+          kind: z.string(),
+          payload: z.unknown(),
+          ts: z.number().int().nonnegative(),
+          source: z.enum(['sdk', 'hook']).optional(),
+          hookOrigin: z.enum(['sdk', 'cli']).optional(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
 export interface ListSessionEventsResult {
   sessionId: string;
   /** True when another page may be available with offset + limit. */
@@ -327,6 +347,16 @@ export interface ListSessionEventsResult {
 }
 
 /** send_message ok return shape（send.ts handler；queued: true 字面常量约束）。 */
+export const SEND_MESSAGE_OUTPUT_SCHEMA = z
+  .object({
+    sessionId: z.string(),
+    teamId: z.string().nullable(),
+    messageId: z.string(),
+    replyToMessageId: z.string().nullable(),
+    sentAt: z.number().int().nonnegative(),
+    queued: z.literal(true),
+  })
+  .strict();
 export interface SendMessageResult {
   sessionId: string;
   teamId: string | null;
@@ -341,12 +371,37 @@ export type RequestPlanReviewResult =
   | { decision: 'revise'; feedback?: string }
   | { decision: 'timeout' };
 
+export const REQUEST_PLAN_REVIEW_OUTPUT_SCHEMA = z
+  .object({
+    decision: z.enum(['approved', 'revise', 'timeout']),
+    feedback: z.string().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.feedback !== undefined && value.decision !== 'revise') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['feedback'],
+        message: 'feedback is valid only when decision is revise',
+      });
+    }
+  });
+
 export type RequestDiffReviewResult =
   | { decision: 'approved' }
   | { decision: 'revise'; feedback?: string }
   | { decision: 'timeout' };
 
+export const REQUEST_DIFF_REVIEW_OUTPUT_SCHEMA = REQUEST_PLAN_REVIEW_OUTPUT_SCHEMA;
+
 /** shutdown_session ok return shape（shutdown.ts handler；lifecycle: 'closed' 字面常量约束）。 */
+export const SHUTDOWN_SESSION_OUTPUT_SCHEMA = z
+  .object({
+    sessionId: z.string(),
+    lifecycle: z.literal('closed'),
+    alreadyClosed: z.boolean(),
+  })
+  .strict();
 export interface ShutdownSessionResult {
   sessionId: string;
   lifecycle: 'closed';

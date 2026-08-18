@@ -68,6 +68,7 @@ describe('Server Core provider settings', () => {
     { providerSettings: { claudeCliPath: 'relative/claude' } },
     { providerSettings: { codexSandbox: 'strict' } },
     { providerSettings: { permissionTimeoutMs: -1 } },
+    { providerSettings: { summaryTimeoutMs: 60_000 } },
     { providerSettings: { summaryThinking: 'unsupported' } },
     { providerSettings: { grokSandbox: 'strict\nworkspace' } },
     { providerSettings: {

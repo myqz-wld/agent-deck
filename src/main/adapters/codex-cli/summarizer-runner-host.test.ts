@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   getSetting: vi.fn((key: string) => ({
     summaryModel: 'gpt-summary',
     summaryThinking: 'high',
-    summaryTimeoutMs: 12_000,
   } as Record<string, unknown>)[key]),
   runOneshot: vi.fn(async () => 'summary'),
 }));
@@ -22,7 +21,6 @@ describe('desktop Codex summary runner host', () => {
 
     expect(host.readSummaryModel()).toBe('gpt-summary');
     expect(host.readSummaryReasoning()).toBe('high');
-    expect(host.readSummaryTimeoutMs()).toBe(12_000);
     await expect(host.runOneshot({} as never)).resolves.toBe('summary');
     expect(mocks.runOneshot).toHaveBeenCalledOnce();
   });

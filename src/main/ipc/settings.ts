@@ -245,8 +245,8 @@ function applyCodexSkills(p: Partial<AppSettings>, _next: AppSettings): void {
 }
 
 function applySummaryInterval(p: Partial<AppSettings>, next: AppSettings): void {
-  // summaryTimeoutMs / summaryEventCount / summaryMaxConcurrent 是每轮 scanAll
-  // 内部读 settings 的，天生即时生效，不需要在这里分发。只 interval 需重启 setInterval。
+  // summaryEventCount / summaryMaxConcurrent 每轮 scanAll 内部直读，天生即时生效；
+  // 只有 interval 需要重启 setInterval。
   if ('summaryIntervalMs' in p) {
     summarizer.setIntervalMs(next.summaryIntervalMs);
   }

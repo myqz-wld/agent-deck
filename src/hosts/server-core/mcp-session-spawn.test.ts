@@ -98,8 +98,8 @@ describe('ServerCoreMcpSessionSpawner', () => {
       teamName: 'review-team',
       displayName: 'Reviewer',
       spawnDepth: 1,
-      contextMode: 'fresh',
     });
+    expect(result).not.toHaveProperty('contextMode');
     expect(JSON.stringify(result)).not.toContain('/workspace');
     expect(state.registeredBeforeResolve()).toBe(true);
     expect(state.records.get('child')).toMatchObject({

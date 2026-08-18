@@ -135,7 +135,7 @@ describe('daemon protocol identifier validation', () => {
   it('rejects unsafe idempotency keys without dispatching or closing the connection', async () => {
     const execute = vi.fn(async () => ({ result: { ok: true }, revision: 0 }));
     const host = createHost(
-      createRuntime({ supportedMethods: ['session.create'], execute }),
+      createRuntime({ supportedMethods: ['session.send'], execute }),
     );
     await host.start();
     const stream = new TestDuplex();
@@ -146,7 +146,7 @@ describe('daemon protocol identifier validation', () => {
     for (const [index, [label, character]] of UNSAFE_IDENTIFIER_CHARACTERS.entries()) {
       const requestId = `unsafe-key-${index}`;
       stream.feed({
-        ...request(requestId, 'session.create'),
+        ...request(requestId, 'session.send'),
         idempotencyKey: `key${character}value`,
       });
       await waitFor(() => Boolean(findMessage(stream, 'error', requestId)), label);

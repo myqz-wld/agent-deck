@@ -1,23 +1,6 @@
 /**
- * Vitest 全局 setup — 给所有 *.test.ts 共享的 module mock
- *
- * Plan: runtime-logging-electron-log-20260529 §设计决策 D15 + §Step 3.0.2.5
- *
- * 解决问题:
- * 1. `electron` package 在 vitest node env 跑 `getElectronPath` 抛 `Electron failed to install correctly`
- *    (baseline 30/90 测试文件 / 69/802 测试都因此 fail)
- * 2. `electron-log/main` 入口顶层 `require('electron')` (electron-log v5.4.4 source 实证)
- *    Step 3.3 354 处 console.* migrate 后, 业务模块 `import { logger } from '@main/utils/logger'`
- *    会通过 import 链触发 `import 'electron-log/main'` → `require('electron')` → 同样 fail
- *
- * Mock scope: `electron`, `electron-log/main`, and `electron-log/renderer`.
- * Tests that exercise a real logger entry point can override these setup mocks locally.
- *
- * 兼容性 (Step 3.0.2.5 验证清单):
- * - test file 内 local `vi.mock(...)` 自动覆盖本 setup 的全局 mock (vitest hoist 优先级: local > setupFiles)
- * - bundled-assets-multi-root.test.ts:74 已有 local `vi.mock('electron', ...)` — 继续生效
- * - settings-store.test.ts 已有 local `vi.mock('electron-store', ...)` — 与本 setup 正交, 无冲突
- * - logger.test.ts (Step 3.5 才写) 需 `vi.unmock('electron-log/main')` + `vi.doMock('electron', factoryWithRealishApi)` 局部覆盖验真 API drift
+ * Shared Vitest setup for deterministic application paths and Electron-only modules that cannot
+ * load in the Node or happy-dom test environments. Tests can override these mocks locally.
  */
 
 import { vi } from 'vitest';
@@ -234,13 +217,12 @@ vi.mock('electron', () => {
 });
 
 // ─── electron-log/main mock ──────────────────────────────────────────────
-// logger.ts (df3f4b1) 用到的 API:
+// logger.ts uses:
 //   log.initialize / log.scope / log.errorHandler.startCatching
 //   log.transports.file.{resolvePathFn, level} / log.transports.console.level
-//   log.functions / log.info|warn|error|debug|silly|verbose (业务模块 D12 logger.<level>())
+//   log.functions / log.info|warn|error|debug|silly|verbose (application logger.<level>() calls)
 //
-// D15 §logger.test.ts 局部 unmock 路径: Step 3.5 写 logger.test.ts 时 vi.unmock('electron-log/main')
-// + vi.doMock('electron', factoryWithRealishApi) 局部覆盖验真 API drift.
+// Logger integration tests can unmock electron-log/main and provide a local Electron factory.
 vi.mock('electron-log/main', () => {
   const makeLogFns = () => ({
     log: vi.fn(),
@@ -307,12 +289,8 @@ vi.mock('electron-log/main', () => {
 });
 
 // ─── electron-store mock ─────────────────────────────────────────────────
-// electron-store@8.2.0 是 CJS package, 顶层 `const {app, ipcMain, ipcRenderer, shell} = require('electron')`
-// (node_modules/.pnpm/electron-store@8.2.0/node_modules/electron-store/index.js:3 实证).
-// vitest hoist 的 vi.mock('electron') 对 ESM import 生效, 但对 CJS package 内部 require('electron')
-// 拦不住 — settings-store.ts:1 `import Store from 'electron-store'` 触发 require chain → fail.
-// 修法: 全局 mock electron-store 整个 module, settings-store.test.ts 的 local mock 自动覆盖
-// (vitest hoist 优先级: test file local > setupFiles), 兼容性保留.
+// electron-store 8 is CommonJS and requires Electron at module load. Mock the package itself because
+// Vitest's ESM Electron mock does not intercept that internal require; local test mocks still win.
 vi.mock('electron-store', () => {
   return {
     default: class MockStore<T extends Record<string, unknown> = Record<string, unknown>> {

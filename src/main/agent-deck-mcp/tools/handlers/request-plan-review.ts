@@ -3,7 +3,7 @@ import { planReviewService } from '@main/plan-review/service';
 
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -34,7 +34,7 @@ export const requestPlanReviewHandler = withMcpGuard(
         ...(args.title ? { title: args.title } : {}),
       });
 
-      return ok(decision satisfies RequestPlanReviewResult);
+      return structuredOk(decision satisfies RequestPlanReviewResult);
     } catch (e) {
       return err(
         e instanceof Error ? e.message : String(e),

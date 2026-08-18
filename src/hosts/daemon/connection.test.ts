@@ -23,7 +23,7 @@ describe('daemon framed connection', () => {
         'session.console.list', 'usage.tokens.get', 'node.configuration.get', 'node.assets.content',
         'node.assets.catalog.list',
         'session.context.get', 'session.input.capabilities', 'session.handoff.preview',
-        'node.hook.projection.get', 'node.hook.projection.install',
+        'node.hook.projection.get',
         'workspace.directory.create', 'session.archive', 'session.reactivate',
       ],
     });
@@ -110,7 +110,7 @@ describe('daemon framed connection', () => {
 
   it('enforces the Server-issued Feishu grant after a valid Feishu hello', async () => {
     const runtime = createRuntime({
-      supportedMethods: ['system.health', 'session.list', 'session.console.list'],
+      supportedMethods: ['system.health', 'session.console.list'],
     });
     const host = createHost(runtime);
     await host.start();
@@ -132,24 +132,16 @@ describe('daemon framed connection', () => {
       hello: { capabilities: ['session-console.read'] },
     });
     stream.feed(request('health-1', 'system.health'));
-    stream.feed(request('legacy-list-1', 'session.list'));
     stream.feed({
       ...request('console-list-1', 'session.console.list'),
       params: { limit: 25 },
     });
     await waitFor(() => Boolean(findMessage(stream, 'error', 'health-1')), 'surface error');
     await waitFor(
-      () => Boolean(findMessage(stream, 'error', 'legacy-list-1')),
-      'legacy surface error',
-    );
-    await waitFor(
       () => Boolean(findMessage(stream, 'result', 'console-list-1')),
       'cwd-free list result',
     );
     expect(findMessage(stream, 'error', 'health-1')).toMatchObject({
-      error: { code: 'access_denied' },
-    });
-    expect(findMessage(stream, 'error', 'legacy-list-1')).toMatchObject({
       error: { code: 'access_denied' },
     });
     await host.stop();

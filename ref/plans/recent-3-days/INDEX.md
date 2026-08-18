@@ -15,5 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-08-18 | `PLAN_42_summary-settings-layout-and-timeout-policy.md` | completed | Align generator settings order and internalize summary timeout | REVIEW_254 |
+| 2026-08-18 | `PLAN_41_current-only-gap-sweep.md` | completed | Close remaining utility, root-config, prompt, and settings-copy gaps | REVIEW_253 |
+| 2026-08-17 | `PLAN_40_current-only-compatibility-sweep.md` | completed | Remove unsupported compatibility code by functional boundary | REVIEW_252 |
 | 2026-08-17 | `PLAN_39_codex-gateway-toml-cutover.md` | completed | Cut Codex selection over to complete Gateway TOML files | CHANGELOG_616 |
-| 2026-08-14 | `PLAN_38_feishu-one-click-server.md` | Relay accepted; Full/real Feishu external pending | Add server-managed Feishu for Relay and Full | CHANGELOG_612 / REVIEW_248 / REVIEW_249 |

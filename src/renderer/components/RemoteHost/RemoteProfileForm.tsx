@@ -32,9 +32,7 @@ export function RemoteProfileForm({
   const dialogRef = useRef<HTMLFormElement>(null);
   const [draft, setDraft] = useState(() => initialDraft(profile));
   const [selection, setSelection] = useState<RemoteHostConnectionSelectionDto | null>(null);
-  const [connectionChosen, setConnectionChosen] = useState(
-    profile?.credentials.connectionCredentialConfigured ?? false,
-  );
+  const [connectionChosen, setConnectionChosen] = useState(profile !== null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const choosingRef = useRef(false);

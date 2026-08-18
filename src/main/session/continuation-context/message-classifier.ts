@@ -1,6 +1,8 @@
 import { parseWirePrefix } from '@shared/wire-prefix';
+import { CONTINUATION_CONTEXT_FORMAT_VERSION } from './renderer';
 
-const CURRENT_CONTEXT_PREFIX = '===== Agent Deck Continuation Context v';
+const CURRENT_CONTEXT_PREFIX =
+  `===== Agent Deck Continuation Context v${CONTINUATION_CONTEXT_FORMAT_VERSION} =====`;
 
 export interface ContinuationMessageCandidate {
   eventId: number;

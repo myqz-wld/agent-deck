@@ -97,9 +97,8 @@ describe('BundledAgentRuntimeEditor', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '思考等级' }));
     fireEvent.click(screen.getByRole('option', { name: 'high' }));
-    fireEvent.change(screen.getByLabelText('模型网关'), {
-      target: { value: 'fable' },
-    });
+    fireEvent.click(screen.getByLabelText('模型网关'));
+    fireEvent.click((await screen.findByText('fable')).closest('button')!);
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
 
     await waitFor(() =>
@@ -178,9 +177,8 @@ describe('BundledAgentRuntimeEditor', () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText('模型网关'), {
-      target: { value: '' },
-    });
+    fireEvent.click(screen.getByLabelText('模型网关'));
+    fireEvent.click(screen.getByText('留空则跟随 Codex 原生配置').closest('button')!);
 
     expect(
       screen.getByText('内建默认 模型网关 不能为空；如需撤销自定义值，请恢复默认'),

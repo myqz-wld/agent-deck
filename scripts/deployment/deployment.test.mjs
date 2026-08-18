@@ -207,9 +207,16 @@ describe('deployment automation contracts', () => {
     const configFile = join(root, 'full.json');
     await writeFile(identityFile, 'private fixture\n', { mode: 0o600 });
     await writeFile(knownHostsFile, 'core.example.test ssh-ed25519 fixture\n', { mode: 0o644 });
-    await writeFile(runtimeConfigFile, JSON.stringify({ instanceId: 'full-a' }), { mode: 0o600 });
-    await writeFile(credentialsFile, JSON.stringify({
+    await writeFile(runtimeConfigFile, JSON.stringify({
       schemaVersion: 1,
+      instanceId: 'full-a',
+      appVersion: '0.1.0',
+      runtimeModule: '/opt/agent-deck/linux-headless/server-core-runtime/index.mjs',
+      runtimeOptions: {},
+      socketPath: '/run/agent-deck/full-a/agent-deckd.sock',
+    }), { mode: 0o600 });
+    await writeFile(credentialsFile, JSON.stringify({
+      schemaVersion: 3,
       instanceId: 'full-a',
       credentials: [],
     }), { mode: 0o600 });
@@ -258,7 +265,7 @@ describe('deployment automation contracts', () => {
     const root = await temporaryRoot();
     const credentialsFile = join(root, 'credentials.json');
     await writeFile(credentialsFile, JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 3,
       instanceId: 'full-a',
       credentials: [],
     }), { mode: 0o600 });
@@ -375,6 +382,14 @@ describe('deployment automation contracts', () => {
       schemaVersion: 1,
       instanceId: 'aws-relay-on-mac',
       workspaceRoot: workspace,
+      desktopSocketPath: '/var/run/docker.sock',
+      desktopVm: 'docker-desktop',
+      engine: 'docker-desktop',
+      executable: '/usr/local/bin/docker',
+      images: { 'claude-code-v1': null, 'codex-cli-v1': null, 'grok-build-v1': null },
+      maxActive: 8,
+      rootlessHome: null,
+      rootlessRuntimeDirectory: null,
       privateRoot: join(root, 'private'),
       stateRoot: join(root, 'state'),
       brokerRoot: join(root, 'broker'),

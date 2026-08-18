@@ -43,7 +43,6 @@ import type {
 import type {
   ProjectListParams,
   ProjectListResult,
-  ProjectResolveResult,
   SessionConsoleCreateParams,
   SessionConsoleCreateResult,
   SessionConsoleGetResult,
@@ -101,7 +100,6 @@ import type {
 import type {
   PendingRequestDto,
   SessionHistoryEntryDto,
-  SessionListItemDto,
   SessionRuntimeControlsDto,
 } from './runtime-dtos';
 
@@ -120,18 +118,6 @@ export type CoreMethodMap = {
     params: Record<string, never>;
     result: { ok: true; revision: number };
   };
-  'session.list': {
-    params: { includeArchived?: boolean };
-    result: { sessions: SessionListItemDto[]; revision: number };
-  };
-  'session.get': {
-    params: { sessionId: string };
-    result: { session: SessionListItemDto | null; revision: number };
-  };
-  'session.create': {
-    params: { adapterId: string; cwd: string; options: JsonObject };
-    result: { sessionId: string; revision: number };
-  };
   'session.console.list': {
     params: SessionConsoleListParams;
     result: SessionConsoleListResult;
@@ -143,10 +129,6 @@ export type CoreMethodMap = {
   'project.list': {
     params: ProjectListParams;
     result: ProjectListResult;
-  };
-  'project.resolve': {
-    params: { alias: string };
-    result: ProjectResolveResult;
   };
   'session.console.create': {
     params: SessionConsoleCreateParams;
@@ -232,9 +214,6 @@ export type CoreMethodMap = {
     result: NodeConfigurationGetResult;
   };
   'node.hook.projection.get': { params: NodeHookParams; result: NodeHookProjectionResult };
-  'node.hook.projection.install': { params: NodeHookParams; result: NodeHookProjectionResult };
-  'node.hook.projection.uninstall': { params: NodeHookParams; result: NodeHookProjectionResult };
-  'node.assets.list': { params: Record<string, never>; result: NodeAssetListResult };
   'node.assets.catalog.list': { params: Record<string, never>; result: NodeAssetListResult };
   'node.assets.content': { params: NodeAssetContentParams; result: NodeAssetContentResult };
   'node.assets.convention': {
@@ -369,10 +348,7 @@ export const CORE_METHOD_METADATA = {
     idempotency: 'forbidden',
     expectedRevision: 'none',
   },
-  'system.health': readMethod(AgentDeckCapability.SessionsRead),
-  'session.list': readMethod(AgentDeckCapability.SessionsRead),
-  'session.get': readMethod(AgentDeckCapability.SessionsRead),
-  'session.create': mutationMethod(AgentDeckCapability.SessionsWrite, 'optional'),
+  'system.health': readMethod(AgentDeckCapability.SessionConsoleRead),
   'session.console.list': readMethod(AgentDeckCapability.SessionConsoleRead),
   'session.console.get': readMethod(AgentDeckCapability.SessionConsoleRead),
   'session.console.capabilities': readMethod(AgentDeckCapability.SessionConsoleRead),
@@ -386,7 +362,6 @@ export const CORE_METHOD_METADATA = {
   'session.reactivate': mutationMethod(AgentDeckCapability.SessionReactivate, 'none'),
   'session.delete': mutationMethod(AgentDeckCapability.SessionHistoryWrite, 'none'),
   'project.list': readMethod(AgentDeckCapability.ProjectsRead),
-  'project.resolve': readMethod(AgentDeckCapability.ProjectsRead),
   'session.console.create': mutationMethod(AgentDeckCapability.SessionConsoleCreate),
   'session.presentation.list': readMethod(
     AgentDeckCapability.SessionPresentationRead,
@@ -411,15 +386,6 @@ export const CORE_METHOD_METADATA = {
   'usage.providers.get': readMethod(AgentDeckCapability.Usage),
   'node.configuration.get': readMethod(AgentDeckCapability.NodeConfiguration),
   'node.hook.projection.get': readMethod(AgentDeckCapability.NodeHooksRead),
-  'node.hook.projection.install': mutationMethod(
-    AgentDeckCapability.NodeHooksWrite,
-    'none',
-  ),
-  'node.hook.projection.uninstall': mutationMethod(
-    AgentDeckCapability.NodeHooksWrite,
-    'none',
-  ),
-  'node.assets.list': readMethod(AgentDeckCapability.NodeAssets),
   'node.assets.catalog.list': readMethod(AgentDeckCapability.NodeAssetsBound),
   'node.assets.content': readMethod(AgentDeckCapability.NodeAssets),
   'node.assets.convention': readMethod(AgentDeckCapability.NodeAssets),

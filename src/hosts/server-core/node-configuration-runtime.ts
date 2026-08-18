@@ -146,7 +146,6 @@ export class ServerCoreNodeConfigurationRuntime implements DaemonCoreRuntime {
         summaryModel: this.options.settings.summaryModel,
         summaryRuntimeProvider: this.options.settings.summaryRuntimeProvider,
         summaryThinking: this.options.settings.summaryThinking,
-        summaryTimeoutMs: this.options.settings.summaryTimeoutMs,
       },
       sessionLifecycle: this.options.sessionLifecycle,
       revision,

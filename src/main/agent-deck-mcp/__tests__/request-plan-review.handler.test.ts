@@ -20,7 +20,7 @@ vi.mock('@main/session/manager', () => ({
 import { planReviewService } from '@main/plan-review/service';
 import { eventBus } from '@main/event-bus';
 import { requestPlanReviewHandler } from '../tools/handlers/request-plan-review';
-import type { HandlerContext } from '../tools/helpers';
+import type { HandlerContext, HandlerResult } from '../tools/helpers';
 import { EXTERNAL_CALLER_SENTINEL } from '../types';
 
 function makeSession(id: string, overrides: Partial<SessionRecord> = {}): SessionRecord {
@@ -46,8 +46,10 @@ function makeCtx(callerSessionId: string): HandlerContext {
   return { caller: { callerSessionId, transport: 'in-process' } };
 }
 
-function parseResult(result: { content: Array<{ text: string }> }): unknown {
-  return JSON.parse(result.content[0].text);
+function parseResult(result: HandlerResult): unknown {
+  if (result.isError) return JSON.parse(result.content[0].text);
+  expect(result.content).toEqual([]);
+  return result.structuredContent;
 }
 
 beforeEach(() => {
@@ -90,7 +92,7 @@ describe('present_plan handler', () => {
 
     const result = await pending;
     expect(result.isError).toBeFalsy();
-    expect(result.content[0].text).toContain('"decision": "approved"');
+    expect(parseResult(result)).toEqual({ decision: 'approved' });
     expect(planReviewService.listPending('codex-1')).toEqual([]);
   });
 

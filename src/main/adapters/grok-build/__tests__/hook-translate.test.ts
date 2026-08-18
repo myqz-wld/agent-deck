@@ -135,7 +135,7 @@ describe('Grok Build hook translation', () => {
       },
     });
     expect(
-      translateGrokPostToolUse({ ...tool, toolOutput: { exitCode: 0 } }),
+      translateGrokPostToolUse({ ...tool, toolResult: { exitCode: 0 } }),
     ).toMatchObject({
       kind: 'tool-use-end',
       payload: {
@@ -146,7 +146,7 @@ describe('Grok Build hook translation', () => {
       },
     });
     expect(
-      translateGrokPostToolUseFailure({ ...tool, errorMessage: 'exit 1' }),
+      translateGrokPostToolUseFailure({ ...tool, error: 'exit 1' }),
     ).toMatchObject({
       kind: 'tool-use-end',
       payload: { status: 'failed', error: 'exit 1' },
@@ -164,6 +164,23 @@ describe('Grok Build hook translation', () => {
     expect(translateGrokPermissionDenied(tool)).toMatchObject({
       kind: 'tool-use-end',
       payload: { status: 'denied', error: 'Grok Build 工具权限被拒绝' },
+    });
+  });
+
+  it('does not reinterpret SDK-converted or Claude-style hook keys as native Grok input', () => {
+    expect(translateGrokPreToolUse({
+      ...base,
+      tool_name: 'Bash',
+      tool_input: { command: 'true' },
+      tool_use_id: 'retired-tool-id',
+      permission_mode: 'auto',
+    })).toMatchObject({
+      payload: {
+        toolName: undefined,
+        toolInput: undefined,
+        toolUseId: undefined,
+        permissionMode: undefined,
+      },
     });
   });
 
@@ -215,7 +232,7 @@ describe('Grok Build hook translation', () => {
         message: 'Grok Build 通知',
       },
     });
-    expect(translateGrokStop({ ...base, stopReason: 'end_turn' })).toMatchObject([
+    expect(translateGrokStop({ ...base, reason: 'end_turn' })).toMatchObject([
       {
         kind: 'finished',
         payload: { ok: true, subtype: 'success', stopReason: 'end_turn' },
@@ -266,7 +283,7 @@ describe('Grok Build hook translation', () => {
         ...base,
         subagentId: 'sub-1',
         subagentType: 'reviewer',
-        phase: 'completed',
+        phase: 'gate',
         stopHookActive: false,
         lastAssistantMessage: 'Looks good.',
       }),
@@ -275,7 +292,7 @@ describe('Grok Build hook translation', () => {
       payload: {
         subagentId: 'sub-1',
         subagentType: 'reviewer',
-        phase: 'completed',
+        phase: 'gate',
         stopHookActive: false,
         lastAssistantMessage: 'Looks good.',
       },

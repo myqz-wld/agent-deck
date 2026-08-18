@@ -135,8 +135,14 @@ describe('Remote handoff dialog authority', () => {
   it('keeps settled options mounted and delays later configuration progress', async () => {
     vi.useFakeTimers();
     const refreshed = deferred<ReturnType<typeof sessionConsoleCapabilitiesFixture>>();
+    const initial = sessionConsoleCapabilitiesFixture('codex-cli', '.');
+    initial.create.options.provider = {
+      ...initial.create.options.provider,
+      allowedValues: ['openai-custom'],
+      allowCustom: false,
+    };
     const getSessionCapabilities = vi.fn()
-      .mockResolvedValueOnce(sessionConsoleCapabilitiesFixture('codex-cli', '.'))
+      .mockResolvedValueOnce(initial)
       .mockReturnValueOnce(refreshed.promise);
     render(<RemoteHandOffDialog
       source={source({ getSessionCapabilities })}
@@ -147,9 +153,8 @@ describe('Remote handoff dialog authority', () => {
 
     await act(() => vi.advanceTimersByTimeAsync(0));
     fireEvent.click(screen.getByText('模型配置'));
-    fireEvent.change(screen.getByLabelText('模型网关'), {
-      target: { value: 'openai-custom' },
-    });
+    fireEvent.click(screen.getByLabelText('模型网关'));
+    fireEvent.click(screen.getByRole('option', { name: 'openai-custom' }));
 
     expect(screen.getByText('模型配置')).toBeTruthy();
     await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));

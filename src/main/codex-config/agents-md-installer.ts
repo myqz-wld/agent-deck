@@ -68,20 +68,10 @@ function getStore(): CodexAgentsMdStore {
 }
 
 /**
- * 内置 markdown 内容（plan §D5 fallback 策略 P3 Step 3.6 修法）。
- * 加载优先级：用户副本 → 内置 codex-config/CODEX_AGENTS.md → throw。
- *
- * 内存缓存：与 sdk-injection.ts 各自维护一份缓存（两条注入通路独立 invalidate）。
- * 改 CODEX_AGENTS.md 编辑器保存后调 invalidateCodexAgentsMdContent() 让下次会话注入读最新。
- */
-export function invalidateCodexAgentsMdContent(): void {
-  cachedStore?.store.invalidate();
-}
-
-/**
  * Build the in-app Codex developerInstructions payload from the active CODEX_AGENTS.md source.
  *
- * This is the per-session app-server path for Agent Deck-managed Codex SDK sessions.
+ * The active source is the user copy when present and the bundled Codex baseline otherwise. The
+ * store invalidates its cache after saving or resetting the user copy.
  */
 export function getAgentDeckCodexDeveloperInstructions(): string | undefined {
   if (!settingsStore.get('injectAgentDeckCodexAgentsMd')) return undefined;

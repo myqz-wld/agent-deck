@@ -27,7 +27,6 @@ function configuration() {
       summaryEnabled: true, summaryEventCount: 30, summaryIntervalMs: 300_000,
       summaryMaxConcurrent: 2, summaryModel: 'summary', summaryRuntimeProvider: '',
       summaryThinking: 'low' as const,
-      summaryTimeoutMs: 60_000,
     },
     sessionLifecycle: {
       activeWindowMs: DEFAULT_SETTINGS.activeWindowMs,

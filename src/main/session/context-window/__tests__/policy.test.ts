@@ -4,7 +4,6 @@ import { createContextRuntimeIdentity, resolveContextRuntimeIdentity } from '../
 import {
   CONTEXT_WINDOW_OBSERVATION_FRESHNESS_MS,
   resolveContextCapacity,
-  shouldReplaceContextWindowObservation,
 } from '../policy';
 
 const identity = createContextRuntimeIdentity({
@@ -63,39 +62,5 @@ describe('context-window observation policy', () => {
       windowTokens: null,
       reason: 'no-observation',
     });
-  });
-
-  it('uses newest evidence, then source authority, then the smaller exact-time value', () => {
-    const current = observation();
-    expect(
-      shouldReplaceContextWindowObservation(
-        current,
-        observation({ observedAt: 999, windowTokens: 64_000 }),
-      ),
-    ).toBe(false);
-    expect(
-      shouldReplaceContextWindowObservation(
-        current,
-        observation({ observedAt: 1_001, windowTokens: 256_000 }),
-      ),
-    ).toBe(true);
-    expect(
-      shouldReplaceContextWindowObservation(
-        observation({ source: 'runtime-metadata' }),
-        observation({ source: 'runtime-usage', windowTokens: 256_000 }),
-      ),
-    ).toBe(true);
-    expect(
-      shouldReplaceContextWindowObservation(
-        current,
-        observation({ windowTokens: 64_000 }),
-      ),
-    ).toBe(true);
-    expect(
-      shouldReplaceContextWindowObservation(
-        current,
-        observation({ windowTokens: 256_000 }),
-      ),
-    ).toBe(false);
   });
 });

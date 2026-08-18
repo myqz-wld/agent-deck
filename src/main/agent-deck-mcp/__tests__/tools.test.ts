@@ -698,11 +698,28 @@ function seedEvent(sessionId: string, id: number, opts: Partial<AgentEvent> = {}
 }
 
 function parseResult(result: any): { isError?: boolean; data: any } {
-  const data = result.structuredContent ?? JSON.parse(result.content?.[0]?.text);
-  return { isError: result.isError, data };
+  if (result.isError) {
+    return {
+      isError: true,
+      data: JSON.parse(result.content?.[0]?.text),
+    };
+  }
+  expect(result.content).toEqual([]);
+  expect(result.structuredContent).toBeDefined();
+  return { isError: result.isError, data: result.structuredContent };
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────
+
+describe('agent-deck-mcp current success contract', () => {
+  it('publishes an object output schema for every non-browser tool', async () => {
+    const tools = await getTools({ transport: 'http' });
+    expect(tools.size).toBeGreaterThan(0);
+    for (const tool of tools.values()) {
+      expect(tool.outputSchema, tool.name).toBeDefined();
+    }
+  });
+});
 
 describe('agent-deck-mcp tools — external caller deny', () => {
   it('spawn_session denies __external__ caller', async () => {

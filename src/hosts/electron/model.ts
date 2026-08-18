@@ -18,7 +18,6 @@ export interface StandaloneElectronHostProfile extends ElectronHostProfileBase {
 
 export interface RemoteElectronHostProfile extends ElectronHostProfileBase {
   topology: 'relay' | 'full';
-  connectionCredentialStatus?: 'refresh-required';
   ssh: SshHostProfile;
 }
 

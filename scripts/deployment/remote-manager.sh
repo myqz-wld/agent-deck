@@ -20,7 +20,7 @@ service_home=/var/lib/agent-deck
 [[ "$request_source" =~ ^/tmp/agent-deck-request-[a-z0-9-]+\.json$ && -f "$request_source" && ! -L "$request_source" ]] || fail 'request source 无效'
 [[ "$request_id" =~ ^[a-z0-9-]{1,80}$ ]] || fail 'request id 无效'
 case "$command" in
-  plan-create|create|plan-start|start|plan-stop|stop|plan-status|status|describe|plan-upgrade|upgrade|plan-rollback|rollback) ;;
+  plan-create|create|start|status|describe|plan-upgrade|upgrade|plan-rollback|rollback) ;;
   *) fail 'manager command 无效' ;;
 esac
 [[ "$(/usr/bin/id -u "$service_user")" == "$service_uid" ]] || fail 'service user/uid 不匹配'

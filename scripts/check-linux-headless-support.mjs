@@ -227,12 +227,41 @@ export function verifyIssuedConnectionBundles() {
   }
 }
 
+export function validateCurrentLinuxPackageManifests(packageFixture, builtManifest) {
+  if (packageFixture.schemaVersion !== 1 || builtManifest.schemaVersion !== 1) {
+    throw new Error('Linux package manifests must use the current schemaVersion 1');
+  }
+  if (JSON.stringify(Object.keys(packageFixture).sort()) !== JSON.stringify([
+    'entries', 'forcedCommandSshdPolicy', 'hostRequirements', 'installMapping',
+    'instanceManagerKind', 'nativeExternals', 'relayArtifactMustExclude', 'runtime',
+    'schemaVersion', 'serverControlKind', 'target',
+  ])) {
+    throw new Error('Linux package manifest contains missing or non-current fields');
+  }
+  if (JSON.stringify(Object.keys(builtManifest).sort()) !== JSON.stringify([
+    'entries', 'nativeExternals', 'runtime', 'schemaVersion', 'target',
+  ])) {
+    throw new Error('built Linux manifest contains missing or non-current fields');
+  }
+  if (
+    packageFixture.runtime !== 'node' || builtManifest.runtime !== 'node' ||
+    packageFixture.target !== 'node22' || builtManifest.target !== 'node22'
+  ) {
+    throw new Error('Linux package manifests must use the current Node 22 runtime');
+  }
+}
+
 export function verifyLinuxPackageAndRuntimeArtifacts() {
   const packageFixture = JSON.parse(readFileSync(
     resolve(repoRoot, 'deploy/linux/manager/linux-headless.package.json'),
     'utf8',
   ));
   const builtManifest = JSON.parse(readFileSync(resolve(outputRoot, 'manifest.json'), 'utf8'));
+  try {
+    validateCurrentLinuxPackageManifests(packageFixture, builtManifest);
+  } catch (error) {
+    fail(error instanceof Error ? error.message : 'Linux package manifest is invalid');
+  }
   if (JSON.stringify(packageFixture.entries) !== JSON.stringify(builtManifest.entries)) {
     fail('built entries differ from the package fixture');
   }

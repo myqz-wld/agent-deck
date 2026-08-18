@@ -170,11 +170,11 @@ function installMockQuery(mockQuery: MockSdkQuery): void {
 
 function trustedRecoveryTurn() {
   const prepared: PreparedContinuationContext = {
-    version: 1,
+    version: 2,
     providerPrompt: 'FULL TRUSTED RECOVERY CONTEXT',
     persistedUserText: 'continue recovery',
     source: { eventRevision: 9, rebuildAfterRevision: 0, maxEventId: 9 },
-    checkpoint: { id: 4, throughRevision: 9, formatVersion: 1, refreshed: false },
+    checkpoint: { id: 4, throughRevision: 9, formatVersion: 2, refreshed: false },
     projection: { canonicalHash: 'canonical', omittedFacts: 0 },
     quality: 'full',
     metrics: {

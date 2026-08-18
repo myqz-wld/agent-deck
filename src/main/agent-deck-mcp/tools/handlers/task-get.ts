@@ -18,7 +18,7 @@ import { taskRepo } from '@main/store/task-repo';
 
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -44,7 +44,7 @@ export const taskGetHandler = withMcpGuard(
           'Call task_list to find tasks visible to this caller. Team tasks require active team membership; personal tasks require caller == ownerSessionId.',
         );
       }
-      return ok(t satisfies TaskGetResult);
+      return structuredOk(t satisfies TaskGetResult);
     } catch (e) {
       return err(
         e instanceof Error ? e.message : String(e),

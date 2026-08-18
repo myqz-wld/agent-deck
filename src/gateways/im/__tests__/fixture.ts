@@ -14,7 +14,6 @@ import {
   type ProjectReferenceDto,
   type SessionHistoryEntryDto,
   type SessionConsoleSummaryDto,
-  type SessionListItemDto,
 } from '@contracts/index';
 import { CURRENT_PROTOCOL_VERSION } from '@protocol/version';
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
@@ -64,7 +63,7 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
   readonly listeners = new Set<(event: AgentDeckEventEnvelope) => void>();
   readonly listenerHistory: Array<(event: AgentDeckEventEnvelope) => void> = [];
   readonly subscribeRevisions: number[] = [];
-  readonly sessions = new Map<string, SessionListItemDto>();
+  readonly sessions = new Map<string, SessionConsoleSummaryDto>();
   readonly projects = new Map<string, ProjectReferenceDto>();
   readonly histories = new Map<string, SessionHistoryEntryDto[]>();
   readonly pending = new Map<string, PendingRequestDto[]>();
@@ -133,7 +132,7 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
     }
     switch (method) {
       case 'session.console.list': {
-        const sessions = [...this.sessions.values()].map(sessionSummary);
+        const sessions = [...this.sessions.values()];
         const offset = fakeCursorOffset(params.cursor);
         const limit = params.limit as number;
         const end = Math.min(offset + limit, sessions.length);
@@ -147,7 +146,7 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
       case 'session.console.get': {
         const result = this.sessions.get(params.sessionId as string);
         return {
-          session: result ? sessionSummary(result) : null,
+          session: result ?? null,
           revision: this.revision,
         };
       }
@@ -163,13 +162,6 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
           revision: this.revision,
         };
       }
-      case 'project.resolve':
-        return {
-          project: [...this.projects.values()].find(
-            (project) => project.alias === params.alias,
-          ) ?? null,
-          revision: this.revision,
-        };
       case 'session.console.capabilities':
         return {
           ...sessionConsoleCapabilitiesFixture(
@@ -183,18 +175,6 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
       case 'session.console.create': {
         const id = `session-${this.sessions.size + 1}`;
         this.sessions.set(id, session(id, params.adapterId as string));
-        return { sessionId: id, revision: ++this.revision };
-      }
-      case 'session.list':
-        return { sessions: [...this.sessions.values()], revision: this.revision };
-      case 'session.get':
-        return {
-          session: this.sessions.get(params.sessionId as string) ?? null,
-          revision: this.revision,
-        };
-      case 'session.create': {
-        const id = `session-${this.sessions.size + 1}`;
-        this.sessions.set(id, session(id, params.adapterId as string, params.cwd as string));
         return { sessionId: id, revision: ++this.revision };
       }
       case 'session.delete': {
@@ -319,28 +299,15 @@ export class FakeTransport implements FeishuTransportPort {
 export function session(
   id: string,
   adapterId = 'codex-cli',
-  cwd = '/srv/project',
-): SessionListItemDto {
+): SessionConsoleSummaryDto {
   return {
     id,
     adapterId,
-    cwd,
     title: `Title ${id}`,
     status: 'idle',
+    archived: false,
     createdAt: 1,
     updatedAt: 2,
-  };
-}
-
-export function sessionSummary(value: SessionListItemDto): SessionConsoleSummaryDto {
-  return {
-    id: value.id,
-    adapterId: value.adapterId,
-    title: value.title,
-    status: value.status,
-    archived: false,
-    createdAt: value.createdAt,
-    updatedAt: value.updatedAt,
   };
 }
 

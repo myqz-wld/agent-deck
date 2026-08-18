@@ -1,16 +1,4 @@
-/**
- * lead-context-block.ts 单测(plan hand-off-session-adopt-teammates-20260520 Phase 4 step 1c
- * snapshot test 双向防漂移 — Round 4 NEW MED-B 修法 SSOT 唯一化)。
- *
- * **防漂移机制**:
- * - 本文件 input → output snapshot 测试(包括 wirePrefix 各段 + contextBlock 字段)
- * - tools.test.ts spawn placeholder body 断言用 substring 验证 helper 输出包含
- *   `## Hand-off context (auto-injected by Agent Deck MCP)` 等关键字串
- * - 任一处 helper 字段调整 → 两处 test 同步 fail 强制 SSOT 不漂移
- *
- * **不复用 adopt 路径**:helper 仅给 spawn 用,adopt 路径走独立
- * `adopted-teams-context-block.ts`(Phase 4c)— 详 lead-context-block.ts 顶部 jsdoc。
- */
+/** Current spawn lead-context template and wire-prefix coverage. */
 
 import { describe, it, expect } from 'vitest';
 import { buildLeadContextBlock } from '../tools/handlers/lead-context-block';

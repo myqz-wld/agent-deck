@@ -19,7 +19,6 @@ import {
 } from '../checkpoint-generator';
 import {
   prepareContinuationCandidatesWithDependencies,
-  prepareContinuationContextWithDependencies,
 } from '../service';
 import { AsyncSingleflight } from '../singleflight';
 import { ContinuationSourceSpoolStore } from '../source-spool';
@@ -29,6 +28,12 @@ import {
   staleContextCapacity,
   unknownContextCapacity,
 } from './capacity-fixtures';
+
+async function prepareContinuationContextWithDependencies(
+  ...args: Parameters<typeof prepareContinuationCandidatesWithDependencies>
+) {
+  return (await prepareContinuationCandidatesWithDependencies(...args)).primary;
+}
 
 const emptyCheckpoint: ContinuationCheckpoint = {
   formatVersion: 1,

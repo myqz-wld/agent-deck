@@ -36,12 +36,6 @@ export interface AppSettings {
   summaryIntervalMs: number; // 总结时间触发
   summaryEventCount: number; // 总结事件数触发
   summaryMaxConcurrent: number; // 同时跑 LLM 总结的会话上限
-  /**
-   * 单个 LLM oneshot 总结的超时阈值（毫秒）。0 = 永不超时。
-   * SDK 一旦因代理超时 / 鉴权死锁 / API 限流卡在等 result，循环就永远不会退出，
-   * inFlight 槽永不释放，maxConcurrent 个卡死后整个 Summarizer 不再产新总结。
-   */
-  summaryTimeoutMs: number;
   /** 周期简报使用的隔离运行时 adapter，与被总结会话自身的 adapter 无关。 */
   summaryAdapter: GeneratorAdapterId;
   /** Claude 或 Codex Gateway profile id；Grok 必须为空。 */

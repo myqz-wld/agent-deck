@@ -64,7 +64,7 @@ function context(): HandlerContext {
 
 function preparedHandOff(target: ResolvedSuccessorSpec): PreparedHandOffContinuation {
   const prepared = {
-    version: 1 as const,
+    version: 2 as const,
     providerPrompt: 'private provider context',
     persistedUserText: 'continue',
     source: { eventRevision: 77, rebuildAfterRevision: 3, maxEventId: 88 },
@@ -179,7 +179,12 @@ function dependencies(
 }
 
 function parsed(result: HandlerResult): Record<string, unknown> {
-  return JSON.parse(result.content[0]?.text ?? '{}') as Record<string, unknown>;
+  if (result.isError) {
+    return JSON.parse(result.content[0]?.text ?? '{}') as Record<string, unknown>;
+  }
+  expect(result.content).toEqual([]);
+  expect(result.structuredContent).toBeDefined();
+  return result.structuredContent as Record<string, unknown>;
 }
 
 afterEach(() => {

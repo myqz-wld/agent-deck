@@ -10,7 +10,7 @@ import {
 
 function prepared(providerPrompt = 'provider context', instruction = 'next step'): PreparedContinuationContext {
   return {
-    version: 1,
+    version: 2,
     providerPrompt,
     persistedUserText: instruction,
     source: { eventRevision: 8, rebuildAfterRevision: 0, maxEventId: 8 },
@@ -50,7 +50,7 @@ describe('private continuation initial turn', () => {
       persistedUserText: 'Only persist this instruction.',
       trusted: true,
       metadata: {
-        formatVersion: 1,
+        formatVersion: 2,
         checkpointId: 3,
         sourceSessionId: 'source-session',
         sourceEventRevision: 8,

@@ -21,7 +21,6 @@ export function summariseViaLlm(
 ): Promise<string | null> {
   return summariseClaudeSessionWithHost({
     readSummaryThinking: () => settingsStore.get('summaryThinking'),
-    readSummaryTimeoutMs: () => settingsStore.get('summaryTimeoutMs'),
     resolveGatewayProfile: (provider) => resolveClaudeGatewayProfile(provider),
     runOneshot: runClaudeOneshot,
   }, cwd, events, options);

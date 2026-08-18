@@ -232,8 +232,6 @@ describe('ServerCoreSessionConsoleAuthority', () => {
       revision: 3,
     });
     expect(listed.projects[0]).not.toHaveProperty('workspacePath');
-    expect(authority.resolveProject({ alias: 'alpha' }, context()).project)
-      .toEqual(listed.projects[0]);
   });
 
   it('classifies unavailable Workspace directory pages as invalid requests', () => {

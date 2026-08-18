@@ -41,7 +41,7 @@ describe('Claude session finalize Core', () => {
       extraAllowWrite: ['/one', '/two'],
       attachments: [{ kind: 'uploaded', path: '/image.png', mime: 'image/png', bytes: 10 }],
       continuationMetadata: {
-        formatVersion: 1,
+        formatVersion: 2,
         checkpointId: 7,
         sourceSessionId: 'source',
         sourceEventRevision: 42,

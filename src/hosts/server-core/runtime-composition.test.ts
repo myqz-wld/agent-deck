@@ -195,8 +195,6 @@ describe('concrete Server Core runtime composition', () => {
       'node.configuration.get',
       'node.hook.projection.get',
     ]));
-    expect(bootstrap.runtime.supportedMethods).not.toContain('node.hook.projection.install');
-    expect(bootstrap.runtime.supportedMethods).not.toContain('node.hook.projection.uninstall');
     await bootstrap.runtime.start();
     expect(await bootstrap.runtime.currentRevision(access)).toBe(0);
     await expect(bootstrap.credentialLifecycle.isActive({

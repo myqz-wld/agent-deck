@@ -85,11 +85,11 @@ function prepareFor(
   quality: PreparedContinuationContext['quality'],
 ): PreparedRecoveryContinuation {
   const prepared: PreparedContinuationContext = {
-    version: 1,
-    providerPrompt: `===== Agent Deck Continuation Context v1 =====\n${input.continuationInstruction}`,
+    version: 2,
+    providerPrompt: `===== Agent Deck Continuation Context v2 =====\n${input.continuationInstruction}`,
     persistedUserText: input.continuationInstruction,
     source: { eventRevision: 1, rebuildAfterRevision: 0, maxEventId: 1 },
-    checkpoint: { id: 1, throughRevision: 1, formatVersion: 1, refreshed: false },
+    checkpoint: { id: 1, throughRevision: 1, formatVersion: 2, refreshed: false },
     projection: { canonicalHash: 'canonical', omittedFacts: 0 },
     quality,
     metrics: {
@@ -317,7 +317,7 @@ describe('Phase Step 3d/3e — restartWithPermissionMode helper integration (jso
     expect(opts.claudeCodeSandbox).toBe('off');
     expect(opts.prompt).toBeUndefined();
     expect(opts.trustedContinuation?.providerPrompt).toContain(
-      'Agent Deck Continuation Context v1',
+      'Agent Deck Continuation Context v2',
     );
     const persisted = emits.find(
       (event) =>
@@ -459,7 +459,7 @@ describe('Phase Step 3d/3e — restartWithClaudeCodeSandbox helper integration (
     expect(opts.permissionMode).toBe('bypassPermissions');
     expect(opts.prompt).toBeUndefined();
     expect(opts.trustedContinuation?.providerPrompt).toContain(
-      'Agent Deck Continuation Context v1',
+      'Agent Deck Continuation Context v2',
     );
     const persisted = emits.find(
       (event) =>

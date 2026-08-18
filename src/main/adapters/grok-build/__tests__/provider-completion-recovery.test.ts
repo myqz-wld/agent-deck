@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { readCompletedGrokNativeTurn } from '../provider-completion-recovery';
 
 describe('Grok provider completion history', () => {
-  it('reads the exact rate-limit envelope emitted by Grok 0.2.114', async () => {
+  it('reads the exact rate-limit envelope emitted by pinned Grok 1.0.4', async () => {
     const root = await mkdtemp(join(tmpdir(), 'grok-provider-completion-'));
     const cwd = '/Users/example';
     const nativeSessionId = '019fb234-a509-74c0-92df-10a9156114b4';

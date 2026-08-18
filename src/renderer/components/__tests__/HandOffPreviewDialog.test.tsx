@@ -77,7 +77,7 @@ beforeEach(() => {
     configurable: true,
     value: {
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-      listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
+      listCodexGatewayProfiles: vi.fn().mockResolvedValue([{ id: 'openai-custom' }]),
       listAdapters: vi.fn().mockResolvedValue([
         { id: 'claude-code', displayName: 'Claude', capabilities: { canCreateSession: true } },
         { id: 'codex-cli', displayName: 'Codex', capabilities: { canCreateSession: true } },
@@ -135,9 +135,8 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
 
     fireEvent.click(await screen.findByLabelText('目标助手'));
     fireEvent.click(screen.getByRole('option', { name: 'Codex' }));
-    fireEvent.change(await screen.findByLabelText('模型网关'), {
-      target: { value: 'openai-custom' },
-    });
+    fireEvent.click(await screen.findByLabelText('模型网关'));
+    fireEvent.click(screen.getByRole('option', { name: 'openai-custom' }));
     fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'gpt-custom' } });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));

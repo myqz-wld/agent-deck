@@ -23,14 +23,13 @@ const STOP_TIMEOUT_MS = 2_000;
 const DELETE_TIMEOUT_MS = 3_000;
 
 interface GrokHeadlessEnvelope {
-  content?: unknown;
+  text?: unknown;
   structuredOutput?: unknown;
   error?: unknown;
   stopReason?: unknown;
   usage?: {
-    inputTokens?: unknown;
-    outputTokens?: unknown;
-    contextWindowTokens?: unknown;
+    input_tokens?: unknown;
+    output_tokens?: unknown;
   };
 }
 
@@ -232,15 +231,11 @@ async function captureHeadlessResult(
     throw new Error(`Grok Build 单次运行失败：${detail}`);
   }
 
-  const value =
-    parsed.structuredOutput ??
-    parsed.content;
-  const text =
-    typeof value === 'string'
-      ? value
-      : value === undefined
-        ? JSON.stringify(parsed)
-        : JSON.stringify(value);
+  const value = parsed.structuredOutput ?? parsed.text;
+  if (value === undefined) {
+    throw new Error('Grok Build 单次运行响应缺少 text 或 structuredOutput。');
+  }
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
   if (options.maxOutputBytes && Buffer.byteLength(text, 'utf8') > options.maxOutputBytes) {
     throw new Error(
       `Grok Build 单次运行响应超过 ${options.maxOutputBytes} 字节上限。`,
@@ -248,9 +243,9 @@ async function captureHeadlessResult(
   }
   return {
     text,
-    inputTokens: usageNumber(parsed.usage?.inputTokens),
-    outputTokens: usageNumber(parsed.usage?.outputTokens),
-    contextWindowTokens: usageNumber(parsed.usage?.contextWindowTokens),
+    inputTokens: usageNumber(parsed.usage?.input_tokens),
+    outputTokens: usageNumber(parsed.usage?.output_tokens),
+    contextWindowTokens: null,
     stopReason: typeof parsed.stopReason === 'string' ? parsed.stopReason : null,
   };
 }

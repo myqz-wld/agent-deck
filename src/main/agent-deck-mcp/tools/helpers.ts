@@ -101,19 +101,20 @@ export function withMcpGuard<
   };
 }
 
-export function ok(data: unknown): HandlerResult {
+/** Return model-facing text content for tools whose payload is intentionally conversational. */
+export function textContentOk(data: unknown): HandlerResult {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
   };
 }
 
 /** Return a successful MCP result through the structured content channel. */
-export function structuredOk<T extends Record<string, unknown>>(
+export function structuredOk<T extends object>(
   data: T,
 ): HandlerResult {
   return {
     content: [],
-    structuredContent: data,
+    structuredContent: data as Record<string, unknown>,
   };
 }
 

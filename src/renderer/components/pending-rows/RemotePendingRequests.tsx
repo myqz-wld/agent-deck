@@ -66,7 +66,7 @@ export function RemotePendingRequests({
     action: RemoteHostPendingAction,
     value?: RemoteHostJsonValue,
   ): Promise<void>;
-  planReviewTransport?: RemoteSessionSourceView['planReviewTransport'];
+  planReviewTransport: RemoteSessionSourceView['planReviewTransport'];
 }): JSX.Element {
   const requests = pending.requests;
   if (requests.length === 0) {
@@ -106,7 +106,7 @@ export function RemotePendingRequestRow({
   agentId?: string;
   busy: boolean;
   onRespond: Parameters<typeof RemotePendingRequests>[0]['onRespond'];
-  planReviewTransport?: RemoteSessionSourceView['planReviewTransport'];
+  planReviewTransport: RemoteSessionSourceView['planReviewTransport'];
 }): JSX.Element | null {
   const presentation = remotePendingPresentation(sourceIdentity, revision, request);
   return remoteMcpPresentationRow(
@@ -136,7 +136,7 @@ function remoteMcpPresentationRow(
   agentId: string,
   busy: boolean,
   onRespond: Parameters<typeof RemotePendingRequests>[0]['onRespond'],
-  planReviewTransport: RemoteSessionSourceView['planReviewTransport'] | undefined,
+  planReviewTransport: RemoteSessionSourceView['planReviewTransport'],
 ): JSX.Element | null {
   let display: ReturnType<typeof parseMcpPresentationDisplay>;
   try { display = parseMcpPresentationDisplay(presentation.request.display); }
@@ -175,7 +175,7 @@ function remoteMcpPresentationRow(
     };
     const reviewTransport = agentId === 'grok-build'
       ? null
-      : planReviewTransport?.(presentation, agentId) ?? null;
+      : planReviewTransport(presentation, agentId);
     const unavailable = agentId === 'grok-build'
       ? 'Grok 当前暂不支持独立计划审阅。'
       : '当前远端版本暂不支持独立计划审阅。';

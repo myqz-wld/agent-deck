@@ -59,7 +59,7 @@ export function standaloneHello(clientId: string): HostHello {
       authority: 'local-owner',
       surface: 'desktop',
     },
-    capabilities: [AgentDeckCapability.SessionsRead],
+    capabilities: [AgentDeckCapability.SessionConsoleRead],
     limits: {
       maxFrameBytes: 1024,
       maxBlobBytes: 4096,
@@ -94,7 +94,7 @@ export function remoteHello(
       connectionScope: `credential-${profile.id}`,
       surface: 'desktop',
     }),
-    capabilities: [AgentDeckCapability.SessionsRead],
+    capabilities: [AgentDeckCapability.SessionConsoleRead],
     limits: {
       maxFrameBytes: 1024,
       maxBlobBytes: 4096,

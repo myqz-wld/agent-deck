@@ -60,7 +60,12 @@ function acceptedCandidate(sessionId: string): TrustedContinuationSessionCandida
 }
 
 function parseResult(result: HandlerResult): Record<string, any> {
-  return JSON.parse(result.content[0]?.text ?? '{}') as Record<string, any>;
+  if (result.isError) {
+    return JSON.parse(result.content[0]?.text ?? '{}') as Record<string, any>;
+  }
+  expect(result.content).toEqual([]);
+  expect(result.structuredContent).toBeDefined();
+  return result.structuredContent as Record<string, any>;
 }
 
 function callerRow(overrides: Partial<SessionRecord> = {}): SessionRecord {
@@ -97,7 +102,7 @@ function ctx(): HandlerContext {
 
 function preparedContext(): PreparedContinuationContext {
   return {
-    version: 1,
+    version: 2,
     providerPrompt: PRIVATE_PROVIDER_CONTEXT,
     persistedUserText: 'PRIVATE_CURRENT_INSTRUCTION_SHOULD_NEVER_BE_ECHOED',
     source: { eventRevision: 77, rebuildAfterRevision: 3, maxEventId: 88 },
@@ -700,7 +705,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
     expect(data.sessionId).toBe('successor-sid');
     expect(data.callerClosed).toBe('failed');
     expect(data.warnings).toEqual(['source-finalization-failed']);
-    expect(result.content[0]?.text).not.toContain('source close secret detail');
+    expect(JSON.stringify(result)).not.toContain('source close secret detail');
   });
 
   it('rejects a second mutating call from the in-process predecessor after successful handoff', async () => {
@@ -844,7 +849,7 @@ describe('handOffSessionHandler unified continuation pipeline', () => {
       cwd: '/repo',
       callerClosed: 'ok',
       continuationContext: {
-        version: 1,
+        version: 2,
         quality: 'projected',
         sourceEventRevision: 77,
         cutoverEventRevision: 77,

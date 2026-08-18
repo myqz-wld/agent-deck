@@ -40,7 +40,7 @@ beforeEach(() => {
     configurable: true,
     value: {
       summarizerLastErrors: vi.fn().mockResolvedValue({}),
-      listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+      listClaudeGatewayProfiles: vi.fn().mockResolvedValue([{ id: 'deepseek' }]),
       listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
     },
   });
@@ -125,9 +125,8 @@ describe('SummarySection provider-specific thinking levels', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '总结模型 助手' }));
     fireEvent.click(screen.getByRole('option', { name: 'Claude Code' }));
-    fireEvent.change(screen.getByRole('combobox', { name: '总结模型 模型网关' }), {
-      target: { value: 'deepseek' },
-    });
+    fireEvent.click(screen.getByRole('combobox', { name: '总结模型 模型网关' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'deepseek' }));
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '总结模型 思考程度' }).textContent).toContain(
@@ -242,6 +241,24 @@ describe('SummarySection provider-specific thinking levels', () => {
     expect((toggle as HTMLInputElement).checked).toBe(true);
     fireEvent.click(toggle);
     expect(onPatch).toHaveBeenCalledWith({ summaryEnabled: false });
+  });
+
+  it('uses the shared trigger, model, concurrency field order without a timeout setting', () => {
+    render(<SettingsHarness initial={DEFAULT_SETTINGS} onPatch={vi.fn()} />);
+    openSection();
+
+    const section = screen.getByText('间歇总结').closest('section');
+    expect(section).not.toBeNull();
+    expect(Array.from(section!.querySelectorAll<HTMLElement>('[data-settings-field]'))
+      .map((field) => field.dataset.settingsField))
+      .toEqual([
+        '启用周期总结',
+        '每隔多少分钟总结',
+        '每多少个事件总结',
+        '总结模型',
+        '最多同时总结的会话数',
+      ]);
+    expect(screen.queryByRole('textbox', { name: /总结超时/ })).toBeNull();
   });
 
   it('updates the concurrent summary limit within the supported range', async () => {

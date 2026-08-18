@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { StoredAgentEvent } from '@shared/types';
+import {
+  PERIODIC_SUMMARY_TIMEOUT_MS,
+  type StoredAgentEvent,
+} from '@shared/types';
 import {
   summariseCodexSessionWithHost,
   type CodexSummaryRunnerHost,
@@ -19,7 +22,6 @@ function host(): CodexSummaryRunnerHost {
   return {
     readSummaryModel: vi.fn(() => ' configured-model '),
     readSummaryReasoning: vi.fn(() => 'high'),
-    readSummaryTimeoutMs: vi.fn(() => 12_000),
     runOneshot: vi.fn(async () => 'Core summary'),
   };
 }
@@ -59,7 +61,7 @@ describe('Codex summary runner Core', () => {
       modelReasoningEffort: 'max',
       provider: 'provider-a',
       timeoutErrorMessage: '__codex_summarizer_timeout__',
-      timeoutMs: 12_000,
+      timeoutMs: PERIODIC_SUMMARY_TIMEOUT_MS,
     }));
   });
 });

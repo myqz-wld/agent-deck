@@ -199,42 +199,48 @@ const INJECTION_KEYS = [
 ] as const satisfies readonly (keyof NodeAssetInjectionSettingsDto)[];
 
 function injection(value: unknown): NodeAssetInjectionSettingsDto {
-  const raw = object(value, 'node.assets.list.injection');
-  exact(raw, INJECTION_KEYS, 'node.assets.list.injection');
+  const raw = object(value, 'node.assets.catalog.list.injection');
+  exact(raw, INJECTION_KEYS, 'node.assets.catalog.list.injection');
   return Object.fromEntries(INJECTION_KEYS.map((key) => [
     key,
-    bool(raw[key], `node.assets.list.injection.${key}`),
+    bool(raw[key], `node.assets.catalog.list.injection.${key}`),
   ])) as unknown as NodeAssetInjectionSettingsDto;
 }
 
 export function parseNodeAssetListParams(value: unknown): Record<string, never> {
-  const raw = object(value, 'node.assets.list.params');
-  exact(raw, [], 'node.assets.list.params');
+  const raw = object(value, 'node.assets.catalog.list.params');
+  exact(raw, [], 'node.assets.catalog.list.params');
   return {};
 }
 
 export function parseNodeAssetListResult(value: unknown): NodeAssetListResult {
-  const raw = object(value, 'node.assets.list.result');
+  const raw = object(value, 'node.assets.catalog.list.result');
   exact(
     raw,
     ['assets', 'assetsTruncated', 'injection', 'readOnlyReason', 'revision'],
-    'node.assets.list.result',
+    'node.assets.catalog.list.result',
   );
   if (!Array.isArray(raw.assets) || raw.assets.length > NODE_ASSET_MAX_ITEMS) {
-    fail('node.assets.list.assets');
+    fail('node.assets.catalog.list.assets');
   }
-  const assets = raw.assets.map((item, index) => asset(item, `node.assets.list.assets[${index}]`));
+  const assets = raw.assets.map((item, index) =>
+    asset(item, `node.assets.catalog.list.assets[${index}]`));
   const identities = assets.map((item) =>
     `${item.adapterId}\u0000${item.kind}\u0000${item.source}\u0000` +
     `${item.qualifiedName}\u0000${item.location}`);
-  if (new Set(identities).size !== identities.length) fail('node.assets.list.assets');
+  if (new Set(identities).size !== identities.length) fail('node.assets.catalog.list.assets');
   return bounded({
     assets,
-    assetsTruncated: bool(raw.assetsTruncated, 'node.assets.list.assetsTruncated'),
+    assetsTruncated: bool(raw.assetsTruncated, 'node.assets.catalog.list.assetsTruncated'),
     injection: injection(raw.injection),
-    readOnlyReason: text(raw.readOnlyReason, 'node.assets.list.readOnlyReason', 1_024, true),
-    revision: revision(raw.revision, 'node.assets.list.revision'),
-  }, 'node.assets.list.result');
+    readOnlyReason: text(
+      raw.readOnlyReason,
+      'node.assets.catalog.list.readOnlyReason',
+      1_024,
+      true,
+    ),
+    revision: revision(raw.revision, 'node.assets.catalog.list.revision'),
+  }, 'node.assets.catalog.list.result');
 }
 
 export function parseNodeAssetContentParams(value: unknown): NodeAssetContentParams {

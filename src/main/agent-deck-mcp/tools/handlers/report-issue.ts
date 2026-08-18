@@ -23,7 +23,7 @@ import { normalizeIssueBranchName } from '@shared/types';
 
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -56,7 +56,7 @@ export const reportIssueHandler = withMcpGuard(
         sourceSessionId: created.sourceSessionId,
         ts: Date.now(),
       });
-      return ok(created satisfies ReportIssueResult);
+      return structuredOk(created satisfies ReportIssueResult);
     } catch (e) {
       return err(
         e instanceof Error ? e.message : String(e),

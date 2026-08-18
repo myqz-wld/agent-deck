@@ -307,12 +307,7 @@ export function describeAgentToolInput(
         ? input.id
         : '';
   const model = typeof input.model === 'string' ? input.model : '';
-  const effort =
-    typeof input.reasoning_effort === 'string'
-      ? input.reasoning_effort
-      : typeof input.model_reasoning_effort === 'string'
-        ? input.model_reasoning_effort
-        : '';
+  const effort = typeof input.reasoning_effort === 'string' ? input.reasoning_effort : '';
   const timeoutMs =
     typeof input.timeout_ms === 'number' && Number.isFinite(input.timeout_ms)
       ? input.timeout_ms
