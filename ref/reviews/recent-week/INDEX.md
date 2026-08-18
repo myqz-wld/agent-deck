@@ -15,6 +15,8 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-15 | `REVIEW_251_remote-profile-schema-migration.md` | Remote profile startup migration | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed |
+| 2026-08-15 | `REVIEW_250_interruptible-reconnect-and-session-readiness.md` | Interruptible reconnect and session readiness | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 1 LOW fixed |
 | 2026-08-14 | `REVIEW_249_feishu-relay-live-acceptance.md` | Feishu Relay deployment and Server CLI live acceptance | 0 CRITICAL / 3 HIGH fixed / 2 MEDIUM fixed |
 | 2026-08-14 | `REVIEW_248_feishu-server-one-click-acceptance.md` | Feishu server connection and sidecar lifecycle | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed / 2 LOW fixed |
 | 2026-08-13 | `REVIEW_247_feishu-p0-surface-cleanup.md` | Dormant product surface removal | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 1 LOW fixed |
@@ -32,7 +34,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 | 2026-08-12 | `REVIEW_235_async-local-file-read-audit.md` | Initial readiness and async local-file I/O | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed |
 | 2026-08-12 | `REVIEW_234_claude-uuid-rewrite-acceptance.md` | Claude deferred-input acceptance | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed |
 | 2026-08-12 | `REVIEW_233_remote-full-ui-parity.md` | Remote full UI parity and authority | 0 CRITICAL / all HIGH+MEDIUM fixed / no open findings |
-| 2026-08-11 | `REVIEW_232_remote-transport-ui-convergence.md` | Remote transport and UI convergence | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 3 LOW fixed |
-| 2026-08-11 | `REVIEW_231_remote-replay-bootstrap.md` | Remote replay bootstrap and Feishu gate | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed |
-| 2026-08-11 | `REVIEW_230_remote-session-continuity.md` | Remote continuity and active input | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 2 LOW fixed / 1 INFO resolved |
-| 2026-08-11 | `REVIEW_229_remote-worker-ui-authority.md` | Remote UI and Worker authority | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed / 3 INFO fixed |

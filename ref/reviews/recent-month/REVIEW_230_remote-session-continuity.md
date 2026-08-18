@@ -212,4 +212,3 @@ PASS. Protocol, source authority, handoff terminality, context attribution, prov
 input, tab parity, Supervisor security, and deployment gates are converged. The installed Worker and
 managed Relay are healthy on the pushed release, Claude/Codex real sessions pass, and Grok reaches
 the provider while failing only on the account's external payment gate.
-

@@ -80,4 +80,3 @@ minor-version negotiation, while unsupported provider behavior remains explicit 
   restart was used.
 - Grok image input is implemented but capability-driven. The current pinned ACP runtime reports it
   unavailable, so the UI correctly remains text-only for Grok until ACP negotiates image support.
-
