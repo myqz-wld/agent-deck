@@ -13,6 +13,11 @@ import type {
   ElectronHostState,
 } from '@hosts/electron';
 import { disposeSessionBrowser } from '@main/browser-use/session-browser';
+import {
+  getBrowserStateProjectionRegistry,
+  type BrowserStateProjectionPort,
+  type RemoteBrowserStateSource,
+} from '@main/browser-use/browser-state-projection';
 
 import {
   executeRemoteBrowserRequest,
@@ -45,6 +50,7 @@ export interface RemoteHostDesktopBrokerPort {
 export interface RemoteHostDesktopBrowserBrokerOptions {
   readonly registry: ElectronHostRegistry;
   readonly execute?: typeof executeRemoteBrowserRequest;
+  readonly stateProjection?: BrowserStateProjectionPort;
 }
 
 function identity(state: ElectronHostState): string | null {
@@ -77,10 +83,12 @@ function lifecycle(payload: JsonValue): string | null {
 export class RemoteHostDesktopBrowserBroker implements RemoteHostDesktopBrokerPort {
   private readonly loops = new Map<string, ProfileLoop>();
   private readonly execute: typeof executeRemoteBrowserRequest;
+  private readonly stateProjection: BrowserStateProjectionPort;
   private stopped = false;
 
   constructor(private readonly options: RemoteHostDesktopBrowserBrokerOptions) {
     this.execute = options.execute ?? executeRemoteBrowserRequest;
+    this.stateProjection = options.stateProjection ?? getBrowserStateProjectionRegistry();
   }
 
   handleState(state: ElectronHostState): void {
@@ -124,8 +132,10 @@ export class RemoteHostDesktopBrowserBroker implements RemoteHostDesktopBrokerPo
       if (!value) return;
       const owner = loop.owners.get(value.fromId);
       if (owner) {
+        this.clearState(loop, value.fromId);
         loop.owners.delete(value.fromId);
         loop.owners.set(value.toId, owner);
+        this.publishState(loop, value.toId, owner);
       }
     }
   }
@@ -137,7 +147,10 @@ export class RemoteHostDesktopBrowserBroker implements RemoteHostDesktopBrokerPo
     this.loops.clear();
     for (const loop of loops) loop.controller.abort();
     await Promise.allSettled(loops.flatMap((loop) =>
-      [...loop.owners.values()].map((owner) => disposeSessionBrowser(owner))));
+      [...loop.owners].map(async ([sessionId, owner]) => {
+        this.clearState(loop, sessionId);
+        await disposeSessionBrowser(owner);
+      })));
     await Promise.race([
       Promise.allSettled(loops.map((loop) => loop.task)),
       delay(STOP_JOIN_MS, new AbortController().signal),
@@ -213,8 +226,10 @@ export class RemoteHostDesktopBrowserBroker implements RemoteHostDesktopBrokerPo
   ): Promise<DesktopBrokerToolResult> {
     const owner = this.owner(loop, request);
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let didExpire = false;
     const expired = new Promise<DesktopBrokerToolResult>((resolve) => {
       timer = setTimeout(() => {
+        didExpire = true;
         void disposeSessionBrowser(owner);
         resolve(this.expiredResult());
       }, request.leaseMs);
@@ -224,6 +239,8 @@ export class RemoteHostDesktopBrowserBroker implements RemoteHostDesktopBrokerPo
       return await Promise.race([this.execute(owner, request), expired]);
     } finally {
       if (timer) clearTimeout(timer);
+      if (didExpire) this.clearState(loop, request.sessionId);
+      else this.publishState(loop, request.sessionId, owner);
     }
   }
 
@@ -231,7 +248,10 @@ export class RemoteHostDesktopBrowserBroker implements RemoteHostDesktopBrokerPo
     if (this.loops.get(loop.profileId) === loop) this.loops.delete(loop.profileId);
     loop.controller.abort();
     await Promise.allSettled(
-      [...loop.owners.values()].map((owner) => disposeSessionBrowser(owner)),
+      [...loop.owners].map(async ([sessionId, owner]) => {
+        this.clearState(loop, sessionId);
+        await disposeSessionBrowser(owner);
+      }),
     );
   }
 
@@ -239,6 +259,25 @@ export class RemoteHostDesktopBrowserBroker implements RemoteHostDesktopBrokerPo
     const owner = loop.owners.get(sessionId);
     if (!owner) return;
     loop.owners.delete(sessionId);
+    this.clearState(loop, sessionId);
     await disposeSessionBrowser(owner);
+  }
+
+  private stateSource(loop: ProfileLoop, sessionId: string): RemoteBrowserStateSource {
+    return {
+      kind: 'remote',
+      profileId: loop.profileId,
+      coreId: loop.coreId,
+      generation: loop.generation,
+      sessionId,
+    };
+  }
+
+  private publishState(loop: ProfileLoop, sessionId: string, owner: string): void {
+    try { this.stateProjection.publish(this.stateSource(loop, sessionId), owner); } catch {}
+  }
+
+  private clearState(loop: ProfileLoop, sessionId: string): void {
+    try { this.stateProjection.clear(this.stateSource(loop, sessionId)); } catch {}
   }
 }

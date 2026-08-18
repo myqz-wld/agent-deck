@@ -68,6 +68,7 @@
     "providerSessionCommand": "/opt/agent-deck/bin/provider-session",
     "providerSessionSupervisorBundle": "/opt/agent-deck/linux-headless/provider-session-supervisor/index.mjs",
     "providerSessionSupervisorCommand": "/opt/agent-deck/bin/agent-deck-provider-supervisor",
+    "browserCliCommand": "/opt/agent-deck/bin/agent-deck-browser.cjs",
     "providerSessionSupervisorServiceTemplate": "/opt/agent-deck/share/provider-session/agent-deck-provider-supervisor.service.in",
     "providerSessionSupervisorDarwinTemplate": "Agent Deck.app/Contents/Resources/provider-session/com.agentdeck.provider-supervisor.plist.in",
     "feishuCommand": "/opt/agent-deck/bin/agent-deck-feishu",

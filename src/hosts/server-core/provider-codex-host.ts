@@ -145,6 +145,7 @@ export function createServerCoreCodexClient(
       ),
     prepareThreadOptions: (_client, options) => Promise.resolve(options),
     startProcess: ({ codexPathOverride, cwd, env }) => {
+      input.browserRuntime.refresh(env);
       const executable = codexPathOverride?.trim() || HEADLESS_CODEX_EXECUTABLE;
       return spawn(
         executable,
@@ -177,18 +178,32 @@ export function createServerCoreCodexUsageSnapshotHost(
   });
 }
 
+export function createServerCoreCodexClientConstructionHost(
+  input: ServerCoreProviderHostInput,
+): CodexClientConstructionHost {
+  return {
+    createClient: (options) => createServerCoreCodexClient(options, input),
+    readCodexCliPath: () => input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,
+    readSettings: () => settings(input),
+    readSkillExtraRoots: () => input.assets.codexSkillExtraRoots(),
+    snapshotProcessEnv: () => providerProcessEnvironment(input),
+    prepareBrowserRuntime: (sessionId, environment) => input.browserRuntime.prepare({
+      applicationSessionId: sessionId,
+      adapterId: 'codex-cli',
+      environment,
+    }),
+    browserSocketConfig: (environment) => input.browserRuntime.codexSocketConfig(environment),
+    revokeBrowserRuntime: (sessionId) => {
+      input.browserRuntime.revokeSession(sessionId);
+    },
+  };
+}
+
 /** Concrete Codex value host for one Electron-free Server Core process. */
 export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
   const logger = providerLogger(input.diagnostics, 'codex-cli');
-  const appSettings = settings(input);
   const usageSnapshotHost = createServerCoreCodexUsageSnapshotHost(input);
-  const clientHost: CodexClientConstructionHost = {
-    createClient: (options) => createServerCoreCodexClient(options, input),
-    readCodexCliPath: () => input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,
-    readSettings: () => appSettings,
-    readSkillExtraRoots: () => input.assets.codexSkillExtraRoots(),
-    snapshotProcessEnv: () => providerProcessEnvironment(input),
-  };
+  const clientHost = createServerCoreCodexClientConstructionHost(input);
   const runSummaryOneshot = (
     options: Parameters<typeof runCodexOneshotWithHost>[0],
   ) => runCodexOneshotWithHost(options, {

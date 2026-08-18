@@ -15,6 +15,7 @@ import type { ServerCoreMcpBrokerPort } from './mcp-broker-port';
 import type { ServerCoreWorktreeRuntimePort } from './mcp-worktree-port';
 import type { GrokAcpSessionFactory } from '@main/adapters/grok-build/acp-process';
 import type { GrokPluginProfileOptions } from '@main/adapters/grok-build/resource-store';
+import type { ServerCoreProviderBrowserRuntimePort } from './browser-runtime';
 
 export interface ServerCoreProviderAssetPort {
   applicationInstructions(adapterId: 'claude-code' | 'codex-cli' | 'grok-build'): string;
@@ -36,6 +37,7 @@ export interface ServerCoreProviderHostInput {
   readonly mcpBroker: ServerCoreMcpBrokerPort;
   readonly worktrees: ServerCoreWorktreeRuntimePort;
   readonly assets: ServerCoreProviderAssetPort;
+  readonly browserRuntime: ServerCoreProviderBrowserRuntimePort;
   /** Present only after the Provider supervisor and broker production composition is verified. */
   readonly grokProcessFactory?: GrokAcpSessionFactory;
 }

@@ -37,6 +37,9 @@ COPY --chown=0:0 --chmod=0755 \
   resources/bin/provider-session \
   /opt/agent-deck/bin/provider-session
 COPY --chown=0:0 --chmod=0755 \
+  resources/bin/agent-deck-browser.cjs \
+  /opt/agent-deck/bin/agent-deck-browser.cjs
+COPY --chown=0:0 --chmod=0755 \
   build/provider-session/grok/${TARGETARCH}/grok \
   /opt/agent-deck/providers/grok/grok
 

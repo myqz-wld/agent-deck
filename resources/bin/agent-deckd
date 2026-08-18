@@ -35,6 +35,7 @@ for directory in \
   verify_root_owned "$directory" directory
 done
 verify_root_owned /opt/agent-deck/bin/agent-deckd file
+verify_root_owned /opt/agent-deck/bin/agent-deck-browser.cjs file
 verify_root_owned /usr/bin/node file
 verify_root_owned /opt/agent-deck/linux-headless/server-core/index.mjs file
 verify_root_owned /opt/agent-deck/linux-headless/server-core-runtime/index.mjs file

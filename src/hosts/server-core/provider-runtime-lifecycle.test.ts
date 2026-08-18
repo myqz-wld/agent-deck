@@ -11,6 +11,8 @@ function harness(overrides: Partial<{
   brokerStop: () => Promise<void>;
   desktopBrokerStart: () => Promise<void>;
   desktopBrokerStop: () => Promise<void>;
+  browserRuntimeStart: () => Promise<void>;
+  browserRuntimeStop: () => Promise<void>;
   presentationsStart: () => Promise<void>;
   presentationsStop: () => Promise<void>;
   collaborationStart: () => Promise<void>;
@@ -46,6 +48,12 @@ function harness(overrides: Partial<{
   const desktopBrokerStop = vi.fn(overrides.desktopBrokerStop ?? (async () => {
     trace.push('desktop-broker-stop');
   }));
+  const browserRuntimeStart = vi.fn(overrides.browserRuntimeStart ?? (async () => {
+    trace.push('browser-runtime-start');
+  }));
+  const browserRuntimeStop = vi.fn(overrides.browserRuntimeStop ?? (async () => {
+    trace.push('browser-runtime-stop');
+  }));
   const presentationsStart = vi.fn(overrides.presentationsStart ?? (async () => {
     trace.push('presentations-start');
   }));
@@ -79,6 +87,7 @@ function harness(overrides: Partial<{
     metadata: { start: metadataStart, close: metadataClose },
     mcpBroker: { start: brokerStart, stop: brokerStop },
     desktopBroker: { start: desktopBrokerStart, stop: desktopBrokerStop },
+    browserRuntime: { start: browserRuntimeStart, stop: browserRuntimeStop },
     presentations: { start: presentationsStart, stop: presentationsStop },
     collaboration: { start: collaborationStart, stop: collaborationStop },
     worktrees: { start: worktreeStart, stop: worktreeStop },
@@ -113,11 +122,13 @@ describe('ServerCoreProviderRuntimeLifecycle', () => {
       'metadata-start',
       'broker-start',
       'desktop-broker-start',
+      'browser-runtime-start',
       'presentations-start',
       'provider-start',
       'worktree-start',
       'collaboration-start',
       'broker-stop',
+      'browser-runtime-stop',
       'desktop-broker-stop',
       'presentations-stop',
       'collaboration-stop',

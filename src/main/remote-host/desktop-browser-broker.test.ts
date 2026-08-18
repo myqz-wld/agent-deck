@@ -70,17 +70,32 @@ describe('RemoteHostDesktopBrowserBroker', () => {
     const execute = vi.fn(async () => ({
       content: [{ type: 'text' as const, text: '{"tabs":[]}' }],
     }));
-    const broker = new RemoteHostDesktopBrowserBroker({ registry, execute });
+    const stateProjection = { publish: vi.fn(), clear: vi.fn() };
+    const broker = new RemoteHostDesktopBrowserBroker({
+      registry,
+      execute,
+      stateProjection: stateProjection as never,
+    });
     broker.handleState(state);
     await until(() => expect(calls).toContain('desktop.broker.respond'));
     expect(execute).toHaveBeenCalledWith(
       expect.stringMatching(/^remote-browser-[a-f0-9]{64}$/),
       expect.objectContaining({ sessionId: 'session-a' }),
     );
+    expect(stateProjection.publish).toHaveBeenCalledWith(
+      {
+        kind: 'remote', profileId: 'profile-a', coreId: 'core-a',
+        generation: null, sessionId: 'session-a',
+      },
+      expect.stringMatching(/^remote-browser-[a-f0-9]{64}$/),
+    );
 
     state = { ...state, status: 'offline' };
     broker.handleState(state);
     await until(() => expect(browser.dispose).toHaveBeenCalledOnce());
+    expect(stateProjection.clear).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'remote', sessionId: 'session-a',
+    }));
     await broker.stop();
   });
 

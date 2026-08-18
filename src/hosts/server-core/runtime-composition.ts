@@ -59,6 +59,9 @@ import { ServerCoreSessionHistoryMutationRuntime } from './session-history-mutat
 import { ServerCoreWorkspaceDirectoryMutationRuntime } from './workspace-directory-mutation-runtime';
 import { createServerCoreProviderRetirement } from './runtime-provider-retirement';
 import { createServerCoreSessionRollback } from './runtime-session-rollback';
+import { ServerCoreBrowserArtifactStore } from './browser-artifact-store';
+import { createServerCoreBrowserCliExecutor } from './browser-cli-executor';
+import { ServerCoreBrowserRuntime } from './browser-runtime';
 import { resolveServerCoreRuntimeSettings, validateServerCoreRuntimeOptions } from './runtime-settings';
 import {
   resolveServerCoreProviderGrokContainer,
@@ -69,6 +72,7 @@ import {
 
 export const SERVER_CORE_CREDENTIAL_FILE = '/run/secrets/agent-deck/credentials.json';
 export const SERVER_CORE_PROVIDER_AUTH_SOURCE = '/run/secrets/agent-deck/provider-home';
+export const SERVER_CORE_BROWSER_CLI = '/opt/agent-deck/bin/agent-deck-browser.cjs';
 export interface ServerCoreRuntimeCompositionOverrides {
   readonly processId?: string;
   readonly credentialFilePath?: string;
@@ -77,6 +81,8 @@ export interface ServerCoreRuntimeCompositionOverrides {
   readonly workspaceSandbox?: WorkspaceSandboxSpec;
   /** Test/development seam. Production Full uses the fixed read-only secrets-volume path. */
   readonly providerAuthSource?: string | null;
+  /** Test/development seam. Production packages the shared CLI at the fixed /opt path. */
+  readonly browserCliPath?: string;
   /** Trusted composition seam; capability publication remains independently fail-closed. */
   readonly grokContainer?: ServerCoreProviderGrokContainerPort;
 }
@@ -312,6 +318,24 @@ export function createServerCoreRuntimeWithOverrides(
       appendServerCoreChangeSafely(metadata, runtimeDiagnostics, kind, entityId, payload);
     },
   });
+  const browserArtifacts = new ServerCoreBrowserArtifactStore({
+    workspaceRoot,
+    getSession: (sessionId) => repositories.sessions.get(sessionId),
+  });
+  const browserRuntime = new ServerCoreBrowserRuntime({
+    privateRoot: workspaceBoundary.privateRoot,
+    executablePath: process.execPath,
+    cliPath: overrides.browserCliPath ?? SERVER_CORE_BROWSER_CLI,
+    execute: createServerCoreBrowserCliExecutor({
+      desktopBroker,
+      artifacts: browserArtifacts,
+    }),
+    skillEnabled: (adapterId) => {
+      if (adapterId === 'claude-code') return providerSettings.injectAgentDeckClaudeSkills;
+      if (adapterId === 'codex-cli') return providerSettings.injectAgentDeckCodexSkills;
+      return providerSettings.injectAgentDeckGrokSkills;
+    },
+  });
   const providerInput: ServerCoreProviderHostInput = Object.freeze({
     instanceId: input.instanceId,
     paths: input.paths,
@@ -322,6 +346,7 @@ export function createServerCoreRuntimeWithOverrides(
     renames,
     workspaceBoundary,
     mcpBroker,
+    browserRuntime,
     worktrees,
     assets: nodeAssets ?? Object.freeze({
       applicationInstructions: () => '',
@@ -344,6 +369,7 @@ export function createServerCoreRuntimeWithOverrides(
     adapters: adapterSet.adapters,
     repositories,
     desktopBroker,
+    browserRuntime,
     presentations,
     worktrees,
     renames,
@@ -359,6 +385,7 @@ export function createServerCoreRuntimeWithOverrides(
     metadata,
     mcpBroker,
     desktopBroker,
+    browserRuntime,
     presentations,
     collaboration,
     worktrees,
