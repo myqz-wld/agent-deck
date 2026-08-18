@@ -12,6 +12,7 @@ import {
   type DisplayWorkArea,
   type FloatingWindowState,
 } from './_deps';
+import { parkAllBrowserViews } from '@main/browser-use/view-presentation-lifecycle';
 
 /**
  * 折叠态切换 — `state.compact` true/false toggle。
@@ -28,6 +29,7 @@ import {
  */
 export function toggleCompactImpl(state: FloatingWindowState): boolean {
   if (!state.win || state.win.isDestroyed()) return state.compact;
+  if (!state.compact) parkAllBrowserViews();
   state.compact = !state.compact;
   if (state.compact) {
     const [w, h] = state.win.getSize();

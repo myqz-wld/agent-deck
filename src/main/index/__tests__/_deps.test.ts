@@ -105,6 +105,7 @@ describe('createInitialBootstrapState', () => {
       agentDeckMcpHttpShutdown: null,
       browserUseServerShutdown: null,
       browserCliBrokerShutdown: null,
+      browserViewHostDispose: null,
       mainEventLoopMonitorStop: null,
     });
   });

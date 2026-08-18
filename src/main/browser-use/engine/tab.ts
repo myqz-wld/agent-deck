@@ -13,7 +13,6 @@
  */
 
 import {
-  screen,
   type BrowserWindow,
   type BrowserWindowConstructorOptions,
   type Session,
@@ -21,6 +20,7 @@ import {
 
 import { CdpBridge, withTimeout } from './cdp';
 import { CDP_TIMEOUT_MS, DEFAULT_WINDOW_TITLE, INITIAL_URL, type TabInfo } from './types';
+import { BrowserWindowTabSurface, type EngineTabSurface } from './surface';
 
 const hardenedBrowserSessions = new WeakSet<Session>();
 
@@ -56,7 +56,9 @@ export function hardenBrowserSession(browserSession: Session): void {
 
 export interface EngineTabDeps {
   id: number;
-  window: BrowserWindow;
+  surface?: EngineTabSurface;
+  /** Compatibility seam for existing focused tests and fixtures. Production supplies surface. */
+  window?: BrowserWindow;
   onActivated: (tabId: number) => void;
   onClosed: (tabId: number) => void;
 }
@@ -89,66 +91,74 @@ export function buildTabWindowOptions(
 export class EngineTab {
   readonly id: number;
   readonly cdp: CdpBridge;
-  private readonly window: BrowserWindow;
+  private readonly surface: EngineTabSurface;
+  private readonly unsubscribe: Array<() => void>;
 
   constructor(deps: EngineTabDeps) {
     this.id = deps.id;
-    this.window = deps.window;
-    this.cdp = new CdpBridge(() => this.window.webContents.debugger);
+    if (deps.surface == null && deps.window == null) {
+      throw new Error('EngineTab requires a Browser surface.');
+    }
+    this.surface = deps.surface ?? new BrowserWindowTabSurface(deps.window!);
+    this.cdp = new CdpBridge(() => this.surface.webContents.debugger);
 
-    hardenBrowserSession(this.window.webContents.session);
-    this.window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    this.window.on('focus', () => deps.onActivated(this.id));
-    this.window.on('closed', () => deps.onClosed(this.id));
+    hardenBrowserSession(this.surface.webContents.session);
+    this.surface.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    this.unsubscribe = [
+      this.surface.onActivated(() => deps.onActivated(this.id)),
+      this.surface.onClosed(() => {
+        for (const unsubscribe of this.unsubscribe.splice(0)) unsubscribe();
+        deps.onClosed(this.id);
+      }),
+    ];
   }
 
   isDestroyed(): boolean {
-    return this.window.isDestroyed();
+    return this.surface.isDestroyed();
   }
 
   info(active: boolean): TabInfo {
     const destroyed = this.isDestroyed();
     return {
       id: this.id,
-      title: destroyed ? '' : this.window.webContents.getTitle(),
-      url: destroyed ? '' : this.window.webContents.getURL() || INITIAL_URL,
+      title: destroyed ? '' : this.surface.webContents.getTitle(),
+      url: destroyed ? '' : this.surface.webContents.getURL() || INITIAL_URL,
       active,
     };
   }
 
   url(): string {
-    return this.isDestroyed() ? '' : this.window.webContents.getURL() || INITIAL_URL;
+    return this.isDestroyed() ? '' : this.surface.webContents.getURL() || INITIAL_URL;
   }
 
   title(): string {
-    return this.isDestroyed() ? '' : this.window.webContents.getTitle();
+    return this.isDestroyed() ? '' : this.surface.webContents.getTitle();
   }
 
   show(): void {
     if (this.isDestroyed()) return;
-    this.window.show();
-    this.window.focus();
+    this.surface.requestShow();
   }
 
   close(): void {
     // Automation owns these hidden tabs outright. BrowserWindow.close() can be cancelled by a
     // hostile beforeunload handler, which would leave the renderer alive while both fronts report
     // success. destroy() is synchronous and cannot be vetoed by page content.
-    if (!this.isDestroyed()) this.window.destroy();
+    if (!this.isDestroyed()) this.surface.destroy();
   }
 
   destroy(): void {
-    if (!this.isDestroyed()) this.window.destroy();
+    if (!this.isDestroyed()) this.surface.destroy();
   }
 
   async loadUrl(url: string): Promise<void> {
     this.assertAlive();
-    await this.window.loadURL(url);
+    await this.surface.loadURL(url);
   }
 
   async reload(): Promise<void> {
     this.assertAlive();
-    this.window.webContents.reload();
+    this.surface.webContents.reload();
     await this.waitForSettle();
   }
 
@@ -157,7 +167,7 @@ export class EngineTab {
     options: { userGesture?: boolean; timeoutMs?: number } = {},
   ): Promise<T> {
     this.assertAlive();
-    const contents = this.window.webContents as unknown as {
+    const contents = this.surface.webContents as unknown as {
       executeJavaScript?: (code: string, userGesture?: boolean) => Promise<T>;
     };
     if (typeof contents.executeJavaScript !== 'function') {
@@ -172,7 +182,7 @@ export class EngineTab {
 
   async capturePng(maxWidth?: number): Promise<Buffer> {
     this.assertAlive();
-    const contents = this.window.webContents as unknown as {
+    const contents = this.surface.webContents as unknown as {
       capturePage?: () => Promise<{
         toPNG: () => Buffer;
         getSize: () => { width: number; height: number };
@@ -195,12 +205,7 @@ export class EngineTab {
    * bound consistent with `nativeImage.resize()` in the viewport path.
    */
   deviceScaleFactor(): number {
-    const window = this.window as unknown as {
-      getBounds?: () => { x: number; y: number; width: number; height: number };
-    };
-    if (typeof window.getBounds !== 'function') return 1;
-    const value = screen.getDisplayMatching(window.getBounds()).scaleFactor;
-    return Number.isFinite(value) && value > 0 ? value : 1;
+    return this.surface.deviceScaleFactor();
   }
 
   /**
@@ -209,20 +214,13 @@ export class EngineTab {
    */
   canSendInputEvents(): boolean {
     if (this.isDestroyed()) return false;
-    const window = this.window as unknown as {
-      isVisible?: () => boolean;
-      isFocused?: () => boolean;
-    };
-    if (typeof window.isVisible !== 'function' || typeof window.isFocused !== 'function') {
-      return false;
-    }
-    return window.isVisible() && window.isFocused();
+    return this.surface.canSendInputEvents();
   }
 
   sendKey(keyCode: string): boolean {
     this.assertAlive();
     if (!this.canSendInputEvents()) return false;
-    const contents = this.window.webContents as unknown as {
+    const contents = this.surface.webContents as unknown as {
       sendInputEvent?: (event: Record<string, unknown>) => void;
     };
     if (typeof contents.sendInputEvent !== 'function') return false;
@@ -237,7 +235,7 @@ export class EngineTab {
    * window implementation does not expose `isLoading`, so callers always get a settled-ish state.
    */
   async waitForSettle(timeoutMs = 4_000): Promise<void> {
-    const contents = this.window.webContents as unknown as { isLoading?: () => boolean };
+    const contents = this.surface.webContents as unknown as { isLoading?: () => boolean };
     if (typeof contents.isLoading !== 'function') {
       await delay(120);
       return;
@@ -252,6 +250,18 @@ export class EngineTab {
 
   private assertAlive(): void {
     if (this.isDestroyed()) throw new Error(`Browser tab ${this.id} is closed.`);
+  }
+
+  viewportRevision(): number {
+    return this.surface.viewportRevision();
+  }
+
+  present(window: BrowserWindow, bounds: Electron.Rectangle): Electron.Rectangle | null {
+    return this.surface.present(window, bounds);
+  }
+
+  park(): boolean {
+    return this.surface.park();
   }
 }
 

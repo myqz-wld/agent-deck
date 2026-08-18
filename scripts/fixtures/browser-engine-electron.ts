@@ -17,30 +17,27 @@ import {
   snapshot,
   waitForSelector,
 } from '../../src/main/browser-use/engine/actions';
-import {
-  buildTabWindowOptions,
-  EngineTab,
-} from '../../src/main/browser-use/engine/tab';
+import { EngineTab } from '../../src/main/browser-use/engine/tab';
+import { BrowserViewHost } from '../../src/main/browser-use/view-host';
 
 interface RealTab {
   tab: EngineTab;
-  window: BrowserWindow;
 }
 
 const windows = new Set<BrowserWindow>();
 const partition = `agent-deck-browser-fixture-${process.pid}`;
+let nextTabId = 1;
+let viewHost: BrowserViewHost;
 
 function createTab(): RealTab {
-  const window = new BrowserWindow(buildTabWindowOptions(partition, 'Browser fixture'));
-  windows.add(window);
-  window.on('closed', () => windows.delete(window));
+  const surface = viewHost.createSurface({ partition, title: 'Browser fixture' });
   const tab = new EngineTab({
-    id: windows.size,
-    window,
+    id: nextTabId++,
+    surface,
     onActivated: () => {},
     onClosed: () => {},
   });
-  return { tab, window };
+  return { tab };
 }
 
 async function listen(server: Server): Promise<number> {
@@ -84,6 +81,9 @@ async function main(): Promise<void> {
 
   const port = await listen(server);
   await app.whenReady();
+  let focusedWindows = 0;
+  app.on('browser-window-focus', () => { focusedWindows += 1; });
+  viewHost = new BrowserViewHost();
   try {
     const primary = createTab();
     await primary.tab.loadUrl(`http://127.0.0.1:${port}/`);
@@ -166,6 +166,44 @@ async function main(): Promise<void> {
       captureSize.width <= 240,
       `full-page width ${captureSize.width} exceeded maxWidth 240`,
     );
+    assert.equal(focusedWindows, 0, 'background Browser tabs must not focus Agent Deck');
+
+    const secondParked = createTab();
+    await secondParked.tab.loadUrl(`http://127.0.0.1:${port}/?second=1`);
+    const firstParkedCapture = await primary.tab.capturePng();
+    const secondParkedCapture = await secondParked.tab.capturePng();
+    assert.ok(firstParkedCapture.byteLength > 0, 'first overlapping parked view must paint');
+    assert.ok(secondParkedCapture.byteLength > 0, 'second overlapping parked view must paint');
+
+    const presentation = new BrowserWindow({
+      width: 520,
+      height: 680,
+      show: false,
+      transparent: true,
+      frame: false,
+      alwaysOnTop: true,
+      backgroundColor: '#00000000',
+    });
+    windows.add(presentation);
+    presentation.on('closed', () => windows.delete(presentation));
+    presentation.showInactive();
+    assert.deepEqual(
+      primary.tab.present(presentation, { x: 20, y: 100, width: 480, height: 500 }),
+      { x: 20, y: 100, width: 480, height: 500 },
+      'selected view must embed inside the requested narrow IAB rectangle',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.deepEqual(
+      await primary.tab.executeJs('[window.innerWidth, window.innerHeight]'),
+      [480, 500],
+      'presented page viewport must follow the narrow panel bounds',
+    );
+    assert.ok((await primary.tab.capturePng()).byteLength > 0, 'presented view must keep painting');
+    primary.tab.park();
+    assert.ok((await primary.tab.capturePng()).byteLength > 0, 'reparked view must retain state');
+    assert.equal(focusedWindows, 0, 'showInactive presentation must not steal focus');
+    presentation.destroy();
+    secondParked.tab.destroy();
 
     const closeFixture = createTab();
     await closeFixture.tab.loadUrl(`http://127.0.0.1:${port}/`);
@@ -174,9 +212,9 @@ async function main(): Promise<void> {
     );
     closeFixture.tab.close();
     assert.equal(
-      closeFixture.window.isDestroyed(),
+      closeFixture.tab.isDestroyed(),
       true,
-      'beforeunload must not veto automation-owned tab closure',
+      'beforeunload must not veto automation-owned WebContentsView closure',
     );
 
     const timeoutFixture = createTab();
@@ -203,6 +241,7 @@ async function main(): Promise<void> {
 
     console.log('[browser-engine-electron] all real-Electron boundary checks passed');
   } finally {
+    viewHost?.dispose();
     for (const window of windows) {
       if (!window.isDestroyed()) window.destroy();
     }
@@ -216,5 +255,6 @@ void main().catch((error) => {
   for (const window of windows) {
     if (!window.isDestroyed()) window.destroy();
   }
+  viewHost?.dispose();
   app.exit(1);
 });

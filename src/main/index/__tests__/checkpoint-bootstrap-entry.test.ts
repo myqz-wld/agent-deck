@@ -38,6 +38,8 @@ const mocks = vi.hoisted(() => {
     browserShutdown: vi.fn(async () => {}),
     browserCliShutdown: vi.fn(async () => {}),
     browserContextInit: vi.fn(),
+    browserViewDispose: vi.fn(),
+    browserViewInit: vi.fn(() => ({ dispose: mocks.browserViewDispose })),
     browserCliStart: vi.fn(async () => {
       calls.push('browser-cli.start');
       return {
@@ -193,6 +195,9 @@ vi.mock('../../browser-use/browser-cli-broker', () => ({
 vi.mock('../../browser-use/browser-runtime-context-host', () => ({
   initializeBrowserRuntimeContextHost: mocks.browserContextInit,
 }));
+vi.mock('../../browser-use/view-host', () => ({
+  initializeBrowserViewHost: mocks.browserViewInit,
+}));
 vi.mock('../../browser-use/screenshot-store', () => ({
   reapBrowserScreenshotsAtStartup: mocks.browserScreenshotReap,
 }));
@@ -254,5 +259,7 @@ describe('checkpoint refresh bootstrap entry', () => {
       '/tmp/agent-deck-browser-cli/test',
     );
     expect(state.browserCliBrokerShutdown).toBe(mocks.browserCliShutdown);
+    expect(mocks.browserViewInit).toHaveBeenCalledOnce();
+    expect(state.browserViewHostDispose).toEqual(expect.any(Function));
   });
 });
