@@ -73,6 +73,32 @@ coordinates the work without widening access. Codex targets fall back to `never`
 no explicit, resolved, or same-adapter inherited policy exists; remembered selections and the
 configured Codex sandbox default remain unchanged.
 
+### Browser and session IAB
+
+Interactive Claude Code, Codex CLI, and Grok Build sessions use the same bundled Browser skill and
+the session-scoped `agent-deck-browser` CLI. The session launcher supplies a private Browser-only
+lease to the CLI shim, so the agent never receives, guesses, or passes an Agent Deck session id.
+The existing Skills switch controls both skill discovery and Browser context injection; non-
+interactive oneshot work remains Browser-free.
+
+Browser tabs are isolated per session and open in the background unless the user explicitly asks
+to watch. When a session owns at least one Browser tab, its detail page shows an IAB entry after
+Cross-session. Multiple pages are switched through tabs inside that IAB. The page follows the
+current narrow-panel width responsively instead of forcing the application wider; users can resize
+the application with the existing shortcut or window drag when they want more room. Closing or
+handing off the session closes its private Browser state.
+
+The IAB annotation control freezes the current page image so the user can draw or circle an area,
+then adds one PNG to the existing message composer without sending it automatically. The control is
+available only when the live adapter session accepts PNG input. Otherwise the page hides the
+control and explains the exact reason in Simplified Chinese instead of offering a nonfunctional
+action.
+
+Desktop-local sessions have cut over to the unified skill-and-CLI path. Remote Core uses the same
+CLI contract when the connected Desktop and Core advertise parity; its legacy Browser MCP bridge
+remains a staged compatibility fallback until live Remote acceptance is complete. Browser state and
+artifacts never fall through from Remote to Local.
+
 ## Development
 
 Use these commands for day-to-day development and validation:
