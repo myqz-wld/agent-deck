@@ -1,30 +1,22 @@
-/**
- * Inspection handlers: snapshot, screenshot, evaluate, console, network.
- *
- * `browser_screenshot` is the only Agent Deck MCP tool that returns non-text content. It always
- * writes the PNG to disk and reports the path, then attaches the image inline when the payload is
- * small enough. Clients that cannot render inline images still get a usable artifact.
- */
+/** MCP projections for Browser inspection and wait operations. */
 
-import * as actions from '@main/browser-use/engine/actions';
 import { persistBrowserScreenshot } from '@main/browser-use/screenshot-store';
-import { AGENT_DECK_TOOL_NAMES } from '@main/agent-deck-mcp/types';
+import {
+  BROWSER_OPERATION_PROTOCOL_VERSION,
+} from '@main/browser-use/operation-contract';
+import { executeBrowserOperation } from '@main/browser-use/operation-executor';
 
 import type { HandlerContext, HandlerResult } from '../../helpers';
 import {
-  UNTRUSTED_PAGE_CONTENT_NOTE,
-  browserErr,
+  executeMcpBrowserOperation,
   isHandlerResult,
-  pageOk,
-  requireTab,
+  projectBrowserExecution,
   resolveOwner,
   type BrowserToolArgs,
 } from './shared';
 
-/** Roughly 1.2 MB of PNG data. Larger captures are returned as a file path only. */
 const MAX_INLINE_IMAGE_BASE64 = 1_600_000;
 const MAX_INLINE_IMAGE_BYTES = Math.floor((MAX_INLINE_IMAGE_BASE64 * 3) / 4);
-const DEFAULT_SCREENSHOT_MAX_WIDTH = 1_024;
 
 export type ImageHandlerResult = {
   content: Array<
@@ -33,159 +25,87 @@ export type ImageHandlerResult = {
   isError?: boolean;
 };
 
-export async function browserSnapshotHandler(
+export function browserSnapshotHandler(
   args: BrowserToolArgs & { includeText?: boolean; limit?: number },
   ctx: HandlerContext,
 ): Promise<HandlerResult> {
-  const owner = resolveOwner(AGENT_DECK_TOOL_NAMES.browserSnapshot, ctx);
-  if (isHandlerResult(owner)) return owner;
-  const tab = requireTab(owner.handle, args.tabId);
-  if (isHandlerResult(tab)) return tab;
-  try {
-    const result = await actions.snapshot(tab, {
-      limit: args.limit,
-      includeText: args.includeText,
-    });
-    return pageOk({ tabId: tab.id, ...result });
-  } catch (error) {
-    return browserErr(error);
-  }
+  return executeMcpBrowserOperation('snapshot', args, ctx);
 }
 
 export async function browserScreenshotHandler(
   args: BrowserToolArgs & { fullPage?: boolean; maxWidth?: number },
   ctx: HandlerContext,
 ): Promise<HandlerResult | ImageHandlerResult> {
-  const owner = resolveOwner(AGENT_DECK_TOOL_NAMES.browserScreenshot, ctx);
+  const owner = resolveOwner('screenshot', ctx);
   if (isHandlerResult(owner)) return owner;
-  const tab = requireTab(owner.handle, args.tabId);
-  if (isHandlerResult(tab)) return tab;
-  try {
-    const { png, fullPage } = await actions.screenshot(tab, {
-      fullPage: args.fullPage,
-      maxWidth: args.maxWidth ?? DEFAULT_SCREENSHOT_MAX_WIDTH,
-    });
-    const savedPath = await persistBrowserScreenshot(owner.sessionId, tab.id, png);
-    const inlineImage = png.byteLength <= MAX_INLINE_IMAGE_BYTES;
-    const page = actions.pageState(tab);
-    const summary = {
-      tabId: tab.id,
-      ...page,
-      fullPage,
-      bytes: png.byteLength,
-      savedPath,
-      inlineImage,
-      note: UNTRUSTED_PAGE_CONTENT_NOTE,
+  const result = await executeBrowserOperation(owner, {
+    protocolVersion: BROWSER_OPERATION_PROTOCOL_VERSION,
+    operation: 'screenshot',
+    args,
+  });
+  if (!result.ok) return projectBrowserExecution(result);
+  const image = result.binaryArtifacts[0];
+  if (image == null) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({
+        error: 'Browser screenshot response was missing image data.',
+        hint: 'Close and reopen the Browser tab.',
+      }) }],
+      isError: true,
     };
-    const content: ImageHandlerResult['content'] = [
-      { type: 'text', text: JSON.stringify(summary, null, 2) },
-    ];
-    if (summary.inlineImage) {
-      content.push({ type: 'image', data: png.toString('base64'), mimeType: 'image/png' });
-    }
-    return { content };
-  } catch (error) {
-    return browserErr(error);
   }
+  const tabId = result.data.tabId;
+  if (typeof tabId !== 'number') {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({
+        error: 'Browser screenshot response was invalid.',
+        hint: 'Close and reopen the Browser tab.',
+      }) }],
+      isError: true,
+    };
+  }
+  const savedPath = await persistBrowserScreenshot(owner.applicationSessionId, tabId, image.data);
+  const inlineImage = image.data.byteLength <= MAX_INLINE_IMAGE_BYTES;
+  const summary = { ...result.data, savedPath, inlineImage };
+  const content: ImageHandlerResult['content'] = [
+    { type: 'text', text: JSON.stringify(summary, null, 2) },
+  ];
+  if (inlineImage) {
+    content.push({ type: 'image', data: image.data.toString('base64'), mimeType: 'image/png' });
+  }
+  return { content };
 }
 
-export async function browserEvaluateHandler(
+export function browserEvaluateHandler(
   args: BrowserToolArgs & { expression: string },
   ctx: HandlerContext,
 ): Promise<HandlerResult> {
-  const owner = resolveOwner(AGENT_DECK_TOOL_NAMES.browserEvaluate, ctx);
-  if (isHandlerResult(owner)) return owner;
-  const tab = requireTab(owner.handle, args.tabId);
-  if (isHandlerResult(tab)) return tab;
-  try {
-    const result = await actions.evaluate(tab, args.expression);
-    return pageOk({ tabId: tab.id, result, page: actions.pageState(tab) });
-  } catch (error) {
-    return browserErr(error);
-  }
+  return executeMcpBrowserOperation('evaluate', args, ctx);
 }
 
-export async function browserReadConsoleHandler(
+export function browserReadConsoleHandler(
   args: BrowserToolArgs & { limit?: number },
   ctx: HandlerContext,
 ): Promise<HandlerResult> {
-  const owner = resolveOwner(AGENT_DECK_TOOL_NAMES.browserReadConsole, ctx);
-  if (isHandlerResult(owner)) return owner;
-  const tab = requireTab(owner.handle, args.tabId);
-  if (isHandlerResult(tab)) return tab;
-  try {
-    const entries = await actions.readConsole(tab, args.limit ?? 50);
-    return pageOk({
-      tabId: tab.id,
-      entries,
-      capturedSince: 'console capture starts at the first browser_read_console call for this tab',
-    });
-  } catch (error) {
-    return browserErr(error);
-  }
+  return executeMcpBrowserOperation('console', args, ctx);
 }
 
-export async function browserReadNetworkHandler(
+export function browserReadNetworkHandler(
   args: BrowserToolArgs & { limit?: number },
   ctx: HandlerContext,
 ): Promise<HandlerResult> {
-  const owner = resolveOwner(AGENT_DECK_TOOL_NAMES.browserReadNetwork, ctx);
-  if (isHandlerResult(owner)) return owner;
-  const tab = requireTab(owner.handle, args.tabId);
-  if (isHandlerResult(tab)) return tab;
-  try {
-    const entries = await actions.readNetwork(tab, args.limit ?? 50);
-    return pageOk({
-      tabId: tab.id,
-      entries,
-      capturedSince: 'network capture starts at the first browser_read_network call for this tab',
-    });
-  } catch (error) {
-    return browserErr(error);
-  }
+  return executeMcpBrowserOperation('network', args, ctx);
 }
 
-export async function browserWaitHandler(
+export function browserWaitHandler(
   args: BrowserToolArgs & {
     kind: 'selector' | 'network-idle';
     selector?: string;
-    state?: actions.SelectorWaitState;
+    state?: 'attached' | 'visible' | 'hidden' | 'detached';
     timeoutMs?: number;
     idleMs?: number;
   },
   ctx: HandlerContext,
 ): Promise<HandlerResult> {
-  const owner = resolveOwner(AGENT_DECK_TOOL_NAMES.browserWait, ctx);
-  if (isHandlerResult(owner)) return owner;
-  const tab = requireTab(owner.handle, args.tabId);
-  if (isHandlerResult(tab)) return tab;
-
-  try {
-    const timeoutMs = args.timeoutMs ?? 10_000;
-    if (args.kind === 'selector') {
-      if (args.selector == null || args.selector.trim().length === 0) {
-        return browserErr(new Error('selector is required when kind is "selector".'));
-      }
-      if (args.idleMs != null) {
-        return browserErr(new Error('idleMs is only valid when kind is "network-idle".'));
-      }
-      const result = await actions.waitForSelector(
-        tab,
-        args.selector,
-        args.state ?? 'visible',
-        timeoutMs,
-      );
-      return pageOk({ tabId: tab.id, ...result });
-    }
-
-    if (args.selector != null || args.state != null) {
-      return browserErr(
-        new Error('selector and state are only valid when kind is "selector".'),
-      );
-    }
-    const result = await actions.waitForNetworkIdle(tab, timeoutMs, args.idleMs ?? 500);
-    return pageOk({ tabId: tab.id, ...result });
-  } catch (error) {
-    return browserErr(error);
-  }
+  return executeMcpBrowserOperation('wait', args, ctx);
 }
