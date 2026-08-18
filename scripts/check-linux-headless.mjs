@@ -131,6 +131,10 @@ const providerSessionBundle = filesUnder(resolve(outputRoot, 'provider-session')
 for (const required of [
   'runProviderSessionShim',
   '/run/agent-deck/inference.sock',
+  '/run/agent-deck/browser.sock',
+  '/opt/agent-deck/bin/agent-deck-browser.cjs',
+  'AGENT_DECK_BROWSER_CONTEXT_B64',
+  'requestBrowser',
   'GROK_CLI_CHAT_PROXY_BASE_URL',
   'GROK_XAI_API_BASE_URL',
   'stdio-multiplex-v1',

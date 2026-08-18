@@ -74,6 +74,29 @@ describe('provider session shim entrypoint', () => {
     }
   });
 
+  it('prepends only the fixed Browser shim directory to the Grok child PATH', () => {
+    const args = { adapter: 'grok-build' as const, access: 'workspace-read-only' as const };
+    const browserEnvironment = {
+      PATH: '/state/home/.agent-deck/browser/bin:/opt/agent-deck/providers/grok:/usr/bin:/bin',
+    };
+    expect(providerSessionGrokLaunchSpec(
+      args,
+      'http://127.0.0.1:43121/v1',
+      '/workspace',
+      '/opt/agent-deck/providers/grok/grok',
+      true,
+      browserEnvironment,
+    ).environment.PATH).toBe(browserEnvironment.PATH);
+    expect(() => providerSessionGrokLaunchSpec(
+      args,
+      'http://127.0.0.1:43121/v1',
+      '/workspace',
+      '/opt/agent-deck/providers/grok/grok',
+      true,
+      { PATH: '/tmp/untrusted' },
+    )).toThrow('projection');
+  });
+
   it('pins Grok 4.5 to the single broker-authorized Chat Completions route', () => {
     const config = providerSessionGrokConfig('http://127.0.0.1:43121/v1');
     expect(config).toContain('model = "grok-4.5"');

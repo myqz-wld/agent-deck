@@ -19,6 +19,7 @@ import { NodeProviderSessionMounts } from './node-mounts';
 import { providerSessionBrokerSocketPath } from './broker-socket-path';
 
 interface Fixture {
+  readonly browserSocketPath: string;
   readonly brokerRoot: string;
   readonly manager: NodeProviderSessionMounts;
   readonly privateRoot: string;
@@ -75,13 +76,17 @@ async function fixture(): Promise<Fixture> {
   const privateRoot = join(root, 'private');
   const stateRoot = join(privateRoot, 'session-state');
   const brokerRoot = join(privateRoot, 'broker');
-  for (const path of [workspaceRoot, privateRoot, stateRoot, brokerRoot]) {
+  const browserRoot = join(privateRoot, 'browser-cli');
+  for (const path of [workspaceRoot, privateRoot, stateRoot, brokerRoot, browserRoot]) {
     mkdirSync(path, { mode: 0o700 });
   }
   mkdirSync(join(workspaceRoot, 'repo'), { mode: 0o700 });
   const socketPath = providerSessionBrokerSocketPath(brokerRoot, 'broker-a');
+  const browserSocketPath = join(browserRoot, 'broker.sock');
   await listen(socketPath);
+  await listen(browserSocketPath);
   return {
+    browserSocketPath,
     brokerRoot,
     manager: new NodeProviderSessionMounts({
       brokerRoot,
@@ -126,6 +131,22 @@ describe('NodeProviderSessionMounts', () => {
     expect(binding.brokerSocketPath).toBeNull();
     await expect(manager.revalidate(binding)).resolves.toBeUndefined();
     await manager.release(binding);
+  });
+
+  it('captures the exact private Browser socket only for a Browser-capable rootless launch', async () => {
+    const state = await fixture();
+    const binding = await state.manager.capture(spec({
+      browserContext: {
+        protocolVersion: 1,
+        adapterId: 'grok-build',
+        lease: 'abcdefghijklmnopqrstuvwxyz012345',
+        runtimeGeneration: 1,
+        sourceIdentity: 'runtime-source-a',
+      },
+    }));
+
+    expect(binding.browserBrokerSocketPath).toBe(state.browserSocketPath);
+    await expect(state.manager.revalidate(binding)).resolves.toBeUndefined();
   });
 
   it('removes only exact temporary state and does not follow model-created symlinks', async () => {

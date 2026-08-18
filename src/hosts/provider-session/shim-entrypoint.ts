@@ -14,6 +14,10 @@ import type { SessionConsoleSandboxAccess } from '@contracts/index';
 import { ProviderSessionShimInferenceProxy } from './shim-inference-proxy';
 import { ProviderSessionMultiplexConnection } from './multiplex';
 import type { ProviderSessionInferenceTransport } from './types';
+import {
+  prepareProviderSessionBrowserRuntime,
+  type ProviderSessionBrowserRuntimeHandle,
+} from './browser-runtime';
 
 const CONTAINER_WORKSPACE = '/workspace';
 const CONTAINER_STATE = '/state';
@@ -146,6 +150,7 @@ async function buildLaunchSpec(
   args: ProviderSessionShimArgs,
   proxyBaseUrl: string,
   dependencies: ProviderSessionShimDependencies,
+  browserEnvironment?: Readonly<Record<string, string>>,
 ): Promise<ProviderSessionShimLaunchSpec> {
   const owner = typeof process.getuid === 'function' ? process.getuid() : -1;
   if (!Number.isSafeInteger(owner) || owner <= 0) {
@@ -179,6 +184,7 @@ async function buildLaunchSpec(
     cwd,
     binary,
     inferenceTransport(declaredEnvironment) === 'unix-http-v1',
+    browserEnvironment,
   );
 }
 
@@ -199,9 +205,15 @@ export function providerSessionGrokLaunchSpec(
   cwd: string,
   binary = GROK_BINARY,
   nativeSandbox = true,
+  browserEnvironment?: Readonly<Record<string, string>>,
 ): ProviderSessionShimLaunchSpec {
   if (!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}\/v1$/.test(proxyBaseUrl) ||
-      !withinWorkspace(cwd) || binary !== GROK_BINARY || typeof nativeSandbox !== 'boolean') {
+      !withinWorkspace(cwd) || binary !== GROK_BINARY || typeof nativeSandbox !== 'boolean' ||
+      (browserEnvironment !== undefined && (
+        Object.keys(browserEnvironment).join(',') !== 'PATH' ||
+        browserEnvironment.PATH !==
+          '/state/home/.agent-deck/browser/bin:/opt/agent-deck/providers/grok:/usr/bin:/bin'
+      ))) {
     throw new Error('provider session Grok launch projection is invalid');
   }
   return Object.freeze({
@@ -221,7 +233,7 @@ export function providerSessionGrokLaunchSpec(
       HOME: CONTAINER_HOME,
       LANG: 'C.UTF-8',
       LC_ALL: 'C.UTF-8',
-      PATH: '/opt/agent-deck/providers/grok:/usr/bin:/bin',
+      PATH: browserEnvironment?.PATH ?? '/opt/agent-deck/providers/grok:/usr/bin:/bin',
       TMPDIR: '/tmp',
       XAI_API_KEY: BROKER_MARKER,
       XDG_CACHE_HOME: `${CONTAINER_STATE}/cache`,
@@ -279,6 +291,7 @@ export async function runProviderSessionShim(
       : { brokerSocketPath: brokerSocketPath! }),
   });
   let child: ChildProcess | null = null;
+  let browserRuntime: ProviderSessionBrowserRuntimeHandle | null = null;
   const forward = (signal: NodeJS.Signals): void => {
     try { child?.kill(signal); } catch {}
   };
@@ -287,7 +300,17 @@ export async function runProviderSessionShim(
   const onInt = (): void => forward('SIGINT');
   try {
     await proxy.start();
-    const launch = await buildLaunchSpec(args, proxy.baseUrl, dependencies);
+    browserRuntime = await prepareProviderSessionBrowserRuntime({
+      encodedContext: declaredEnvironment.AGENT_DECK_BROWSER_CONTEXT_B64,
+      multiplex,
+      transport: declaredEnvironment.AGENT_DECK_BROWSER_TRANSPORT,
+    });
+    const launch = await buildLaunchSpec(
+      args,
+      proxy.baseUrl,
+      dependencies,
+      browserRuntime?.environment,
+    );
     child = (dependencies.spawnProcess ?? spawn)(launch.binary, [...launch.args], {
       cwd: launch.cwd,
       env: { ...launch.environment },
@@ -312,6 +335,7 @@ export async function runProviderSessionShim(
     multiplex?.acp.removeListener('error', stopOnTransportFailure);
     child?.stdout?.unpipe(multiplex?.acp);
     multiplex?.acp.unpipe(child?.stdin ?? undefined);
+    await browserRuntime?.close().catch(() => undefined);
     await proxy.close().catch(() => undefined);
     await multiplex?.close().catch(() => undefined);
   }

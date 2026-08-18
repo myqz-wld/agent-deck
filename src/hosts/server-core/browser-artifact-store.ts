@@ -50,11 +50,17 @@ export class ServerCoreBrowserArtifactStore {
   private readonly stores = new Map<string, BrowserScreenshotStore>();
 
   constructor(private readonly options: ServerCoreBrowserArtifactStoreOptions) {
-    this.workspaceRoot = canonicalDirectory(options.workspaceRoot, 'Browser Workspace root');
+    if (!isAbsolute(options.workspaceRoot) || resolve(options.workspaceRoot) !==
+        options.workspaceRoot || options.workspaceRoot === '/' ||
+        options.workspaceRoot.includes('\0')) {
+      throw new Error('Browser Workspace root is invalid');
+    }
+    this.workspaceRoot = options.workspaceRoot;
   }
 
   async persist(input: {
     readonly applicationSessionId: string;
+    readonly sourceIdentity?: string;
     readonly tabId: number;
     readonly png: Buffer;
   }): Promise<string> {
@@ -63,7 +69,8 @@ export class ServerCoreBrowserArtifactStore {
       throw new Error('Browser artifact session is unavailable');
     }
     const cwd = canonicalDirectory(session.cwd, 'Browser session directory');
-    if (!within(this.workspaceRoot, cwd)) {
+    const workspaceRoot = canonicalDirectory(this.workspaceRoot, 'Browser Workspace root');
+    if (!within(workspaceRoot, cwd)) {
       throw new Error('Browser session directory escapes the Workspace');
     }
     const agentDeck = join(cwd, '.agent-deck');

@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import {
@@ -7,7 +7,10 @@ import {
   type BrowserCliBrokerExecutor,
   type BrowserCliBrokerHandle,
 } from '@main/browser-use/browser-cli-broker-core';
-import { BrowserLeaseRegistryCore } from '@main/browser-use/browser-lease-registry-core';
+import {
+  BROWSER_LEASE_MAX_TTL_MS,
+  BrowserLeaseRegistryCore,
+} from '@main/browser-use/browser-lease-registry-core';
 import {
   BROWSER_RUNTIME_BIN_ENV,
   BROWSER_RUNTIME_KEY_ENV,
@@ -15,6 +18,15 @@ import {
   type PreparedBrowserRuntimeContext,
 } from '@main/browser-use/browser-runtime-context';
 import type { RuntimeAdapterId } from '@shared/types';
+import type { ProviderSessionBrowserContext } from '@contracts/index';
+import { relayBrowserCliFrame } from '@main/browser-use/browser-cli-frame-relay';
+import { BrowserUseFrameDecoder, encodeBrowserUseFrame } from '@main/browser-use/protocol';
+import {
+  BROWSER_CLI_MAX_REQUEST_BYTES,
+  BROWSER_CLI_MAX_RESPONSE_BYTES,
+  safeBrowserCliOperation,
+} from '@main/browser-use/browser-cli-broker-protocol';
+import { browserOperationFailure } from '@main/browser-use/operation-contract';
 
 export interface ServerCoreBrowserRuntimeOptions {
   readonly privateRoot: string;
@@ -31,7 +43,9 @@ export type ServerCoreProviderBrowserRuntimePort = Pick<
   | 'allowClaudeSocket'
   | 'codexSocketConfig'
   | 'prepare'
+  | 'preparePortable'
   | 'refresh'
+  | 'relay'
   | 'renameSession'
   | 'revokeSession'
 >;
@@ -51,6 +65,11 @@ export class ServerCoreBrowserRuntime {
   private readonly manager: BrowserRuntimeContextManager;
   private readonly startBroker: typeof startBrowserCliBrokerCore;
   private broker: BrowserCliBrokerHandle | null = null;
+  private readonly portableBySession = new Map<string, {
+    readonly artifactHostRoot: string;
+    readonly context: ProviderSessionBrowserContext;
+  }>();
+  private readonly portableRootBySource = new Map<string, string>();
   private state: 'idle' | 'starting' | 'running' | 'closing' | 'closed' = 'idle';
 
   constructor(private readonly options: ServerCoreBrowserRuntimeOptions) {
@@ -95,6 +114,8 @@ export class ServerCoreBrowserRuntime {
     if (this.state === 'closing') return;
     this.state = 'closing';
     this.manager.shutdown();
+    this.portableBySession.clear();
+    this.portableRootBySource.clear();
     try {
       await this.broker?.shutdown();
     } finally {
@@ -109,7 +130,43 @@ export class ServerCoreBrowserRuntime {
     readonly environment: Readonly<Record<string, string>>;
   }): PreparedBrowserRuntimeContext | null {
     if (this.state !== 'running' || !this.options.skillEnabled(input.adapterId)) return null;
+    this.revokeSession(input.applicationSessionId);
     return this.manager.prepare(input);
+  }
+
+  preparePortable(input: {
+    readonly applicationSessionId: string;
+    readonly artifactHostRoot: string;
+    readonly adapterId: RuntimeAdapterId;
+  }): ProviderSessionBrowserContext | null {
+    if (this.state !== 'running' || !this.options.skillEnabled(input.adapterId)) return null;
+    this.revokeSession(input.applicationSessionId);
+    const runtimeGeneration = 1;
+    const sourceIdentity = randomUUID();
+    const issued = this.registry.issue({
+      applicationSessionId: input.applicationSessionId,
+      adapterId: input.adapterId,
+      runtimeGeneration,
+      sourceIdentity,
+    }, BROWSER_LEASE_MAX_TTL_MS);
+    const context: ProviderSessionBrowserContext = Object.freeze({
+      protocolVersion: 1,
+      adapterId: input.adapterId,
+      lease: issued.lease,
+      runtimeGeneration,
+      sourceIdentity,
+    });
+    if (!isAbsolute(input.artifactHostRoot) || resolve(input.artifactHostRoot) !==
+        input.artifactHostRoot) {
+      this.registry.revoke(issued.lease);
+      throw new Error('Portable Browser artifact root is invalid');
+    }
+    this.portableBySession.set(input.applicationSessionId, {
+      artifactHostRoot: input.artifactHostRoot,
+      context,
+    });
+    this.portableRootBySource.set(sourceIdentity, input.artifactHostRoot);
+    return context;
   }
 
   refresh(environment: Readonly<Record<string, string>>): PreparedBrowserRuntimeContext | null {
@@ -118,12 +175,45 @@ export class ServerCoreBrowserRuntime {
     return runtimeKey == null ? null : this.manager.refresh(runtimeKey);
   }
 
+  async relay(request: Buffer, signal?: AbortSignal): Promise<Buffer> {
+    if (this.state !== 'running') {
+      return this.relayFailure(request);
+    }
+    try {
+      return await relayBrowserCliFrame(this.endpoint, request, signal);
+    } catch {
+      return this.relayFailure(request);
+    }
+  }
+
   revokeSession(sessionId: string): number {
-    return this.manager.revokeSession(sessionId);
+    const record = this.portableBySession.get(sessionId);
+    const portable = this.portableBySession.delete(sessionId) ? 1 : 0;
+    if (record) this.portableRootBySource.delete(record.context.sourceIdentity);
+    const managed = this.manager.revokeSession(sessionId);
+    this.registry.revokeSession(sessionId);
+    return portable + managed;
   }
 
   renameSession(fromId: string, toId: string): number {
-    return this.manager.renameSession(fromId, toId);
+    const managed = this.manager.renameSession(fromId, toId);
+    const portable = this.portableBySession.get(fromId);
+    if (portable == null) return managed;
+    if (managed === 0) this.registry.renameSession(fromId, toId);
+    this.portableBySession.delete(fromId);
+    this.portableBySession.set(toId, portable);
+    return managed + 1;
+  }
+
+  projectArtifactPath(sourceIdentity: string, path: string): string {
+    const root = this.portableRootBySource.get(sourceIdentity);
+    if (!root) return path;
+    const relation = relative(root, path);
+    if (relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+      throw new Error('Portable Browser artifact escaped its mounted Workspace');
+    }
+    const suffix = relation.split(sep).filter(Boolean).join('/');
+    return suffix ? `/workspace/${suffix}` : '/workspace';
   }
 
   allowClaudeSocket<T extends {
@@ -178,5 +268,30 @@ export class ServerCoreBrowserRuntime {
       state: this.state,
       leases: this.registry.diagnostics().activeLeases,
     };
+  }
+
+  private relayFailure(request: Buffer): Buffer {
+    let operation: ReturnType<typeof safeBrowserCliOperation> = 'tabs';
+    try {
+      const decoder = new BrowserUseFrameDecoder({
+        maxFrameBytes: BROWSER_CLI_MAX_REQUEST_BYTES,
+        maxInputChunkBytes: BROWSER_CLI_MAX_REQUEST_BYTES + 4,
+        maxMessagesPerInputChunk: 1,
+        maxRetainedInputBytes: BROWSER_CLI_MAX_REQUEST_BYTES + 4,
+        maxRetainedInputChunks: 8,
+      });
+      const value = decoder.push(request)[0];
+      operation = safeBrowserCliOperation(
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? (value as { request?: unknown }).request
+          : undefined,
+      );
+    } catch {}
+    return encodeBrowserUseFrame(browserOperationFailure(operation, {
+      code: 'transport_unavailable',
+      message: 'The connected desktop Browser bridge is unavailable.',
+      retryable: true,
+      nextAction: 'Keep a Browser-capable Agent Deck desktop connected, then retry.',
+    }), BROWSER_CLI_MAX_RESPONSE_BYTES);
   }
 }

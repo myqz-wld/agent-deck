@@ -70,6 +70,24 @@ describe('provider session container contract', () => {
     }
   });
 
+  it('accepts only an identity-free browser capability bound to the launch adapter', () => {
+    const context = {
+      protocolVersion: 1,
+      adapterId: 'grok-build',
+      lease: 'abcdefghijklmnopqrstuvwxyz012345',
+      runtimeGeneration: 2,
+      sourceIdentity: 'runtime-source-a',
+    };
+    expect(parseProviderSessionLaunchSpec({ ...launch(), browserContext: context }))
+      .toMatchObject({ browserContext: context });
+    expect(() => parseProviderSessionLaunchSpec({
+      ...launch(), browserContext: { ...context, adapterId: 'codex-cli' },
+    })).toThrow('browserContext');
+    expect(() => parseProviderSessionLaunchSpec({
+      ...launch(), browserContext: { ...context, sessionId: 'session-b' },
+    })).toThrow('browserContext');
+  });
+
   it('publishes only exact available or fail-closed capability states', () => {
     expect(parseProviderSessionSupervisorCapabilities({
       schemaVersion: 1,

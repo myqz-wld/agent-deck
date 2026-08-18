@@ -23,6 +23,7 @@ import {
 export const PROVIDER_SESSION_CONTAINER_WORKSPACE = '/workspace';
 export const PROVIDER_SESSION_CONTAINER_STATE = '/state';
 export const PROVIDER_SESSION_CONTAINER_BROKER_SOCKET = '/run/agent-deck/inference.sock';
+export const PROVIDER_SESSION_CONTAINER_BROWSER_SOCKET = '/run/agent-deck/browser.sock';
 export const PROVIDER_SESSION_CONTAINER_MEMORY_BYTES = 4 * 1024 * 1024 * 1024;
 export const PROVIDER_SESSION_CONTAINER_TMPFS_BYTES = 512 * 1024 * 1024;
 export const PROVIDER_SESSION_CONTAINER_PIDS = 256;
@@ -100,6 +101,12 @@ function validateMount(
   const brokerSocketPath = mount.brokerSocketPath === null
     ? null
     : normalizedAbsolutePath(mount.brokerSocketPath, 'provider broker socket');
+  const browserBrokerSocketPath = mount.browserBrokerSocketPath === null
+    ? null
+    : normalizedAbsolutePath(
+      mount.browserBrokerSocketPath,
+      'provider Browser broker socket',
+    );
   if (
     !within(workspaceRoot, selectedDirectory) ||
     selectedDirectory !== expectedSelectedDirectory(workspaceRoot, spec.workingDirectory)
@@ -113,8 +120,18 @@ function validateMount(
   )) {
     throw new Error('provider broker socket overlaps a model-visible root');
   }
+  if (browserBrokerSocketPath && (
+    !spec.browserContext || engine !== 'rootless-podman' ||
+    within(workspaceRoot, browserBrokerSocketPath) ||
+    within(stateDirectory, browserBrokerSocketPath) ||
+    browserBrokerSocketPath === brokerSocketPath
+  )) throw new Error('provider Browser broker socket is invalid');
+  if (spec.browserContext && engine === 'rootless-podman' && !browserBrokerSocketPath) {
+    throw new Error('provider Browser broker socket is unavailable');
+  }
   return Object.freeze({
     bindingId: mount.bindingId,
+    browserBrokerSocketPath,
     brokerSocketPath,
     selectedDirectory,
     stateDirectory,
@@ -186,6 +203,20 @@ function identityHash(input: ProviderSessionOciPlanInput): string {
   ].join('\0')).digest('hex');
 }
 
+function browserContextEnvironment(
+  spec: ProviderSessionLaunchSpec,
+  engine: ProviderSessionOciEngine,
+): string[] {
+  if (!spec.browserContext) return [];
+  const encoded = Buffer.from(JSON.stringify(spec.browserContext), 'utf8').toString('base64url');
+  return [
+    '--env', `AGENT_DECK_BROWSER_CONTEXT_B64=${encoded}`,
+    '--env', `AGENT_DECK_BROWSER_TRANSPORT=${engine === 'rootless-podman'
+      ? 'unix-v1'
+      : 'stdio-multiplex-v1'}`,
+  ];
+}
+
 export function buildProviderSessionOciPlan(
   input: ProviderSessionOciPlanInput,
 ): ProviderSessionOciPlan {
@@ -240,6 +271,13 @@ export function buildProviderSessionOciPlan(
     ...(binding.brokerSocketPath && brokerContainerPath
       ? ['--mount', mount(binding.brokerSocketPath, brokerContainerPath, true)]
       : []),
+    ...(binding.browserBrokerSocketPath
+      ? ['--mount', mount(
+        binding.browserBrokerSocketPath,
+        PROVIDER_SESSION_CONTAINER_BROWSER_SOCKET,
+        true,
+      )]
+      : []),
     ...workspace.args,
     '--workdir', workspace.workdir,
     '--env', 'HOME=/state/home',
@@ -253,6 +291,7 @@ export function buildProviderSessionOciPlan(
     ...(brokerContainerPath
       ? ['--env', `AGENT_DECK_INFERENCE_SOCKET=${brokerContainerPath}`]
       : []),
+    ...browserContextEnvironment(spec, input.engine),
     '--env', 'AGENT_DECK_PROVIDER_SESSION=1',
     '--', image,
     ...RUNTIME_ENTRYPOINT[spec.adapterId],

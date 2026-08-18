@@ -42,6 +42,7 @@ function spec(overrides: Partial<ProviderSessionLaunchSpec> = {}): ProviderSessi
 class FakeMounts implements ProviderSessionHostMountPort {
   readonly capture = vi.fn(async (): Promise<ProviderSessionHostMountBinding> => ({
     bindingId: 'binding-a',
+    browserBrokerSocketPath: null,
     brokerSocketPath: '/run/provider-broker/broker-a.sock',
     selectedDirectory: '/srv/workspace/repo',
     stateDirectory: '/srv/provider-state/session-a',

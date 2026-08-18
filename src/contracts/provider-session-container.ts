@@ -26,6 +26,14 @@ export const PROVIDER_SESSION_RUNTIME_IDS = Object.freeze([
 export type ProviderSessionAdapterId = (typeof PROVIDER_SESSION_ADAPTER_IDS)[number];
 export type ProviderSessionRuntimeId = (typeof PROVIDER_SESSION_RUNTIME_IDS)[number];
 
+export interface ProviderSessionBrowserContext {
+  readonly protocolVersion: 1;
+  readonly adapterId: ProviderSessionAdapterId;
+  readonly lease: string;
+  readonly runtimeGeneration: number;
+  readonly sourceIdentity: string;
+}
+
 export interface ProviderSessionLaunchSpec {
   readonly schemaVersion: typeof PROVIDER_SESSION_CONTAINER_SCHEMA_VERSION;
   readonly adapterId: ProviderSessionAdapterId;
@@ -39,6 +47,7 @@ export interface ProviderSessionLaunchSpec {
   readonly sessionId: string;
   readonly upstreamId: string;
   readonly workingDirectory: string;
+  readonly browserContext?: ProviderSessionBrowserContext;
 }
 
 export interface ProviderSessionLaunchResult {
@@ -135,6 +144,34 @@ function token(value: unknown, field: string): string {
   return value;
 }
 
+function browserContext(
+  value: unknown,
+  expectedAdapter: ProviderSessionAdapterId,
+  field: string,
+): ProviderSessionBrowserContext {
+  const raw = object(value, field);
+  exactKeys(raw, [
+    'adapterId', 'lease', 'protocolVersion', 'runtimeGeneration', 'sourceIdentity',
+  ], field);
+  if (raw.protocolVersion !== 1 || raw.adapterId !== expectedAdapter) fail(field);
+  if (typeof raw.lease !== 'string' || raw.lease.length < 16 || raw.lease.length > 1_024 ||
+      !/^[A-Za-z0-9_-]+$/.test(raw.lease)) fail(`${field}.lease`);
+  return Object.freeze({
+    protocolVersion: 1,
+    adapterId: expectedAdapter,
+    lease: raw.lease,
+    runtimeGeneration: integer(raw.runtimeGeneration, `${field}.runtimeGeneration`, 0, 0xffff_ffff),
+    sourceIdentity: token(raw.sourceIdentity, `${field}.sourceIdentity`),
+  });
+}
+
+export function parseProviderSessionBrowserContext(
+  value: unknown,
+  expectedAdapter: ProviderSessionAdapterId,
+): ProviderSessionBrowserContext {
+  return browserContext(value, expectedAdapter, 'provider.session.browserContext');
+}
+
 function integer(value: unknown, field: string, minimum: number, maximum: number): number {
   if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) {
     fail(field);
@@ -217,11 +254,13 @@ function boundedJsonObject(value: unknown, field: string): JsonObject {
 export function parseProviderSessionLaunchSpec(value: unknown): ProviderSessionLaunchSpec {
   const field = 'provider.session.launch';
   const raw = object(value, field);
-  exactKeys(raw, [
+  const keys = [
     'adapterId', 'brokerEndpointId', 'effectiveAccess', 'launchId', 'processId',
     'providerId', 'resourceClass', 'runtimeId', 'schemaVersion', 'sessionId',
     'upstreamId', 'workingDirectory',
-  ], field);
+  ];
+  if (raw.browserContext !== undefined) keys.push('browserContext');
+  exactKeys(raw, keys, field);
   if (raw.schemaVersion !== PROVIDER_SESSION_CONTAINER_SCHEMA_VERSION) {
     fail(`${field}.schemaVersion`);
   }
@@ -245,6 +284,9 @@ export function parseProviderSessionLaunchSpec(value: unknown): ProviderSessionL
       raw.workingDirectory,
       `${field}.workingDirectory`,
     ),
+    ...(raw.browserContext === undefined
+      ? {}
+      : { browserContext: browserContext(raw.browserContext, parsedAdapter, `${field}.browserContext`) }),
   });
 }
 

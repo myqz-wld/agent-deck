@@ -129,10 +129,12 @@ describe('concrete Server Core runtime composition', () => {
     const workspace = join(base, 'workspace');
     mkdirSync(workspace, { mode: 0o700 });
     const close = vi.fn(async () => undefined);
+    const configureBrowserRelay = vi.fn();
     const bootstrap = createServerCoreRuntimeWithOverrides(input(base), {
       workspaceRoot: workspace,
       grokContainer: {
         close,
+        configureBrowserRelay,
         processFactory: vi.fn(async () => {
           throw new Error('unused process factory');
         }),
@@ -143,6 +145,8 @@ describe('concrete Server Core runtime composition', () => {
         })),
       },
     });
+
+    expect(configureBrowserRelay).toHaveBeenCalledWith(expect.any(Function));
 
     await bootstrap.runtime.start();
     await bootstrap.runtime.stop('test');

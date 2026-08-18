@@ -59,7 +59,8 @@ describe('Server Core Browser CLI executor', () => {
     const result = await execute(binding, request('screenshot', { tabId: 4 }));
 
     expect(persist).toHaveBeenCalledWith({
-      applicationSessionId: 'core-session-a', tabId: 4, png,
+      applicationSessionId: 'core-session-a', sourceIdentity: 'runtime-source-a',
+      tabId: 4, png,
     });
     expect(result).toMatchObject({
       ok: true,
