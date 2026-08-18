@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
     stopInvalidateLoop: vi.fn(),
     installNavigationPolicy: vi.fn(),
     resolveIconImage: vi.fn(),
+    parkAllBrowserViews: vi.fn(),
     toolkitIs: { dev: false },
   };
 });
@@ -44,6 +45,9 @@ vi.mock('../navigation-policy', () => ({
 vi.mock('@main/utils/logger', () => ({ default: { scope: mocks.loggerScope } }));
 vi.mock('@main/utils/safe-diagnostic', () => ({ safeDiagnostic: mocks.safeDiagnostic }));
 vi.mock('@main/utils/run-context', () => ({ getProcessRunId: mocks.getProcessRunId }));
+vi.mock('@main/browser-use/view-presentation-lifecycle', () => ({
+  parkAllBrowserViews: mocks.parkAllBrowserViews,
+}));
 
 interface FakeWindow {
   onceListeners: Map<string, (...args: unknown[]) => void>;
@@ -411,6 +415,7 @@ describe('window lifecycle observability', () => {
       fallbackShowTimer: explicitFallback,
     });
     subject.closeImpl(explicitState);
+    expect(mocks.parkAllBrowserViews).toHaveBeenCalledOnce();
     expect(explicitWindow.close).toHaveBeenCalledOnce();
     expect(explicitState).toMatchObject({
       win: null,

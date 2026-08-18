@@ -20,6 +20,8 @@ import {
   type LogStateDecision,
   type LogStateSnapshot,
 } from '@main/utils/log-state-tracker';
+import { registerWindowRole } from './window-role-registry';
+import { parkAllBrowserViews } from '@main/browser-use/view-presentation-lifecycle';
 
 const WINDOW_LOAD_TRACKER_CAPACITY = 1;
 const SUMMARY_INTERVAL_MS = 300_000;
@@ -56,6 +58,7 @@ function createWindowLoadTracker(): BoundedLogStateTracker<
 
 const logger = createWindowLogger();
 const windowLoadTracker = createWindowLoadTracker();
+const unregisterWindowRoles = new WeakMap<BrowserWindow, () => void>();
 
 function observeWindowLoadState(state: WindowLoadState): void {
   if (!windowLoadTracker) return;
@@ -140,6 +143,7 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
       contextIsolation: true,
     },
   });
+  unregisterWindowRoles.set(state.win, registerWindowRole(state.win, 'floating'));
 
   // Development builds need an explicit dock icon; packaged builds accept the same call.
   if (process.platform === 'darwin') {
@@ -163,6 +167,8 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
     shell.openExternal(url),
   );
   capturedWin.once('closed', () => {
+    unregisterWindowRoles.get(capturedWin)?.();
+    unregisterWindowRoles.delete(capturedWin);
     if (state.win !== capturedWin) return;
     stopInvalidateLoop(state);
     if (state.flashTimer) {
@@ -239,6 +245,7 @@ export function createImpl(state: FloatingWindowState): BrowserWindow {
 
 /** Close the current window and release timers and callback references owned by its state. */
 export function closeImpl(state: FloatingWindowState): void {
+  parkAllBrowserViews();
   stopInvalidateLoop(state);
   if (state.flashTimer) {
     clearInterval(state.flashTimer);

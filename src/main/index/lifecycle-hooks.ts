@@ -1,6 +1,6 @@
 /** Single-instance forwarding, window-close behavior, and bounded application shutdown hooks. */
 
-import { app, BrowserWindow, globalShortcut } from 'electron';
+import { app, globalShortcut } from 'electron';
 
 import { closeDb } from '../store/db';
 import { adapterRegistry } from '../adapters/registry';
@@ -21,6 +21,11 @@ import type { BootstrapState } from './_deps';
 import log from '@main/utils/logger';
 import { safeDiagnostic, safeErrorSummary } from '@main/utils/safe-diagnostic';
 import { beginAppShutdown } from './shutdown-state';
+import {
+  currentUserWindow,
+  hasUserWindow,
+  onUserWindowsEmpty,
+} from '../window/window-role-registry';
 
 const logger = log.scope('lifecycle-hooks');
 
@@ -34,10 +39,10 @@ export function registerLifecycleHooks(
   bootstrappedPromise: Promise<void>,
 ): void {
   app.on('second-instance', (_event, commandLine, _workingDir, additionalData) => {
-    const all = BrowserWindow.getAllWindows();
-    if (all.length) {
-      all[0].show();
-      all[0].focus();
+    const userWindow = currentUserWindow();
+    if (userWindow != null && !userWindow.isDestroyed()) {
+      userWindow.show();
+      userWindow.focus();
     }
     // Chromium 会把 commandLine 里的所有 --flag 前置、值后置，破坏 parseCliInvocation 的
     // key-value 解析。additionalData.argv 可用时优先使用；macOS wrapper new 路径另有
@@ -63,9 +68,12 @@ export function registerLifecycleHooks(
   });
 
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
+    if (process.platform !== 'darwin' && !hasUserWindow()) {
       app.quit();
     }
+  });
+  onUserWindowsEmpty(() => {
+    if (process.platform !== 'darwin') app.quit();
   });
 
   let cleaningUp = false;
@@ -231,6 +239,16 @@ export function registerLifecycleHooks(
               lifecycleDiagnostic('browser-engine-dispose', 'failed', err),
             );
           }
+          try {
+            state.browserViewHostDispose?.();
+          } catch (err) {
+            allIngressStopped = false;
+            logger.warn(
+              'browser parking host disposal failed during cleanup',
+              lifecycleDiagnostic('browser-view-host-dispose', 'failed', err),
+            );
+          }
+          state.browserViewHostDispose = null;
           if (state.agentDeckMcpHttpShutdown) {
             try {
               await state.agentDeckMcpHttpShutdown();

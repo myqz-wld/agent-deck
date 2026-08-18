@@ -74,6 +74,7 @@ import { startMainEventLoopMonitor } from '../utils/main-event-loop-monitor';
 import { startBrowserUseServer } from '../browser-use/server';
 import { startBrowserCliBroker } from '../browser-use/browser-cli-broker';
 import { initializeBrowserRuntimeContextHost } from '../browser-use/browser-runtime-context-host';
+import { initializeBrowserViewHost } from '../browser-use/view-host';
 import { reapBrowserScreenshotsAtStartup } from '../browser-use/screenshot-store';
 // NOTE(REVIEW_<X>):以下 codex-config 模块**必须**走 static import,不要改回 dynamic import。
 // 同一模块在多处 dynamic import 会让 vite SSR/rollup 把模块代码 inline
@@ -340,6 +341,15 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   // 8.1 数据 tab provider quota 预热：fire-and-forget 填充 main 端 TTL cache。
   // DataPanel 打开时仍走同一个 IPC handler；若预热未完成则复用 in-flight promise。
   void prefetchProviderUsageSnapshots();
+
+  // Native Browser views need a continuously painted, non-focusable host even while the IAB tab is
+  // not selected. Creating it here keeps it out of provider/session construction paths.
+  try {
+    const browserViewHost = initializeBrowserViewHost();
+    state.browserViewHostDispose = () => browserViewHost.dispose();
+  } catch (err) {
+    logger.warn('[browser-view] parking host unavailable', err);
+  }
 
   // 8.2 Unified Browser CLI broker. Runtime shims carry only an opaque Browser lease; the broker
   // resolves it to the stable application session before entering the shared semantic executor.

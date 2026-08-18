@@ -47,6 +47,8 @@ export interface BootstrapState {
   browserUseServerShutdown: (() => Promise<void>) | null;
   /** Stops the authenticated Browser CLI broker after revoking every runtime context. */
   browserCliBrokerShutdown: (() => Promise<void>) | null;
+  /** Destroys the opacity-zero parking host after every engine tab has retired. */
+  browserViewHostDispose: (() => void) | null;
   /** Stops the main-process event-loop drift monitor during orderly shutdown. */
   mainEventLoopMonitorStop: (() => void) | null;
 }
@@ -64,6 +66,7 @@ export function createInitialBootstrapState(): BootstrapState {
     agentDeckMcpHttpShutdown: null,
     browserUseServerShutdown: null,
     browserCliBrokerShutdown: null,
+    browserViewHostDispose: null,
     mainEventLoopMonitorStop: null,
   };
 }

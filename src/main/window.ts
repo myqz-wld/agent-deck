@@ -86,7 +86,8 @@ export function getFloatingWindow(): FloatingWindow {
 
 export function ensureFocusableOnActivate(): void {
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    const current = getFloatingWindow().window;
+    if (current == null || current.isDestroyed()) {
       getFloatingWindow().create();
     }
   });

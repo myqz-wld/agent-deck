@@ -11,6 +11,8 @@
 import { BrowserWindow, type BrowserWindowConstructorOptions } from 'electron';
 
 import { EngineTab, buildTabWindowOptions } from './tab';
+import { BrowserWindowTabSurface, type EngineTabSurface } from './surface';
+import { getBrowserViewHost } from '../view-host';
 import {
   DEFAULT_WINDOW_TITLE,
   INITIAL_URL,
@@ -25,6 +27,10 @@ import {
   type BrowserOwnerLeaseCore,
 } from './registry-core';
 import { BrowserTabCollectionCore } from './tab-collection-core';
+
+const defaultWindowFactory = (
+  windowOptions: BrowserWindowConstructorOptions,
+): BrowserWindow => new BrowserWindow(windowOptions);
 
 export {
   ownerCacheKey,
@@ -54,12 +60,10 @@ export class BrowserOwnerHandle {
     this.engine.assertCapacity(this);
 
     const tabId = this.tabs.allocateTabId();
-    const window = this.engine.createWindow(
-      buildTabWindowOptions(this.partition, this.engine.windowTitle),
-    );
+    const surface = this.engine.createTabSurface(this.partition);
     const tab = new EngineTab({
       id: tabId,
-      window,
+      surface,
       onActivated: (id) => this.tabs.markActive(id),
       onClosed: (id) => this.tabs.forget(id),
     });
@@ -131,10 +135,12 @@ export class BrowserEngine {
   readonly showWindows: boolean;
   readonly windowTitle: string;
   readonly createWindow: (options: BrowserWindowConstructorOptions) => BrowserWindow;
+  private readonly configuredCreateSurface: BrowserEngineOptions['createSurface'];
   private readonly ownership: BrowserOwnershipRegistryCore<BrowserOwnerHandle>;
 
   constructor(options: BrowserEngineOptions = {}) {
-    this.createWindow = options.createWindow ?? ((windowOptions) => new BrowserWindow(windowOptions));
+    this.createWindow = options.createWindow ?? defaultWindowFactory;
+    this.configuredCreateSurface = options.createSurface;
     this.showWindows = options.showWindows ?? false;
     this.windowTitle = options.windowTitle ?? DEFAULT_WINDOW_TITLE;
     this.ownership = new BrowserOwnershipRegistryCore({
@@ -142,6 +148,18 @@ export class BrowserEngine {
       maxTabsPerOwner: options.maxTabsPerOwner,
       maxTotalTabs: options.maxTotalTabs,
     });
+  }
+
+  createTabSurface(partition: string): EngineTabSurface {
+    if (this.configuredCreateSurface) {
+      return this.configuredCreateSurface({ partition, title: this.windowTitle });
+    }
+    if (this.createWindow !== defaultWindowFactory) {
+      return new BrowserWindowTabSurface(
+        this.createWindow(buildTabWindowOptions(partition, this.windowTitle)),
+      );
+    }
+    return getBrowserViewHost().createSurface({ partition, title: this.windowTitle });
   }
 
   acquire(owner: BrowserOwnerKey): BrowserOwnerHandle {

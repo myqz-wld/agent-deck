@@ -8,6 +8,7 @@
  */
 
 import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
+import type { EngineTabSurface } from './surface';
 
 /**
  * Ownership namespace. `codex-pipe` keeps the OpenAI Browser plugin's session identity separate
@@ -45,6 +46,11 @@ export type CdpDetachListener = (reason: string) => void;
 export interface BrowserEngineOptions {
   /** Window factory seam for tests. Production uses `new BrowserWindow(...)`. */
   createWindow?: (options: BrowserWindowConstructorOptions) => BrowserWindow;
+  /** Production WebContentsView surface factory. Tests may retain createWindow during migration. */
+  createSurface?: (options: {
+    partition: string;
+    title: string;
+  }) => EngineTabSurface;
   /** Default visibility for new tabs. Fronts may override per tab. */
   showWindows?: boolean;
   /** Window title for engine-owned windows. */
