@@ -254,11 +254,6 @@ const candidates = Object.freeze([
     external: [],
   },
   {
-    name: 'codex-node-repl-browser-bootstrap',
-    entry: 'src/main/adapters/codex-cli/app-server/node-repl-browser-bootstrap.ts',
-    external: [],
-  },
-  {
     name: 'codex-mcp-startup-observer',
     entry: 'src/main/adapters/codex-cli/app-server/mcp-startup-observer.ts',
     external: [],

@@ -8,7 +8,6 @@ import { startDesktopCodexAppServerProcess } from './client-process-host';
 import { codexGenerationDiagnostics } from './generation-diagnostics';
 import { createAgentDeckMcpStartupObserver } from './mcp-startup-observer-adapter';
 import { createDesktopCodexAppServerThread } from './thread-diagnostics';
-import { prepareNodeReplBrowserBootstrap } from './node-repl-browser-bootstrap-adapter';
 import {
   logCodexRecycleCompleted,
   logCodexRecycleDetachFailure,
@@ -65,7 +64,6 @@ export const desktopCodexClientHost: CodexAppServerClientHost = {
   generationDiagnostics: codexGenerationDiagnostics,
   createMcpStartupObserver: createAgentDeckMcpStartupObserver,
   createThread: createDesktopCodexAppServerThread,
-  prepareThreadOptions: prepareNodeReplBrowserBootstrap,
   startProcess: startDesktopCodexAppServerProcess,
 };
 

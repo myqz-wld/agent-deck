@@ -62,7 +62,6 @@ export function ensureCodexClientWithHost(
       ),
       env: browserRuntime?.environment ?? env,
       skillExtraRoots: host.readSkillExtraRoots(),
-      nodeReplBrowserBootstrap: true,
     });
   } catch (error) {
     host.revokeBrowserRuntime?.(options.sessionId);

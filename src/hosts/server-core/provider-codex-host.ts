@@ -143,7 +143,6 @@ export function createServerCoreCodexClient(
         generation,
         runtime,
       ),
-    prepareThreadOptions: (_client, options) => Promise.resolve(options),
     startProcess: ({ codexPathOverride, cwd, env }) => {
       input.browserRuntime.refresh(env);
       const executable = codexPathOverride?.trim() || HEADLESS_CODEX_EXECUTABLE;

@@ -40,9 +40,9 @@ export interface CallerContext {
 }
 
 /**
- * Agent Deck MCP tool names. The public registry exposes 19 core tools everywhere, plus 14
- * `browser_*` tools on adapters whose runtime profile sets `mcpBrowserTools` (Codex CLI keeps using
- * the official Browser plugin instead).
+ * Agent Deck MCP tool names. The Local public registry exposes 19 core tools. Legacy `browser_*`
+ * names remain typed for rollback and Server Core compatibility, but shipped Local adapter
+ * profiles do not register them after the Browser skill + CLI cutover.
  */
 export const AGENT_DECK_TOOL_NAMES = {
   spawnSession: 'spawn_session',
@@ -69,10 +69,9 @@ export const AGENT_DECK_TOOL_NAMES = {
   reportIssue: 'report_issue',
   appendIssueContext: 'append_issue_context',
   updateIssueStatus: 'update_issue_status',
-  // plan cross-adapter-browser-engine-20260727：14 个 browser tool 把 Agent Deck 自己的 in-app
-  // browser 开放给所有 adapter（Codex 侧仍走官方 Browser 插件 native pipe，见 runtime-profiles
-  // mcpBrowserTools）。全部 deny external —— tab 归 caller session 所有，需要真实 in-process /
-  // per-session HTTP caller 身份。
+  // Legacy Local MCP / staged Server Core fallback names. Local profiles keep registration off;
+  // all remain denied to external callers because tab ownership requires authenticated session
+  // identity.
   browserOpen: 'browser_open',
   browserTabs: 'browser_tabs',
   browserNavigate: 'browser_navigate',

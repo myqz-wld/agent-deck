@@ -1,10 +1,9 @@
 /**
  * Cross-adapter browser tool registration (plan cross-adapter-browser-engine-20260727).
  *
- * Registered from `tools/index.ts` as a separate factory so the tool registry file stays within the
- * 500-line guardrail. Enablement is per adapter through `AdapterRuntimeProfile.mcpBrowserTools`:
- * Codex sessions keep using the official Browser plugin over the native pipe, so exposing a second
- * browser surface there would only confuse the model.
+ * Retained as the legacy Local MCP compatibility factory while rollback evidence remains useful.
+ * Every shipped Local adapter profile keeps `AdapterRuntimeProfile.mcpBrowserTools` false after the
+ * bundled skill + `agent-deck-browser` cutover. Server Core owns a separate Remote fallback.
  *
  * Tools that execute against a loaded page remain open-world: page handlers can navigate, submit,
  * or fetch even when the immediate operation looks local. Local tab bookkeeping is the only
@@ -63,7 +62,7 @@ type ToolFactory = (
 export interface BuildBrowserToolsDeps {
   tool: ToolFactory;
   makeCtx: (extra?: unknown) => HandlerContext;
-  /** False for adapters that already own a native browser surface. */
+  /** False for every shipped Local adapter after the skill + CLI cutover. */
   enabled: boolean;
 }
 

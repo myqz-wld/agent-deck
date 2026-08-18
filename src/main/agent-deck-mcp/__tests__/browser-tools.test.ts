@@ -116,14 +116,14 @@ describe('browser tool registration', () => {
     expect(tools.every((entry) => entry.description.length > 80)).toBe(true);
   });
 
-  it('registers nothing for adapters that own a native browser surface', () => {
+  it('registers nothing when the legacy Local surface is disabled', () => {
     expect(buildBrowserTools({ tool, makeCtx, enabled: false })).toEqual([]);
   });
 
   it.each([
-    ['claude-code', EXPECTED_TOOL_NAMES],
+    ['claude-code', []],
     ['codex-cli', []],
-    ['grok-build', EXPECTED_TOOL_NAMES],
+    ['grok-build', []],
   ] as const)('pins the actual %s runtime-profile browser surface', (adapterId, expected) => {
     const profile = getAdapterRuntimeProfile(adapterId);
     const tools = buildBrowserTools({ tool, makeCtx, enabled: profile.mcpBrowserTools });

@@ -35,7 +35,6 @@ const mocks = vi.hoisted(() => {
       expect(received).toBe(settings);
       calls.push('checkpoint.start');
     }),
-    browserShutdown: vi.fn(async () => {}),
     browserCliShutdown: vi.fn(async () => {}),
     browserContextInit: vi.fn(),
     browserViewDispose: vi.fn(),
@@ -45,13 +44,6 @@ const mocks = vi.hoisted(() => {
       return {
         endpoint: '/tmp/agent-deck-browser-cli/test',
         shutdown: mocks.browserCliShutdown,
-      };
-    }),
-    browserStart: vi.fn(async () => {
-      calls.push('browser.start');
-      return {
-        pipePath: '/tmp/codex-browser-use/agent-deck-test',
-        shutdown: mocks.browserShutdown,
       };
     }),
     browserScreenshotReap: vi.fn(),
@@ -186,9 +178,6 @@ vi.mock('../../utils/user-shell-path', () => ({ unionUserShellPath: vi.fn((path)
 vi.mock('../../utils/main-event-loop-monitor', () => ({
   startMainEventLoopMonitor: mocks.eventLoopStart,
 }));
-vi.mock('../../browser-use/server', () => ({
-  startBrowserUseServer: mocks.browserStart,
-}));
 vi.mock('../../browser-use/browser-cli-broker', () => ({
   startBrowserCliBroker: mocks.browserCliStart,
 }));
@@ -250,10 +239,7 @@ describe('checkpoint refresh bootstrap entry', () => {
     expect(mocks.eventLoopStart).toHaveBeenCalledWith({
       powerMonitor: mocks.powerMonitor,
     });
-    expect(mocks.browserStart).toHaveBeenCalledOnce();
-    expect(mocks.browserStart).toHaveBeenCalledWith();
     expect(mocks.browserScreenshotReap).toHaveBeenCalledOnce();
-    expect(state.browserUseServerShutdown).toBe(mocks.browserShutdown);
     expect(mocks.browserCliStart).toHaveBeenCalledOnce();
     expect(mocks.browserContextInit).toHaveBeenCalledWith(
       '/tmp/agent-deck-browser-cli/test',

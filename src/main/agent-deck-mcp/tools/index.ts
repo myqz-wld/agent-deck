@@ -446,9 +446,9 @@ export async function buildAgentDeckTools(
     reportIssue,
     appendIssueContext,
     updateIssueStatus,
-    // plan cross-adapter-browser-engine-20260727：browser tool 面按 adapter profile 开关
-    // （Codex 走官方 Browser 插件 native pipe，不在这里重复暴露）。external caller 没有
-    // adapter profile，因此不注册浏览器工具。
+    // Legacy Local Browser MCP fronts stay disabled for every adapter after the unified
+    // skill+CLI cutover. External callers have no profile and Server Core owns its independent
+    // staged Remote compatibility registration.
     ...buildBrowserTools({
       tool,
       makeCtx,

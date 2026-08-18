@@ -65,14 +65,13 @@ export async function ensureCodexThreadReady(input: {
     const attempt = client.runGenerationOperation(
       currentThreadId ? 'thread/resume readiness' : 'thread/start readiness', input.signal,
       async (operation) => {
-        const prepared = await client.prepareThreadOptions(options, operation);
         const result = await operation.request<CodexAppServerThreadCreateResult>(
           currentThreadId ? 'thread/resume' : 'thread/start',
           currentThreadId
-            ? buildThreadResumeParams(currentThreadId, prepared, client.baseConfig)
-            : buildThreadStartParams(prepared, client.baseConfig),
+            ? buildThreadResumeParams(currentThreadId, options, client.baseConfig)
+            : buildThreadStartParams(options, client.baseConfig),
         );
-        input.runtimeIdentity.observeThreadBoundary(result, prepared);
+        input.runtimeIdentity.observeThreadBoundary(result, options);
         input.setThreadId(result.thread.id);
         return result.thread.id;
       },

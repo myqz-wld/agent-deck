@@ -33,7 +33,7 @@ export function AgentDeckMcpSection({ settings, update, readOnly = false }: Prop
         让 Claude Code、Codex CLI、Grok Build 等 MCP 客户端跨会话协作、展示计划和 diff，并管理任务与 Issue。
         <details className="mt-1">
           <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">
-            查看工具清单（19 个核心 + 14 个 Browser）
+            查看工具清单（19 个核心工具）
           </summary>
           <div className="mt-1 pl-2 text-deck-muted/80">
             <strong className="text-deck-text/85">会话编排</strong>：
@@ -64,26 +64,13 @@ export function AgentDeckMcpSection({ settings, update, readOnly = false }: Prop
             <code className="rounded bg-white/5 px-1">report_issue</code> /
             <code className="rounded bg-white/5 px-1">append_issue_context</code> /
             <code className="rounded bg-white/5 px-1">update_issue_status</code>
-            <br />
-            <strong className="text-deck-text/85">Browser（Claude Code / Grok Build）</strong>：
-            <code className="rounded bg-white/5 px-1">browser_open</code> /
-            <code className="rounded bg-white/5 px-1">browser_tabs</code> /
-            <code className="rounded bg-white/5 px-1">browser_navigate</code> /
-            <code className="rounded bg-white/5 px-1">browser_wait</code> /
-            <code className="rounded bg-white/5 px-1">browser_close</code> /
-            <code className="rounded bg-white/5 px-1">browser_snapshot</code> /
-            <code className="rounded bg-white/5 px-1">browser_screenshot</code> /
-            <code className="rounded bg-white/5 px-1">browser_click</code> /
-            <code className="rounded bg-white/5 px-1">browser_type</code> /
-            <code className="rounded bg-white/5 px-1">browser_press</code> /
-            <code className="rounded bg-white/5 px-1">browser_scroll</code> /
-            <code className="rounded bg-white/5 px-1">browser_read_console</code> /
-            <code className="rounded bg-white/5 px-1">browser_read_network</code> /
-            <code className="rounded bg-white/5 px-1">browser_evaluate</code>
             <div className="mt-1">
-              Codex CLI 通过官方 Browser 插件连接同一个 Agent Deck 浏览器引擎，不暴露
-              <code className="rounded bg-white/5 px-1">browser_*</code> MCP 工具。Browser
-              工具仅供有真实会话身份的应用内客户端使用，外部客户端不可调用。
+              <strong className="text-deck-text/85">Browser：</strong>
+              不再属于本地 Agent Deck MCP 工具。Claude Code、Codex CLI 和 Grok Build 统一通过
+              内置 Browser Skill 与会话专属
+              <code className="rounded bg-white/5 px-1">agent-deck-browser</code> CLI 使用；由各适配器的
+              Skills 开关控制，Agent 不需要传递会话 ID。Remote Core 的兼容面由远端能力独立控制，
+              不会回退到本地会话。
             </div>
           </div>
         </details>

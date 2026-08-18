@@ -238,28 +238,6 @@ describe('checkpoint refresh shutdown entry', () => {
     expect(mocks.calls).toContain('process.exit.1');
   });
 
-  it('shuts down the browser-use backend before closing SQLite', async () => {
-    const state = createInitialBootstrapState();
-    state.browserUseServerShutdown = vi.fn(async () => {
-      mocks.calls.push('browser.shutdown');
-    });
-    registerLifecycleHooks(state, Promise.resolve());
-
-    mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
-    mocks.checkpointState.resolve?.();
-    mocks.summaryState.resolve?.();
-    await vi.advanceTimersByTimeAsync(0);
-    await flushMicrotasks();
-
-    expect(mocks.calls.indexOf('browser.shutdown')).toBeGreaterThan(
-      mocks.calls.indexOf('handoff-spool.cleanup'),
-    );
-    expect(mocks.calls.indexOf('browser.shutdown')).toBeLessThan(
-      mocks.calls.indexOf('db.close'),
-    );
-    expect(state.browserUseServerShutdown).toBeNull();
-  });
-
   it('awaits the watcher drain before adapter shutdown and closeDb', async () => {
     mocks.watcherState.mode = 'pending';
     mocks.handlers.get('before-quit')?.({ preventDefault: vi.fn() });

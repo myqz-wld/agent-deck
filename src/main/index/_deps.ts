@@ -43,8 +43,6 @@ export interface BootstrapState {
   /** Persistent worker controller for resumable FTS/snapshot slices and live WAL checkpoints. */
   storageMaintenanceScheduler: StorageMaintenanceScheduler | null;
   agentDeckMcpHttpShutdown: (() => Promise<void>) | null;
-  /** Stops the session-owned Browser Use native-pipe broker and closes its isolated windows. */
-  browserUseServerShutdown: (() => Promise<void>) | null;
   /** Stops the authenticated Browser CLI broker after revoking every runtime context. */
   browserCliBrokerShutdown: (() => Promise<void>) | null;
   /** Destroys the opacity-zero parking host after every engine tab has retired. */
@@ -64,7 +62,6 @@ export function createInitialBootstrapState(): BootstrapState {
     tokenUsageScheduler: null,
     storageMaintenanceScheduler: null,
     agentDeckMcpHttpShutdown: null,
-    browserUseServerShutdown: null,
     browserCliBrokerShutdown: null,
     browserViewHostDispose: null,
     mainEventLoopMonitorStop: null,
