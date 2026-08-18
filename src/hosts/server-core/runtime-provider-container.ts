@@ -20,7 +20,7 @@ export const SERVER_CORE_PROVIDER_INFERENCE_CREDENTIAL_ROOT =
 export type ServerCoreProviderGrokContainerPort = Pick<
   ProductionServerCoreProviderGrokContainer,
   'close' | 'processFactory' | 'readiness'
->;
+> & Partial<Pick<ProductionServerCoreProviderGrokContainer, 'configureBrowserRelay'>>;
 
 export interface ServerCoreProviderContainerRuntimePaths {
   readonly brokerRoot: string;

@@ -17,6 +17,7 @@ export interface ProviderSessionMultiplexOptions {
     request: ProviderInferenceBrokerRequest,
     signal: AbortSignal,
   ) => Promise<ProviderInferenceBrokerResponse>;
+  readonly invokeBrowser?: (request: Buffer, signal: AbortSignal) => Promise<Buffer>;
   readonly role: ProviderSessionMultiplexRole;
   readonly stream: Duplex;
 }
@@ -36,7 +37,16 @@ interface ActiveRequest {
 }
 
 interface RetiredRequest {
-  readonly requestId: string;
+  readonly kind: 'browser' | 'inference';
+  readonly requestId?: string;
+}
+
+interface PendingBrowserRequest {
+  readonly abort?: () => void;
+  readonly reject: (error: Error) => void;
+  readonly resolve: (response: Buffer) => void;
+  readonly signal?: AbortSignal;
+  readonly timer: ReturnType<typeof setTimeout>;
 }
 
 const MAGIC = Buffer.from([0x41, 0x44]);
@@ -47,7 +57,18 @@ const MAX_FRAME_BYTES = PROVIDER_INFERENCE_MAX_RESPONSE_BYTES + 4 * 1024;
 const MAX_MULTIPLEX_REQUESTS = 8;
 const MAX_RETIRED_REQUESTS = MAX_MULTIPLEX_REQUESTS * 2;
 const RESPONSE_HEADER_BYTES = 2 * 1024;
-const FRAME = Object.freeze({ acp: 1, request: 2, response: 3, cancel: 4 } as const);
+const MAX_BROWSER_REQUEST_BYTES = 128 * 1024 + 4;
+const MAX_BROWSER_RESPONSE_BYTES = 2 * 1024 * 1024 + 4;
+const BROWSER_TIMEOUT_MS = 40_000;
+const FRAME = Object.freeze({
+  acp: 1,
+  request: 2,
+  response: 3,
+  cancel: 4,
+  browserRequest: 5,
+  browserResponse: 6,
+  browserCancel: 7,
+} as const);
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
 function protocolError(): Error {
@@ -112,7 +133,9 @@ export class ProviderSessionMultiplexConnection {
   readonly acp: Duplex;
   private readonly acpInput = new PassThrough({ highWaterMark: MAX_ACP_FRAME_BYTES });
   private readonly active = new Map<number, ActiveRequest>();
+  private readonly activeBrowser = new Map<number, ActiveRequest>();
   private readonly pending = new Map<number, PendingRequest>();
+  private readonly pendingBrowser = new Map<number, PendingBrowserRequest>();
   private readonly retired = new Map<number, RetiredRequest>();
   private buffer = Buffer.alloc(0);
   private closed = false;
@@ -121,6 +144,9 @@ export class ProviderSessionMultiplexConnection {
   constructor(private readonly options: ProviderSessionMultiplexOptions) {
     if ((options.role === 'core') !== (typeof options.invoke === 'function')) {
       throw new Error('provider session multiplex role is invalid');
+    }
+    if (options.role === 'shim' && options.invokeBrowser !== undefined) {
+      throw new Error('provider session multiplex Browser role is invalid');
     }
     const output = new Writable({
       highWaterMark: MAX_ACP_FRAME_BYTES,
@@ -167,12 +193,43 @@ export class ProviderSessionMultiplexConnection {
     });
   }
 
+  async requestBrowser(value: Buffer, signal?: AbortSignal): Promise<Buffer> {
+    if (this.options.role !== 'shim' || this.closed ||
+        this.pendingBrowser.size >= MAX_MULTIPLEX_REQUESTS ||
+        !Buffer.isBuffer(value) || value.byteLength === 0 ||
+        value.byteLength > MAX_BROWSER_REQUEST_BYTES || signal?.aborted) {
+      throw protocolError();
+    }
+    const id = this.allocateRequestId();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => this.cancelPendingBrowser(id, protocolError()),
+        BROWSER_TIMEOUT_MS,
+      );
+      timer.unref();
+      const abort = (): void => this.cancelPendingBrowser(id, protocolError());
+      this.pendingBrowser.set(id, {
+        abort: signal ? abort : undefined,
+        reject,
+        resolve,
+        signal,
+        timer,
+      });
+      signal?.addEventListener('abort', abort, { once: true });
+      void this.send(FRAME.browserRequest, id, value).catch((error) => {
+        this.cancelPendingBrowser(id, error instanceof Error ? error : protocolError());
+      });
+    });
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     this.rejectAll(protocolError());
     for (const active of this.active.values()) active.controller.abort();
     this.active.clear();
+    for (const active of this.activeBrowser.values()) active.controller.abort();
+    this.activeBrowser.clear();
     this.clearRetired();
     this.acpInput.end();
     this.acp.destroy();
@@ -183,7 +240,8 @@ export class ProviderSessionMultiplexConnection {
     for (let attempts = 0; attempts < MAX_MULTIPLEX_REQUESTS + 1; attempts += 1) {
       const selected = this.nextRequestId;
       this.nextRequestId = selected === 0xffff_ffff ? 1 : selected + 1;
-      if (!this.pending.has(selected) && !this.retired.has(selected)) return selected;
+      if (!this.pending.has(selected) && !this.pendingBrowser.has(selected) &&
+          !this.retired.has(selected)) return selected;
     }
     throw protocolError();
   }
@@ -194,9 +252,20 @@ export class ProviderSessionMultiplexConnection {
     this.pending.delete(id);
     clearTimeout(pending.timer);
     if (pending.abort) pending.signal?.removeEventListener('abort', pending.abort);
-    this.retireRequest(id, pending.requestId);
+    this.retireRequest(id, 'inference', pending.requestId);
     pending.reject(error);
     void this.send(FRAME.cancel, id, Buffer.alloc(0)).catch(() => undefined);
+  }
+
+  private cancelPendingBrowser(id: number, error: Error): void {
+    const pending = this.pendingBrowser.get(id);
+    if (!pending) return;
+    this.pendingBrowser.delete(id);
+    clearTimeout(pending.timer);
+    if (pending.abort) pending.signal?.removeEventListener('abort', pending.abort);
+    this.retireRequest(id, 'browser');
+    pending.reject(error);
+    void this.send(FRAME.browserCancel, id, Buffer.alloc(0)).catch(() => undefined);
   }
 
   private receive(chunk: Buffer): void {
@@ -248,7 +317,8 @@ export class ProviderSessionMultiplexConnection {
       return;
     }
     if (kind === FRAME.request && this.options.role === 'core') {
-      if (id === 0 || this.active.has(id) || this.retired.has(id) ||
+      if (id === 0 || this.active.has(id) || this.activeBrowser.has(id) ||
+          this.retired.has(id) ||
           this.active.size >= MAX_MULTIPLEX_REQUESTS ||
           payload.byteLength > PROVIDER_INFERENCE_MAX_REQUEST_BYTES + 2 * 1024) {
         throw protocolError();
@@ -266,7 +336,7 @@ export class ProviderSessionMultiplexConnection {
       ).catch(() => this.fail(protocolError())).finally(() => {
         if (this.active.get(id) === active) {
           this.active.delete(id);
-          if (!this.closed) this.retireRequest(id, request.requestId);
+          if (!this.closed) this.retireRequest(id, 'inference', request.requestId);
         }
       });
       return;
@@ -275,7 +345,7 @@ export class ProviderSessionMultiplexConnection {
       const pending = this.pending.get(id);
       if (!pending) {
         const retired = this.retired.get(id);
-        if (!retired) throw protocolError();
+        if (!retired || retired.kind !== 'inference') throw protocolError();
         const response = parsedResponsePayload(payload);
         if (response.requestId !== retired.requestId) throw protocolError();
         this.retired.delete(id);
@@ -289,10 +359,65 @@ export class ProviderSessionMultiplexConnection {
       pending.resolve(response);
       return;
     }
+    if (kind === FRAME.browserRequest && this.options.role === 'core') {
+      if (id === 0 || !this.options.invokeBrowser || this.active.has(id) ||
+          this.activeBrowser.has(id) || this.retired.has(id) ||
+          this.activeBrowser.size >= MAX_MULTIPLEX_REQUESTS ||
+          payload.byteLength === 0 || payload.byteLength > MAX_BROWSER_REQUEST_BYTES) {
+        throw protocolError();
+      }
+      const active: ActiveRequest = { cancelled: false, controller: new AbortController() };
+      this.activeBrowser.set(id, active);
+      void this.options.invokeBrowser(payload, active.controller.signal).then(
+        (response) => {
+          if (active.cancelled || !Buffer.isBuffer(response) || response.byteLength === 0 ||
+              response.byteLength > MAX_BROWSER_RESPONSE_BYTES) return undefined;
+          return this.send(FRAME.browserResponse, id, response);
+        },
+        () => active.cancelled
+          ? undefined
+          : this.send(FRAME.browserResponse, id, Buffer.alloc(0)),
+      ).catch(() => this.fail(protocolError())).finally(() => {
+        if (this.activeBrowser.get(id) === active) {
+          this.activeBrowser.delete(id);
+          if (!this.closed) this.retireRequest(id, 'browser');
+        }
+      });
+      return;
+    }
+    if (kind === FRAME.browserResponse && this.options.role === 'shim') {
+      const pending = this.pendingBrowser.get(id);
+      if (!pending) {
+        const retired = this.retired.get(id);
+        if (!retired || retired.kind !== 'browser' || payload.byteLength === 0 ||
+            payload.byteLength > MAX_BROWSER_RESPONSE_BYTES) throw protocolError();
+        this.retired.delete(id);
+        return;
+      }
+      if (payload.byteLength === 0 || payload.byteLength > MAX_BROWSER_RESPONSE_BYTES) {
+        throw protocolError();
+      }
+      this.pendingBrowser.delete(id);
+      clearTimeout(pending.timer);
+      if (pending.abort) pending.signal?.removeEventListener('abort', pending.abort);
+      pending.resolve(payload);
+      return;
+    }
     if (kind === FRAME.cancel && this.options.role === 'core' && payload.byteLength === 0) {
       const active = this.active.get(id);
       if (!active) {
         if (this.retired.has(id)) return;
+        throw protocolError();
+      }
+      active.cancelled = true;
+      active.controller.abort();
+      return;
+    }
+    if (kind === FRAME.browserCancel && this.options.role === 'core' && payload.byteLength === 0) {
+      const active = this.activeBrowser.get(id);
+      if (!active) {
+        const retired = this.retired.get(id);
+        if (retired?.kind === 'browser') return;
         throw protocolError();
       }
       active.cancelled = true;
@@ -325,6 +450,8 @@ export class ProviderSessionMultiplexConnection {
     this.rejectAll(error);
     for (const active of this.active.values()) active.controller.abort();
     this.active.clear();
+    for (const active of this.activeBrowser.values()) active.controller.abort();
+    this.activeBrowser.clear();
     this.clearRetired();
     this.acpInput.destroy(error);
     this.acp.destroy(error);
@@ -338,15 +465,25 @@ export class ProviderSessionMultiplexConnection {
       pending.reject(error);
     }
     this.pending.clear();
+    for (const pending of this.pendingBrowser.values()) {
+      clearTimeout(pending.timer);
+      if (pending.abort) pending.signal?.removeEventListener('abort', pending.abort);
+      pending.reject(error);
+    }
+    this.pendingBrowser.clear();
   }
 
   private clearRetired(): void {
     this.retired.clear();
   }
 
-  private retireRequest(id: number, requestId: string): void {
+  private retireRequest(
+    id: number,
+    kind: RetiredRequest['kind'],
+    requestId?: string,
+  ): void {
     this.retired.delete(id);
-    this.retired.set(id, { requestId });
+    this.retired.set(id, { kind, ...(requestId ? { requestId } : {}) });
     while (this.retired.size > MAX_RETIRED_REQUESTS) {
       const oldest = this.retired.keys().next().value as number | undefined;
       if (oldest === undefined) break;

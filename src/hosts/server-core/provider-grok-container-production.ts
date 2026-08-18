@@ -26,6 +26,9 @@ export interface ProductionServerCoreProviderGrokContainerOptions
 }
 
 export interface ProductionServerCoreProviderGrokContainer {
+  configureBrowserRelay(
+    relay: ServerCoreProviderGrokContainerRuntimeOptions['browserRelay'],
+  ): void;
   readonly processFactory: GrokAcpSessionFactory;
   readonly runtime: ServerCoreProviderGrokContainerRuntime;
   close(): Promise<void>;
@@ -150,6 +153,7 @@ export function createProductionServerCoreProviderGrokContainer(
     workspaceRoot: options.workspaceRoot,
   });
   return Object.freeze({
+    configureBrowserRelay: (relay) => runtime.setBrowserRelay(relay),
     processFactory,
     runtime,
     close: () => runtime.close(),

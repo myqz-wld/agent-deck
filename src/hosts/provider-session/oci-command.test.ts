@@ -4,6 +4,7 @@ import type { ProviderSessionLaunchSpec } from '@contracts/index';
 
 import {
   PROVIDER_SESSION_CONTAINER_BROKER_SOCKET,
+  PROVIDER_SESSION_CONTAINER_BROWSER_SOCKET,
   PROVIDER_SESSION_CONTAINER_CPUS,
   PROVIDER_SESSION_CONTAINER_MEMORY_BYTES,
   PROVIDER_SESSION_CONTAINER_PIDS,
@@ -38,9 +39,18 @@ function spec(
   };
 }
 
+const BROWSER_CONTEXT = {
+  protocolVersion: 1 as const,
+  adapterId: 'grok-build' as const,
+  lease: 'abcdefghijklmnopqrstuvwxyz012345',
+  runtimeGeneration: 2,
+  sourceIdentity: 'runtime-source-a',
+};
+
 function binding(overrides: Partial<ProviderSessionHostMountBinding> = {}) {
   return {
     bindingId: 'binding-a',
+    browserBrokerSocketPath: null,
     brokerSocketPath: '/run/agent-deck-provider/broker-a.sock',
     selectedDirectory: '/srv/workspace/repo',
     stateDirectory: '/srv/agent-deck-provider/state-a',
@@ -150,6 +160,37 @@ describe('provider session OCI command builder', () => {
     expect(JSON.stringify(rootSelected.commands.create.args)).not.toContain(
       PROVIDER_SESSION_CONTAINER_BROKER_SOCKET,
     );
+  });
+
+  it('mounts only the private Browser socket for rootless and uses multiplex on Desktop VM', () => {
+    const rootless = buildProviderSessionOciPlan({
+      coreProcessId: 'core-process-a', engine: 'rootless-podman',
+      executable: '/usr/bin/podman', images: IMAGES, instanceId: 'instance-a',
+      mount: binding({ browserBrokerSocketPath: '/run/private/browser.sock' }),
+      runtimeUser: { gid: 501, uid: 501 },
+      spec: { ...spec(), browserContext: BROWSER_CONTEXT },
+    });
+    expect(mounts(rootless.commands.create.args)).toContain(
+      `type=bind,source=/run/private/browser.sock,target=${PROVIDER_SESSION_CONTAINER_BROWSER_SOCKET},readonly`,
+    );
+    expect(rootless.commands.create.args).toContain('AGENT_DECK_BROWSER_TRANSPORT=unix-v1');
+    const encoded = rootless.commands.create.args.find((value) =>
+      value.startsWith('AGENT_DECK_BROWSER_CONTEXT_B64='))!.split('=')[1]!;
+    expect(JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'))).toEqual(BROWSER_CONTEXT);
+    expect(Buffer.from(encoded, 'base64url').toString('utf8')).not.toContain('session-a');
+
+    const desktop = buildProviderSessionOciPlan({
+      coreProcessId: 'core-process-a', engine: 'docker-desktop',
+      executable: '/usr/local/bin/docker', images: IMAGES, instanceId: 'instance-a',
+      mount: binding({ brokerSocketPath: null }),
+      runtimeUser: { gid: 501, uid: 501 },
+      spec: { ...spec(), browserContext: BROWSER_CONTEXT },
+    });
+    expect(desktop.commands.create.args).toContain(
+      'AGENT_DECK_BROWSER_TRANSPORT=stdio-multiplex-v1',
+    );
+    expect(JSON.stringify(mounts(desktop.commands.create.args)))
+      .not.toContain(PROVIDER_SESSION_CONTAINER_BROWSER_SOCKET);
   });
 
   it('derives fixed identity-bound lifecycle commands', () => {

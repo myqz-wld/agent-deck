@@ -29,6 +29,7 @@ interface PathIdentity {
 interface MountRecord {
   readonly binding: ProviderSessionHostMountBinding;
   readonly broker: PathIdentity | null;
+  readonly browserBroker: PathIdentity | null;
   readonly selected: PathIdentity;
   readonly state: PathIdentity;
 }
@@ -170,6 +171,16 @@ export class NodeProviderSessionMounts implements ProviderSessionHostMountPort {
       ? canonicalSocket(brokerSocketPath, 'Provider broker socket')
       : null;
     if (broker) assertPrivate(broker, this.currentUid, 'Provider broker socket');
+    const browserBrokerSocketPath = spec.browserContext &&
+      this.inferenceTransport === 'unix-http-v1'
+      ? join(this.privateRoot, 'browser-cli', 'broker.sock')
+      : null;
+    const browserBroker = browserBrokerSocketPath
+      ? canonicalSocket(browserBrokerSocketPath, 'Provider Browser broker socket')
+      : null;
+    if (browserBroker) {
+      assertPrivate(browserBroker, this.currentUid, 'Provider Browser broker socket');
+    }
     const digest = createHash('sha256').update([
       spec.launchId,
       spec.processId,
@@ -186,12 +197,15 @@ export class NodeProviderSessionMounts implements ProviderSessionHostMountPort {
       for (const child of STATE_CHILDREN) mkdirSync(join(stateDirectory, child), { mode: 0o700 });
       const binding = Object.freeze({
         bindingId,
+        browserBrokerSocketPath,
         brokerSocketPath,
         selectedDirectory,
         stateDirectory,
         workspaceRoot: this.workspaceRoot,
       });
-      this.records.set(bindingId, Object.freeze({ binding, broker, selected, state }));
+      this.records.set(bindingId, Object.freeze({
+        binding, broker, browserBroker, selected, state,
+      }));
       return binding;
     } catch {
       if (state) this.removeStateExact(stateDirectory, state);
@@ -208,8 +222,21 @@ export class NodeProviderSessionMounts implements ProviderSessionHostMountPort {
     } else if (record.binding.brokerSocketPath !== null || record.broker !== null) {
       throw new Error('provider broker mount identity changed');
     }
+    if (record.binding.browserBrokerSocketPath && record.browserBroker) {
+      assertIdentity(
+        record.binding.browserBrokerSocketPath,
+        record.browserBroker,
+        'socket',
+      );
+    } else if (record.binding.browserBrokerSocketPath !== null ||
+        record.browserBroker !== null) {
+      throw new Error('provider Browser broker mount identity changed');
+    }
     assertIdentity(record.binding.stateDirectory, record.state, 'directory');
     if (record.broker) assertPrivate(record.broker, this.currentUid, 'Provider broker socket');
+    if (record.browserBroker) {
+      assertPrivate(record.browserBroker, this.currentUid, 'Provider Browser broker socket');
+    }
     assertPrivate(record.state, this.currentUid, 'Provider session state');
   }
 

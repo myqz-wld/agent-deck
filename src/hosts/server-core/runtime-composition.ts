@@ -59,9 +59,7 @@ import { ServerCoreSessionHistoryMutationRuntime } from './session-history-mutat
 import { ServerCoreWorkspaceDirectoryMutationRuntime } from './workspace-directory-mutation-runtime';
 import { createServerCoreProviderRetirement } from './runtime-provider-retirement';
 import { createServerCoreSessionRollback } from './runtime-session-rollback';
-import { ServerCoreBrowserArtifactStore } from './browser-artifact-store';
-import { createServerCoreBrowserCliExecutor } from './browser-cli-executor';
-import { ServerCoreBrowserRuntime } from './browser-runtime';
+import { createServerCoreBrowserComposition } from './browser-composition';
 import { resolveServerCoreRuntimeSettings, validateServerCoreRuntimeOptions } from './runtime-settings';
 import {
   resolveServerCoreProviderGrokContainer,
@@ -72,7 +70,6 @@ import {
 
 export const SERVER_CORE_CREDENTIAL_FILE = '/run/secrets/agent-deck/credentials.json';
 export const SERVER_CORE_PROVIDER_AUTH_SOURCE = '/run/secrets/agent-deck/provider-home';
-export const SERVER_CORE_BROWSER_CLI = '/opt/agent-deck/bin/agent-deck-browser.cjs';
 export interface ServerCoreRuntimeCompositionOverrides {
   readonly processId?: string;
   readonly credentialFilePath?: string;
@@ -318,23 +315,14 @@ export function createServerCoreRuntimeWithOverrides(
       appendServerCoreChangeSafely(metadata, runtimeDiagnostics, kind, entityId, payload);
     },
   });
-  const browserArtifacts = new ServerCoreBrowserArtifactStore({
+  const { browserRuntime, grokProcessFactory } = createServerCoreBrowserComposition({
+    cliPath: overrides.browserCliPath,
+    desktopBroker,
+    grokContainer,
+    privateRoot: providerRuntimePrivateRoot ?? workspaceBoundary.privateRoot,
+    providerSettings,
+    sessions: repositories.sessions,
     workspaceRoot,
-    getSession: (sessionId) => repositories.sessions.get(sessionId),
-  });
-  const browserRuntime = new ServerCoreBrowserRuntime({
-    privateRoot: workspaceBoundary.privateRoot,
-    executablePath: process.execPath,
-    cliPath: overrides.browserCliPath ?? SERVER_CORE_BROWSER_CLI,
-    execute: createServerCoreBrowserCliExecutor({
-      desktopBroker,
-      artifacts: browserArtifacts,
-    }),
-    skillEnabled: (adapterId) => {
-      if (adapterId === 'claude-code') return providerSettings.injectAgentDeckClaudeSkills;
-      if (adapterId === 'codex-cli') return providerSettings.injectAgentDeckCodexSkills;
-      return providerSettings.injectAgentDeckGrokSkills;
-    },
   });
   const providerInput: ServerCoreProviderHostInput = Object.freeze({
     instanceId: input.instanceId,
@@ -355,9 +343,7 @@ export function createServerCoreRuntimeWithOverrides(
       grokBaselinePrompt: async () => null,
       grokPluginProfile: async () => null,
     }),
-    ...(grokContainer
-      ? { grokProcessFactory: grokContainer.processFactory }
-      : {}),
+    ...(grokProcessFactory ? { grokProcessFactory } : {}),
   });
   const adapterSet = createProviderAdapterSet({
     claude: createServerCoreClaudeHost(providerInput),

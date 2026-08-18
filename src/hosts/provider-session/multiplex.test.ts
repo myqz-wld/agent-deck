@@ -65,6 +65,33 @@ describe('Provider session stdio multiplex protocol', () => {
     await Promise.all([core.close(), shim.close()]);
   });
 
+  it('relays one bounded opaque Browser CLI frame without mixing it with ACP or inference', async () => {
+    const streams = pair();
+    const invokeBrowser = vi.fn(async (input: Buffer) =>
+      Buffer.concat([Buffer.from('response:'), input]));
+    const core = new ProviderSessionMultiplexConnection({
+      role: 'core',
+      stream: streams.core,
+      invoke: async (input) => ({
+        schemaVersion: 1,
+        body: '{}',
+        contentType: 'application/json',
+        requestId: input.requestId,
+        statusCode: 200,
+      }),
+      invokeBrowser,
+    });
+    const shim = new ProviderSessionMultiplexConnection({ role: 'shim', stream: streams.shim });
+
+    await expect(shim.requestBrowser(Buffer.from('browser-frame')))
+      .resolves.toEqual(Buffer.from('response:browser-frame'));
+    expect(invokeBrowser).toHaveBeenCalledWith(
+      Buffer.from('browser-frame'),
+      expect.any(AbortSignal),
+    );
+    await Promise.all([core.close(), shim.close()]);
+  });
+
   it('cancels an in-flight Core invocation without leaking an error payload', async () => {
     const streams = pair();
     let observed!: AbortSignal;

@@ -7,6 +7,7 @@ import {
   PROVIDER_INFERENCE_MAX_RESPONSE_BYTES,
   PROVIDER_SESSION_CONTAINER_SCHEMA_VERSION,
   parseProviderSessionLaunchSpec,
+  type ProviderSessionBrowserContext,
   type SessionConsoleSandboxAccess,
 } from '@contracts/index';
 import type {
@@ -47,6 +48,7 @@ export interface ServerCoreProviderGrokContainerReadiness {
 }
 
 export interface ServerCoreProviderGrokContainerOpenInput {
+  readonly browserContext?: ProviderSessionBrowserContext;
   readonly effectiveAccess: SessionConsoleSandboxAccess;
   readonly sessionId: string;
   /** `.` or one normalized directory relative to the selected Workspace. */
@@ -62,6 +64,7 @@ export interface ServerCoreProviderGrokContainerSession {
 }
 
 export interface ServerCoreProviderGrokContainerRuntimeOptions {
+  readonly browserRelay?: (request: Buffer, signal: AbortSignal) => Promise<Buffer>;
   readonly inference: ServerCoreProviderInferenceUnixHttpPort;
   readonly inferenceTransport?: ProviderSessionInferenceTransport;
   readonly instanceId: string;
@@ -118,11 +121,22 @@ export class ServerCoreProviderGrokContainerRuntime {
   private readonly inFlight = new Set<Promise<void>>();
   private closed = false;
   private closePromise: Promise<void> | null = null;
+  private browserRelay: ServerCoreProviderGrokContainerRuntimeOptions['browserRelay'];
 
   constructor(private readonly options: ServerCoreProviderGrokContainerRuntimeOptions) {
     binding(options.instanceId, 'provider-readiness-probe', 'provider-readiness-probe');
     this.nextLaunchId = options.nextLaunchId ?? randomUUID;
     this.nextProcessId = options.nextProcessId ?? randomUUID;
+    this.browserRelay = options.browserRelay;
+  }
+
+  setBrowserRelay(
+    relay: ServerCoreProviderGrokContainerRuntimeOptions['browserRelay'],
+  ): void {
+    if (this.sessions.size > 0 || this.pendingSessions.size > 0) {
+      throw new Error('Provider Browser relay cannot change while sessions are active');
+    }
+    this.browserRelay = relay;
   }
 
   async readiness(): Promise<ServerCoreProviderGrokContainerReadiness> {
@@ -187,6 +201,7 @@ export class ServerCoreProviderGrokContainerRuntime {
       sessionId: input.sessionId,
       upstreamId: UPSTREAM_ID,
       workingDirectory: input.workingDirectory,
+      ...(input.browserContext ? { browserContext: input.browserContext } : {}),
     });
     if (this.sessions.has(provisional.sessionId) ||
         this.pendingSessions.has(provisional.sessionId)) {
@@ -247,6 +262,7 @@ export class ServerCoreProviderGrokContainerRuntime {
               throw error;
             }
           },
+          ...(this.browserRelay ? { invokeBrowser: this.browserRelay } : {}),
           role: 'core',
           stream: channel.stream,
         })).acp

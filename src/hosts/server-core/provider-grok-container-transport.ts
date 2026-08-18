@@ -95,6 +95,7 @@ export function createServerCoreProviderGrokContainerTransport(
       effectiveAccess,
       sessionId: input.applicationSessionId,
       workingDirectory,
+      ...(input.browserContext ? { browserContext: input.browserContext } : {}),
     });
     const process = await GrokAcpProcess.connect(session, clientOptions(input));
     const selectedCwd = workingDirectory === '.'

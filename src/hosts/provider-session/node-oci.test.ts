@@ -87,6 +87,7 @@ function fixture() {
     instanceId: 'instance-a',
     mount: {
       bindingId: 'binding-a',
+      browserBrokerSocketPath: null,
       brokerSocketPath: join(root, 'broker.sock'),
       selectedDirectory: join(root, 'workspace', 'repo'),
       stateDirectory: join(root, 'state'),

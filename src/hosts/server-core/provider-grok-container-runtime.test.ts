@@ -170,6 +170,13 @@ const OPEN_INPUT = Object.freeze({
   sessionId: 'session-a',
   workingDirectory: 'repo',
 });
+const BROWSER_CONTEXT = Object.freeze({
+  protocolVersion: 1 as const,
+  adapterId: 'grok-build' as const,
+  lease: 'abcdefghijklmnopqrstuvwxyz012345',
+  runtimeGeneration: 1,
+  sourceIdentity: 'runtime-source-a',
+});
 
 describe('Server Core Provider Grok container runtime', () => {
   it('requires both an attested Grok supervisor and the trusted inference broker', async () => {
@@ -257,6 +264,16 @@ describe('Server Core Provider Grok container runtime', () => {
       runtimeHandle: 'a'.repeat(64),
       sessionId: 'session-a',
     });
+    await runtime.close();
+  });
+
+  it('passes only the browser-scoped capability into the exact provider launch', async () => {
+    const { runtime, supervisor } = harness();
+    const session = await runtime.open({ ...OPEN_INPUT, browserContext: BROWSER_CONTEXT });
+
+    expect(supervisor.launchSpecs[0]?.browserContext).toEqual(BROWSER_CONTEXT);
+    expect(JSON.stringify(supervisor.launchSpecs[0]?.browserContext)).not.toContain('session-a');
+    await session.close();
     await runtime.close();
   });
 

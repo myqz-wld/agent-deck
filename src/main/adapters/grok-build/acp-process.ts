@@ -14,6 +14,7 @@ import {
   type SessionNotification,
 } from '@agentclientprotocol/sdk';
 import { spawnGrokChild } from './launch-child';
+import type { ProviderSessionBrowserContext } from '@contracts/index';
 import {
   GROK_EXTENSION_NOTIFICATION_METHOD,
   GROK_EXTENSION_UPDATE_METHOD,
@@ -75,6 +76,7 @@ export interface GrokAcpChannel {
 
 export interface GrokAcpSessionFactoryInput extends GrokAcpClientOptions {
   readonly applicationSessionId: string;
+  readonly browserContext?: ProviderSessionBrowserContext;
   readonly cwd: string;
   readonly sandboxProfile: string | null;
 }

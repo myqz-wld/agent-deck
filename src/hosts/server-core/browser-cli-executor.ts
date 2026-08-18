@@ -21,6 +21,7 @@ import {
 export interface ServerCoreBrowserArtifactWriter {
   persist(input: {
     readonly applicationSessionId: string;
+    readonly sourceIdentity: string;
     readonly tabId: number;
     readonly png: Buffer;
   }): Promise<string>;
@@ -100,6 +101,7 @@ function thrownFailure(
 async function success(
   operation: BrowserOperation,
   applicationSessionId: string,
+  sourceIdentity: string,
   result: DesktopBrokerToolResult,
   artifacts: ServerCoreBrowserArtifactWriter,
 ): Promise<BrowserOperationEnvelope> {
@@ -137,7 +139,9 @@ async function success(
         'Retry with a smaller screenshot size.',
       );
     }
-    const path = await artifacts.persist({ applicationSessionId, tabId, png });
+    const path = await artifacts.persist({
+      applicationSessionId, sourceIdentity, tabId, png,
+    });
     projected.push({
       name: 'browser-screenshot.png',
       mimeType: 'image/png',
@@ -163,6 +167,7 @@ export function createServerCoreBrowserCliExecutor(
       return await success(
         request.operation,
         binding.applicationSessionId,
+        binding.sourceIdentity,
         result,
         options.artifacts,
       );

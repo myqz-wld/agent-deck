@@ -12,6 +12,7 @@ export type ProviderSessionInferenceTransport = 'stdio-multiplex-v1' | 'unix-htt
 /** Host-private mount identity. No value from this object may cross the supervisor port. */
 export interface ProviderSessionHostMountBinding {
   readonly bindingId: string;
+  readonly browserBrokerSocketPath: string | null;
   readonly brokerSocketPath: string | null;
   readonly selectedDirectory: string;
   readonly stateDirectory: string;
