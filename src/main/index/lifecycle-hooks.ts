@@ -202,18 +202,6 @@ export function registerLifecycleHooks(
           cleanupSessionHandOffPreparations();
           const adapterShutdown = await adapterRegistry.shutdownAll();
           if (adapterShutdown.some((result) => !result.ok)) allIngressStopped = false;
-          if (state.browserUseServerShutdown) {
-            try {
-              await state.browserUseServerShutdown();
-            } catch (err) {
-              allIngressStopped = false;
-              logger.warn(
-                'browser native-pipe shutdown failed during cleanup',
-                lifecycleDiagnostic('browser-native-pipe-stop', 'failed', err),
-              );
-            }
-            state.browserUseServerShutdown = null;
-          }
           // Revoke and remove every session shim/context before closing the broker endpoint.
           shutdownBrowserRuntimeContexts();
           if (state.browserCliBrokerShutdown) {
@@ -228,8 +216,7 @@ export function registerLifecycleHooks(
             }
             state.browserCliBrokerShutdown = null;
           }
-          // Engine-owned windows outlive the native pipe: MCP browser tools open tabs without any
-          // pipe connection, so the pipe shutdown above cannot close them.
+          // Engine-owned windows outlive provider runtimes, so retire them after the CLI broker.
           try {
             await getBrowserEngine().disposeAll();
           } catch (err) {

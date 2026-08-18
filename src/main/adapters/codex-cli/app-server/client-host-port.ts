@@ -1,6 +1,4 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
-import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
 import {
   NOOP_CODEX_CLIENT_DIAGNOSTICS,
   type CodexAppServerClientDiagnostics,
@@ -8,7 +6,6 @@ import {
 import {
   NOOP_CODEX_GENERATION_DIAGNOSTICS,
   type CodexGenerationDiagnostics,
-  type CodexGenerationOperation,
 } from './generation-operation';
 import type { CodexMcpStartupObserver } from './mcp-startup-observer';
 import type { CodexAppServerClient } from './client';
@@ -30,12 +27,6 @@ export interface CodexAppServerClientHost extends CodexAppServerClientDiagnostic
     attachedGeneration?: number,
     initialRuntime?: unknown,
   ): CodexAppServerThread;
-  prepareThreadOptions(
-    client: CodexAppServerClient,
-    options: CodexThreadOptions,
-    baseConfig: CodexConfigObject | null,
-    operation?: CodexGenerationOperation,
-  ): Promise<CodexThreadOptions>;
   startProcess(input: CodexAppServerProcessStart): ChildProcessWithoutNullStreams;
 }
 
@@ -48,7 +39,6 @@ export const UNCONFIGURED_CODEX_CLIENT_HOST: CodexAppServerClientHost = Object.f
   }),
   createThread: (client, mode, attachedGeneration, initialRuntime) =>
     new CodexAppServerThread(client, mode, attachedGeneration, initialRuntime),
-  prepareThreadOptions: (_client, options) => Promise.resolve(options),
   startProcess: () => {
     throw new Error('Codex app-server process host is not configured');
   },

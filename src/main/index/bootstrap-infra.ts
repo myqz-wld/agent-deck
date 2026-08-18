@@ -71,7 +71,6 @@ import { universalMessageWatcher } from '../teams/universal-message-watcher';
 import { AGENT_DECK_MCP_TOKEN_ENV } from '../codex-config/agent-deck-mcp-injector';
 import { unionUserShellPath } from '../utils/user-shell-path';
 import { startMainEventLoopMonitor } from '../utils/main-event-loop-monitor';
-import { startBrowserUseServer } from '../browser-use/server';
 import { startBrowserCliBroker } from '../browser-use/browser-cli-broker';
 import { initializeBrowserRuntimeContextHost } from '../browser-use/browser-runtime-context-host';
 import { initializeBrowserViewHost } from '../browser-use/view-host';
@@ -362,18 +361,6 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   } catch (err) {
     await browserCliBroker?.shutdown().catch(() => undefined);
     logger.warn('[browser-cli] broker unavailable; Browser CLI contexts stay disabled', err);
-  }
-
-  // 8.3 Migration fallback: official Browser plugin native-pipe backend. Each connection binds to
-  // its first real Codex session_id. Retain it until the unified CLI live parity gate passes.
-  // 绑定，并在隔离的 Electron partition/window 中执行 CDP。启动失败只降级 Browser visual
-  // QA，不影响 Claude/Codex/Grok 的普通会话；transport 自身负责一次固定字段诊断。
-  try {
-    const browserUseServer = await startBrowserUseServer();
-    state.browserUseServerShutdown = browserUseServer.shutdown;
-    logger.info(`[browser-use] session-owned backend listening at ${browserUseServer.pipePath}`);
-  } catch {
-    // startBrowserUseServer owns the single redacted startup-failure diagnostic.
   }
 
   // 8.5 预热 agent-deck plugin 内置 agents/skills frontmatter 缓存

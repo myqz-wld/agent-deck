@@ -57,7 +57,6 @@ describe('Codex client construction Core', () => {
         PATH: '/usr/bin',
       },
       skillExtraRoots: ['/skills'],
-      nodeReplBrowserBootstrap: true,
     }));
     expect(clients.get('session-a')).toBe(client);
   });

@@ -45,13 +45,9 @@ export interface AdapterRuntimeProfile {
   };
   mcpTools: McpToolPolicy;
   /**
-   * Whether Agent Deck's own in-app browser is exposed to this adapter as `browser_*` MCP tools
-   * (plan cross-adapter-browser-engine-20260727).
-   *
-   * False for Codex CLI on purpose: Codex sessions drive the same engine through the official
-   * Browser plugin over the native pipe (`src/main/browser-use/fronts/codex-pipe.ts`), and two
-   * competing browser surfaces in one session only make the model choose badly. Everything else
-   * about the browser — engine, isolation, disposal — is shared.
+   * Local legacy Browser MCP registration. Unified interactive sessions use the bundled Browser
+   * skill plus `agent-deck-browser`, so every local adapter must keep this false. Server Core owns
+   * its separately staged Remote compatibility surface.
    */
   mcpBrowserTools: boolean;
 }
@@ -95,7 +91,7 @@ const profiles = {
       extraAllowWrite: true,
     },
     mcpTools: { kind: 'all' },
-    mcpBrowserTools: true,
+    mcpBrowserTools: false,
   },
   'codex-cli': {
     id: 'codex-cli',
@@ -178,7 +174,7 @@ const profiles = {
       extraAllowWrite: false,
     },
     mcpTools: { kind: 'all' },
-    mcpBrowserTools: true,
+    mcpBrowserTools: false,
   },
 } satisfies Record<SessionAdapterId, AdapterRuntimeProfile>;
 

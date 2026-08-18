@@ -146,14 +146,6 @@ export class CodexAppServerClient {
     return this.host.createThread(this, { mode: 'resume', threadId, options },
       this.isProcessAlive ? this.generation : undefined, initialRuntime);
   }
-  prepareThreadOptions(
-    options: CodexThreadOptions,
-    operation?: CodexGenerationOperation,
-  ): Promise<CodexThreadOptions> {
-    return this.opts.nodeReplBrowserBootstrap
-      ? this.host.prepareThreadOptions(this, options, this.baseConfig, operation)
-      : Promise.resolve(options);
-  }
   readThread(threadId: string): Promise<CodexAppServerThreadReadResult> {
     return this.request('thread/read', { threadId, includeTurns: true });
   }
@@ -162,10 +154,9 @@ export class CodexAppServerClient {
     signal?: AbortSignal,
   ): Promise<CodexAppServerThreadCreateResult> {
     return this.runGenerationOperation('thread/start readiness', signal, async (operation) => {
-      const prepared = await this.prepareThreadOptions(options, operation);
       return operation.request(
         'thread/start',
-        buildThreadStartParams(prepared, this.baseConfig),
+        buildThreadStartParams(options, this.baseConfig),
       );
     });
   }
@@ -176,10 +167,9 @@ export class CodexAppServerClient {
     signal?: AbortSignal,
   ): Promise<CodexAppServerThreadCreateResult> {
     return this.runGenerationOperation('thread/fork readiness', signal, async (operation) => {
-      const prepared = await this.prepareThreadOptions(options, operation);
       return operation.request(
         'thread/fork',
-        buildThreadForkParams(sourceThreadId, lastTurnId, prepared, this.baseConfig),
+        buildThreadForkParams(sourceThreadId, lastTurnId, options, this.baseConfig),
       );
     });
   }

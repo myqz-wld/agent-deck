@@ -123,26 +123,22 @@ describe('Codex app-server client diagnostics port', () => {
     expect(internal.generationController.diagnostics).toBe(generationDiagnostics);
   });
 
-  it('routes thread construction and Browser preparation through the client host', async () => {
+  it('routes thread construction through the client host', () => {
     const thread = {} as ReturnType<CodexAppServerClientHost['createThread']>;
     const createThread = vi.fn((
       ..._args: Parameters<CodexAppServerClientHost['createThread']>
     ) => thread);
-    const prepared = {
+    const options = {
       workingDirectory: '/repo',
       sandboxMode: 'workspace-write' as const,
       approvalPolicy: 'never' as const,
       skipGitRepoCheck: true,
-      model: 'prepared-model',
+      model: 'original-model',
     };
-    const prepareThreadOptions = vi.fn(async (
-      ..._args: Parameters<CodexAppServerClientHost['prepareThreadOptions']>
-    ) => prepared);
     const client = new CodexAppServerClient(
-      { env: {}, config: null, nodeReplBrowserBootstrap: true },
-      clientHost({ createThread, prepareThreadOptions }),
+      { env: {}, config: null },
+      clientHost({ createThread }),
     );
-    const options = { ...prepared, model: 'original-model' };
     const initialRuntime = { model: 'runtime-model', modelProvider: 'openai' };
 
     expect(client.startThread(options)).toBe(thread);
@@ -159,7 +155,5 @@ describe('Codex app-server client diagnostics port', () => {
       threadId: 'thread-2',
       options,
     }, undefined, initialRuntime);
-    await expect(client.prepareThreadOptions(options)).resolves.toBe(prepared);
-    expect(prepareThreadOptions).toHaveBeenCalledWith(client, options, null, undefined);
   });
 });

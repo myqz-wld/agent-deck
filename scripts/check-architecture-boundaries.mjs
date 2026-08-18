@@ -449,20 +449,6 @@ const rules = [
     forbiddenPackages: ['electron', 'electron-log'],
   },
   {
-    name: 'codex-node-repl-browser-bootstrap',
-    root: 'src/main/adapters/codex-cli/app-server/node-repl-browser-bootstrap.ts',
-    forbiddenTargets: [
-      'src/main/adapters/codex-cli/app-server/client',
-      'src/main/adapters/codex-cli/app-server/generation-diagnostics',
-      'src/main/adapters/codex-cli/app-server/node-repl-browser-bootstrap-adapter',
-      'src/main/runtime-host',
-      'src/main/store',
-      'src/main/utils',
-    ],
-    forbidNodeBuiltins: true,
-    forbiddenPackages: ['electron', 'electron-log'],
-  },
-  {
     name: 'codex-mcp-startup-observer',
     root: 'src/main/adapters/codex-cli/app-server/mcp-startup-observer.ts',
     forbiddenTargets: [
@@ -510,7 +496,6 @@ const rules = [
       'src/main/adapters/codex-cli/app-server/client-process-host',
       'src/main/adapters/codex-cli/app-server/generation-diagnostics',
       'src/main/adapters/codex-cli/app-server/mcp-startup-observer-adapter',
-      'src/main/adapters/codex-cli/app-server/node-repl-browser-bootstrap-adapter',
       'src/main/adapters/codex-cli/app-server/thread-diagnostics',
       'src/main/adapters/codex-cli/sdk-bridge/codex-binary',
       'src/main/runtime-host',
