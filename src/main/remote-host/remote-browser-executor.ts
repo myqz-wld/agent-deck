@@ -1,97 +1,18 @@
 import { createHash } from 'node:crypto';
-import { rm } from 'node:fs/promises';
 
 import {
+  DESKTOP_BROKER_MAX_IMAGE_BASE64_BYTES,
   parseDesktopBrokerToolResult,
-  type DesktopBrokerBrowserOperation,
   type DesktopBrokerRequestDto,
   type DesktopBrokerToolResult,
 } from '@contracts/index';
-import type { HandlerContext } from '@main/agent-deck-mcp/tools/helpers';
 import {
-  BROWSER_CLICK_SCHEMA,
-  BROWSER_CLOSE_SCHEMA,
-  BROWSER_EVALUATE_SCHEMA,
-  BROWSER_NAVIGATE_SCHEMA,
-  BROWSER_OPEN_SCHEMA,
-  BROWSER_PRESS_SCHEMA,
-  BROWSER_READ_CONSOLE_SCHEMA,
-  BROWSER_READ_NETWORK_SCHEMA,
-  BROWSER_SCREENSHOT_SCHEMA,
-  BROWSER_SCROLL_SCHEMA,
-  BROWSER_SNAPSHOT_SCHEMA,
-  BROWSER_TABS_SCHEMA,
-  BROWSER_TYPE_SCHEMA,
-  BROWSER_WAIT_SCHEMA,
-} from '@main/agent-deck-mcp/tools/schemas/browser';
-import {
-  browserCloseHandler,
-  browserNavigateHandler,
-  browserOpenHandler,
-  browserTabsHandler,
-} from '@main/agent-deck-mcp/tools/handlers/browser/tabs';
-import {
-  browserClickHandler,
-  browserPressHandler,
-  browserScrollHandler,
-  browserTypeHandler,
-} from '@main/agent-deck-mcp/tools/handlers/browser/interact';
-import {
-  browserEvaluateHandler,
-  browserReadConsoleHandler,
-  browserReadNetworkHandler,
-  browserScreenshotHandler,
-  browserSnapshotHandler,
-  browserWaitHandler,
-} from '@main/agent-deck-mcp/tools/handlers/browser/inspect';
-import { z } from 'zod';
-
-type BrowserResult = {
-  content: Array<
-    { type: 'text'; text: string } |
-    { type: 'image'; data: string; mimeType: string }
-  >;
-  isError?: boolean;
-};
-
-type BrowserHandler = (
-  args: any,
-  context: HandlerContext,
-) => Promise<BrowserResult> | BrowserResult;
-
-const SCHEMAS: Record<DesktopBrokerBrowserOperation, any> = {
-  browser_open: BROWSER_OPEN_SCHEMA,
-  browser_tabs: BROWSER_TABS_SCHEMA,
-  browser_navigate: BROWSER_NAVIGATE_SCHEMA,
-  browser_wait: BROWSER_WAIT_SCHEMA,
-  browser_close: BROWSER_CLOSE_SCHEMA,
-  browser_snapshot: BROWSER_SNAPSHOT_SCHEMA,
-  browser_screenshot: BROWSER_SCREENSHOT_SCHEMA,
-  browser_click: BROWSER_CLICK_SCHEMA,
-  browser_type: BROWSER_TYPE_SCHEMA,
-  browser_press: BROWSER_PRESS_SCHEMA,
-  browser_scroll: BROWSER_SCROLL_SCHEMA,
-  browser_read_console: BROWSER_READ_CONSOLE_SCHEMA,
-  browser_read_network: BROWSER_READ_NETWORK_SCHEMA,
-  browser_evaluate: BROWSER_EVALUATE_SCHEMA,
-};
-
-const HANDLERS: Record<DesktopBrokerBrowserOperation, BrowserHandler> = {
-  browser_open: browserOpenHandler,
-  browser_tabs: browserTabsHandler,
-  browser_navigate: browserNavigateHandler,
-  browser_wait: browserWaitHandler,
-  browser_close: browserCloseHandler,
-  browser_snapshot: browserSnapshotHandler,
-  browser_screenshot: browserScreenshotHandler,
-  browser_click: browserClickHandler,
-  browser_type: browserTypeHandler,
-  browser_press: browserPressHandler,
-  browser_scroll: browserScrollHandler,
-  browser_read_console: browserReadConsoleHandler,
-  browser_read_network: browserReadNetworkHandler,
-  browser_evaluate: browserEvaluateHandler,
-};
+  BROWSER_OPERATION_PROTOCOL_VERSION,
+  browserOperationFromLegacyName,
+  parseBrowserOperationArgs,
+} from '@main/browser-use/operation-contract';
+import { executeBrowserOperation } from '@main/browser-use/operation-executor';
+import { acquireSessionBrowser } from '@main/browser-use/session-browser';
 
 export function remoteBrowserOwnerId(input: {
   readonly profileId: string;
@@ -116,25 +37,15 @@ function publicFailure(error: string, hint: string): DesktopBrokerToolResult {
   });
 }
 
-async function sanitizeScreenshot(result: BrowserResult): Promise<DesktopBrokerToolResult> {
-  const text = result.content.find((block) => block.type === 'text');
-  const image = result.content.find((block) => block.type === 'image');
-  if (!text || text.type !== 'text') {
+async function sanitizeScreenshot(
+  data: Record<string, unknown>,
+  png: Buffer | undefined,
+): Promise<DesktopBrokerToolResult> {
+  if (png == null) {
     return publicFailure('Desktop screenshot response was invalid', 'Retry with a smaller maxWidth.');
   }
-  let summary: Record<string, unknown>;
-  try {
-    const parsed = JSON.parse(text.text) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid');
-    summary = parsed as Record<string, unknown>;
-  } catch {
-    return publicFailure('Desktop screenshot response was invalid', 'Retry with a smaller maxWidth.');
-  }
-  const savedPath = typeof summary.savedPath === 'string' ? summary.savedPath : null;
-  delete summary.savedPath;
-  summary.desktopArtifact = true;
-  if (savedPath) await rm(savedPath, { force: true }).catch(() => undefined);
-  if (!image || image.type !== 'image') {
+  const encoded = png.toString('base64');
+  if (encoded.length > DESKTOP_BROKER_MAX_IMAGE_BASE64_BYTES) {
     return publicFailure(
       'Screenshot exceeded the remote inline transfer limit',
       'Retry with fullPage:false or a smaller maxWidth. Desktop paths are never exposed to Core.',
@@ -142,10 +53,9 @@ async function sanitizeScreenshot(result: BrowserResult): Promise<DesktopBrokerT
   }
   return parseDesktopBrokerToolResult({
     content: [
-      { type: 'text', text: JSON.stringify(summary, null, 2) },
-      { type: 'image', data: image.data, mimeType: image.mimeType },
+      { type: 'text', text: JSON.stringify({ ...data, desktopArtifact: true }, null, 2) },
+      { type: 'image', data: encoded, mimeType: 'image/png' },
     ],
-    ...(result.isError === undefined ? {} : { isError: result.isError }),
   });
 }
 
@@ -154,31 +64,38 @@ export async function executeRemoteBrowserRequest(
   ownerId: string,
   request: DesktopBrokerRequestDto,
 ): Promise<DesktopBrokerToolResult> {
-  const parsed = z.object(SCHEMAS[request.operation]).strict().safeParse(request.args);
-  if (!parsed.success) {
+  const operation = browserOperationFromLegacyName(request.operation);
+  let args: ReturnType<typeof parseBrowserOperationArgs>;
+  try {
+    args = parseBrowserOperationArgs(operation, request.args);
+  } catch {
     return publicFailure('Remote browser arguments were rejected', 'Refresh the tool schema and retry.');
   }
   if (
-    (request.operation === 'browser_open' || request.operation === 'browser_navigate') &&
-    !remoteUrlAllowed((parsed.data as { url?: unknown }).url)
+    (operation === 'open' || operation === 'navigate') &&
+    !remoteUrlAllowed((args as { url?: unknown }).url)
   ) {
     return publicFailure(
       'Remote browser cannot open desktop file URLs',
       'Use http, https, about, or a local development server URL instead.',
     );
   }
-  const context: HandlerContext = {
-    caller: { callerSessionId: ownerId, transport: 'in-process' },
-  };
-  let result: BrowserResult;
-  try {
-    result = await HANDLERS[request.operation](parsed.data, context);
-  } catch {
-    return publicFailure('Desktop browser operation failed', 'Inspect the tab state and retry.');
+  const result = await executeBrowserOperation(
+    { applicationSessionId: ownerId, handle: acquireSessionBrowser(ownerId) },
+    {
+      protocolVersion: BROWSER_OPERATION_PROTOCOL_VERSION,
+      operation,
+      args,
+    } as never,
+  );
+  if (!result.ok) return publicFailure(result.error.message, result.error.nextAction);
+  if (operation === 'screenshot') {
+    return sanitizeScreenshot(result.data, result.binaryArtifacts[0]?.data);
   }
-  if (request.operation === 'browser_screenshot') return sanitizeScreenshot(result);
   try {
-    return parseDesktopBrokerToolResult(result);
+    return parseDesktopBrokerToolResult({
+      content: [{ type: 'text', text: JSON.stringify(result.data, null, 2) }],
+    });
   } catch {
     return publicFailure('Desktop browser response exceeded its safe boundary', 'Request less page data.');
   }

@@ -29,6 +29,8 @@ vi.mock('@main/browser-use/screenshot-store', () => ({
 }));
 
 import { BrowserEngine, setBrowserEngine } from '@main/browser-use/engine/registry';
+import { executeBrowserOperation } from '@main/browser-use/operation-executor';
+import { acquireSessionBrowser } from '@main/browser-use/session-browser';
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import {
   fakeWindowFactory,
@@ -161,6 +163,28 @@ describe('browser tool registration', () => {
 });
 
 describe('browser tool handlers', () => {
+  it('projects the same shared executor result through the MCP front', async () => {
+    const owner = {
+      applicationSessionId: 'sid-1',
+      handle: acquireSessionBrowser('sid-1'),
+    };
+    await executeBrowserOperation(owner, {
+      protocolVersion: 1,
+      operation: 'open',
+      args: { url: 'localhost:3456/shared' },
+    });
+    const direct = await executeBrowserOperation(owner, {
+      protocolVersion: 1,
+      operation: 'tabs',
+      args: {},
+    });
+    const projected = await browserTabsHandler({}, sessionCtx('sid-1'));
+
+    expect(direct.ok).toBe(true);
+    if (!direct.ok) throw new Error('expected direct Browser success');
+    expect(payload(projected)).toEqual(direct.data);
+  });
+
   it('opens a background tab and reports the loaded page', async () => {
     const result = await browserOpenHandler({ url: 'localhost:3456/health' }, sessionCtx('sid-1'));
     const window = factory.windows[0] as unknown as FakeWindow;
@@ -196,7 +220,7 @@ describe('browser tool handlers', () => {
   it('keeps tabs private to the owning session', async () => {
     await browserOpenHandler({ url: 'localhost:3000' }, sessionCtx('sid-1'));
 
-    expect(payload(browserTabsHandler({}, sessionCtx('sid-2'))).tabs).toEqual([]);
+    expect(payload(await browserTabsHandler({}, sessionCtx('sid-2'))).tabs).toEqual([]);
     // A foreign tab id is not addressable either.
     const stolen = await browserNavigateHandler({ tabId: 1, url: 'localhost:9999' }, sessionCtx('sid-2'));
     expect(stolen.isError).toBe(true);
@@ -322,7 +346,7 @@ describe('browser tool handlers', () => {
     await browserOpenHandler({}, sessionCtx('sid-1'));
     await browserOpenHandler({ newTab: true }, sessionCtx('sid-1'));
 
-    const result = browserCloseHandler({ all: true }, sessionCtx('sid-1'));
+    const result = await browserCloseHandler({ all: true }, sessionCtx('sid-1'));
 
     expect(payload(result).closed).toEqual([1, 2]);
     expect(factory.windows.every((window) => window.destroyed)).toBe(true);
