@@ -84,9 +84,24 @@ required=(
   deploy/linux/feishu/preflight.sh
   config/instance-manager.json
 )
+for architecture in amd64 arm64; do
+  runtime_basename="agent-deck-feishu-runtime-linux-${architecture}"
+  required+=(
+    "build/feishu-runtime/linux-${architecture}/${runtime_basename}.tgz"
+    "build/feishu-runtime/linux-${architecture}/${runtime_basename}.tgz.sha256"
+    "build/feishu-runtime/linux-${architecture}/${runtime_basename}.json"
+  )
+done
 for relative_path in "${required[@]}"; do
   [[ -f "$release_root/$relative_path" && ! -L "$release_root/$relative_path" ]] || fail "release 缺少 $relative_path"
 done
+expected_manifest="$(printf '%s\n' "${required[@]}" | /usr/bin/sort)"
+actual_manifest="$(
+  cd "$release_root"
+  /usr/bin/find . -type f -print | /usr/bin/sed 's#^\./##' | /usr/bin/sort
+)"
+[[ "$actual_manifest" == "$expected_manifest" ]] ||
+  fail 'release archive 包含缺失、多余或非当前布局的文件'
 
 case "$(/usr/bin/uname -m)" in
   x86_64)
@@ -159,8 +174,14 @@ validate_runtime_tree() {
   (
     cd "$root"
     /usr/bin/sha256sum --check --strict SHA256SUMS >/dev/null
+    expected_runtime_manifest="$(
+      /usr/bin/sed -nE 's/^[a-f0-9]{64}  (.+)$/\1/p' SHA256SUMS
+      printf '%s\n' './SHA256SUMS'
+    )"
+    expected_runtime_manifest="$(printf '%s\n' "$expected_runtime_manifest" | /usr/bin/sort)"
+    actual_runtime_manifest="$(/usr/bin/find . -type f -print | /usr/bin/sort)"
+    [[ "$actual_runtime_manifest" == "$expected_runtime_manifest" ]]
   ) || fail 'Feishu 运行时内部 checksum 无效'
-  /bin/chmod 0755 "$root/bin/node"
   "$root/bin/node" - "$root/runtime.json" \
     "$runtime_architecture" "$runtime_base_image" <<'NODE' || fail 'Feishu 运行时清单或 ABI 无效'
 const fs = require('node:fs');
@@ -300,6 +321,7 @@ if [[ ! -e "$runtime_target" ]]; then
   /usr/bin/sudo -n /bin/chmod 0700 -- "$runtime_stage"
   /usr/bin/tar -xzf "$runtime_artifact" -C "$runtime_stage" \
     --no-same-owner --no-same-permissions
+  /bin/chmod 0755 "$runtime_stage/bin/node"
   validate_runtime_tree "$runtime_stage"
   /usr/bin/sudo -n /bin/chown -R root:root -- "$runtime_stage"
   /usr/bin/sudo -n /usr/bin/find "$runtime_stage" -type d -exec /bin/chmod 0755 {} +
@@ -309,13 +331,7 @@ if [[ ! -e "$runtime_target" ]]; then
   runtime_stage=''
 fi
 [[ -d "$runtime_target" && ! -L "$runtime_target" ]] || fail 'Feishu 运行时安装目标无效'
-if [[ -n "$(/usr/bin/find "$runtime_target" ! -type d ! -type f -print -quit)" ]]; then
-  fail '已安装 Feishu 运行时包含不允许的文件类型'
-fi
-(
-  cd "$runtime_target"
-  /usr/bin/sha256sum --check --strict SHA256SUMS >/dev/null
-) || fail '已安装 Feishu 运行时校验失败'
+validate_runtime_tree "$runtime_target"
 /bin/rm -rf -- "$release_root/build/feishu-runtime"
 pointer_source="$release_root/feishu-runtime-pointer"
 printf '%s\n' "$runtime_digest" > "$pointer_source"

@@ -3,7 +3,6 @@ import {
   type JsonValue,
   type PendingRequestDto,
   parseProjectListResult,
-  parseProjectResolveResult,
   parseMcpPresentationDisplay,
   parsePermissionPreviewDisplay,
   parseSessionConsoleCapabilitiesResult,
@@ -12,7 +11,6 @@ import {
   parseSessionConsoleListResult,
   parseSessionHistoryMutationResult,
   type ProjectListResult,
-  type ProjectResolveResult,
   type SessionConsoleCapabilitiesResult,
   type SessionHistoryEntryDto,
   type SessionHistoryMutationResult,
@@ -117,17 +115,6 @@ export function validateProjectListResult(
 ): ProjectListResult {
   return contractResult(value, limits, 'project list', () =>
     parseProjectListResult(value, requestedLimit));
-}
-
-export function validateProjectResolveResult(
-  value: unknown,
-  expectedAlias: string,
-  limits: FeishuGatewayLimits,
-): ProjectResolveResult {
-  const result = contractResult(value, limits, 'project resolve', () =>
-    parseProjectResolveResult(value));
-  if (result.project && result.project.alias !== expectedAlias) fail('project resolve alias');
-  return result;
 }
 
 export function validateSessionConsoleCreateResult(

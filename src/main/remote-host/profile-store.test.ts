@@ -82,7 +82,7 @@ describe('RemoteHostProfileStore', () => {
     expect(backend.writes).toHaveLength(0);
   });
 
-  it('migrates persisted v3 profiles without discarding the local source or remote selection', () => {
+  it('rejects a structurally valid v3 profile document without rewriting it', () => {
     const backend = new MemoryBackend({
       schemaVersion: 3,
       sourceMode: 'local',
@@ -111,61 +111,9 @@ describe('RemoteHostProfileStore', () => {
       ],
     });
 
-    const document = new RemoteHostProfileStore(backend, ids()).load();
-
-    expect(document).toMatchObject({
-      schemaVersion: 4,
-      sourceMode: 'local',
-      selectedRemoteProfileId: 'relay-a',
-      profiles: [
-        { id: 'local', topology: 'standalone' },
-        {
-          id: 'relay-a',
-          topology: 'relay',
-          connectionCredentialStatus: 'refresh-required',
-          ssh: {
-            expectedInstanceId: 'relay-instance',
-            hostKeyFingerprint: 'SHA256:relay',
-          },
-        },
-      ],
-    });
-    expect(document.profiles[1]).not.toHaveProperty('ssh.expectedConnectionScope');
-    expect(backend.writes).toEqual([document]);
-  });
-
-  it('renames the v3 server-core topology to full during migration', () => {
-    const backend = new MemoryBackend({
-      schemaVersion: 3,
-      sourceMode: 'remote',
-      selectedRemoteProfileId: 'server-a',
-      profiles: [
-        { id: 'local', label: '本机', topology: 'standalone', clientId: 'client-local' },
-        {
-          id: 'server-a',
-          label: 'Full',
-          topology: 'server-core',
-          clientId: 'client-server-a',
-          ssh: {
-            hostname: 'core.example.test',
-            port: 22,
-            username: 'agentdeck',
-            identityFile: '/private/key',
-            knownHostsFile: '/private/known_hosts',
-          },
-        },
-      ],
-    });
-
-    const document = new RemoteHostProfileStore(backend, ids()).load();
-
-    expect(document.profiles[1]).toMatchObject({
-      topology: 'full',
-      connectionCredentialStatus: 'refresh-required',
-      ssh: { topology: 'full' },
-    });
-    expect(document.sourceMode).toBe('local');
-    expect(backend.writes).toEqual([document]);
+    expect(() => new RemoteHostProfileStore(backend, ids()).load())
+      .toThrow('Unsupported persisted remote host profile schema');
+    expect(backend.writes).toHaveLength(0);
   });
 
   it('fails closed for unknown schemas, duplicate ids, or a missing Standalone profile', () => {
@@ -173,7 +121,6 @@ describe('RemoteHostProfileStore', () => {
       { schemaVersion: 99, selectedProfileId: 'x', profiles: [] },
       { schemaVersion: 1, activeProfileId: 'x', profiles: [] },
       { schemaVersion: 2, selectedProfileId: 'x', profiles: [] },
-      { schemaVersion: 3, sourceMode: 'local', selectedRemoteProfileId: null, profiles: [] },
       {
         schemaVersion: 4,
         sourceMode: 'local',

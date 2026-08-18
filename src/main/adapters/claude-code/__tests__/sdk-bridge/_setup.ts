@@ -285,11 +285,11 @@ export class TestBridge extends ClaudeSdkBridge {
     this.recoveryPrepareCalls.push(input);
     if (this.recoveryPrepareThrow) throw this.recoveryPrepareThrow;
     const prepared: PreparedContinuationContext = {
-      version: 1,
-      providerPrompt: `===== Agent Deck Continuation Context v1 =====\n${input.continuationInstruction}`,
+      version: 2,
+      providerPrompt: `===== Agent Deck Continuation Context v2 =====\n${input.continuationInstruction}`,
       persistedUserText: input.continuationInstruction,
       source: { eventRevision: 7, rebuildAfterRevision: 0, maxEventId: 7 },
-      checkpoint: { id: 3, throughRevision: 7, formatVersion: 1, refreshed: false },
+      checkpoint: { id: 3, throughRevision: 7, formatVersion: 2, refreshed: false },
       projection: { canonicalHash: 'canonical', omittedFacts: 0 },
       quality: this.recoveryQuality,
       metrics: {

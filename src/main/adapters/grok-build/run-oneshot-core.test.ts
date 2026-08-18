@@ -39,9 +39,10 @@ fs.writeFileSync(process.env.CAPTURE_PATH, JSON.stringify({
   home: process.env.HOME,
   desktopOnly: process.env.DESKTOP_ONLY ?? null,
 }));
+const structured = process.argv.includes('--json-schema');
 process.stdout.write(JSON.stringify({
-  structuredOutput: { ok: true },
-  usage: { inputTokens: 4, outputTokens: 2, contextWindowTokens: 131072 },
+  ...(structured ? { structuredOutput: { ok: true } } : { text: 'plain output' }),
+  usage: { input_tokens: 4, output_tokens: 2 },
 }));
 `, { mode: 0o700 });
     chmodSync(binary, 0o700);
@@ -73,11 +74,28 @@ process.stdout.write(JSON.stringify({
       expect(capture.home).toBe('/server-provider-home');
       expect(capture.desktopOnly).toBeNull();
       expect(result).toMatchObject({
-        text: '{"ok":true}',
+        text: 'plain output',
         inputTokens: 4,
         outputTokens: 2,
-        contextWindowTokens: 131_072,
+        contextWindowTokens: null,
       });
+
+      await expect(runGrokOneshotWithHost({
+        prompt: 'structured checkpoint input',
+        systemPrompt: 'checkpoint system',
+        binaryPath: binary,
+        outputSchema: { type: 'object' },
+        timeoutMs: 5_000,
+        timeoutErrorMessage: 'timed out',
+      }, {
+        environment: {
+          PATH: process.env.PATH ?? '/usr/bin:/bin',
+          HOME: '/server-provider-home',
+          CAPTURE_PATH: capturePath,
+        },
+        temporaryRoot,
+        resolveBinary: resolveExplicitGrokOneshotBinary,
+      })).resolves.toMatchObject({ text: '{"ok":true}' });
     } finally {
       if (previousDesktopOnly === undefined) delete process.env.DESKTOP_ONLY;
       else process.env.DESKTOP_ONLY = previousDesktopOnly;

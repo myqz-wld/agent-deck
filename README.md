@@ -50,8 +50,7 @@ or internal thread boundary. When present, its top-level `model_provider` is als
 app-server's native `modelProvider` field so the matching `model_providers` entry is loaded; it does
 not need to match the Gateway filename. Agent Deck's own MCP and runtime safety boundaries remain
 authoritative. An empty Gateway selection delegates to the ordinary `${CODEX_HOME:-~/.codex}/config.toml`;
-a non-empty selection must resolve to its same-named `.toml` file. There is no JSON Gateway format
-or legacy provider enumeration. Claude Gateway profiles remain separate under
+a non-empty selection must resolve to its same-named `.toml` file. Claude Gateway profiles remain separate under
 `~/.claude/gateways/*.json`.
 
 Gateway controls in the app are choice-only: select a discovered filename stem or the empty native
@@ -143,8 +142,8 @@ existing standalone desktop remains the supported runtime meanwhile.
 The desktop has two selectable data sources and keeps the same project, session, history, pending,
 and runtime pages when switching between them:
 
-The primary workspace navigation is Live, Pending, History, Issues, and Data. Team coordination
-continues through sessions and the built-in collaboration tools rather than a separate Team page.
+The primary workspace navigation is Live, Pending, History, Issues, and Data. Team coordination is
+available through sessions and the built-in collaboration tools.
 Session details contain Activity, Tasks, Changes, Summary, and Cross-session messages; permission
 and sandbox choices remain part of session creation and runtime controls rather than a separate
 inspection page.

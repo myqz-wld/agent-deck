@@ -1,10 +1,15 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
   TASK_CREATE_SCHEMA,
+  TASK_CREATE_OUTPUT_SCHEMA,
   TASK_DELETE_SCHEMA,
+  TASK_DELETE_OUTPUT_SCHEMA,
   TASK_GET_SCHEMA,
+  TASK_GET_OUTPUT_SCHEMA,
   TASK_LIST_SCHEMA,
+  TASK_LIST_OUTPUT_SCHEMA,
   TASK_UPDATE_SCHEMA,
+  TASK_UPDATE_OUTPUT_SCHEMA,
   type TaskCreateArgs,
   type TaskDeleteArgs,
   type TaskGetArgs,
@@ -213,21 +218,26 @@ export function registerServerCoreTaskTools(
   server.registerTool('task_create', {
     description: 'Create a personal or active-team task owned by this authenticated session.',
     inputSchema: TASK_CREATE_SCHEMA,
+    outputSchema: TASK_CREATE_OUTPUT_SCHEMA,
   }, (args) => createTask(args, context));
   server.registerTool('task_list', {
     description: 'List personal and active-team tasks visible to this authenticated session.',
     inputSchema: TASK_LIST_SCHEMA,
+    outputSchema: TASK_LIST_OUTPUT_SCHEMA,
   }, (args) => listTasks(args, context));
   server.registerTool('task_get', {
     description: 'Read one task visible to this authenticated session.',
     inputSchema: TASK_GET_SCHEMA,
+    outputSchema: TASK_GET_OUTPUT_SCHEMA,
   }, (args) => getTask(args, context));
   server.registerTool('task_update', {
     description: 'Update one task writable by this authenticated session.',
     inputSchema: TASK_UPDATE_SCHEMA,
+    outputSchema: TASK_UPDATE_OUTPUT_SCHEMA,
   }, (args) => updateTask(args, context));
   server.registerTool('task_delete', {
     description: 'Delete one writable task and optionally its writable downstream tasks.',
     inputSchema: TASK_DELETE_SCHEMA,
+    outputSchema: TASK_DELETE_OUTPUT_SCHEMA,
   }, (args) => deleteTask(args, context));
 }

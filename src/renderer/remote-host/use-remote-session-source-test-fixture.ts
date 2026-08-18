@@ -56,7 +56,6 @@ function profile(id: string): RemoteHostProfileDto {
       username: 'agentdeck',
       hostKeyFingerprint: 'SHA256:test',
     },
-    credentials: { connectionCredentialConfigured: true },
   };
 }
 

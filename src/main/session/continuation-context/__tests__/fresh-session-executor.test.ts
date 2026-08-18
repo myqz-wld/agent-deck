@@ -48,7 +48,7 @@ const target: CreateSessionOptions = {
 };
 
 const prepared: PreparedContinuationContext = {
-  version: 1, providerPrompt: 'full context', persistedUserText: 'next',
+  version: 2, providerPrompt: 'full context', persistedUserText: 'next',
   source: { eventRevision: 1, rebuildAfterRevision: 0, maxEventId: 1 },
   checkpoint: { id: null, throughRevision: 0, formatVersion: 1, refreshed: false },
   projection: { canonicalHash: null, omittedFacts: 0 }, quality: 'raw-only',

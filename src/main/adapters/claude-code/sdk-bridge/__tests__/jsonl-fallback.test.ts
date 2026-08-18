@@ -51,11 +51,11 @@ function preparedRecovery(
   sourceSessionId = capture.sourceSessionId,
 ): PreparedRecoveryContinuation {
   const prepared: PreparedContinuationContext = {
-    version: 1,
-    providerPrompt: `===== Agent Deck Continuation Context v1 =====\n${instruction}`,
+    version: 2,
+    providerPrompt: `===== Agent Deck Continuation Context v2 =====\n${instruction}`,
     persistedUserText: instruction,
     source: { eventRevision: 4, rebuildAfterRevision: 0, maxEventId: 4 },
-    checkpoint: { id: 2, throughRevision: 4, formatVersion: 1, refreshed: false },
+    checkpoint: { id: 2, throughRevision: 4, formatVersion: 2, refreshed: false },
     projection: { canonicalHash: 'canonical', omittedFacts: 0 },
     quality,
     metrics: {

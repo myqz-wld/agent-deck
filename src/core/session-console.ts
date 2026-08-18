@@ -1,8 +1,6 @@
 import {
   parseProjectListParams,
   parseProjectListResult,
-  parseProjectResolveParams,
-  parseProjectResolveResult,
   parseSessionConsoleCapabilitiesParams,
   parseSessionConsoleCapabilitiesResult,
   parseSessionConsoleCreateParams,
@@ -18,7 +16,6 @@ import {
   type CoreMethod,
   type ProjectListParams,
   type ProjectListResult,
-  type ProjectResolveResult,
   type SessionConsoleCapabilitiesParams,
   type SessionConsoleCapabilitiesResult,
   type SessionConsoleCreateParams,
@@ -32,7 +29,6 @@ import {
 
 export const SESSION_CONSOLE_CORE_METHODS = Object.freeze([
   'project.list',
-  'project.resolve',
   'session.console.capabilities',
   'session.console.create',
   'session.console.get',
@@ -67,10 +63,6 @@ export interface AuthoritativeSessionConsolePort {
     params: ProjectListParams,
     context: SessionConsoleExecutionContext,
   ): Promise<unknown> | unknown;
-  resolveProject(
-    params: { alias: string },
-    context: SessionConsoleExecutionContext,
-  ): Promise<unknown> | unknown;
   getCapabilities(
     params: SessionConsoleCapabilitiesParams,
     context: SessionConsoleExecutionContext,
@@ -87,7 +79,6 @@ export interface AuthoritativeSessionConsolePort {
 
 export type SessionConsoleDispatchResult =
   | ProjectListResult
-  | ProjectResolveResult
   | SessionConsoleCapabilitiesResult
   | SessionConsoleCreateResult
   | SessionConsoleGetResult
@@ -151,12 +142,6 @@ export class SessionConsoleCoreDispatcher {
         const parsed = parseProjectListParams(params);
         const result = await this.authority.listProjects(parsed, context);
         return parseProjectListResult(result, parsed.limit);
-      }
-      case 'project.resolve': {
-        const parsed = parseProjectResolveParams(params);
-        return parseProjectResolveResult(
-          await this.authority.resolveProject(parsed, context),
-        );
       }
       case 'session.console.capabilities': {
         const parsed = parseSessionConsoleCapabilitiesParams(params);

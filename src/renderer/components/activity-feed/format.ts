@@ -9,8 +9,7 @@ import type { AgentEvent } from '@shared/types';
  * - waiting-for-user 用 type+requestId（同一请求 SDK 多次推送同 requestId 也只算一条）
  * - file-changed 用 ts+filePath（MultiEdit 拆出多条同 filePath 也按 ts 区分）
  * - message / thinking 用 sessionId+kind+ts+payload 文本前 32 字符（REVIEW_4 M19）。
- *   旧版仅 `sessionId:kind:ts` 同毫秒同 kind（SDK 一帧吐多条 message + thinking 不少见）撞 key
- *   导致 React 复用错 row 的 useState（MD/TXT、展开状态）；payload.text 前 32 字符做 nonce 区分。
+ *   SDK 可能在同一毫秒发出多条同 kind 事件；payload.text 前 32 字符用于稳定区分。
  * - 其余用 sessionId+kind+ts；同毫秒兜底极小概率冲突，无 payload 摘要可用，不会比 ts+idx 差
  */
 export function eventKey(e: AgentEvent): string {
@@ -113,7 +112,7 @@ function stringifyUnknown(value: unknown): string {
 /**
  * 解析 toolResult 是不是 mcp ImageRead 的结构化返回。
  * agent-deck-image-mcp 把 ImageToolResult JSON.stringify 后塞在 content[0].text 里。
- * 这里宽松解析（兼容 string content / Block[] content 两种形态），匹配 kind === 'image-read' 才返回。
+ * 当前 provider 通道会产生 string content 或 Block[] content；仅接受 kind === 'image-read'。
  */
 export function parseImageReadResult(content: unknown): {
   file: string;

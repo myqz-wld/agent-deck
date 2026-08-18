@@ -816,7 +816,8 @@ describe('task_list — v024 D5 三态分流', () => {
     mockTaskRepo.list.mockReturnValue(tasks50);
 
     const result = await taskListHandler({ limit: 50 }, makeCtx('sess-caller'));
-    const json = JSON.parse(result.content[0].text);
+    expect(result.content).toEqual([]);
+    const json = result.structuredContent!;
 
     expect(json.total).toBe(50);
     expect(json.hasMore).toBe(true);
@@ -825,7 +826,8 @@ describe('task_list — v024 D5 三态分流', () => {
       Array.from({ length: 5 }, (_, i) => makeTaskRecord({ id: `t-${i}` })),
     );
     const r2 = await taskListHandler({ limit: 10 }, makeCtx('sess-caller'));
-    expect(JSON.parse(r2.content[0].text).hasMore).toBe(false);
+    expect(r2.content).toEqual([]);
+    expect(r2.structuredContent?.hasMore).toBe(false);
   });
 });
 

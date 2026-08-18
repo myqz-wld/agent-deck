@@ -12,9 +12,9 @@ import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 function prepared(prompt: string): PreparedContinuationContext {
   return {
-    version: 1, providerPrompt: prompt, persistedUserText: 'next',
+    version: 2, providerPrompt: prompt, persistedUserText: 'next',
     source: { eventRevision: 1, rebuildAfterRevision: 0, maxEventId: 1 },
-    checkpoint: { id: null, throughRevision: 0, formatVersion: 1, refreshed: false },
+    checkpoint: { id: null, throughRevision: 0, formatVersion: 2, refreshed: false },
     projection: { canonicalHash: null, omittedFacts: 0 }, quality: 'raw-only',
     metrics: {
       rawRetentionCeilingTokens: 8_000, targetPromptCapacityTokens: 100_000,

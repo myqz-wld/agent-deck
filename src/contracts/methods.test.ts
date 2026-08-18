@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { AgentDeckCapability } from './capabilities';
 import { CORE_METHOD_METADATA } from './methods';
 
 describe('Core method metadata', () => {
@@ -14,5 +15,14 @@ describe('Core method metadata', () => {
         metadata.mutation && !ephemeralMutation ? 'required' : 'forbidden',
       );
     }
+  });
+
+  it('keeps no capability without a current Core method', () => {
+    const methodCapabilities = new Set(
+      Object.values(CORE_METHOD_METADATA).map((metadata) => metadata.capability),
+    );
+    expect([...methodCapabilities].sort()).toEqual(
+      [...Object.values(AgentDeckCapability)].sort(),
+    );
   });
 });

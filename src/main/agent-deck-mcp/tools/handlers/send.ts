@@ -26,7 +26,7 @@ import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordi
 
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -184,7 +184,7 @@ export const sendMessageHandler = withMcpGuard(
         `Wait at least ${result.retryAfterMs} ms, then retry once. To change the limit, ask the user to update mcpMessageRatePerTeamPerMin in Settings.`,
       );
     }
-    return ok({
+    return structuredOk({
       sessionId: targetSessionId,
       teamId,
       messageId: result.message.id,

@@ -1,42 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
-  const logger = {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  };
   return {
-    logger,
     execFileSync: vi.fn(),
-    loggerScope: vi.fn(() => logger),
   };
 });
 
 vi.mock('node:child_process', () => ({
   execFileSync: mocks.execFileSync,
 }));
-vi.mock('@main/utils/logger', () => ({
-  default: { scope: mocks.loggerScope },
-}));
 
 let subject: typeof import('../git-branch');
-
-function loggedText(): string {
-  return [
-    ...mocks.logger.debug.mock.calls,
-    ...mocks.logger.info.mock.calls,
-    ...mocks.logger.warn.mock.calls,
-    ...mocks.logger.error.mock.calls,
-  ].flat().map(String).join(' ');
-}
 
 describe('detectGitBranchName', () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.resetAllMocks();
-    mocks.loggerScope.mockReturnValue(mocks.logger);
     subject = await import('../git-branch');
   });
 
@@ -45,7 +24,6 @@ describe('detectGitBranchName', () => {
     (cwd) => {
       expect(subject.detectGitBranchName(cwd)).toBeNull();
       expect(mocks.execFileSync).not.toHaveBeenCalled();
-      expect(mocks.loggerScope).not.toHaveBeenCalled();
     },
   );
 
@@ -67,7 +45,6 @@ describe('detectGitBranchName', () => {
         timeout: 1_000,
       },
     );
-    expect(mocks.loggerScope).not.toHaveBeenCalled();
   });
 
   it('normalizes empty and oversized branch output to null', () => {
@@ -77,10 +54,9 @@ describe('detectGitBranchName', () => {
 
     expect(subject.detectGitBranchName('/repo/empty')).toBeNull();
     expect(subject.detectGitBranchName('/repo/oversized')).toBeNull();
-    expect(mocks.logger.debug).not.toHaveBeenCalled();
   });
 
-  it('keeps hostile cwd and execution errors silent while returning null', () => {
+  it('returns null for hostile cwd and execution errors', () => {
     const hostileCwd =
       '/Users/private/raw-repo?token=secret&url=https://private.test';
     const rawError = new Error(
@@ -97,8 +73,5 @@ describe('detectGitBranchName', () => {
       ['-C', hostileCwd, 'branch', '--show-current'],
       expect.objectContaining({ timeout: 1_000 }),
     );
-    expect(mocks.loggerScope).not.toHaveBeenCalled();
-    expect(mocks.logger.debug).not.toHaveBeenCalled();
-    expect(loggedText()).toBe('');
   });
 });

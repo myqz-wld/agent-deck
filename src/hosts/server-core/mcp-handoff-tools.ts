@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { HAND_OFF_SESSION_OUTPUT_SCHEMA } from '@main/agent-deck-mcp/tools/schemas';
 
 import type { ServerCoreHandOffSessionArgs } from './mcp-handoff-port';
 import { SERVER_CORE_HANDOFF_SESSION_SCHEMA } from './mcp-handoff-schema';
@@ -16,6 +17,7 @@ export function registerServerCoreHandOffTool(
     description:
       'Atomically continue this logical session in a fresh Core-owned provider session. Cwd is Workspace-relative; tasks, active teams, worktree ownership, pending presentations, and message endpoints move only after the successor accepts its trusted continuation.',
     inputSchema: SERVER_CORE_HANDOFF_SESSION_SCHEMA,
+    outputSchema: HAND_OFF_SESSION_OUTPUT_SCHEMA,
   }, async (args) => {
     try {
       const caller = requireServerCoreMcpCaller(context);

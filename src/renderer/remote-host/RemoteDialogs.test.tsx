@@ -95,7 +95,7 @@ describe('remote source surfaces', () => {
     expect(localListAdapters).not.toHaveBeenCalled();
   });
 
-  it('uses the Local-aligned editable combobox for a Remote Claude Gateway', async () => {
+  it('uses the Local-aligned catalog combobox for a Remote Claude Gateway', async () => {
     const current = source();
     vi.mocked(current.getSessionCapabilities).mockImplementation(async (request) => {
       const descriptor = sessionConsoleCapabilitiesFixture(
@@ -104,7 +104,7 @@ describe('remote source surfaces', () => {
       );
       descriptor.create.options.provider = {
         allowedValues: ['deepseek'],
-        allowCustom: true,
+        allowCustom: false,
         allowEmpty: true,
         defaultValue: request.provider,
         disabledReason: null,
@@ -120,13 +120,11 @@ describe('remote source surfaces', () => {
     const gateway = screen.getByRole('combobox', { name: '模型网关' });
     expect((gateway as HTMLInputElement).value).toBe('');
     expect((gateway as HTMLInputElement).placeholder).toBe('留空使用 settings.json');
-    fireEvent.focus(gateway);
-    fireEvent.change(gateway, { target: { value: 'custom' } });
+    fireEvent.click(gateway);
     expect((gateway as HTMLInputElement).disabled).toBe(false);
-    fireEvent.change(gateway, { target: { value: 'custom-gateway' } });
-    expect((gateway as HTMLInputElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole('option', { name: 'deepseek' }));
     await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenLastCalledWith(
-      expect.objectContaining({ adapterId: 'claude-code', provider: 'custom-gateway' }),
+      expect.objectContaining({ adapterId: 'claude-code', provider: 'deepseek' }),
     ));
   });
 

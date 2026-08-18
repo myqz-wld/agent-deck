@@ -24,7 +24,7 @@ import { AGENT_ID } from '@main/adapters/claude-code/sdk-bridge/constants';
 
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -105,7 +105,7 @@ export const taskCreateHandler = withMcpGuard(
           },
         });
       }
-      return ok(created satisfies TaskCreateResult);
+      return structuredOk(created satisfies TaskCreateResult);
     } catch (e) {
       return err(
         e instanceof Error ? e.message : String(e),

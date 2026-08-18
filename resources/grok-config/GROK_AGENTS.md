@@ -20,11 +20,14 @@ shapes. This baseline adds sequencing and lifecycle rules, not a second schema.
 
 Grok native tools remain owned by Grok Build. ACP tool permission and the OS sandbox are separate:
 permission decides whether a tool may run; the sandbox limits an allowed tool's resources. Target
-runtime fields are adapter-scoped: Claude accepts `permissionMode`, `claudeCodeSandbox`, and
-`extraAllowWrite`; Codex accepts `approvalPolicy`, `codexSandbox`, and `extraAllowWrite`; Grok
-accepts `sessionMode` and `grokSandbox`. Reject incompatible fields instead of assuming they were
-ignored. Explicit values win; omitted runtime values inherit only from a persisted same-adapter
-source, while cross-adapter targets use target defaults. A `reviewer-*` name grants no hidden access.
+runtime controls are adapter- and tool-scoped: Claude may accept `permissionMode` and
+`claudeCodeSandbox`; Codex may accept `approvalPolicy` and `codexSandbox`; Grok may accept
+`sessionMode` and `grokSandbox`. Desktop-local spawn and handoff tools may also expose
+`extraAllowWrite` for Claude and Codex; Server Core omits it and enforces the Core Workspace
+ceiling. Pass only fields exposed by the live schema; reject incompatible fields instead of
+assuming they were ignored. Explicit values win; omitted runtime values inherit only from a
+persisted same-adapter source, while cross-adapter targets use target defaults. A `reviewer-*` name
+grants no hidden access.
 
 `grokSandbox` requests the ACP child startup profile; it does not attest the effective managed
 policy. Built-ins are `off`, `workspace`, `devbox`, `read-only`, and `strict`; custom profiles come
@@ -109,8 +112,10 @@ gate; revise and re-present after `decision: "revise"`, and stop on `decision: "
 Use Agent Deck `enter_worktree` / `exit_worktree` when isolation or cross-adapter ownership tracking
 is required.
 
-- `enter_worktree` requires an explicit Git `startPoint` and creates only a detached worktree. Omit custom paths unless required; the default is under
-  `<main-repo>/.agent-deck/worktrees`, which requires an exact `.agent-deck/` ignore entry.
+- `enter_worktree` requires an explicit Git `startPoint` and creates only a detached worktree.
+  Follow the live path domain: Desktop-local tools use local absolute paths and derive an omitted
+  path under `<main-repo>/.agent-deck/worktrees`, which requires an exact `.agent-deck/` ignore
+  entry; Server Core accepts only Workspace-relative paths and applies its Workspace default.
 - `state: "waiting-tool-result"` is durable acceptance, not an immediate cwd change. Do not `cd`,
   edit through the old cwd, or send a follow-up. Agent Deck fences the old turn, switches runtime
   and database cwd, then starts an internal continuation. Follow an error hint; it implies no switch.
@@ -130,8 +135,8 @@ move with the committed ownership transfer; historical provenance remains unchan
 Call handoff only after all source-side preparation, as the final tool action and never in parallel.
 Any successful result containing a successor `sessionId` is terminal for the source, even if
 `callerClosed` failed or warnings exist: stop immediately and emit at most one acknowledgement line.
-Only an error without a successor id leaves the source usable. For long context, place a bounded
-file under `/tmp` and name its absolute path in the prompt.
+Only an error without a successor id leaves the source usable. If the prompt references a context
+file, use only a bounded path the successor can read under the live tool and Workspace contract.
 
 ## Recovery And Lifecycle
 

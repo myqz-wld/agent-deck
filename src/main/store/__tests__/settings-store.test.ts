@@ -56,11 +56,11 @@ describe('settings-store current schema', () => {
   it('returns only current settings keys', async () => {
     persisted = {
       windowTransparent: false,
-      removedSetting: 'ignored',
+      summaryTimeoutMs: 1,
     };
     const all = await (await loadSettingsStore()).getAll();
     expect(all.windowTransparent).toBe(false);
-    expect(all).not.toHaveProperty('removedSetting');
+    expect(all).not.toHaveProperty('summaryTimeoutMs');
   });
 
   it('replaces malformed security tokens', async () => {

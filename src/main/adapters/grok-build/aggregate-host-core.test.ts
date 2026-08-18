@@ -29,7 +29,6 @@ function fixture() {
     readPermissionTimeoutMs: vi.fn(() => 12_000),
     readSummaryModel: vi.fn(() => 'fable'),
     readSummaryReasoning: vi.fn(() => 'high'),
-    readSummaryTimeoutMs: vi.fn(() => 15_000),
   };
   const resources = {
     loadBaselinePrompt: vi.fn(async () => 'rules'),

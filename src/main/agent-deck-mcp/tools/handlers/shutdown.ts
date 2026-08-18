@@ -24,7 +24,7 @@ import log from '@main/utils/logger';
 
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -71,6 +71,6 @@ export const shutdownSessionHandler = withMcpGuard(
         '先用 get_session 检查该 session；若仍为 active，请重试一次；若已经 closed 或再次清理失败，请查看 Agent Deck 主进程日志，并在清理 worktree 前重启 Agent Deck。',
       );
     }
-    return ok({ sessionId: args.sessionId, lifecycle: 'closed', alreadyClosed } satisfies ShutdownSessionResult);
+    return structuredOk({ sessionId: args.sessionId, lifecycle: 'closed', alreadyClosed } satisfies ShutdownSessionResult);
   },
 );

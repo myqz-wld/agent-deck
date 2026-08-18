@@ -104,8 +104,8 @@ function makePrepared(
 ): PreparedContinuationContext {
   const persistedUserText = `authoritative next step ${sequence}`;
   return {
-    version: 1,
-    providerPrompt: `Agent Deck Continuation Context v1\nsource history ${sequence}\n${persistedUserText}`,
+    version: 2,
+    providerPrompt: `Agent Deck Continuation Context v2\nsource history ${sequence}\n${persistedUserText}`,
     persistedUserText,
     source: { eventRevision: 7, rebuildAfterRevision: 2, maxEventId: 42 },
     checkpoint: { id: 11, throughRevision: 6, formatVersion: 1, refreshed: true },

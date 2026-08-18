@@ -77,11 +77,6 @@ export interface ProjectListResult {
   revision: number;
 }
 
-export interface ProjectResolveResult {
-  project: ProjectReferenceDto | null;
-  revision: number;
-}
-
 export interface SessionConsoleCreateParams {
   adapterId: string;
   attachments: SessionConsoleAttachmentInput[];
@@ -307,15 +302,6 @@ export function parseSessionConsoleGetResult(
   };
 }
 
-export function parseProjectResolveResult(value: unknown): ProjectResolveResult {
-  if (!isJsonObject(value)) fail('project.resolve.result');
-  exactKeys(value, ['project', 'revision'], 'project.resolve.result');
-  return {
-    project: value.project === null ? null : parseProjectReference(value.project),
-    revision: revision(value.revision, 'project.resolve.revision'),
-  };
-}
-
 export function parseSessionConsoleCreateParams(value: unknown): SessionConsoleCreateParams {
   if (!isJsonObject(value)) fail('session.console.create.params');
   exactKeys(
@@ -359,13 +345,5 @@ export function parseSessionConsoleGetParams(value: unknown): { sessionId: strin
   exactKeys(value, ['sessionId'], 'session.console.get.params');
   return {
     sessionId: token(value.sessionId, 'session.console.get.sessionId', SESSION_CONSOLE_MAX_IDENTIFIER_BYTES),
-  };
-}
-
-export function parseProjectResolveParams(value: unknown): { alias: string } {
-  if (!isJsonObject(value)) fail('project.resolve.params');
-  exactKeys(value, ['alias'], 'project.resolve.params');
-  return {
-    alias: token(value.alias, 'project.resolve.alias', SESSION_CONSOLE_MAX_ALIAS_BYTES),
   };
 }

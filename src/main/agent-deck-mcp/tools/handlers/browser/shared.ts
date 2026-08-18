@@ -12,7 +12,13 @@ import type { EngineTab } from '@main/browser-use/engine/tab';
 import { acquireSessionBrowser } from '@main/browser-use/session-browser';
 import type { AgentDeckToolName } from '@main/agent-deck-mcp/types';
 
-import { denyExternalIfNotAllowed, err, ok, type HandlerContext, type HandlerResult } from '../../helpers';
+import {
+  denyExternalIfNotAllowed,
+  err,
+  textContentOk,
+  type HandlerContext,
+  type HandlerResult,
+} from '../../helpers';
 
 /**
  * Reminder attached to every result that carries page-derived content. Page text, console output,
@@ -83,7 +89,7 @@ export function browserErr(error: unknown): HandlerResult {
 
 /** Success result that also carries the untrusted-content reminder. */
 export function pageOk(data: Record<string, unknown>): HandlerResult {
-  return ok({ ...data, note: UNTRUSTED_PAGE_CONTENT_NOTE });
+  return textContentOk({ ...data, note: UNTRUSTED_PAGE_CONTENT_NOTE });
 }
 
-export { ok, err };
+export { err };

@@ -57,19 +57,30 @@ describe('continuation message classifier', () => {
     ).toBeNull();
   });
 
-  it.each([1, 2])(
-    'excludes a generated continuation context v%s to prevent recursive growth',
-    (version) => {
-      expect(
-        classifyContinuationMessage(
-          candidate({
-            role: 'user',
-            text: `===== Agent Deck Continuation Context v${version} =====\nleak`,
-          }),
-        ),
-      ).toEqual({ message: null, warning: 'context-wrapper-excluded' });
-    },
-  );
+  it('excludes the current generated continuation context to prevent recursive growth', () => {
+    expect(
+      classifyContinuationMessage(
+        candidate({
+          role: 'user',
+          text: '===== Agent Deck Continuation Context v2 =====\nleak',
+        }),
+      ),
+    ).toEqual({ message: null, warning: 'context-wrapper-excluded' });
+  });
+
+  it('does not treat a retired continuation header as a current trusted wrapper', () => {
+    expect(
+      classifyContinuationMessage(
+        candidate({
+          role: 'user',
+          text: '===== Agent Deck Continuation Context v1 =====\nuser text',
+        }),
+      ).message,
+    ).toMatchObject({
+      text: '===== Agent Deck Continuation Context v1 =====\nuser text',
+      origin: 'user',
+    });
+  });
 
   it('keeps the persisted instruction of a new trusted continuation message', () => {
     expect(

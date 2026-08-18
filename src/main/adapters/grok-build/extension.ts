@@ -30,7 +30,6 @@ export interface GrokExtensionUpdate {
   prompt_id?: string;
   stop_reason?: string;
   agent_result?: string;
-  agentResult?: string;
   usage?: GrokTurnUsage;
   [key: string]: unknown;
 }
@@ -116,8 +115,7 @@ export function grokPromptCompleteFromExtension(
   const promptId = notificationPromptId(notification);
   if (!promptId) return null;
   const stopReason = nonEmptyString(update.stop_reason) ?? 'end_turn';
-  const agentResult =
-    nonEmptyString(update.agent_result) ?? nonEmptyString(update.agentResult);
+  const agentResult = nonEmptyString(update.agent_result);
   const contextWindowRejectionCode =
     grokContextWindowRejectionCode(stopReason) ??
     structuredGrokContextWindowRejectionCode(update) ??

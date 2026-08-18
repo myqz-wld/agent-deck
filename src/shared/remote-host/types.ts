@@ -88,9 +88,6 @@ export interface RemoteHostProfileDto {
   label: string;
   scope: 'local' | 'remote';
   endpoint: RemoteHostEndpointDto | null;
-  credentials: {
-    connectionCredentialConfigured: boolean;
-  };
 }
 
 export interface RemoteHostStateDto {

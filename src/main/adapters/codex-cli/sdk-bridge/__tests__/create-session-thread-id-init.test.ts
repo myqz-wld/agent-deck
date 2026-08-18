@@ -137,11 +137,11 @@ const emits: AgentEvent[] = [];
 
 function trustedRecoveryTurn() {
   const prepared: PreparedContinuationContext = {
-    version: 1,
+    version: 2,
     providerPrompt: 'FULL TRUSTED RECOVERY PROVIDER CONTEXT',
     persistedUserText: 'Continue from here.',
     source: { eventRevision: 9, rebuildAfterRevision: 0, maxEventId: 9 },
-    checkpoint: { id: 2, throughRevision: 9, formatVersion: 1, refreshed: false },
+    checkpoint: { id: 2, throughRevision: 9, formatVersion: 2, refreshed: false },
     projection: { canonicalHash: 'd'.repeat(64), omittedFacts: 0 },
     quality: 'full',
     metrics: {

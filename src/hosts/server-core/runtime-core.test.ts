@@ -11,10 +11,8 @@ import {
 } from './runtime-core.test-fixture';
 
 describe('ServerCoreDaemonRuntime', () => {
-  it('starts once, exposes only cwd-free base methods, and stops once', async () => {
+  it('starts once and stops once', async () => {
     const { runtime, start, stop } = harness();
-    expect(runtime.supportedMethods).not.toContain('session.get');
-    expect(runtime.supportedMethods).not.toContain('session.create');
     await Promise.all([runtime.start(), runtime.start()]);
     expect(start).toHaveBeenCalledOnce();
     await Promise.all([runtime.stop('test'), runtime.stop('again')]);

@@ -105,7 +105,7 @@ describe('Grok isolated oneshot runner', () => {
       text: 'compact summary',
       inputTokens: 13,
       outputTokens: 5,
-      contextWindowTokens: 1_048_576,
+      contextWindowTokens: null,
       stopReason: 'EndTurn',
     });
     const calls = readFileSync(logPath, 'utf8')
@@ -225,5 +225,19 @@ describe('Grok isolated oneshot runner', () => {
         timeoutErrorMessage: 'timeout',
       }),
     ).rejects.toThrow('Grok Build 单次运行返回无效 JSON。');
+
+    processHarness.argsPrefix = [
+      '-e',
+      'process.stdout.write(JSON.stringify({ usage: { input_tokens: 1 } }))',
+      '--',
+    ];
+    await expect(
+      runGrokOneshot({
+        prompt: 'checkpoint',
+        systemPrompt: 'return text',
+        timeoutMs: 5_000,
+        timeoutErrorMessage: 'timeout',
+      }),
+    ).rejects.toThrow('Grok Build 单次运行响应缺少 text 或 structuredOutput。');
   });
 });

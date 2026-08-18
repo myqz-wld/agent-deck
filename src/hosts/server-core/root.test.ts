@@ -34,7 +34,6 @@ function authority(): AuthoritativeSessionConsolePort {
     listSessions: () => ({ sessions: [], nextCursor: null, total: 0, revision: 1 }),
     getSession: () => ({ session: null, revision: 1 }),
     listProjects: () => ({ projects: [], nextCursor: null, total: 0, revision: 1 }),
-    resolveProject: () => ({ project: null, revision: 1 }),
     getCapabilities: () => sessionConsoleCapabilitiesFixture(),
     listWorkspaceDirectories: ({ directory }) => ({
       directory, directories: [], truncated: false, revision: 1,

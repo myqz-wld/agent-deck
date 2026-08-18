@@ -1,6 +1,6 @@
 ---
 name: hello-from-deck
-description: "Agent Deck built-in Grok Build skill self-check. Use for /agent-deck:hello-from-deck, deck self-check, or requests to verify that the Agent Deck Grok Build plugin loaded."
+description: "Agent Deck built-in Grok Build skill self-check. Use for /agent-deck:hello-from-deck, deck self-check, or requests to verify that the Agent Deck plugin or skill chain loaded, including Chinese prompts such as deck 自检."
 ---
 
 # Hello From Deck

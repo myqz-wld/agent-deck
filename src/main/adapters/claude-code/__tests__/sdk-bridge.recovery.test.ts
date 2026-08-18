@@ -336,7 +336,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
       claudeCodeSandbox: undefined,
     });
     expect(bridge.createCalls[0]?.trustedContinuation?.providerPrompt).toContain(
-      'Agent Deck Continuation Context v1',
+      'Agent Deck Continuation Context v2',
     );
     expect(bridge.recoveryPrepareCalls).toHaveLength(1);
     expect(bridge.recoveryCleanupCalls).toHaveLength(1);
@@ -562,7 +562,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     expect(bridge.createCalls).toHaveLength(1);
     expect(bridge.createCalls[0]?.prompt).toBeUndefined();
     expect(bridge.createCalls[0]?.trustedContinuation?.providerPrompt).toContain(
-      'Agent Deck Continuation Context v1',
+      'Agent Deck Continuation Context v2',
     );
     expect(bridge.createCalls[0]?.trustedContinuation?.persistedUserText).toBe('继续之前的话题');
     expect(bridge.recoveryPrepareCalls).toHaveLength(1);
@@ -653,7 +653,7 @@ describe('sdk-bridge.sendMessage 断连自愈（B 方案）', () => {
     expect(bridge.createCalls[0]?.resume).toBe('sess-cwd-summary'); // **§A.4-pre S8 修订**: resume = applicationSid 复用
     expect(bridge.createCalls[0]?.prompt).toBeUndefined();
     expect(bridge.createCalls[0]?.trustedContinuation?.providerPrompt).toContain(
-      'Agent Deck Continuation Context v1',
+      'Agent Deck Continuation Context v2',
     );
     expect(bridge.createCalls[0]?.trustedContinuation?.persistedUserText).toBe('hi');
 

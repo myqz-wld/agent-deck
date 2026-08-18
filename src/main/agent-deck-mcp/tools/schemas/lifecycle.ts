@@ -176,6 +176,93 @@ export interface HandOffSessionResult {
   };
 }
 
+const HAND_OFF_TRANSFER_STATUS_SCHEMA = z
+  .object({
+    status: z.enum(['ok', 'failed']),
+    count: z.number().int().nonnegative(),
+    error: z.string().optional(),
+  })
+  .strict();
+
+const HAND_OFF_TEAM_TRANSFER_ITEM_SCHEMA = z
+  .object({
+    teamId: z.string(),
+    role: z.enum(['lead', 'teammate']),
+  })
+  .strict();
+
+const HAND_OFF_TEAM_TRANSFER_FAILURE_SCHEMA = HAND_OFF_TEAM_TRANSFER_ITEM_SCHEMA.extend({
+  reason: z.string(),
+}).strict();
+
+export const HAND_OFF_SESSION_OUTPUT_SCHEMA = z
+  .object({
+    sessionId: z.string(),
+    adapter: z.enum(['claude-code', 'codex-cli', 'grok-build']),
+    gateway: z.string().nullable(),
+    provider: z.string().nullable(),
+    cwd: z.string(),
+    continuationContext: z
+      .object({
+        version: z.literal(2),
+        quality: z.enum(['full', 'projected', 'coverage-gap', 'raw-only', 'instruction-only']),
+        sourceEventRevision: z.number().int().nonnegative(),
+        cutoverEventRevision: z.number().int().nonnegative(),
+        rebuildAfterRevision: z.number().int().nonnegative(),
+        checkpoint: z
+          .object({
+            id: z.number().int().positive().nullable(),
+            formatVersion: z.number().int().positive(),
+            throughRevision: z.number().int().nonnegative(),
+            refreshed: z.boolean(),
+          })
+          .strict(),
+        preparationHash: z.string(),
+        tokenStats: z
+          .object({
+            rawRetentionCeiling: z.number().int().nonnegative(),
+            targetPromptCapacity: z.number().int().nonnegative(),
+            checkpointProjectionBudget: z.number().int().nonnegative(),
+            generatorFoldInputBudget: z.number().int().nonnegative(),
+            estimatedPrompt: z.number().int().nonnegative(),
+            checkpoint: z.number().int().nonnegative(),
+            rawTail: z.number().int().nonnegative(),
+          })
+          .strict(),
+        includedUserMessages: z.number().int().nonnegative(),
+        lateMessagesDelivered: z.number().int().nonnegative(),
+        usedLowerBudgetRetry: z.boolean(),
+        truncatedBoundaryMessages: z.number().int().nonnegative(),
+        foldCalls: z.number().int().nonnegative(),
+        repairCalls: z.number().int().nonnegative(),
+        warningCodes: z.array(z.string()),
+      })
+      .strict(),
+    callerClosed: z.enum(['ok', 'failed']),
+    warnings: z.array(z.enum(['source-finalization-failed', 'source-advanced-after-capture'])),
+    resourceTransfer: z
+      .object({
+        tasks: HAND_OFF_TRANSFER_STATUS_SCHEMA,
+        teams: z
+          .object({
+            status: z.enum(['ok', 'failed']),
+            transferred: z.array(HAND_OFF_TEAM_TRANSFER_ITEM_SCHEMA),
+            skipped: z.array(HAND_OFF_TEAM_TRANSFER_FAILURE_SCHEMA),
+            failed: z.array(HAND_OFF_TEAM_TRANSFER_FAILURE_SCHEMA),
+          })
+          .strict(),
+        worktreeLease: z
+          .object({
+            status: z.enum(['ok', 'skipped', 'failed']),
+            worktreePath: z.string().nullable(),
+            error: z.string().optional(),
+          })
+          .strict(),
+      })
+      .strict(),
+  })
+  .strict();
+
 /** enter_worktree published asynchronous success contract. Errors use the ordinary MCP error body. */
 export const ENTER_WORKTREE_OUTPUT_SCHEMA = z
   .object({

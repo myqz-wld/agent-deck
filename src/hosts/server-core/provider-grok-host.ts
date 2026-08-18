@@ -62,7 +62,6 @@ export function createServerCoreGrokHost(input: ServerCoreProviderHostInput) {
       readPermissionTimeoutMs: () => input.settings.permissionTimeoutMs,
       readSummaryModel: () => input.settings.summaryModel,
       readSummaryReasoning: () => input.settings.summaryThinking,
-      readSummaryTimeoutMs: () => input.settings.summaryTimeoutMs,
     },
     resources: {
       loadBaselinePrompt: () => input.assets.grokBaselinePrompt(),

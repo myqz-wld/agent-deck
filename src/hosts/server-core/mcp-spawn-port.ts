@@ -53,7 +53,7 @@ interface ServerCoreSpawnSessionResultBase {
 }
 
 export type ServerCoreSpawnSessionResult = ServerCoreSpawnSessionResultBase & (
-  | { readonly contextMode: 'fresh'; readonly forkedFromSessionId?: never }
+  | { readonly contextMode?: never; readonly forkedFromSessionId?: never }
   | { readonly contextMode: 'fork'; readonly forkedFromSessionId: string }
 );
 

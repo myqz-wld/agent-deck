@@ -117,7 +117,7 @@ export function RemoteSessionDetail({
         <SummaryRecordsView
           summaries={source.summaries?.summaries ?? []}
           loaded={source.summaries !== null}
-          loadError={source.summaryLoadError ?? null}
+          loadError={source.summaryLoadError}
         />
       ),
     messages: (

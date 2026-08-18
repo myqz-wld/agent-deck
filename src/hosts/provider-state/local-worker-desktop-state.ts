@@ -42,5 +42,4 @@ export const LOCAL_WORKER_SYNCED_PROVIDER_SETTING_KEYS = Object.freeze([
   'summaryModel',
   'summaryRuntimeProvider',
   'summaryThinking',
-  'summaryTimeoutMs',
 ] as const satisfies readonly (keyof AppSettings)[]);

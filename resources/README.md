@@ -1,6 +1,9 @@
 # resources/
 
-Source directory for app runtime resources. `package.json` copies the runtime directories through `build.extraResources`; the main process then reads resources by adapter and injects them into SDK sessions. The runtime window icon is the only resource stored inside `app.asar`.
+Source directory for app runtime resources. `package.json` copies the adapter roots through
+`build.extraResources`; Desktop main and the Server Core node asset catalog load the same packaged
+conventions, Agents, and Skills into provider sessions. The runtime window icon is the only resource
+stored inside `app.asar`.
 
 This document records only resource paths, loading behavior, and paired-boundary rules for locating runtime resources during packaging and injection.
 
@@ -64,8 +67,7 @@ The Codex adapter uses this resource root. Codex app-server has no Claude SDK `p
   provider homes receive the same validated TOML file. Agent Deck-owned MCP and runtime safety
   boundaries remain authoritative.
 - An empty Codex Gateway selection delegates to `${CODEX_HOME:-~/.codex}/config.toml`. A non-empty
-  selection must resolve to the same-named `.toml`; JSON profiles and config.toml provider
-  enumeration are not supported.
+  selection resolves to the same-named `.toml`.
 - The Assets Library shows user-root Agents/Skills, native Plugin Skills, and Plugin TOML Agent extensions. All direct and Plugin files are inspection-only and stay under Codex CLI ownership.
 - Agent Deck reads native Codex configuration and Gateway profiles but does not write
   `${CODEX_HOME:-~/.codex}/config.toml`, `${CODEX_HOME:-~/.codex}/gateways/`,
@@ -86,6 +88,9 @@ The Grok Build adapter uses this resource root through the official ACP v1 `sess
 ## Paired Boundaries
 
 - App environment conventions: protocol semantics in `resources/claude-config/CLAUDE.md`, `resources/codex-config/CODEX_AGENTS.md`, and `resources/grok-config/GROK_AGENTS.md` must stay aligned; adapter tool differences should be written according to each adapter's execution model.
+- Shared conventions may run against Desktop-local or Server Core tool registrations. Defer
+  argument domains and optional fields to the live schema, and state only behavior common to both
+  environments unless the instruction explicitly routes by environment.
 - Reviewer bodies: `reviewer-claude.md`, `reviewer-codex.toml`, and `reviewer-grok.md` must align on role, input contract, output format, and failure handling; do not copy another side's tool instructions merely for mirrored synchronization.
 - Skills: Claude, Codex, and Grok skills live under their adapter resource roots. Same-name skills must align on triggers and target behavior, while execution steps should follow each adapter's actual tool capabilities.
 - Packaged resources must be self-contained: app conventions, reviewer agents, and skills must remain fully usable when no user-customized agents / skills exist.

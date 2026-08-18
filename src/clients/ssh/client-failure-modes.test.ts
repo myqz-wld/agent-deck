@@ -129,7 +129,11 @@ describe('SshAgentDeckClient protocol failure modes', () => {
     const harness = new FakeSpawnHarness();
     const client = makeClient(harness, 'relay', 'relay');
     const process = await completeConnect(client, harness, 'desktop-relay', 'relay');
-    const result = client.request('session.list', {}, { requestId: 'relay-list' });
+    const result = client.request(
+      'session.console.list',
+      { limit: 25 },
+      { requestId: 'relay-list' },
+    );
     process.emitMessage({
       type: 'error',
       requestId: 'relay-list',

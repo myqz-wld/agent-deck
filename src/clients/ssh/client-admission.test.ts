@@ -114,7 +114,11 @@ describe('SshAgentDeckClient terminal admission and bounds', () => {
       const beforeDisconnect = client.request('system.health', {}, { requestId: 'before-drop' });
       const beforeOutcome = beforeDisconnect.catch((error: unknown) => error);
       firstProcess.exit(255);
-      const duringReconnect = client.request('session.list', {}, { requestId: 'during-reconnect' });
+      const duringReconnect = client.request(
+        'session.console.list',
+        { limit: 25 },
+        { requestId: 'during-reconnect' },
+      );
       const duringOutcome = duringReconnect.catch((error: unknown) => error);
 
       await vi.advanceTimersByTimeAsync(10);
@@ -229,8 +233,8 @@ describe('SshAgentDeckClient terminal admission and bounds', () => {
     ).rejects.toMatchObject({ code: 'invalid_request' });
     await expect(
       client.request(
-        'session.create',
-        { adapterId: 'codex-cli', cwd: '/remote', options: {} },
+        'session.send',
+        { sessionId: 'session-a', text: 'Inspect' },
         { idempotencyKey: 'i'.repeat(SSH_TEXT_LIMITS.idempotencyKey + 1) },
       ),
     ).rejects.toMatchObject({ code: 'invalid_request' });

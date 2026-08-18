@@ -186,10 +186,30 @@ function requireObject(object: JsonObject, key: string): JsonObject {
   return value;
 }
 
+function assertExactKeys(
+  value: JsonObject,
+  required: readonly string[],
+  optional: readonly string[] = [],
+  field = 'Protocol object',
+): void {
+  const expected = new Set([
+    ...required,
+    ...optional.filter((key) => Object.prototype.hasOwnProperty.call(value, key)),
+  ]);
+  if (
+    Object.keys(value).length !== expected.size ||
+    Object.keys(value).some((key) => !expected.has(key)) ||
+    required.some((key) => !Object.prototype.hasOwnProperty.call(value, key))
+  ) {
+    throw new ProtocolMessageError(`${field} fields do not match the current protocol`);
+  }
+}
+
 function assertProtocolVersion(value: JsonValue, field: string): void {
   if (!isJsonObject(value)) {
     throw new ProtocolMessageError(`${field} must be a JSON object`);
   }
+  assertExactKeys(value, ['major', 'minor'], [], field);
   requireNonNegativeInteger(value, 'major');
   requireNonNegativeInteger(value, 'minor');
 }
@@ -198,6 +218,12 @@ export function assertClientHello(value: unknown): asserts value is ClientHello 
   if (!isJsonObject(value)) {
     throw new ProtocolMessageError('hello must be a JSON object');
   }
+  assertExactKeys(
+    value,
+    ['appVersion', 'clientId', 'protocolVersion', 'requestedTopology'],
+    ['lastEventRevision'],
+    'Client hello',
+  );
   assertProtocolVersion(value.protocolVersion, 'protocolVersion');
   requireString(value, 'appVersion');
   requireString(value, 'clientId');
@@ -221,6 +247,10 @@ function assertAccessContext(value: JsonValue, topology: DeploymentTopology, ins
   requireString(value, 'clientId');
 
   if (kind === 'standalone') {
+    assertExactKeys(value, [
+      'accessCredentialId', 'authority', 'clientId', 'instanceId', 'kind', 'surface',
+      'topology', 'transport',
+    ], [], 'Standalone access context');
     if (
       topology !== DeploymentTopology.Standalone ||
       value.transport !== 'local-ipc' ||
@@ -234,6 +264,10 @@ function assertAccessContext(value: JsonValue, topology: DeploymentTopology, ins
   }
 
   if (kind === 'authenticated-client') {
+    assertExactKeys(value, [
+      'authority', 'clientId', 'connectionScope', 'grant', 'instanceId', 'kind', 'surface',
+      'topology', 'transport',
+    ], [], 'Authenticated client access context');
     requireString(value, 'connectionScope');
     const validSsh = value.transport === 'ssh' && value.surface === 'desktop';
     const validFeishu =
@@ -258,6 +292,10 @@ function assertAccessContext(value: JsonValue, topology: DeploymentTopology, ins
   }
 
   requireString(value, 'accessCredentialId');
+  assertExactKeys(value, [
+    'accessCredentialId', 'authority', 'clientId', 'credentialKind', 'generation', 'instanceId',
+    'kind', 'surface', 'topology', 'transport', 'workerId',
+  ], [], 'Relay Worker access context');
   if (
     kind !== 'relay-worker' ||
     topology !== DeploymentTopology.Relay ||
@@ -276,6 +314,10 @@ export function assertHostHello(value: unknown): asserts value is HostHello {
   if (!isJsonObject(value)) {
     throw new ProtocolMessageError('hello must be a JSON object');
   }
+  assertExactKeys(value, [
+    'access', 'appVersion', 'authoritativeCore', 'capabilities', 'eventRevision', 'instanceId',
+    'limits', 'protocolVersion', 'topology',
+  ], [], 'Host hello');
   assertProtocolVersion(value.protocolVersion, 'protocolVersion');
   requireString(value, 'appVersion');
   const topologyValue = requireString(value, 'topology');
@@ -289,6 +331,12 @@ export function assertHostHello(value: unknown): asserts value is HostHello {
   }
 
   const authoritativeCore = requireObject(value, 'authoritativeCore');
+  assertExactKeys(
+    authoritativeCore,
+    ['generation', 'id', 'location'],
+    [],
+    'Authoritative Core',
+  );
   requireString(authoritativeCore, 'id');
   const expectedLocation = getTopologyDescriptor(topology).authoritativeCoreLocation;
   if (authoritativeCore.location !== expectedLocation) {
@@ -315,6 +363,9 @@ export function assertHostHello(value: unknown): asserts value is HostHello {
   }
 
   const limits = requireObject(value, 'limits');
+  assertExactKeys(limits, [
+    'maxBlobBytes', 'maxConcurrentRequests', 'maxFrameBytes', 'maxQueuedEvents',
+  ], [], 'Transport limits');
   for (const field of [
     'maxFrameBytes',
     'maxBlobBytes',
@@ -329,6 +380,9 @@ export function assertHostHello(value: unknown): asserts value is HostHello {
 }
 
 function assertRequestMessage(value: JsonObject): void {
+  assertExactKeys(value, [
+    'deadlineAt', 'expectedRevision', 'idempotencyKey', 'method', 'params', 'requestId', 'type',
+  ]);
   requireString(value, 'requestId');
   requireString(value, 'method');
   requireObject(value, 'params');
@@ -338,8 +392,12 @@ function assertRequestMessage(value: JsonObject): void {
 }
 
 function assertErrorMessage(value: JsonObject): void {
+  assertExactKeys(value, ['error', 'requestId', 'type']);
   requireString(value, 'requestId');
   const error = requireObject(value, 'error');
+  assertExactKeys(error, [
+    'code', 'currentRevision', 'details', 'message', 'retryable',
+  ], [], 'Protocol error');
   const code = requireString(error, 'code');
   if (!CLIENT_ERROR_CODES.has(code as ClientErrorCode)) {
     throw new ProtocolMessageError(`Unknown client error code: ${code}`);
@@ -352,10 +410,7 @@ function assertErrorMessage(value: JsonObject): void {
   }
 }
 
-/**
- * Validates the common wire envelope before a direction-specific schema handles its payload.
- * Additive fields remain allowed so compatible minor versions can evolve independently.
- */
+/** Validates the exact current wire envelope before direction-specific dispatch. */
 export function assertProtocolMessageEnvelope(value: unknown): asserts value is ProtocolMessage {
   if (!isJsonObject(value)) {
     throw new ProtocolMessageError('Protocol message must be a JSON object');
@@ -367,10 +422,12 @@ export function assertProtocolMessageEnvelope(value: unknown): asserts value is 
 
   switch (type as ProtocolMessageType) {
     case 'hello':
+      assertExactKeys(value, ['hello', 'requestId', 'type']);
       requireString(value, 'requestId');
       assertClientHello(value.hello);
       return;
     case 'hello-result':
+      assertExactKeys(value, ['hello', 'requestId', 'type']);
       requireString(value, 'requestId');
       assertHostHello(value.hello);
       return;
@@ -378,6 +435,7 @@ export function assertProtocolMessageEnvelope(value: unknown): asserts value is 
       assertRequestMessage(value);
       return;
     case 'result':
+      assertExactKeys(value, ['requestId', 'result', 'revision', 'type']);
       requireString(value, 'requestId');
       requireNonNegativeInteger(value, 'revision');
       if (!Object.prototype.hasOwnProperty.call(value, 'result')) {
@@ -388,10 +446,14 @@ export function assertProtocolMessageEnvelope(value: unknown): asserts value is 
       assertErrorMessage(value);
       return;
     case 'subscribe':
+      assertExactKeys(value, ['afterRevision', 'requestId', 'type']);
       requireString(value, 'requestId');
       requireNonNegativeInteger(value, 'afterRevision');
       return;
     case 'event':
+      assertExactKeys(value, [
+        'entityId', 'instanceId', 'kind', 'payload', 'revision', 'type',
+      ]);
       requireString(value, 'instanceId');
       requireString(value, 'kind');
       requireNonNegativeInteger(value, 'revision');
@@ -401,11 +463,13 @@ export function assertProtocolMessageEnvelope(value: unknown): asserts value is 
       }
       return;
     case 'cancel':
+      assertExactKeys(value, ['requestId', 'targetRequestId', 'type']);
       requireString(value, 'requestId');
       requireString(value, 'targetRequestId');
       return;
     case 'ping':
     case 'pong':
+      assertExactKeys(value, ['nonce', 'type']);
       requireString(value, 'nonce');
       return;
   }

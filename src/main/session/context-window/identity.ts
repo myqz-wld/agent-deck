@@ -93,10 +93,3 @@ export function createContextRuntimeIdentity(
   }
   return resolved.identity;
 }
-
-export function sameContextRuntimeIdentity(
-  left: ContextRuntimeIdentity | null | undefined,
-  right: ContextRuntimeIdentity | null | undefined,
-): boolean {
-  return left?.runtimeKey === right?.runtimeKey && left !== undefined && left !== null;
-}

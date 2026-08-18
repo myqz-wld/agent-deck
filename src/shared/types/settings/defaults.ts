@@ -34,7 +34,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   summaryIntervalMs: 5 * 60 * 1000,
   summaryEventCount: 30,
   summaryMaxConcurrent: 2,
-  summaryTimeoutMs: 60 * 1000,
   // 周期总结与会话续接检查点分开配置；adapter/provider/model/thinking 互不影响。
   summaryAdapter: 'claude-code',
   summaryRuntimeProvider: '',

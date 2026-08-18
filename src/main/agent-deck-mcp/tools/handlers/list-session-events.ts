@@ -10,7 +10,7 @@ import { eventRepo } from '@main/store/event-repo';
 import {
   err,
   getRelatedSessionReadAccess,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -41,7 +41,7 @@ export const listSessionEventsHandler = withMcpGuard(
     const limit = clampLimit(args.limit);
     const offset = clampOffset(args.offset);
     const rows = eventRepo.listValidForSession(args.sessionId, limit + 1, offset);
-    return ok({
+    return structuredOk({
       sessionId: args.sessionId,
       hasMore: rows.length > limit,
       events: rows.slice(0, limit),

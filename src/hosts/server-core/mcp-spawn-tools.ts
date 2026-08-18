@@ -1,4 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { SPAWN_SESSION_OUTPUT_SCHEMA } from '@main/agent-deck-mcp/tools/schemas';
 
 import { ServerCoreSpawnGuardError } from './mcp-spawn-guard';
 import type { ServerCoreSpawnSessionArgs } from './mcp-spawn-port';
@@ -17,6 +18,7 @@ export function registerServerCoreSpawnTool(
     description:
       'Start one fresh or provider-native forked session inside this Core Workspace. The cwd is Workspace-relative. agentName selects an enabled built-in Agent whose node-owned runtime settings are applied before explicit overrides. Fork requires the authenticated caller\'s exact adapter, native runtime selector, and realpath cwd; recursion, fan-out, and rate are bounded.',
     inputSchema: SERVER_CORE_SPAWN_SESSION_SCHEMA,
+    outputSchema: SPAWN_SESSION_OUTPUT_SCHEMA,
   }, async (args) => {
     try {
       const caller = requireServerCoreMcpCaller(context);

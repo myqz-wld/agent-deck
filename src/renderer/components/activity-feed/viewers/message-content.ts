@@ -3,17 +3,11 @@ import type {
   HandOffMetadata,
   UploadedAttachmentRef,
 } from '@shared/types';
-import {
-  HAND_OFF_ADOPT_HEADER,
-  HAND_OFF_SPAWN_HEADER,
-} from '@shared/hand-off-headers';
+import { HAND_OFF_SPAWN_HEADER } from '@shared/hand-off-headers';
 import { parseWirePrefix } from '@shared/wire-prefix';
 import { formatDisplayText } from '../format';
 
-const HAND_OFF_HEADERS = [HAND_OFF_SPAWN_HEADER, HAND_OFF_ADOPT_HEADER] as const;
 const HAND_OFF_SEPARATOR = '\n---\n\n';
-
-type HandOffMarkerKind = 'spawn' | 'adopt';
 
 export interface NormalizedAgentMessage {
   role: 'user' | 'assistant' | 'system';
@@ -55,15 +49,15 @@ export function normalizeAgentMessage(event: AgentEvent): NormalizedAgentMessage
   const wireBody = (wire?.body ?? rawText).trim();
   const handOff = role === 'user'
     ? parseHandOffContext(wireBody)
-    : { context: null, body: wireBody, kind: null };
+    : { context: null, body: wireBody };
   const metadata = role === 'user' ? handOffMetadata(payload.handOff) : undefined;
   const attachments = role === 'user' && Array.isArray(payload.attachments)
     ? payload.attachments.filter(isUploadedAttachment)
     : [];
   const handOffLabel = metadata
     ? '接力 · 会话'
-    : handOff.context && handOff.kind
-      ? handOff.kind === 'spawn' ? '上下文 · 派遣' : '接力 · 接管'
+    : handOff.context
+      ? '上下文 · 派遣'
       : null;
 
   return {
@@ -80,9 +74,7 @@ export function normalizeAgentMessage(event: AgentEvent): NormalizedAgentMessage
     handOffLabel,
     handOffTooltip: metadata ? '会话接力 · 来源会话' : null,
     handOffContext: handOff.context,
-    handOffDisclosureSummary: handOff.kind === 'adopt'
-      ? '会话接力：接管的团队和协作者（点开查看详情）'
-      : '上下文：负责人提供的说明（点开查看详情）',
+    handOffDisclosureSummary: '上下文：负责人提供的说明（点开查看详情）',
     handOffSourceSessionId: metadata?.fromCallerSid,
     handOffSourceEventId: metadata?.sourceMaxEventId,
   };
@@ -91,20 +83,17 @@ export function normalizeAgentMessage(event: AgentEvent): NormalizedAgentMessage
 function parseHandOffContext(body: string): {
   context: string | null;
   body: string;
-  kind: HandOffMarkerKind | null;
 } {
-  for (let index = 0; index < HAND_OFF_HEADERS.length; index += 1) {
-    const header = HAND_OFF_HEADERS[index]!;
-    if (!body.startsWith(header)) continue;
+  if (body.startsWith(HAND_OFF_SPAWN_HEADER)) {
     const separatorIndex = body.indexOf(HAND_OFF_SEPARATOR);
-    if (separatorIndex < 0) continue;
-    return {
-      context: body.slice(0, separatorIndex),
-      body: body.slice(separatorIndex + HAND_OFF_SEPARATOR.length),
-      kind: index === 0 ? 'spawn' : 'adopt',
-    };
+    if (separatorIndex >= 0) {
+      return {
+        context: body.slice(0, separatorIndex),
+        body: body.slice(separatorIndex + HAND_OFF_SEPARATOR.length),
+      };
+    }
   }
-  return { context: null, body, kind: null };
+  return { context: null, body };
 }
 
 function handOffMetadata(value: unknown): HandOffMetadata | undefined {

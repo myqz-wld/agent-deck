@@ -78,13 +78,6 @@ export const CHANNEL_INTERNAL_METHODS = Object.freeze({
 
 export const UNGRANTED_REMOTE_CORE_METHODS = Object.freeze([
   'system.health',
-  'session.list',
-  'session.get',
-  'session.create',
-  'project.resolve',
-  'node.assets.list',
-  'node.hook.projection.install',
-  'node.hook.projection.uninstall',
 ] as const satisfies readonly CoreMethod[]);
 
 export interface RemoteOwnerGrantClaim {

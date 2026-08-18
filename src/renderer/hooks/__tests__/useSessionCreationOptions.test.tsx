@@ -96,7 +96,11 @@ describe('useSessionCreationOptions request fencing', () => {
       .mockReturnValueOnce(requests[2].promise);
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { getAdapterSessionCreationDefaults: getDefaults },
+      value: {
+        getAdapterSessionCreationDefaults: getDefaults,
+        listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+        listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
+      },
     });
 
     const hook = renderHook(

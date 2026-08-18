@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { PERIODIC_SUMMARY_TIMEOUT_MS } from '@shared/types';
 
 import { HookRouteDiagnostics } from '@main/hook-server/route-diagnostics';
 import type { AdapterContext } from '../types';
@@ -31,7 +32,6 @@ function fixture() {
     summary: {
       readSummaryModel: vi.fn(() => 'small'),
       readSummaryReasoning: vi.fn(() => 'low'),
-      readSummaryTimeoutMs: vi.fn(() => 15_000),
       runOneshot,
       formatEvents: vi.fn(() => ''),
     },
@@ -64,7 +64,7 @@ describe('Codex aggregate host Core', () => {
       provider: 'provider-a',
       model: 'model-a',
       modelReasoningEffort: 'medium',
-      timeoutMs: 15_000,
+      timeoutMs: PERIODIC_SUMMARY_TIMEOUT_MS,
     }));
   });
 

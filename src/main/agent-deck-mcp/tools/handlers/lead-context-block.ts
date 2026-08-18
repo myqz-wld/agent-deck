@@ -1,24 +1,7 @@
 /**
- * lead-context-block.ts —— spawn 路径专用的 wire prefix + lead context block 装配 helper
- * (plan hand-off-session-adopt-teammates-20260520 Phase 4 D11 + Round 4 NEW MED-B 修法)。
- *
- * **抽出动机**(plan §决策对抗 Round 4 MED-B + Round 7 codex MED-2):
- * spawn.ts:218-237 inline 装配的 wire prefix + lead context block 文字模板,在 plan
- * Phase 4 引入 hand_off_session adoptTeammates: true 路径前是单一 caller(spawn 自己用)。
- * 抽 helper 后 SSOT 唯一化 + snapshot test 双向防漂移,**仅** spawn 路径用。
- *
- * **adopt 路径不复用本 helper**(Round 6 codex MED-1 + Round 7 codex MED-2 修法):
- * adopt 路径下 caller 已 archive(default baton)+ newSid 成为新 lead。adopt 是单向交接,
- * 不应让 successor 回复旧 caller。adopt 路径走独立 `adopted-teams-context-block.ts`
- * helper 装配,**完全不**复用本 helper(Phase 4c)。
- *
- * **设计语义对比**:
- * - **spawn = 派出小弟**:lead 留在 conversation,teammate 起来后 reply 回 lead 用 wire
- *   prefix `[msg <id>]` 锚点 + send_message → lead 收到 reply auto-injected
- * - **adopt = baton 单向交接**:lead 退出(archive),新 session 接管成为新 lead,与 caller
- *   无 reply chain(caller 已 exit)
- *
- * 两套语义独立,helper 不共用。
+ * Build the current spawn-session wire prefix and lead context block from one shared template.
+ * The target uses the persisted message id as its first reply anchor and sends the result back to
+ * the still-active lead through send_message.
  */
 
 import { sanitizeWireFieldName } from '@shared/wire-prefix';

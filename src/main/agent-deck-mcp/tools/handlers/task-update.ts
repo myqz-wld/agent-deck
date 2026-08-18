@@ -23,7 +23,7 @@ import { AGENT_ID } from '@main/adapters/claude-code/sdk-bridge/constants';
 
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -93,7 +93,7 @@ export const taskUpdateHandler = withMcpGuard(
       // 噪声 + 让 tool 描述「updated_at is auto-refreshed」在该路径失真。schema 仅 taskId 必填
       // → task_update({taskId}) 是合法可达输入。提前返回保持「无变更不广播」语义。
       if (Object.keys(patch).length === 0) {
-        return ok(existing satisfies TaskUpdateResult);
+        return structuredOk(existing satisfies TaskUpdateResult);
       }
       const updated = taskRepo.update(taskId, patch);
       if (!updated) {
@@ -139,7 +139,7 @@ export const taskUpdateHandler = withMcpGuard(
           },
         });
       }
-      return ok(updated satisfies TaskUpdateResult);
+      return structuredOk(updated satisfies TaskUpdateResult);
     } catch (e) {
       return err(
         e instanceof Error ? e.message : String(e),

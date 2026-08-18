@@ -47,15 +47,6 @@ function authority(
     listSessions: () => ({ sessions: [], nextCursor: null, total: 0, revision: 1 }),
     getSession: () => ({ session: null, revision: 1 }),
     listProjects: () => ({ projects: [], nextCursor: null, total: 0, revision: 1 }),
-    resolveProject: () => ({
-      project: {
-        projectId: 'project-1',
-        projectRef: 'opaque-project-1',
-        alias: 'project',
-        title: 'Project',
-      },
-      revision: 1,
-    }),
     createSession: () => ({ sessionId: 'session-1', revision: 2 }),
     listWorkspaceDirectories: ({ directory }) => ({
       directory, directories: [], truncated: false, revision: 1,

@@ -4,7 +4,6 @@ const getSetting = vi.hoisted(() => vi.fn((key: string) => ({
   grokCliPath: '/bin/grok',
   summaryModel: 'fable',
   summaryThinking: 'high',
-  summaryTimeoutMs: 12_000,
 })[key]));
 
 vi.mock('@main/store/settings-store', () => ({
@@ -18,12 +17,10 @@ describe('desktop Grok summary runner host', () => {
     expect(host.readBinaryPath()).toBe('/bin/grok');
     expect(host.readSummaryModel()).toBe('fable');
     expect(host.readSummaryReasoning()).toBe('high');
-    expect(host.readSummaryTimeoutMs()).toBe(12_000);
     expect(getSetting.mock.calls.map(([key]) => key)).toEqual([
       'grokCliPath',
       'summaryModel',
       'summaryThinking',
-      'summaryTimeoutMs',
     ]);
   });
 });

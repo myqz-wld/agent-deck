@@ -24,7 +24,7 @@ import { taskRepo } from '@main/store/task-repo';
 
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -79,7 +79,7 @@ export const taskListHandler = withMcpGuard(
       }
 
       // F4 修法沿用:total 仅是当前页 task 数 + hasMore hint
-      return ok({
+      return structuredOk({
         total: tasks.length,
         hasMore: tasks.length === effectiveLimit,
         tasks,

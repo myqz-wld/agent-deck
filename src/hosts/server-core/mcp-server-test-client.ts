@@ -20,7 +20,24 @@ export async function withClient<T>(
   }
 }
 
-export function payload(result: Awaited<ReturnType<Client['callTool']>>): Record<string, unknown> {
+type ClientToolResult = Awaited<ReturnType<Client['callTool']>>;
+
+export function structuredPayload(result: ClientToolResult): Record<string, unknown> {
+  if (result.isError === true) throw new Error('expected MCP success');
+  if (!Array.isArray(result.content) || result.content.length !== 0) {
+    throw new Error('expected empty MCP success content');
+  }
+  const value = result.structuredContent;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('expected MCP structuredContent');
+  }
+  return value as Record<string, unknown>;
+}
+
+export function textPayload(result: ClientToolResult): Record<string, unknown> {
+  if (result.structuredContent !== undefined) {
+    throw new Error('expected text-only MCP payload');
+  }
   const content = (result as { content?: unknown }).content;
   if (!Array.isArray(content)) throw new Error('expected MCP content');
   const first = content[0] as { type?: unknown; text?: unknown } | undefined;

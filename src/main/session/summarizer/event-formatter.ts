@@ -159,9 +159,7 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
       const effort =
         typeof o.reasoning_effort === 'string'
           ? o.reasoning_effort
-          : typeof o.model_reasoning_effort === 'string'
-            ? o.model_reasoning_effort
-            : '';
+          : '';
       const timeout =
         typeof o.timeout_ms === 'number' && Number.isFinite(o.timeout_ms)
           ? `超时 ${formatDurationMs(o.timeout_ms)}`

@@ -1,5 +1,9 @@
-import type { RuntimeSelection, StoredAgentEvent } from '@shared/types';
-import { DEFAULT_SUMMARY_REASONING } from '@shared/types';
+import {
+  DEFAULT_SUMMARY_REASONING,
+  PERIODIC_SUMMARY_TIMEOUT_MS,
+  type RuntimeSelection,
+  type StoredAgentEvent,
+} from '@shared/types';
 import {
   isGrokThinkingLevel,
   type GrokThinkingLevel,
@@ -16,7 +20,6 @@ export interface GrokSummaryRunnerHost {
   readBinaryPath(): string | null;
   readSummaryModel(): unknown;
   readSummaryReasoning(): unknown;
-  readSummaryTimeoutMs(): number;
 }
 
 export function resolveGrokSummaryModel(configured: unknown): string | undefined {
@@ -54,7 +57,7 @@ export async function summariseGrokSessionWithHost(
       runtime?.thinking ?? host.readSummaryReasoning(),
     ),
     binaryPath: host.readBinaryPath(),
-    timeoutMs: host.readSummaryTimeoutMs(),
+    timeoutMs: PERIODIC_SUMMARY_TIMEOUT_MS,
     timeoutErrorMessage: '__grok_summarizer_timeout__',
     maxOutputBytes: 8_000,
   });

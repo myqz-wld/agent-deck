@@ -61,7 +61,7 @@ beforeEach(() => {
         sessionCreationDefaults('untrusted'),
       ),
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
-      listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
+      listCodexGatewayProfiles: vi.fn().mockResolvedValue([{ id: 'openai-custom' }]),
       issuesResolveInNewSession,
     },
   });
@@ -94,9 +94,8 @@ describe('ResolveInNewSessionDialog model options', () => {
     expect(disclosure?.open).toBe(false);
     fireEvent.click(screen.getByText('模型配置'));
     expect(disclosure?.open).toBe(true);
-    fireEvent.change(await screen.findByLabelText('模型网关'), {
-      target: { value: 'openai-custom' },
-    });
+    fireEvent.click(await screen.findByLabelText('模型网关'));
+    fireEvent.click(screen.getByRole('option', { name: 'openai-custom' }));
     fireEvent.change(await screen.findByLabelText('模型'), {
       target: { value: 'gpt-custom-preview' },
     });

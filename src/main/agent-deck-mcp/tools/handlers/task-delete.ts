@@ -14,7 +14,7 @@ import { eventBus } from '@main/event-bus';
 
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -86,7 +86,7 @@ export const taskDeleteHandler = withMcpGuard(
           ts: Date.now(),
         });
       }
-      return ok({
+      return structuredOk({
         success: deletedIds.length > 0,
         taskId: args.taskId,
         deletedIds: deletedIds,

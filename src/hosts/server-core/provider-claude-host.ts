@@ -94,7 +94,6 @@ export function createServerCoreClaudeHost(input: ServerCoreProviderHostInput) {
   const gatewaysDir = join(configRoot, 'gateways');
   const summaryHost = {
     readSummaryThinking: () => input.settings.summaryThinking,
-    readSummaryTimeoutMs: () => input.settings.summaryTimeoutMs,
     resolveGatewayProfile: (gateway?: string) => gatewayProfile(gatewaysDir, gateway),
     runOneshot: (options: Parameters<typeof runClaudeOneshotWithHost>[0]) =>
       runClaudeOneshotWithHost(options, {

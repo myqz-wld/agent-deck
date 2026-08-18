@@ -1,5 +1,9 @@
-import type { RuntimeSelection, StoredAgentEvent } from '@shared/types';
-import { DEFAULT_SUMMARY_REASONING } from '@shared/types';
+import {
+  DEFAULT_SUMMARY_REASONING,
+  PERIODIC_SUMMARY_TIMEOUT_MS,
+  type RuntimeSelection,
+  type StoredAgentEvent,
+} from '@shared/types';
 import {
   isCodexThinkingLevel,
   type CodexThinkingLevel,
@@ -24,7 +28,6 @@ export interface CodexSummaryOneshotOptions {
 export interface CodexSummaryRunnerHost {
   readSummaryModel(): unknown;
   readSummaryReasoning(): unknown;
-  readSummaryTimeoutMs(): number;
   runOneshot(options: CodexSummaryOneshotOptions): Promise<string>;
 }
 
@@ -66,7 +69,7 @@ export async function summariseCodexSessionWithHost(
     ),
     model: resolveCodexSummaryModel(runtime?.model ?? host.readSummaryModel()),
     provider: runtime?.provider?.trim() || undefined,
-    timeoutMs: host.readSummaryTimeoutMs(),
+    timeoutMs: PERIODIC_SUMMARY_TIMEOUT_MS,
     timeoutErrorMessage: '__codex_summarizer_timeout__',
   });
 

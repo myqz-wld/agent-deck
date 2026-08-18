@@ -282,9 +282,7 @@ function findCompletion(
     const promptId = notificationPromptId(completion);
     if (!promptId) continue;
     const stopReason = nonEmptyString(completion.update.stop_reason) ?? 'end_turn';
-    const agentResult =
-      nonEmptyString(completion.update.agent_result)
-      ?? nonEmptyString(completion.update.agentResult);
+    const agentResult = nonEmptyString(completion.update.agent_result);
     return { agentResult, completion, promptId, stopReason };
   }
   return null;

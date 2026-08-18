@@ -5,6 +5,5 @@ import type { CodexSummaryRunnerHost } from './summarizer-runner-core';
 export const desktopCodexSummaryRunnerHost: CodexSummaryRunnerHost = {
   readSummaryModel: () => settingsStore.get('summaryModel'),
   readSummaryReasoning: () => settingsStore.get('summaryThinking'),
-  readSummaryTimeoutMs: () => settingsStore.get('summaryTimeoutMs'),
   runOneshot: runCodexOneshot,
 };

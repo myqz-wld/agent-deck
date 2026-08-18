@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PERIODIC_SUMMARY_TIMEOUT_MS } from '@shared/types';
 
 const state = vi.hoisted(() => ({
   settings: {
     summaryModel: ' fable ',
     summaryThinking: 'xhigh',
-    summaryTimeoutMs: 12_000,
     grokCliPath: '/bin/grok',
   } as Record<string, unknown>,
 }));
@@ -53,7 +53,7 @@ describe('Grok periodic summary runner', () => {
       model: 'fable',
       effort: 'xhigh',
       binaryPath: '/bin/grok',
-      timeoutMs: 12_000,
+      timeoutMs: PERIODIC_SUMMARY_TIMEOUT_MS,
       timeoutErrorMessage: '__grok_summarizer_timeout__',
     }));
   });

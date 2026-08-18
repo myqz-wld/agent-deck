@@ -63,7 +63,6 @@ export const SERVER_CORE_PROVIDER_SETTINGS_KEYS = Object.freeze([
   'summaryModel',
   'summaryRuntimeProvider',
   'summaryThinking',
-  'summaryTimeoutMs',
 ] as const);
 
 export type ServerCoreProviderSettingKey =
@@ -187,7 +186,6 @@ function resolveValue<K extends ServerCoreProviderSettingKey>(
       return normalized as AppSettings[K];
     }
     case 'permissionTimeoutMs':
-    case 'summaryTimeoutMs':
       return duration(value, key) as AppSettings[K];
     case 'summaryIntervalMs':
       return integer(value, key, 60_000, MAX_DURATION_MS) as AppSettings[K];

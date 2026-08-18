@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   createContextRuntimeIdentity,
   resolveContextRuntimeIdentity,
-  sameContextRuntimeIdentity,
 } from '../identity';
 
 describe('context runtime identity', () => {
@@ -46,9 +45,6 @@ describe('context runtime identity', () => {
     ];
 
     expect(new Set(identities.map((identity) => identity.runtimeKey))).toHaveLength(5);
-    expect(sameContextRuntimeIdentity(identities[0], identities[0])).toBe(true);
-    expect(sameContextRuntimeIdentity(identities[0], identities[1])).toBe(false);
-    expect(sameContextRuntimeIdentity(null, null)).toBe(false);
   });
 
   it('returns explicit unavailable reasons instead of inventing default identities', () => {

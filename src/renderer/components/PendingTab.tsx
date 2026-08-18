@@ -152,7 +152,7 @@ function RemotePendingTab({
       {source.hasMorePending && (
         <button
           type="button"
-          disabled={source.pendingPaginationBusy ?? source.busy}
+          disabled={source.pendingPaginationBusy}
           onClick={() => void source.loadMorePending()}
           className="mt-3 w-full rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
         >

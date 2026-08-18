@@ -7,7 +7,7 @@
  *   - setTimeout 触发 → 可选 onTimeout（claude 调 q.interrupt，codex 调 controller.abort 传
  *     thread.run signal —— 两 adapter 都取消子进程，REVIEW_82）→ reject
  *   - try/finally 必清 timeoutHandle 防 leak（CHANGELOG_13 教训）
- *   - timeoutMs <= 0 直接 return work（与 settingsStore.summaryTimeoutMs=0 「不超时」语义对齐）
+ *   - timeoutMs <= 0 直接 return work，供明确允许无限等待的内部调用使用
  *
  * 4 处实现行为差异为 0（仅 errorMessage / onTimeout 不同），抽公共 helper 收口。
  *

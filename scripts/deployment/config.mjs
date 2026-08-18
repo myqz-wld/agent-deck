@@ -138,6 +138,47 @@ function parseRelayRuntime(value, instanceId) {
   };
 }
 
+function parseFullRuntime(value, instanceId) {
+  const runtime = object(value, 'runtimeConfig');
+  exactKeys(runtime, [
+    'appVersion', 'instanceId', 'runtimeModule', 'runtimeOptions', 'schemaVersion', 'socketPath',
+  ], 'runtimeConfig');
+  if (runtime.schemaVersion !== 1) fail('runtimeConfig.schemaVersion 必须为 1。');
+  if (runtime.instanceId !== instanceId) {
+    fail('runtimeConfig.instanceId 必须与 instance.id 完全一致。');
+  }
+  const appVersion = string(runtime.appVersion, 'runtimeConfig.appVersion', 128);
+  if (/[\u0000-\u001f\u007f-\u009f]/u.test(appVersion)) {
+    fail('runtimeConfig.appVersion 包含无效控制字符。');
+  }
+  const socketPath = absolutePath(runtime.socketPath, 'runtimeConfig.socketPath');
+  if (basename(socketPath) !== 'agent-deckd.sock' || basename(dirname(socketPath)) !== instanceId) {
+    fail('runtimeConfig.socketPath 必须使用当前实例的 agent-deckd.sock 命名空间。');
+  }
+  return {
+    schemaVersion: 1,
+    instanceId,
+    appVersion,
+    runtimeModule: absolutePath(runtime.runtimeModule, 'runtimeConfig.runtimeModule'),
+    runtimeOptions: object(runtime.runtimeOptions, 'runtimeConfig.runtimeOptions'),
+    socketPath,
+  };
+}
+
+function validateFullCredentials(value, instanceId) {
+  const credentials = object(value, 'credentials');
+  exactKeys(credentials, ['credentials', 'instanceId', 'schemaVersion'], 'credentials');
+  if (credentials.schemaVersion !== 3) {
+    fail('secrets.credentialsFile.schemaVersion 必须为 3。');
+  }
+  if (credentials.instanceId !== instanceId) {
+    fail('secrets.credentialsFile 的 instanceId 必须与 instance.id 完全一致。');
+  }
+  if (!Array.isArray(credentials.credentials) || credentials.credentials.length > 256) {
+    fail('secrets.credentialsFile.credentials 必须是当前有界数组。');
+  }
+}
+
 export async function loadServerConfig(path, topology, repoRoot) {
   const loaded = await readTrustedJson(path, '部署配置');
   const config = object(loaded.value, '部署配置');
@@ -194,21 +235,15 @@ export async function loadServerConfig(path, topology, repoRoot) {
       : []),
   ]);
   const runtime = await readTrustedJson(parsed.instance.runtimeConfigFile, 'instance.runtimeConfigFile');
-  const runtimeObject = object(runtime.value, 'runtimeConfig');
-  if (runtimeObject.instanceId !== parsed.instance.id) {
-    fail('runtimeConfig.instanceId 必须与 instance.id 完全一致。');
-  }
   parsed.runtimeConfig = topology === 'relay'
-    ? parseRelayRuntime(runtimeObject, parsed.instance.id)
-    : runtimeObject;
+    ? parseRelayRuntime(runtime.value, parsed.instance.id)
+    : parseFullRuntime(runtime.value, parsed.instance.id);
   if (topology === 'full') {
     const credentials = await readTrustedJson(
       parsed.secrets.credentialsFile,
       'secrets.credentialsFile',
     );
-    if (object(credentials.value, 'credentials').instanceId !== parsed.instance.id) {
-      fail('secrets.credentialsFile 的 instanceId 必须与 instance.id 完全一致。');
-    }
+    validateFullCredentials(credentials.value, parsed.instance.id);
   }
   return Object.freeze(parsed);
 }
@@ -292,6 +327,12 @@ export async function loadWorkerConfig(path, repoRoot) {
       )).value,
       'providerSupervisor.configFile',
     );
+    exactKeys(supervisorConfig, [
+      'brokerRoot', 'desktopSocketPath', 'desktopVm', 'engine', 'executable', 'images',
+      'instanceId', 'maxActive', 'privateRoot', 'rootlessHome', 'rootlessRuntimeDirectory',
+      'schemaVersion', 'stateRoot', 'transportRuntimeDirectory', 'transportSocketPath',
+      'workspaceRoot',
+    ], 'providerSupervisor.configFile');
     if (supervisorConfig.schemaVersion !== 1 ||
         supervisorConfig.workspaceRoot !== parsed.workspace) {
       fail('Provider supervisor 配置必须使用 schemaVersion 1 和同一个 Worker workspace。');

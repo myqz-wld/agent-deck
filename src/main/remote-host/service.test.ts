@@ -22,7 +22,6 @@ describe('RemoteHostService', () => {
 
     expect(snapshot.profiles[1]).toMatchObject({
       endpoint: { hostname: 'server-a.example.test' },
-      credentials: { connectionCredentialConfigured: true },
     });
     expect(serialized).not.toContain('/private/');
     expect(serialized).not.toContain('client-server-a');
@@ -46,7 +45,6 @@ describe('RemoteHostService', () => {
     const added = addedSnapshot.profiles.find((profile) => profile.label === 'Relay');
     expect(added).toMatchObject({
       scope: 'remote',
-      credentials: { connectionCredentialConfigured: true },
     });
     expect(JSON.stringify(added)).not.toContain('/private/');
     expect(context.backend.value.profiles.find((profile) => profile.id === added!.id)).toMatchObject({

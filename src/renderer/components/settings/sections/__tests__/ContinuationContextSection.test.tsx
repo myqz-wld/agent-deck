@@ -35,7 +35,7 @@ beforeEach(() => {
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
-      listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+      listClaudeGatewayProfiles: vi.fn().mockResolvedValue([{ id: 'deepseek' }]),
       listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
     },
   });
@@ -118,12 +118,8 @@ describe('ContinuationContextSection', () => {
       'MAX',
     ]);
 
-    fireEvent.change(
-      screen.getByRole('combobox', { name: '上下文整理模型 模型网关' }),
-      {
-        target: { value: 'deepseek' },
-      },
-    );
+    fireEvent.click(screen.getByRole('combobox', { name: '上下文整理模型 模型网关' }));
+    fireEvent.click(screen.getByRole('option', { name: 'deepseek' }));
     await waitFor(() => {
       expect(
         (screen.getByRole('textbox', {
@@ -263,6 +259,23 @@ describe('ContinuationContextSection', () => {
     fireEvent.change(concurrency, { target: { value: '11' } });
     fireEvent.blur(concurrency);
     expect(onPatch).toHaveBeenCalledWith({ continuationCheckpointMaxConcurrent: 10 });
+  });
+
+  it('uses the shared trigger, model, concurrency, feature-specific field order', () => {
+    render(<SettingsHarness initial={DEFAULT_SETTINGS} onPatch={vi.fn()} />);
+    openSection();
+
+    const section = screen.getByText('会话续接上下文').closest('section');
+    expect(section).not.toBeNull();
+    expect(Array.from(section!.querySelectorAll<HTMLElement>('[data-settings-field]'))
+      .map((field) => field.dataset.settingsField))
+      .toEqual([
+        '自动维护续接检查点',
+        '常规检查间隔（分钟）',
+        '上下文整理模型',
+        '最多同时整理的会话数',
+        '保留最近对话的 token 上限',
+      ]);
   });
 
   it('keeps all four Remote generator fields in the same disabled layout', () => {

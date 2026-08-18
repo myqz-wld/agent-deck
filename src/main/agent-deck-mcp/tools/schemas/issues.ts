@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { IssueRecord } from '@shared/types';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Issue Tracker (plan issue-tracker-mcp-20260529 §Step 3.3.1 / §D2 / §D17 / §D19)
@@ -151,11 +150,55 @@ export type ReportIssueArgs = z.infer<z.ZodObject<typeof REPORT_ISSUE_SCHEMA>>;
 export type AppendIssueContextArgs = z.infer<z.ZodObject<typeof APPEND_ISSUE_CONTEXT_SCHEMA>>;
 export type UpdateIssueStatusArgs = z.infer<z.ZodObject<typeof UPDATE_ISSUE_STATUS_SCHEMA>>;
 
-/**
- * Result types（§D19）：handler 返回完整 IssueRecord — 与 task_create / task_update
- * 对称，UI 端 emit 'issue-changed' 时直接拿到全 record（含 appendices 子列表 for created /
- * appended kinds）。
- */
-export type ReportIssueResult = IssueRecord;
-export type AppendIssueContextResult = IssueRecord;
-export type UpdateIssueStatusResult = IssueRecord;
+const LOGS_REF_OUTPUT_SCHEMA = z
+  .object({
+    date: z.string(),
+    tsRange: z
+      .object({ start: z.number().int(), end: z.number().int() })
+      .strict()
+      .optional(),
+    scopes: z.array(z.string()).optional(),
+    note: z.string().optional(),
+  })
+  .strict();
+
+const ISSUE_APPENDIX_OUTPUT_SCHEMA = z
+  .object({
+    id: z.number().int(),
+    issueId: z.string(),
+    body: z.string(),
+    logsRef: LOGS_REF_OUTPUT_SCHEMA.nullable(),
+    appendedSessionId: z.string().nullable(),
+    appendedAt: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const ISSUE_RECORD_OUTPUT_SCHEMA = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    description: z.string(),
+    repro: z.string().nullable(),
+    kind: z.string(),
+    status: z.enum(['open', 'in-progress', 'resolved']),
+    severity: z.enum(['low', 'medium', 'high']),
+    sourceSessionId: z.string().nullable(),
+    cwd: z.string().nullable(),
+    branchName: z.string().nullable(),
+    logsRef: LOGS_REF_OUTPUT_SCHEMA.nullable(),
+    resolutionSessionId: z.string().nullable(),
+    labels: z.array(z.string()),
+    createdAt: z.number().int().nonnegative(),
+    updatedAt: z.number().int().nonnegative(),
+    resolvedAt: z.number().int().nonnegative().nullable(),
+    deletedAt: z.number().int().nonnegative().nullable(),
+    appendices: z.array(ISSUE_APPENDIX_OUTPUT_SCHEMA).optional(),
+  })
+  .strict();
+
+export const REPORT_ISSUE_OUTPUT_SCHEMA = ISSUE_RECORD_OUTPUT_SCHEMA;
+export const APPEND_ISSUE_CONTEXT_OUTPUT_SCHEMA = ISSUE_RECORD_OUTPUT_SCHEMA;
+export const UPDATE_ISSUE_STATUS_OUTPUT_SCHEMA = ISSUE_RECORD_OUTPUT_SCHEMA;
+export type ReportIssueResult = z.infer<typeof REPORT_ISSUE_OUTPUT_SCHEMA>;
+export type AppendIssueContextResult = z.infer<typeof APPEND_ISSUE_CONTEXT_OUTPUT_SCHEMA>;
+export type UpdateIssueStatusResult = z.infer<typeof UPDATE_ISSUE_STATUS_OUTPUT_SCHEMA>;

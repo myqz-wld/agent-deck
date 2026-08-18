@@ -92,7 +92,7 @@ The concise command sequence is in `README.md`; topology-specific prerequisites 
 
 ### Cross-Session Collaboration / MCP Boundaries
 
-- Cross-adapter collaboration uses Agent Deck Universal Team Backend + Agent Deck MCP tools; do not restore the old inbox-based Agent Teams backend.
+- Cross-adapter collaboration uses Agent Deck Universal Team Backend and Agent Deck MCP tools as its sole built-in backend.
 - Teammate tool calls run under the teammate session's own permission / sandbox boundary; the lead does not approve permissions on its behalf and does not apply the lead's `permissionMode` / allowlist to teammates.
 - The Agent Deck MCP server is enabled by default. When `enableAgentDeckMcp` is disabled, newly created SDK sessions do not mount agent-deck MCP tools, and the `mcp_servers.agent-deck` section automatically injected into Codex is removed.
 - Claude / Codex app prompt assets must be audited in pairs: `resources/claude-config/CLAUDE.md` <-> `resources/codex-config/CODEX_AGENTS.md`; same-name files in skills directories must also be checked as counterparts. Adapter tool differences may use different wording, but protocol semantics must not drift on only one side.

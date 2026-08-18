@@ -1,5 +1,8 @@
-import type { StoredAgentEvent } from '@shared/types';
-import { DEFAULT_SUMMARY_REASONING } from '@shared/types';
+import {
+  DEFAULT_SUMMARY_REASONING,
+  PERIODIC_SUMMARY_TIMEOUT_MS,
+  type StoredAgentEvent,
+} from '@shared/types';
 import {
   isClaudeThinkingLevel,
   type ClaudeThinkingLevel,
@@ -29,7 +32,6 @@ interface ClaudeSummaryGatewayProfile {
 
 export interface ClaudeSummaryRunnerHost {
   readonly readSummaryThinking: () => unknown;
-  readonly readSummaryTimeoutMs: () => number;
   readonly resolveGatewayProfile: (
     provider?: string,
   ) => ClaudeSummaryGatewayProfile | null;
@@ -71,7 +73,7 @@ export async function summariseClaudeSessionWithHost(
     ),
     systemPrompt: buildSummarizeSystemPrompt(agentName),
     settingsPath: profile?.settingsPath,
-    timeoutMs: host.readSummaryTimeoutMs(),
+    timeoutMs: PERIODIC_SUMMARY_TIMEOUT_MS,
     timeoutErrorMessage: '__summarizer_timeout__',
   });
   return cleanCompactResult(result, 800);

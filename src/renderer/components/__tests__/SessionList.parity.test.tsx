@@ -65,7 +65,6 @@ function remoteSource(
       label: 'Production Core',
       scope: 'remote',
       endpoint: null,
-      credentials: { connectionCredentialConfigured: true },
     },
     recoveringWorker: false,
     runtime: null,
@@ -183,7 +182,7 @@ describe('Local and Remote session-list parity', () => {
     cleanup();
     const busySource = remoteSource([
       remoteSession('Active', 'active', 'idle'),
-    ], { busy: true, hasMoreSessions: true, sessionTotal: 9 });
+    ], { livePaginationBusy: true, hasMoreSessions: true, sessionTotal: 9 });
     render(<SessionList remoteSource={busySource} />);
     expect((screen.getByRole('button', { name: '加载更多会话' }) as HTMLButtonElement).disabled)
       .toBe(true);

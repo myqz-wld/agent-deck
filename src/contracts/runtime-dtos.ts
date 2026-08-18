@@ -1,15 +1,5 @@
 import type { JsonObject, JsonValue } from './json';
 
-export interface SessionListItemDto {
-  id: string;
-  adapterId: string;
-  cwd: string;
-  title: string | null;
-  status: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
 export interface SessionHistoryEntryDto {
   id: string;
   sessionId: string;

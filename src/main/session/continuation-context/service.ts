@@ -30,7 +30,6 @@ import type {
   ContinuationWarning,
   PrepareContinuationContextInput,
   PreparedContinuationCandidates,
-  PreparedContinuationContext,
 } from './types';
 
 interface ContinuationServiceDependencies {
@@ -278,21 +277,8 @@ export async function prepareContinuationCandidatesWithDependencies(
   }
 }
 
-export async function prepareContinuationContextWithDependencies(
-  input: PrepareContinuationContextInput,
-  dependencies: ContinuationServiceDependencies = {},
-): Promise<PreparedContinuationContext> {
-  return (await prepareContinuationCandidatesWithDependencies(input, dependencies)).primary;
-}
-
 export function prepareContinuationCandidates(
   input: PrepareContinuationContextInput,
 ): Promise<PreparedContinuationCandidates> {
   return prepareContinuationCandidatesWithDependencies(input);
-}
-
-export function prepareContinuationContext(
-  input: PrepareContinuationContextInput,
-): Promise<PreparedContinuationContext> {
-  return prepareContinuationContextWithDependencies(input);
 }

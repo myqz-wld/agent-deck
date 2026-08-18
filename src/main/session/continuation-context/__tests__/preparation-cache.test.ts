@@ -16,7 +16,7 @@ const target: ResolvedSuccessorSpec = {
   }), runtimeFingerprint: 't',
 };
 const prepared: PreparedContinuationContext = {
-  version: 1,
+  version: 2,
   providerPrompt: 'prompt',
   persistedUserText: 'next',
   source: { eventRevision: 1, rebuildAfterRevision: 0, maxEventId: 1 },

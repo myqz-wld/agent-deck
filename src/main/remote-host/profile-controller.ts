@@ -190,9 +190,6 @@ export class RemoteHostProfileController {
     if (mode === 'remote' && !this.selectedRemoteProfileIdValue) {
       throw new Error('Configure a remote profile before selecting Remote mode');
     }
-    if (mode === 'remote') {
-      this.requireCurrentCredential(this.requireRemote(this.selectedRemoteProfileIdValue!));
-    }
     const previous = this.sourceModeValue;
     this.sourceModeValue = mode;
     this.options.registry.select(
@@ -211,7 +208,7 @@ export class RemoteHostProfileController {
   }
 
   async connect(profileId: string): Promise<void> {
-    this.requireCurrentCredential(this.requireRemote(profileId));
+    this.requireRemote(profileId);
     await this.options.registry.connect(profileId);
   }
 
@@ -253,12 +250,6 @@ export class RemoteHostProfileController {
       throw new Error('Standalone uses the existing local desktop flows');
     }
     return profile;
-  }
-
-  private requireCurrentCredential(profile: RemoteElectronHostProfile): void {
-    if (profile.connectionCredentialStatus === 'refresh-required') {
-      throw new Error('此远程配置来自旧版本，请编辑并重新导入连接凭据。');
-    }
   }
 
   private buildCredentialProfile(

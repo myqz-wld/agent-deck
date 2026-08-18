@@ -148,7 +148,11 @@ describe('SshAgentDeckClient immutable trust and terminal controls', () => {
       'desktop-relay-recovery',
       'relay',
     );
-    const offline = relayClient.request('session.list', {}, { requestId: 'worker-offline' });
+    const offline = relayClient.request(
+      'session.console.list',
+      { limit: 25 },
+      { requestId: 'worker-offline' },
+    );
     relayProcess.emitMessage({
       type: 'error',
       requestId: 'worker-offline',

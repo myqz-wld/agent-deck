@@ -51,17 +51,6 @@ export function SummarySection({ settings, update, readOnly = false }: Props): J
         disabled={readOnly}
         onChange={(v) => void update({ summaryEventCount: v })}
       />
-      <NumberInput
-        label="最多同时总结的会话数"
-        value={settings.summaryMaxConcurrent}
-        min={1}
-        max={10}
-        disabled={readOnly}
-        onChange={(v) => void update({ summaryMaxConcurrent: v })}
-      />
-      <p className="text-[10px] leading-snug text-deck-muted/60">
-        限制后台总结模型的并发调用数。
-      </p>
       <ProviderModelThinkingFields
         label="总结模型"
         hint={
@@ -91,12 +80,16 @@ export function SummarySection({ settings, update, readOnly = false }: Props): J
         onThinkingChange={(v) => void update({ summaryThinking: v })}
       />
       <NumberInput
-        label="单次总结超时（秒，0 = 不超时）"
-        value={Math.round(settings.summaryTimeoutMs / 1_000)}
-        min={0}
+        label="最多同时总结的会话数"
+        value={settings.summaryMaxConcurrent}
+        min={1}
+        max={10}
         disabled={readOnly}
-        onChange={(v) => void update({ summaryTimeoutMs: v * 1_000 })}
+        onChange={(v) => void update({ summaryMaxConcurrent: v })}
       />
+      <p className="text-[10px] leading-snug text-deck-muted/60">
+        限制后台总结模型的并发调用数。
+      </p>
       {readOnly ? (
         <div className="text-[10px] leading-snug text-deck-muted/70">
           运行记录由远端环境保管，这里只显示配置。

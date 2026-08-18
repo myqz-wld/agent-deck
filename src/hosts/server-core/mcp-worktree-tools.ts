@@ -1,4 +1,8 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import {
+  ENTER_WORKTREE_OUTPUT_SCHEMA,
+  EXIT_WORKTREE_OUTPUT_SCHEMA,
+} from '@main/agent-deck-mcp/tools/schemas';
 
 import {
   requireServerCoreMcpCaller,
@@ -45,6 +49,7 @@ export function registerServerCoreWorktreeTools(
     description:
       'Create a detached Git worktree inside this Core Workspace and automatically move this session after the exact tool result is observed. Paths are Workspace-relative.',
     inputSchema: SERVER_CORE_ENTER_WORKTREE_SCHEMA,
+    outputSchema: ENTER_WORKTREE_OUTPUT_SCHEMA,
   }, async (args) => {
     try {
       const caller = requireServerCoreMcpCaller(context);
@@ -61,6 +66,7 @@ export function registerServerCoreWorktreeTools(
     description:
       'Restore this session to its original Workspace directory and remove only its structured worktree lease. Dirty removal requires explicit discardChanges=true authorization.',
     inputSchema: SERVER_CORE_EXIT_WORKTREE_SCHEMA,
+    outputSchema: EXIT_WORKTREE_OUTPUT_SCHEMA,
   }, async (args) => {
     try {
       const caller = requireServerCoreMcpCaller(context);

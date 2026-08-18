@@ -186,5 +186,20 @@ describe('formatEventsForPrompt — 排序契约', () => {
     expect(formatEventsForPrompt([event])).toContain(
       'Agent · wait_agent · → /root/reviewer · gpt-5.6-codex/xhigh · 超时 30 秒',
     );
+
+    const retiredAlias = {
+      ...event,
+      id: 2,
+      payload: {
+        toolName: 'Agent',
+        toolInput: {
+          model: 'gpt-current',
+          model_reasoning_effort: 'retired-effort',
+        },
+      },
+    } satisfies StoredAgentEvent;
+    const retiredOutput = formatEventsForPrompt([retiredAlias]);
+    expect(retiredOutput).toContain('gpt-current');
+    expect(retiredOutput).not.toContain('retired-effort');
   });
 });

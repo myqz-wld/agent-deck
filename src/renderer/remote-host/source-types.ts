@@ -52,7 +52,7 @@ export interface RemotePendingPresentation {
 }
 
 export interface RemoteSessionSourceView {
-  addressableIdentityKey?: string | null;
+  addressableIdentityKey: string | null;
   busy: boolean;
   capabilities: ReadonlySet<string>;
   dataRevision: number;
@@ -60,9 +60,9 @@ export interface RemoteSessionSourceView {
   error: string | null;
   eventLoadError: string | null;
   events: RemoteHostEventListDto | null;
-  historyLoadError?: string | null;
-  historyLoading?: boolean;
-  historyPaginationBusy?: boolean;
+  historyLoadError: string | null;
+  historyLoading: boolean;
+  historyPaginationBusy: boolean;
   historyArchivedOnly: boolean;
   historyQuery: string;
   historySessions: readonly RemoteHostSessionPresentationDto[];
@@ -70,11 +70,11 @@ export interface RemoteSessionSourceView {
   hasMoreSessions: boolean;
   identity: string;
   loading: boolean;
-  livePaginationBusy?: boolean;
+  livePaginationBusy: boolean;
   pendingBuckets: readonly RemoteHostPendingIndexBucketDto[];
   pendingBySession: ReadonlyMap<string, RemoteHostPendingListDto>;
   pendingLoading: boolean;
-  pendingPaginationBusy?: boolean;
+  pendingPaginationBusy: boolean;
   pendingLoadError: string | null;
   pendingTotal: number | null;
   pendingScanTruncated: boolean;
@@ -83,12 +83,12 @@ export interface RemoteSessionSourceView {
   profile: RemoteHostProfileDto | null;
   recoveringWorker: boolean;
   runtime: RemoteHostRuntimeControlsDto | null;
-  runtimeLoadError?: string | null;
-  context?: RemoteHostSessionContextDto | null;
-  contextLoadError?: string | null;
-  inputCapabilities?: RemoteHostSessionInputCapabilitiesDto | null;
-  inputLoadError?: string | null;
-  summaryLoadError?: string | null;
+  runtimeLoadError: string | null;
+  context: RemoteHostSessionContextDto | null;
+  contextLoadError: string | null;
+  inputCapabilities: RemoteHostSessionInputCapabilitiesDto | null;
+  inputLoadError: string | null;
+  summaryLoadError: string | null;
   summaries: RemoteHostSummaryListDto | null;
   taskLoadError: string | null;
   tasks: RemoteHostTaskListDto | null;
@@ -112,7 +112,7 @@ export interface RemoteSessionSourceView {
   getFileChange(changeId: number): Promise<RemoteHostFileChangeGetDto>;
   getFileFinalDiff(filePath: string): Promise<RemoteHostFileFinalDiffDto>;
   loadImageBlob(sessionId: string, source: ImageSource): Promise<LoadImageBlobResult>;
-  planReviewTransport?(
+  planReviewTransport(
     presentation: RemotePendingPresentation,
     agentId: string,
   ): PlanDeepReviewTransport | null;

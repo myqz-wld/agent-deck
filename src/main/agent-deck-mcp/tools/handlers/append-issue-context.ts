@@ -23,7 +23,7 @@ import { isCurrentHandOffOwner } from '@main/session/hand-off/ownership';
 
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -88,7 +88,7 @@ export const appendIssueContextHandler = withMcpGuard(
         sourceSessionId: updated.sourceSessionId,
         ts: Date.now(),
       });
-      return ok(updated satisfies AppendIssueContextResult);
+      return structuredOk(updated satisfies AppendIssueContextResult);
     } catch (e) {
       return err(
         e instanceof Error ? e.message : String(e),

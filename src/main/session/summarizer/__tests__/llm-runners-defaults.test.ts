@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StoredAgentEvent } from '@shared/types';
+import {
+  PERIODIC_SUMMARY_TIMEOUT_MS,
+  type StoredAgentEvent,
+} from '@shared/types';
 
 const harness = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
@@ -51,7 +54,6 @@ describe('periodic summary blank-model defaults', () => {
     vi.stubEnv('ANTHROPIC_DEFAULT_HAIKU_MODEL', '');
     harness.values.summaryModel = '';
     harness.values.summaryThinking = 'invalid';
-    harness.values.summaryTimeoutMs = 10_000;
     harness.profiles = {};
     harness.runClaudeOneshot.mockClear();
   });
@@ -78,6 +80,7 @@ describe('periodic summary blank-model defaults', () => {
         model: 'deepseek-v4-flash',
         effort: 'low',
         settingsPath: '/home/test/.claude/gateways/deepseek.json',
+        timeoutMs: PERIODIC_SUMMARY_TIMEOUT_MS,
       }),
     );
   });

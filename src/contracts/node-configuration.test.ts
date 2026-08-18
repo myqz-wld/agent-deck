@@ -45,7 +45,6 @@ const providerDefaults = {
   summaryModel: 'summary-model',
   summaryRuntimeProvider: '',
   summaryThinking: 'low',
-  summaryTimeoutMs: 60_000,
 } as const;
 
 describe('node configuration contract', () => {
@@ -64,6 +63,18 @@ describe('node configuration contract', () => {
       },
       revision: 7,
     })).toMatchObject({ revision: 7, providerDefaults: { enableAgentDeckMcp: true } });
+    expect(() => parseNodeConfigurationGetResult({
+      providerDefaults: { ...providerDefaults, summaryTimeoutMs: 60_000 },
+      sessionLifecycle: {
+        activeWindowMs: 3_600_000,
+        closeAfterMs: 86_400_000,
+        historyRetentionDays: 30,
+        issueResolvedRetentionDays: 30,
+        issueSoftDeletedRetentionDays: 7,
+        messageRetentionDays: 30,
+      },
+      revision: 7,
+    })).toThrow('Invalid node configuration contract');
     expect(() => parseNodeConfigurationGetResult({
       providerDefaults: {},
       sessionLifecycle: {},

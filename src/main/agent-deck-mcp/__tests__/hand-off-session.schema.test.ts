@@ -115,13 +115,10 @@ describe('hand_off_session schema — unified Continuation Context', () => {
     }
   });
 
-  it('rejects removed plan/adopt/archive/task-policy fields as unknown keys', () => {
+  it('rejects unknown fields', () => {
     const result = HAND_OFF_SESSION_ARGS_SCHEMA.safeParse({
       prompt: 'continue',
-      planId: 'old-plan',
-      adoptTeammates: true,
-      archiveCaller: false,
-      teamTaskPolicy: 'clear-team',
+      unknownField: true,
     });
 
     expect(result.success).toBe(false);
@@ -129,9 +126,7 @@ describe('hand_off_session schema — unified Continuation Context', () => {
       const keys = result.error.issues
         .filter((issue) => issue.code === 'unrecognized_keys')
         .flatMap((issue) => (issue as { keys?: string[] }).keys ?? []);
-      expect(keys).toEqual(
-        expect.arrayContaining(['planId', 'adoptTeammates', 'archiveCaller', 'teamTaskPolicy']),
-      );
+      expect(keys).toEqual(['unknownField']);
     }
   });
 });

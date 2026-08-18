@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import type { TaskRecord } from '@shared/types';
 
 /**
  * Task tool status 枚举（plan task-mcp-merge-into-agent-deck-mcp-20260521 Step 0.5 + R2 F-R2-4 修法）：
@@ -187,10 +186,26 @@ export type TaskGetArgs = z.infer<z.ZodObject<typeof TASK_GET_SCHEMA>>;
 export type TaskUpdateArgs = z.infer<z.ZodObject<typeof TASK_UPDATE_SCHEMA>>;
 export type TaskDeleteArgs = z.infer<z.ZodObject<typeof TASK_DELETE_SCHEMA>>;
 
-// Result types — handler return 用 `satisfies XxxResult` 校验
+export const TASK_RECORD_OUTPUT_SCHEMA = z
+  .object({
+    id: z.string(),
+    ownerSessionId: z.string(),
+    teamId: z.string().nullable(),
+    subject: z.string(),
+    description: z.string().nullable(),
+    status: z.enum(STATUS_VALUES),
+    activeForm: z.string().nullable(),
+    priority: z.number().int(),
+    blocks: z.array(z.string()),
+    blockedBy: z.array(z.string()),
+    labels: z.array(z.string()),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .strict();
 
-/** task_create ok return shape (handlers/task-create.ts)。 */
-export type TaskCreateResult = TaskRecord;
+export const TASK_CREATE_OUTPUT_SCHEMA = TASK_RECORD_OUTPUT_SCHEMA;
+export type TaskCreateResult = z.infer<typeof TASK_CREATE_OUTPUT_SCHEMA>;
 
 /**
  * task_list ok return shape (handlers/task-list.ts)。
@@ -199,17 +214,20 @@ export type TaskCreateResult = TaskRecord;
  * (post-LIMIT/OFFSET 已截断的数组长度)；hasMore = tasks.length === effectiveLimit
  * 提示 caller 是否需要翻下一页。完整 matching count 不暴露（不另起 SELECT COUNT(*)）。
  */
-export interface TaskListResult {
-  total: number;
-  hasMore: boolean;
-  tasks: TaskRecord[];
-}
+export const TASK_LIST_OUTPUT_SCHEMA = z
+  .object({
+    total: z.number().int().nonnegative(),
+    hasMore: z.boolean(),
+    tasks: z.array(TASK_RECORD_OUTPUT_SCHEMA),
+  })
+  .strict();
+export type TaskListResult = z.infer<typeof TASK_LIST_OUTPUT_SCHEMA>;
 
-/** task_get ok return shape (handlers/task-get.ts)。 */
-export type TaskGetResult = TaskRecord;
+export const TASK_GET_OUTPUT_SCHEMA = TASK_RECORD_OUTPUT_SCHEMA;
+export type TaskGetResult = z.infer<typeof TASK_GET_OUTPUT_SCHEMA>;
 
-/** task_update ok return shape (handlers/task-update.ts)。 */
-export type TaskUpdateResult = TaskRecord;
+export const TASK_UPDATE_OUTPUT_SCHEMA = TASK_RECORD_OUTPUT_SCHEMA;
+export type TaskUpdateResult = z.infer<typeof TASK_UPDATE_OUTPUT_SCHEMA>;
 
 /**
  * task_delete ok return shape (handlers/task-delete.ts)。
@@ -217,8 +235,11 @@ export type TaskUpdateResult = TaskRecord;
  * - taskId: 透传 args.taskId（root 删除目标）
  * - deletedIds: 实际被删的所有 task id（root + cascade 下游）
  */
-export interface TaskDeleteResult {
-  success: boolean;
-  taskId: string;
-  deletedIds: string[];
-}
+export const TASK_DELETE_OUTPUT_SCHEMA = z
+  .object({
+    success: z.boolean(),
+    taskId: z.string(),
+    deletedIds: z.array(z.string()),
+  })
+  .strict();
+export type TaskDeleteResult = z.infer<typeof TASK_DELETE_OUTPUT_SCHEMA>;

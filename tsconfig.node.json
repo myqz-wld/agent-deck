@@ -2,6 +2,8 @@
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
   "include": [
     "electron.vite.config.*",
+    "vitest.config.*",
+    "vitest-setup.ts",
     "src/clients/**/*",
     "src/composition/**/*",
     "src/contracts/**/*",

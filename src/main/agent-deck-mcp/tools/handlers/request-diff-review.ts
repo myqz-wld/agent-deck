@@ -4,7 +4,7 @@ import { settingsStore } from '@main/store/settings-store';
 
 import {
   err,
-  ok,
+  structuredOk,
   withMcpGuard,
   type HandlerContext,
 } from '../helpers';
@@ -120,7 +120,7 @@ export const requestDiffReviewHandler = withMcpGuard(
         ...(timeoutMs && timeoutMs > 0 ? { timeoutMs } : {}),
       });
 
-      return ok(decision satisfies RequestDiffReviewResult);
+      return structuredOk(decision satisfies RequestDiffReviewResult);
     } catch (e) {
       return err(
         e instanceof Error ? e.message : String(e),

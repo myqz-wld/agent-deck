@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StoredAgentEvent } from '@shared/types';
+import {
+  PERIODIC_SUMMARY_TIMEOUT_MS,
+  type StoredAgentEvent,
+} from '@shared/types';
 import type { GrokSummaryRunnerHost } from './summarizer-runner-core';
 
 const runGrokOneshot = vi.hoisted(() => vi.fn(async () => ({
@@ -32,7 +35,6 @@ function host(): GrokSummaryRunnerHost {
     readBinaryPath: vi.fn(() => '/bin/grok'),
     readSummaryModel: vi.fn(() => ' fable '),
     readSummaryReasoning: vi.fn(() => 'high'),
-    readSummaryTimeoutMs: vi.fn(() => 12_000),
   };
 }
 
@@ -70,7 +72,7 @@ describe('Grok summary runner Core', () => {
       effort: 'xhigh',
       maxOutputBytes: 8_000,
       model: 'runtime-model',
-      timeoutMs: 12_000,
+      timeoutMs: PERIODIC_SUMMARY_TIMEOUT_MS,
     }));
   });
 });

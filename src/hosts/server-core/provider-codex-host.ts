@@ -333,7 +333,6 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
     summary: {
       readSummaryModel: () => input.settings.summaryModel,
       readSummaryReasoning: () => input.settings.summaryThinking,
-      readSummaryTimeoutMs: () => input.settings.summaryTimeoutMs,
       runOneshot: runSummaryOneshot,
       formatEvents: formatEventsForPrompt,
     },

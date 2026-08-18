@@ -310,6 +310,9 @@ describe('spawn_session public output contract', () => {
       const server = await buildServer();
       await withClient(server, async (client) => {
         const listed = await client.listTools();
+        for (const tool of listed.tools) {
+          expect(tool.outputSchema, tool.name).toMatchObject({ type: 'object' });
+        }
         const spawn = listed.tools.find((tool) => tool.name === 'spawn_session');
         const listSessions = listed.tools.find((tool) => tool.name === 'list_sessions');
         const getSession = listed.tools.find((tool) => tool.name === 'get_session');

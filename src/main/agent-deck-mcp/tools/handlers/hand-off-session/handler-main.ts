@@ -18,7 +18,7 @@ import { sessionManager } from '@main/session/manager';
 import log from '@main/utils/logger';
 import type { SessionAdapterId } from '@shared/types';
 
-import { err, ok, withMcpGuard, type HandlerContext } from '../../helpers';
+import { err, structuredOk, withMcpGuard, type HandlerContext } from '../../helpers';
 import type { HandOffSessionArgs, HandOffSessionResult } from '../../schemas';
 import type { HandOffSessionHandlerDeps } from './_deps';
 import { handOffAcquisitionError } from './acquisition-response';
@@ -312,7 +312,7 @@ export const handOffSessionHandler = withMcpGuard(
         `[mcp hand_off_session] prepared caller=${callerSessionId} adapter=${targetAdapter} cwd=${finalCwd} quality=${prepared.quality} sourceRevision=${prepared.source.eventRevision} checkpointId=${prepared.checkpoint.id ?? 'none'} promptTokens=${prepared.metrics.estimatedPromptTokens}`,
       );
 
-      let response: ReturnType<typeof ok>;
+      let response: ReturnType<typeof structuredOk>;
       try {
         const execution = await executePreparedHandOff({
           source: sourceForExecution,
@@ -389,7 +389,7 @@ export const handOffSessionHandler = withMcpGuard(
         logger.info(
           `[mcp hand_off_session] complete caller=${callerSessionId} successor=${execution.successorSessionId} callerClosed=${callerClosed} tasks=${execution.resourceTransfer.tasks.count} teams=${execution.resourceTransfer.teams.transferred.length} worktreeLease=${execution.resourceTransfer.worktreeLease.status}`,
         );
-        response = ok({
+        response = structuredOk({
           sessionId: execution.successorSessionId,
           adapter: targetAdapter,
           gateway: targetAdapter === 'claude-code' ? target.spec.provider ?? null : null,

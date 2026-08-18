@@ -122,9 +122,7 @@ export function LogsSection({ settings, update, readOnly = false }: Props): JSX.
       )}
 
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        按天分文件，保留 14 天。位置 <code className="rounded bg-white/5 px-1">~/Library/Logs/Agent Deck/main-YYYY-MM-DD.log</code> (macOS) /
-        <code className="rounded bg-white/5 px-1">%APPDATA%/Agent Deck/logs/</code> (Win) /
-        <code className="rounded bg-white/5 px-1">~/.config/Agent Deck/logs/</code> (Linux).
+        按天分文件，保留 14 天。
       </div>
 
       <LogViewerModal open={logOpen} onClose={() => setLogOpen(false)} />

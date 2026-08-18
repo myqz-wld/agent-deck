@@ -103,7 +103,6 @@ export function ToolStartRow({
       collab_tool?: unknown;
       model?: unknown;
       reasoning_effort?: unknown;
-      model_reasoning_effort?: unknown;
       receiver_thread_ids?: unknown;
       task_name?: unknown;
       agent_type?: unknown;
@@ -126,11 +125,7 @@ export function ToolStartRow({
       typeof taskInput.collab_tool === 'string' ? taskInput.collab_tool : '';
     const model = typeof taskInput.model === 'string' ? taskInput.model : '';
     const reasoningEffort =
-      typeof taskInput.reasoning_effort === 'string'
-        ? taskInput.reasoning_effort
-        : typeof taskInput.model_reasoning_effort === 'string'
-          ? taskInput.model_reasoning_effort
-          : '';
+      typeof taskInput.reasoning_effort === 'string' ? taskInput.reasoning_effort : '';
     const receiverThreadIds = Array.isArray(taskInput.receiver_thread_ids)
       ? taskInput.receiver_thread_ids.filter(
         (value): value is string => typeof value === 'string',
