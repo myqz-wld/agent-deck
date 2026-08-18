@@ -11,10 +11,6 @@ import { promises as fsp } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 
-import log from '@main/utils/logger';
-
-const logger = log.scope('browser-screenshot-store');
-
 export const BROWSER_SCREENSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const BROWSER_SCREENSHOT_REAP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
@@ -80,7 +76,7 @@ export class BrowserScreenshotStore {
     this.lastReapAttemptAt = now;
     const attempt = this.reap(BROWSER_SCREENSHOT_MAX_AGE_MS, now)
       .catch((error) => {
-        logger.warn('[browser-screenshot-store] reaper failed', error);
+        void error;
         return 0;
       })
       .finally(() => {
@@ -124,9 +120,6 @@ export class BrowserScreenshotStore {
       }
     }
 
-    if (reaped > 0) {
-      logger.info(`[browser-screenshot-store] reaped ${reaped} stale screenshot(s)`);
-    }
     return reaped;
   }
 

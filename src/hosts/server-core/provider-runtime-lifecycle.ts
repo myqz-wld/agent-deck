@@ -18,6 +18,10 @@ export interface ServerCoreProviderRuntimeLifecycleOptions {
     start(): Promise<void>;
     stop(): Promise<void>;
   };
+  readonly browserRuntime: {
+    start(): Promise<void>;
+    stop(): Promise<void>;
+  };
   readonly presentations: {
     start(): Promise<void>;
     stop(): Promise<void>;
@@ -63,6 +67,7 @@ export class ServerCoreProviderRuntimeLifecycle implements ServerCoreRuntimeLife
     let metadataStarted = false;
     let brokerStarted = false;
     let desktopBrokerStarted = false;
+    let browserRuntimeStarted = false;
     let presentationsStarted = false;
     let collaborationStarted = false;
     let worktreesStarted = false;
@@ -76,6 +81,8 @@ export class ServerCoreProviderRuntimeLifecycle implements ServerCoreRuntimeLife
       brokerStarted = true;
       await this.options.desktopBroker.start();
       desktopBrokerStarted = true;
+      await this.options.browserRuntime.start();
+      browserRuntimeStarted = true;
       await this.options.presentations.start();
       presentationsStarted = true;
       providersOwned = true;
@@ -98,6 +105,9 @@ export class ServerCoreProviderRuntimeLifecycle implements ServerCoreRuntimeLife
       }
       if (presentationsStarted) {
         await this.capture(() => this.options.presentations.stop(), rollbackFailures);
+      }
+      if (browserRuntimeStarted) {
+        await this.capture(() => this.options.browserRuntime.stop(), rollbackFailures);
       }
       if (desktopBrokerStarted) {
         await this.capture(() => this.options.desktopBroker.stop(), rollbackFailures);
@@ -125,6 +135,7 @@ export class ServerCoreProviderRuntimeLifecycle implements ServerCoreRuntimeLife
     this.state = 'closing';
     const failures: unknown[] = [];
     await this.capture(() => this.options.mcpBroker.stop(), failures);
+    await this.capture(() => this.options.browserRuntime.stop(), failures);
     await this.capture(() => this.options.desktopBroker.stop(), failures);
     await this.capture(() => this.options.presentations.stop(), failures);
     await this.capture(() => this.options.collaboration.stop(), failures);

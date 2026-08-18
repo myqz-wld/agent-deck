@@ -9,6 +9,7 @@ import type { ServerCoreDesktopBrokerPort } from './desktop-broker-port';
 import type { ServerCoreWorktreeRuntimePort } from './mcp-worktree-port';
 import type { ServerCoreMcpPresentationPort } from './mcp-presentation-port';
 import type { ServerCoreProviderRenameBus } from './provider-host-common';
+import type { ServerCoreProviderBrowserRuntimePort } from './browser-runtime';
 import type {
   ServerCoreRepositoryHost,
   ServerCoreRuntimeDiagnostics,
@@ -34,6 +35,10 @@ export function createServerCoreProviderCompositionHost(input: {
   readonly adapters: readonly AgentAdapter[];
   readonly repositories: ServerCoreRepositoryHost;
   readonly desktopBroker: Pick<ServerCoreDesktopBrokerPort, 'releaseSession' | 'renameSession'>;
+  readonly browserRuntime: Pick<
+    ServerCoreProviderBrowserRuntimePort,
+    'renameSession' | 'revokeSession'
+  >;
   readonly presentations: Pick<ServerCoreMcpPresentationPort, 'releaseSession' | 'renameSession'>;
   readonly worktrees: Pick<ServerCoreWorktreeRuntimePort, 'renameSession'>;
   readonly renames: ServerCoreProviderRenameBus;
@@ -46,6 +51,7 @@ export function createServerCoreProviderCompositionHost(input: {
       async (agentId, sessionId) => {
         try { await handler(agentId, sessionId); }
         finally {
+          input.browserRuntime.revokeSession(sessionId);
           input.desktopBroker.releaseSession(sessionId);
           input.presentations.releaseSession(sessionId);
         }
@@ -56,6 +62,7 @@ export function createServerCoreProviderCompositionHost(input: {
     renameLiveSession: (agentId, adapter, fromId, toId) => {
       renameCodexLiveSession(agentId, adapter, fromId, toId);
       input.worktrees.renameSession(fromId, toId);
+      input.browserRuntime.renameSession(fromId, toId);
       input.desktopBroker.renameSession(fromId, toId);
       input.presentations.renameSession(fromId, toId);
       input.renames.emit({ from: fromId, to: toId });

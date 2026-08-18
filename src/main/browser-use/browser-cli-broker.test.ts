@@ -14,6 +14,7 @@ import {
   type BrowserCliBrokerHandle,
 } from './browser-cli-broker';
 import { BrowserRuntimeContextManager } from './browser-runtime-context';
+import { browserOperationSuccess } from './operation-contract';
 
 interface CliApi {
   invokeBroker(context: Record<string, unknown>, request: unknown): Promise<any>;
@@ -77,6 +78,38 @@ describe('Browser CLI private broker', () => {
     expect(opened).toMatchObject({ ok: true, operation: 'open', data: { tabId: 1 } });
     expect(tabs).toMatchObject({ ok: true, operation: 'tabs', data: { tabs: [{ id: 1 }] } });
     expect(JSON.stringify({ opened, tabs })).not.toMatch(/session-a|runtime-a|lease/);
+  });
+
+  it('allows a trusted Core executor to receive resolved identity out of band', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'agent-deck-browser-broker-core-'));
+    tempDirs.push(root);
+    const registry = new BrowserLeaseRegistryCore();
+    const execute = vi.fn(async (binding, request) =>
+      browserOperationSuccess(request.operation, { tabs: [], adapter: binding.adapterId }));
+    const handle = await startBrowserCliBroker({
+      pipePath: process.platform === 'win32'
+        ? `\\\\.\\pipe\\agent-deck-browser-core-${process.pid}-${Date.now()}`
+        : join(root, 'broker.sock'),
+      registry,
+      execute,
+    });
+    handles.push(handle);
+    const issued = registry.issue(IDENTITY, 60_000);
+    const result = await cli.invokeBroker({
+      protocolVersion: 1,
+      endpoint: handle.endpoint,
+      lease: issued.lease,
+      adapterId: IDENTITY.adapterId,
+      runtimeGeneration: IDENTITY.runtimeGeneration,
+      sourceIdentity: IDENTITY.sourceIdentity,
+    }, { protocolVersion: 1, operation: 'tabs', args: {} });
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ applicationSessionId: 'session-a' }),
+      expect.objectContaining({ operation: 'tabs' }),
+    );
+    expect(result).toMatchObject({ ok: true, data: { tabs: [], adapter: 'codex-cli' } });
+    expect(JSON.stringify(result)).not.toContain('session-a');
   });
 
   it('rejects proof mismatch, revocation, replay, and request identity spoofing', async () => {

@@ -373,6 +373,7 @@ const serverCoreWrapper = readFileSync(
 );
 for (const required of [
   '/opt/agent-deck/linux-headless/server-core-runtime/index.mjs',
+  '/opt/agent-deck/bin/agent-deck-browser.cjs',
   '/opt/agent-deck/providers/claude/claude',
   '/opt/agent-deck/providers/codex/codex',
   '/opt/agent-deck/providers/grok/grok',
@@ -381,6 +382,7 @@ for (const required of [
     fail(`Server Core wrapper does not fence ${required}`);
   }
 }
+run(process.execPath, ['--check', resolve(repoRoot, 'resources/bin/agent-deck-browser.cjs')]);
 const fullClientKey = readFileSync(
   resolve(repoRoot, 'deploy/linux/full/authorized-client-key-options.txt'),
   'utf8',

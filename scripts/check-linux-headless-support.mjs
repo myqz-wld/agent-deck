@@ -305,6 +305,7 @@ export function verifyLinuxPackageAndRuntimeArtifacts() {
     install?.providerSessionCommand !== '/opt/agent-deck/bin/provider-session' ||
     install?.providerSessionSupervisorBundle !== '/opt/agent-deck/linux-headless/provider-session-supervisor/index.mjs' ||
     install?.providerSessionSupervisorCommand !== '/opt/agent-deck/bin/agent-deck-provider-supervisor' ||
+    install?.browserCliCommand !== '/opt/agent-deck/bin/agent-deck-browser.cjs' ||
     install?.providerSessionSupervisorServiceTemplate !== '/opt/agent-deck/share/provider-session/agent-deck-provider-supervisor.service.in' ||
     install?.providerSessionSupervisorDarwinTemplate !== 'Agent Deck.app/Contents/Resources/provider-session/com.agentdeck.provider-supervisor.plist.in' ||
     install?.feishuCommand !== '/opt/agent-deck/bin/agent-deck-feishu' ||

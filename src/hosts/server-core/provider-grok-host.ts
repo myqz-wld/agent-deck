@@ -3,6 +3,7 @@ import { NOOP_GROK_BRIDGE_DIAGNOSTICS } from '@main/adapters/grok-build/bridge-d
 import { NOOP_GROK_LIVE_RATE_OBSERVER } from '@main/adapters/grok-build/live-token-rate-core';
 import { HookRouteDiagnostics } from '@main/hook-server/route-diagnostics';
 import {
+  providerProcessEnvironment,
   providerLogger,
   publishProviderSession,
   type ServerCoreProviderHostInput,
@@ -47,6 +48,15 @@ export function createServerCoreGrokHost(input: ServerCoreProviderHostInput) {
       }),
       hasPendingWorktreeTransition: (sessionId) =>
         input.worktrees.hasPendingTransition(sessionId),
+      prepareBrowserRuntimeEnvironment: (applicationSessionId) =>
+        input.browserRuntime.prepare({
+          applicationSessionId,
+          adapterId: 'grok-build',
+          environment: providerProcessEnvironment(input),
+        })?.environment ?? null,
+      revokeBrowserRuntime: (applicationSessionId) => {
+        input.browserRuntime.revokeSession(applicationSessionId);
+      },
     },
     sessionManager: input.repositories.sessionManager,
     settings: {

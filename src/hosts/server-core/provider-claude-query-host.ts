@@ -112,6 +112,17 @@ export function createServerCoreClaudeQueryHost(
       executable: process.execPath as 'node',
       env: providerProcessEnvironment(input),
     }),
+    prepareBrowserRuntime: (applicationSessionId, environment) =>
+      input.browserRuntime.prepare({
+        applicationSessionId,
+        adapterId: 'claude-code',
+        environment,
+      }),
+    revokeBrowserRuntime: (applicationSessionId) => {
+      input.browserRuntime.revokeSession(applicationSessionId);
+    },
+    allowBrowserSocket: (sandboxOptions) =>
+      input.browserRuntime.allowClaudeSocket(sandboxOptions),
     resolveBinary: () => input.settings.claudeCliPath ?? HEADLESS_CLAUDE_EXECUTABLE,
     buildSandboxOptions: (mode, cwd, extraAllowWrite) => {
       const effectiveMode: SandboxMode = mode ?? 'workspace-write';
