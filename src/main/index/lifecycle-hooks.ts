@@ -14,6 +14,7 @@ import { universalMessageWatcher } from '../teams/universal-message-watcher';
 import { handleCliArgv } from '../cli';
 import { cleanupSessionHandOffPreparations } from '../ipc/session-hand-off';
 import { getBrowserEngine } from '../browser-use/engine/registry';
+import { shutdownBrowserRuntimeContexts } from '../browser-use/browser-runtime-context-host';
 import { shutdownRemoteHostServiceIfCreated } from '../remote-host';
 
 import type { BootstrapState } from './_deps';
@@ -204,6 +205,20 @@ export function registerLifecycleHooks(
               );
             }
             state.browserUseServerShutdown = null;
+          }
+          // Revoke and remove every session shim/context before closing the broker endpoint.
+          shutdownBrowserRuntimeContexts();
+          if (state.browserCliBrokerShutdown) {
+            try {
+              await state.browserCliBrokerShutdown();
+            } catch (err) {
+              allIngressStopped = false;
+              logger.warn(
+                'browser CLI broker shutdown failed during cleanup',
+                lifecycleDiagnostic('browser-cli-broker-stop', 'failed', err),
+              );
+            }
+            state.browserCliBrokerShutdown = null;
           }
           // Engine-owned windows outlive the native pipe: MCP browser tools open tabs without any
           // pipe connection, so the pipe shutdown above cannot close them.

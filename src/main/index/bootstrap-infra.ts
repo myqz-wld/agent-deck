@@ -72,6 +72,8 @@ import { AGENT_DECK_MCP_TOKEN_ENV } from '../codex-config/agent-deck-mcp-injecto
 import { unionUserShellPath } from '../utils/user-shell-path';
 import { startMainEventLoopMonitor } from '../utils/main-event-loop-monitor';
 import { startBrowserUseServer } from '../browser-use/server';
+import { startBrowserCliBroker } from '../browser-use/browser-cli-broker';
+import { initializeBrowserRuntimeContextHost } from '../browser-use/browser-runtime-context-host';
 import { reapBrowserScreenshotsAtStartup } from '../browser-use/screenshot-store';
 // NOTE(REVIEW_<X>):以下 codex-config 模块**必须**走 static import,不要改回 dynamic import。
 // 同一模块在多处 dynamic import 会让 vite SSR/rollup 把模块代码 inline
@@ -339,7 +341,21 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   // DataPanel 打开时仍走同一个 IPC handler；若预热未完成则复用 in-flight promise。
   void prefetchProviderUsageSnapshots();
 
-  // 8.2 Browser plugin native-pipe backend：每条连接按首次请求的真实 Codex session_id
+  // 8.2 Unified Browser CLI broker. Runtime shims carry only an opaque Browser lease; the broker
+  // resolves it to the stable application session before entering the shared semantic executor.
+  let browserCliBroker: Awaited<ReturnType<typeof startBrowserCliBroker>> | null = null;
+  try {
+    browserCliBroker = await startBrowserCliBroker();
+    initializeBrowserRuntimeContextHost(browserCliBroker.endpoint);
+    state.browserCliBrokerShutdown = browserCliBroker.shutdown;
+    logger.info('[browser-cli] authenticated session broker is ready');
+  } catch (err) {
+    await browserCliBroker?.shutdown().catch(() => undefined);
+    logger.warn('[browser-cli] broker unavailable; Browser CLI contexts stay disabled', err);
+  }
+
+  // 8.3 Migration fallback: official Browser plugin native-pipe backend. Each connection binds to
+  // its first real Codex session_id. Retain it until the unified CLI live parity gate passes.
   // 绑定，并在隔离的 Electron partition/window 中执行 CDP。启动失败只降级 Browser visual
   // QA，不影响 Claude/Codex/Grok 的普通会话；transport 自身负责一次固定字段诊断。
   try {

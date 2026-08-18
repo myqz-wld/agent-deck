@@ -104,6 +104,7 @@ describe('createInitialBootstrapState', () => {
       storageMaintenanceScheduler: null,
       agentDeckMcpHttpShutdown: null,
       browserUseServerShutdown: null,
+      browserCliBrokerShutdown: null,
       mainEventLoopMonitorStop: null,
     });
   });

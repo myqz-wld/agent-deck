@@ -116,4 +116,19 @@ describe('Browser-only lease registry core', () => {
     expect(registry.diagnostics()).toEqual({ activeLeases: 1, sessions: 1 });
     expect(JSON.stringify(registry.diagnostics())).not.toContain('diagnostic-secret');
   });
+
+  it('renames the stable application owner without rotating or exposing the lease', () => {
+    const registry = new BrowserLeaseRegistryCore({
+      now: () => 1_000,
+      generateLease: leaseGenerator('rename-secret'),
+    });
+    const issued = registry.issue(RUNTIME_A, 5_000);
+
+    expect(registry.renameSession('session-a', 'session-real')).toBe(1);
+    expect(registry.resolve(issued.lease, PROOF_A)).toMatchObject({
+      applicationSessionId: 'session-real',
+    });
+    expect(registry.revokeSession('session-a')).toBe(0);
+    expect(registry.revokeSession('session-real')).toBe(1);
+  });
 });

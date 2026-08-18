@@ -45,6 +45,8 @@ export interface BootstrapState {
   agentDeckMcpHttpShutdown: (() => Promise<void>) | null;
   /** Stops the session-owned Browser Use native-pipe broker and closes its isolated windows. */
   browserUseServerShutdown: (() => Promise<void>) | null;
+  /** Stops the authenticated Browser CLI broker after revoking every runtime context. */
+  browserCliBrokerShutdown: (() => Promise<void>) | null;
   /** Stops the main-process event-loop drift monitor during orderly shutdown. */
   mainEventLoopMonitorStop: (() => void) | null;
 }
@@ -61,6 +63,7 @@ export function createInitialBootstrapState(): BootstrapState {
     storageMaintenanceScheduler: null,
     agentDeckMcpHttpShutdown: null,
     browserUseServerShutdown: null,
+    browserCliBrokerShutdown: null,
     mainEventLoopMonitorStop: null,
   };
 }

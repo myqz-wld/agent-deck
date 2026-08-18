@@ -6,7 +6,9 @@ import {
   type CodexClientConstructionHost,
 } from './client-construction';
 
-function host(createClient: CodexClientConstructionHost['createClient']) {
+function host(
+  createClient: CodexClientConstructionHost['createClient'],
+): CodexClientConstructionHost {
   return {
     createClient,
     readCodexCliPath: vi.fn(() => '  /opt/codex  '),
@@ -71,5 +73,43 @@ describe('Codex client construction Core', () => {
       hookServer: undefined,
     }, host(() => { throw failure; }))).toThrow(failure);
     expect(clients.size).toBe(0);
+  });
+
+  it('injects the session shim environment and exact Browser socket config together', () => {
+    const client = {} as CodexAppServerClient;
+    const createClient = vi.fn(() => client);
+    const dependencies = host(createClient);
+    dependencies.prepareBrowserRuntime = vi.fn((_sessionId, environment) => ({
+      environment: {
+        ...environment,
+        PATH: '/private/browser-bin:/usr/bin',
+        AGENT_DECK_BROWSER_RUNTIME_KEY: 'runtime-key',
+      },
+    }));
+    dependencies.browserSocketConfig = vi.fn((environment) => ({
+      features: { network_proxy: { unix_sockets: { '/tmp/browser': 'allow' } } },
+      shell_environment_policy: { set: { PATH: environment.PATH ?? '' } },
+    }));
+
+    ensureCodexClientWithHost({
+      clients: new Map(),
+      sessionId: 'session-a',
+      sessionToken: 'token-a',
+      hookServer: undefined,
+    }, dependencies);
+
+    expect(dependencies.prepareBrowserRuntime).toHaveBeenCalledWith(
+      'session-a',
+      expect.objectContaining({ PATH: '/usr/bin' }),
+    );
+    expect(createClient).toHaveBeenCalledWith(expect.objectContaining({
+      env: expect.objectContaining({
+        PATH: '/private/browser-bin:/usr/bin',
+        AGENT_DECK_BROWSER_RUNTIME_KEY: 'runtime-key',
+      }),
+      config: expect.objectContaining({
+        features: { network_proxy: { unix_sockets: { '/tmp/browser': 'allow' } } },
+      }),
+    }));
   });
 });
