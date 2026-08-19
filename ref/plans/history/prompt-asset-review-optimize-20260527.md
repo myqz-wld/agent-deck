@@ -215,7 +215,7 @@ worktree_path: null
 ## 下一会话第一步
 
 如本会话被中断，新会话 cold start 步骤：
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/prompt-asset-review-optimize-20260527.md`（**注**：因本 plan 不进 worktree，plan 文件在主仓库内，cat 主仓库路径即可）
+1. `Bash: cat ./.claude/plans/prompt-asset-review-optimize-20260527.md`（**注**：因本 plan 不进 worktree，plan 文件在主仓库内，cat 主仓库路径即可）
 2. 看 §当前进度 节判断卡在哪一步
 3. 按 §步骤 checklist 推进
 

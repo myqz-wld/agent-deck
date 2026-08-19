@@ -1,10 +1,10 @@
 
-> agent-deck@0.1.0 test /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+> agent-deck@0.1.0 test ./.claude/worktrees/spike-sdk-bump-20260520
 > vitest run --run
 
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
- RUN  v2.1.9 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+ RUN  v2.1.9 ./.claude/worktrees/spike-sdk-bump-20260520
 
  ✓ src/main/agent-deck-mcp/__tests__/archive-plan.impl-ff-merge-body.test.ts (6 tests) 5ms
  ✓ src/main/agent-deck-mcp/__tests__/archive-plan.impl-core.test.ts (15 tests) 13ms
@@ -29,13 +29,13 @@ stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts > cod
 [codex-bridge] recoverAndSend on archived session sess-archived, auto-unarchiving (user explicitly sending message)
 
 stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts > codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B） > CHANGELOG_99: cwd 不存在 + .claude/worktrees/ 启发式命中 → fallback main repo + R2-2 保留对话历史（jsonl 在）
-[codex-bridge] cwd fallback for sess-cwd-bad: /Users/apple/myrepo/.claude/worktrees/dead-plan → /Users/apple/myrepo
+[codex-bridge] cwd fallback for sess-cwd-bad: ../myrepo/.claude/worktrees/dead-plan → ../myrepo
 
 stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts > codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B） > CHANGELOG_99: cwd 不存在 + 启发式 1 不命中 + parent walk 命中 → fallback 到父目录
-[codex-bridge] cwd fallback for sess-walk: /Users/apple/some/deep/dead/cwd → /Users/apple/some
+[codex-bridge] cwd fallback for sess-walk: ../some/deep/dead/cwd → ../some
 
 stderr | src/main/adapters/codex-cli/__tests__/sdk-bridge.recovery.test.ts > codex sdk-bridge.sendMessage 断连自愈（symmetry-plan P2 HIGH-B） > CHANGELOG_99 + R2-2: cwd 不存在 + jsonl 也不在 → 走 fresh thread 兜底（不 resume）
-[codex-bridge] cwd fallback for sess-dual-bad: /Users/apple/myrepo/.claude/worktrees/dead-plan → /Users/apple/myrepo
+[codex-bridge] cwd fallback for sess-dual-bad: ../myrepo/.claude/worktrees/dead-plan → ../myrepo
 [codex-bridge] resume jsonl missing for sess-dual-bad (startedAt 1970-01-01T00:00:00.001Z), falling back to new thread (CLI history lost but app DB events/file_changes preserved)
 [codex-bridge] post-fallback rename sess-dual-bad → new-sid (carry app-side events/file_changes/summaries history)
 
@@ -72,82 +72,82 @@ stderr | src/main/agent-deck-mcp/__tests__/helpers.deny-external.test.ts > denyE
  ✓ src/main/agent-deck-mcp/__tests__/helpers.deny-external.test.ts (35 tests) 6ms
 stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and-skill-timer-20260514 Phase A1） > caller 不显式传 implDeps.cwd → handler 从 sessionRepo 反查 callerSession.cwd 注入到 impl
 [mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller caller-with-cwd-in-repo: Error: Database not initialized. Call initDb() first.
-    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
-    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
-    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
-    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
-    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at Module.getDb (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
     at processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:97:20
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:97:20
 
 stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — caller cwd 反查（plan mcp-handoff-fix-and-skill-timer-20260514 Phase A1） > caller 显式传 implDeps.cwd → 优先级最高（mergeCallerCwd 不反查 sessionRepo）
 [mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller should-not-be-queried-for-cwd: Error: Database not initialized. Call initDb() first.
-    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
-    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
-    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
-    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
-    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at Module.getDb (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
     at processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:179:20
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:179:20
 
 stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — generic mode (CHANGELOG_99) > generic happy path: 不传 plan_id + 显式 prompt → spawn cwd = caller session cwd + ok return mode=generic
 [mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller caller-sid: Error: Database not initialized. Call initDb() first.
-    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
-    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
-    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
-    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
-    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at Module.getDb (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
     at processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:251:20
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:251:20
 
 stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — generic mode (CHANGELOG_99) > generic + caller cwd 缺失 → fallback mainRepo（caller 不在 sessionRepo / cwd 字段空）
 [mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller caller-sid: Error: Database not initialized. Call initDb() first.
-    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
-    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
-    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
-    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
-    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at Module.getDb (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
     at processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:317:20
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:317:20
 [mcp hand_off_session] cannot archive caller caller-sid: not in sessions table (异常被清理 / 边界状态 / 长 async 期间 row 被删)
 
 stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — generic mode (CHANGELOG_99) > generic + 传 phase_label → ok return ignoredFields 含 phase_label
 [mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller caller-sid: Error: Database not initialized. Call initDb() first.
-    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
-    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
-    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
-    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
-    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at Module.getDb (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
     at processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:388:20
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:388:20
 
 stderr | src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts > handOffSessionHandler — generic mode (CHANGELOG_99) > CHANGELOG_99 R1 fix MED-4: generic + caller cwd 真不存在 → existsSync precheck false → fallback mainRepo
 [mcp hand_off_session] shutdownTeammatesOnBaton helper failed for caller caller-sid: Error: Database not initialized. Call initDb() first.
-    at Module.getDb (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
-    at defaultRepo (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
-    at Object.findActiveMembershipsBySession (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
-    at Module.shutdownTeammatesOnBaton (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
-    at Module.runBatonCleanup (/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
+    at Module.getDb (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/db.ts:49:11)
+    at defaultRepo (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:108:61)
+    at Object.findActiveMembershipsBySession (./.claude/worktrees/spike-sdk-bump-20260520/src/main/store/agent-deck-team-repo/index.ts:128:5)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:75:41
+    at Module.shutdownTeammatesOnBaton (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/shutdown-teammates-on-baton.ts:82:23)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:196:9
+    at Module.runBatonCleanup (./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/baton-cleanup.ts:198:33)
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/tools/handlers/hand-off-session.ts:400:27
     at processTicksAndRejections (node:internal/process/task_queues:105:5)
-    at /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:460:20
+    at ./.claude/worktrees/spike-sdk-bump-20260520/src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts:460:20
 
  ✓ src/main/agent-deck-mcp/__tests__/hand-off-session.handler-cwd-generic.test.ts (6 tests) 8ms
 stderr | src/main/agent-deck-mcp/__tests__/spawn-agent-name-routing.test.ts > spawn handler agent_name 按 adapter 路由 (plan §P3 Step 3.9 TC3-7) > TC4 (D3 行 4, v4 关键修正): codex lead × claude wrapper teammate — adapter=codex-cli, agent_name=reviewer-claude → 找 codex-config root (不是 claude-config)
@@ -169,13 +169,13 @@ stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > s
 [sdk-bridge] post-fallback rename sess-no-jsonl → new-sid (carry app-side events/file_changes/summaries history)
 
 stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_99: cwd 不存在 + .claude/worktrees/ 启发式命中 → fallback main repo + 走 jsonl missing 同款下游
-[sdk-bridge] cwd fallback for sess-cwd-bad: /Users/apple/myrepo/.claude/worktrees/dead-plan → /Users/apple/myrepo
-[sdk-bridge] cwdFellBack for sess-cwd-bad → /Users/apple/myrepo, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
+[sdk-bridge] cwd fallback for sess-cwd-bad: ../myrepo/.claude/worktrees/dead-plan → ../myrepo
+[sdk-bridge] cwdFellBack for sess-cwd-bad → $HOME/myrepo, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
 [sdk-bridge] post-fallback rename sess-cwd-bad → new-sid (carry app-side events/file_changes/summaries history)
 
 stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_99: cwd 不存在 + 启发式 1 不命中 + parent walk 命中 → fallback 到父目录
-[sdk-bridge] cwd fallback for sess-walk: /Users/apple/some/deep/dead/cwd → /Users/apple/some
-[sdk-bridge] cwdFellBack for sess-walk → /Users/apple/some, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
+[sdk-bridge] cwd fallback for sess-walk: ../some/deep/dead/cwd → ../some
+[sdk-bridge] cwdFellBack for sess-walk → $HOME/some, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
 [sdk-bridge] post-fallback rename sess-walk → new-sid (carry app-side events/file_changes/summaries history)
 
 stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_107: jsonl 不存在 + 摘要成功 → prepended prompt + emit「LLM 摘要已注入」
@@ -191,8 +191,8 @@ stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > s
 [sdk-bridge] post-fallback rename sess-thunk-throw → new-sid (carry app-side events/file_changes/summaries history)
 
 stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_107: cwdFellBack=true + 摘要成功 → prepended prompt + emit cwdFellBack 摘要成功文案
-[sdk-bridge] cwd fallback for sess-cwd-summary: /Users/apple/myrepo/.claude/worktrees/dead-plan → /Users/apple/myrepo
-[sdk-bridge] cwdFellBack for sess-cwd-summary → /Users/apple/myrepo, falling back to new CLI session with auto-generated summary prepended (prompt 92 chars)
+[sdk-bridge] cwd fallback for sess-cwd-summary: ../myrepo/.claude/worktrees/dead-plan → ../myrepo
+[sdk-bridge] cwdFellBack for sess-cwd-summary → $HOME/myrepo, falling back to new CLI session with auto-generated summary prepended (prompt 92 chars)
 [sdk-bridge] post-fallback rename sess-cwd-summary → new-sid (carry app-side events/file_changes/summaries history)
 
 stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > REVIEW_36 HIGH-1: jsonl 不存在 + record claudeCodeSandbox=strict → fallback 透传 strict
@@ -1355,7 +1355,7 @@ stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.consume-fork.test.ts
 
  ✓ src/main/adapters/claude-code/__tests__/sdk-bridge.consume-fork.test.ts (2 tests) 3ms
 stderr | src/main/store/session-repo/__tests__/cwd-release-marker.test.ts
-[session-repo.test] better-sqlite3 binding 不可用,跳过本文件全部用例。若需本地实测:临时跑 pnpm rebuild better-sqlite3,跑完 pnpm install 还原。原因:The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+[session-repo.test] better-sqlite3 binding 不可用,跳过本文件全部用例。若需本地实测:临时跑 pnpm rebuild better-sqlite3,跑完 pnpm install 还原。原因:The module './.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
 was compiled against a different Node.js version using
 NODE_MODULE_VERSION 130. This version of Node.js requires
 NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
@@ -1363,14 +1363,14 @@ the module (for instance, using `npm rebuild` or `npm install`).
 
  ↓ src/main/store/__tests__/rejoin-after-soft-exit.test.ts (3 tests | 3 skipped)
 stderr | src/main/agent-deck-mcp/__tests__/dormant-teammate-shutdown.test.ts
-[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module './.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
 was compiled against a different Node.js version using
 NODE_MODULE_VERSION 130. This version of Node.js requires
 NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
 the module (for instance, using `npm rebuild` or `npm install`).
 
 stderr | src/main/store/__tests__/rejoin-after-soft-exit.test.ts
-[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module './.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
 was compiled against a different Node.js version using
 NODE_MODULE_VERSION 130. This version of Node.js requires
 NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
@@ -1378,7 +1378,7 @@ the module (for instance, using `npm rebuild` or `npm install`).
 
  ↓ src/main/store/__tests__/agent-deck-message-repo.test.ts (14 tests | 14 skipped)
 stderr | src/main/store/__tests__/agent-deck-message-repo.test.ts
-[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module './.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
 was compiled against a different Node.js version using
 NODE_MODULE_VERSION 130. This version of Node.js requires
 NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
@@ -1386,7 +1386,7 @@ the module (for instance, using `npm rebuild` or `npm install`).
 
  ↓ src/main/store/__tests__/agent-deck-team-repo.test.ts (24 tests | 24 skipped)
 stderr | src/main/store/__tests__/agent-deck-team-repo.test.ts
-[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+[agent-deck-repos.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module './.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
 was compiled against a different Node.js version using
 NODE_MODULE_VERSION 130. This version of Node.js requires
 NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
@@ -1394,7 +1394,7 @@ the module (for instance, using `npm rebuild` or `npm install`).
 
  ↓ src/main/store/__tests__/task-repo.test.ts (26 tests | 26 skipped)
 stderr | src/main/store/__tests__/task-repo.test.ts
-[task-repo.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+[task-repo.test] better-sqlite3 binding 不可用，跳过本文件全部用例。若需本地实测：临时跑 pnpm rebuild better-sqlite3，跑完 pnpm install 还原。原因：The module './.claude/worktrees/spike-sdk-bump-20260520/node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
 was compiled against a different Node.js version using
 NODE_MODULE_VERSION 130. This version of Node.js requires
 NODE_MODULE_VERSION 137. Please try re-compiling or re-installing

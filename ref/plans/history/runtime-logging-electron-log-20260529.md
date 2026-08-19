@@ -1,7 +1,7 @@
 ---
 plan_id: "runtime-logging-electron-log-20260529"
 created_at: "2026-05-29"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/runtime-logging-electron-log-20260529"
+worktree_path: "./.claude/worktrees/runtime-logging-electron-log-20260529"
 status: "completed"
 base_commit: "57147d948da638f73a9ada5ea1aa17dc568012e7"
 base_branch: "main"
@@ -387,11 +387,11 @@ completed_at: "2026-05-30"
 
 **当前 session 仍在跑**，不需要 cold start。但若 context 烧光需要 hand-off，新 session cold-start 第一步（应用 §Step 3 cold-start 5 步契约完整版）：
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/runtime-logging-electron-log-20260529.md` 读 plan **全文**
-2. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/runtime-logging-electron-log-20260529/spike-reports/spike1-rotate-strategy.md` 读 spike (a)
-3. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/runtime-logging-electron-log-20260529/spike-reports/spike2-test-env-isolation.md` 读 spike (c)
-4. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/runtime-logging-electron-log-20260529/spike-reports/spike3-preload-ipc-bridge.md` 读 spike (b) + (d) deferred 计划
-5. **从 plan frontmatter 取 `worktree_path` 字段**（默认 `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/runtime-logging-electron-log-20260529`）
+1. `Bash: cat ./.claude/plans/runtime-logging-electron-log-20260529.md` 读 plan **全文**
+2. `Bash: cat ./.claude/plans/runtime-logging-electron-log-20260529/spike-reports/spike1-rotate-strategy.md` 读 spike (a)
+3. `Bash: cat ./.claude/plans/runtime-logging-electron-log-20260529/spike-reports/spike2-test-env-isolation.md` 读 spike (c)
+4. `Bash: cat ./.claude/plans/runtime-logging-electron-log-20260529/spike-reports/spike3-preload-ipc-bridge.md` 读 spike (b) + (d) deferred 计划
+5. **从 plan frontmatter 取 `worktree_path` 字段**（默认 `./.claude/worktrees/runtime-logging-electron-log-20260529`）
 6. `Bash: test -d <worktree_path> && echo EXISTS || echo NOT_EXISTS` 检查 worktree 是否已建：
    - **EXISTS**（前会话已进 Step 2 EnterWorktree）→ 走 `EnterWorktree(path: <worktree_path>)` 进同一 worktree（用 `path` 不用 `name` 避开 v2.1.112 stale base bug）
    - **NOT_EXISTS**（前会话未进 Step 2，仍在 Step 1.5 Round N fix loop）→ 留在主仓库不进 worktree，按 plan §步骤找最早 unchecked step

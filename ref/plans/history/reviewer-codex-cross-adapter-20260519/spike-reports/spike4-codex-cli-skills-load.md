@@ -17,14 +17,14 @@
 
 ```bash
 $ ls -la ~/.codex/skills/agent-deck/
-drwxr-xr-x  4 apple  staff  128 May 19 20:11 .
-drwxr-xr-x  4 apple  staff  128 May 19 21:25 ..
-drwxr-xr-x  3 apple  staff   96 May 19 20:11 deep-review
-drwxr-xr-x  3 apple  staff   96 May 12 11:05 hello-from-deck
+drwxr-xr-x  4 user  staff  128 May 19 20:11 .
+drwxr-xr-x  4 user  staff  128 May 19 21:25 ..
+drwxr-xr-x  3 user  staff   96 May 19 20:11 deep-review
+drwxr-xr-x  3 user  staff   96 May 12 11:05 hello-from-deck
 
 $ find ~/.codex/skills/agent-deck/ -name "*.md" -maxdepth 3
-/Users/apple/.codex/skills/agent-deck/hello-from-deck/SKILL.md
-/Users/apple/.codex/skills/agent-deck/deep-review/SKILL.md
+$HOME/.codex/skills/agent-deck/hello-from-deck/SKILL.md
+$HOME/.codex/skills/agent-deck/deep-review/SKILL.md
 ```
 
 - `~/.codex/skills/agent-deck/deep-review/SKILL.md` ✅ 存在
@@ -57,7 +57,7 @@ codex CLI **不暴露非交互的 list-skills 命令** — `/skills` 是 interac
 2. codex 回「我会使用 `hello-from-deck` skill 做一次加载自检」（21:36:44）
 3. codex `cat ~/.codex-default/skills/agent-deck/hello-from-deck/SKILL.md`（21:36:45）读取 SKILL 内容
 4. codex 按 SKILL 指引跑 `pwd && date '+%Y-%m-%d %H:%M:%S %Z'`（21:36:51）
-5. codex 输出「Agent Deck 自带 skill 已就绪：hello-from-deck / cwd: /Users/apple/Repository/personal/agent-deck / 时间戳：2026-05-19 21:36:51 CST」（21:37:03 ✅）
+5. codex 输出「Agent Deck 自带 skill 已就绪：hello-from-deck / cwd: . / 时间戳：2026-05-19 21:36:51 CST」（21:37:03 ✅）
 
 **实证条目**：
 

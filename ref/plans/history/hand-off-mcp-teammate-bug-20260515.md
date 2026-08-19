@@ -1,7 +1,7 @@
 ---
 plan_id: "hand-off-mcp-teammate-bug-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/hand-off-mcp-teammate-bug-20260515"
+worktree_path: "./.claude/worktrees/hand-off-mcp-teammate-bug-20260515"
 status: "completed"
 base_commit: "91c4568"
 base_branch: "main"
@@ -115,8 +115,8 @@ completed_at: "2026-05-15"
 
 按 user CLAUDE.md cold-start 流程:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/hand-off-mcp-teammate-bug-20260515.md` 全文读 plan
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/hand-off-mcp-teammate-bug-20260515")` 进 worktree(用 `path` 不是 `name`)
+1. `Bash: cat ./.claude/plans/hand-off-mcp-teammate-bug-20260515.md` 全文读 plan
+2. `EnterWorktree(path: "./.claude/worktrees/hand-off-mcp-teammate-bug-20260515")` 进 worktree(用 `path` 不是 `name`)
 3. `git log --oneline -3` 自检 HEAD = 91c4568
 4. **从 Step 1.1 开始**:复现实验 + 必要时让用户描述 UI 现象
 5. Step 1.2 grep 找代码 + 确认 R37 R2 HIGH-1 fix 状态

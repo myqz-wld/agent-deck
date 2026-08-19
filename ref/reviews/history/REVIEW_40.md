@@ -3,7 +3,7 @@ review_id: REVIEW_40
 title: codex/claude adapter 架构对称性 R1+R2+R3 深度 review × Phase 2+3 fix 落地（reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 xhigh）
 created_at: 2026-05-15
 plan_id: codex-claude-adapter-symmetry-20260515
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/codex-claude-adapter-symmetry-20260515
+worktree_path: ./.claude/worktrees/codex-claude-adapter-symmetry-20260515
 base_commit: 91c4568
 final_commit: 726af8d
 parent_review_id: REVIEW_37

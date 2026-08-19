@@ -1,7 +1,7 @@
 ---
 plan_id: "llm-handoff-summary-fallback-20260514"
 created_at: "2026-05-14"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/llm-handoff-summary-fallback-20260514"
+worktree_path: "./.claude/worktrees/llm-handoff-summary-fallback-20260514"
 status: "completed"
 base_commit: "6273545"
 final_commit: "6f23a069f598e92bafa150d6c5cad7f95554e3b5"
@@ -61,8 +61,8 @@ completed_at: "2026-05-14"
 
 > Step 1 + Step 2 已完成(2026-05-14, commits `c2c564d` + `7962a11`),下面是 **Step 3 起步**指令。
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/llm-handoff-summary-fallback-20260514.md`(**严禁** Read tool — 详 user CLAUDE.md §Step 3 cold-start callout)
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/llm-handoff-summary-fallback-20260514")` 进 worktree
+1. `Bash: cat ./.claude/plans/llm-handoff-summary-fallback-20260514.md`(**严禁** Read tool — 详 user CLAUDE.md §Step 3 cold-start callout)
+2. `EnterWorktree(path: "./.claude/worktrees/llm-handoff-summary-fallback-20260514")` 进 worktree
 3. (自检)`Bash: pwd` 应含 `.claude/worktrees/llm-handoff-summary-fallback-20260514`
 4. (自检)`Bash: git log --oneline -3` HEAD 应是 commit `7962a11` 或之后
 5. **Step 3 实操**:接 jsonl missing fallback 路径(`recoverer.ts:270` 之后 `if (cwdFellBack || !this.jsonlExistsThunk(...))` 分支内 `if (!cwdFellBack) { console.warn + emit「请补背景」 + ... }`),把 createThunk 调用包一层 prependHistorySummary
@@ -81,7 +81,7 @@ completed_at: "2026-05-14"
 
 ## 关键文件路径(全部 worktree 绝对路径,严禁用主 repo 绝对路径)
 
-prepend `<worktree-abs-path>/` = `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/llm-handoff-summary-fallback-20260514/` 后使用:
+prepend `<worktree-abs-path>/` = `./.claude/worktrees/llm-handoff-summary-fallback-20260514/` 后使用:
 
 - `src/main/adapters/claude-code/sdk-bridge/recoverer.ts`(主战场,加 ctx field + helper)
 - `src/main/adapters/claude-code/sdk-bridge/index.ts`(facade ctor 接通)

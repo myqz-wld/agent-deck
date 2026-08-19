@@ -5,7 +5,7 @@ created: 2026-06-15
 completed: 2026-06-15
 base_commit: 1bd4ae1005cbf6553be0f3fc98b53242b750c9fd
 branch: main
-workspace: /Users/wanglidong/Repository/agent-deck
+workspace: .
 changelog: ref/changelogs/CHANGELOG_261.md
 ---
 
@@ -70,4 +70,4 @@ changelog: ref/changelogs/CHANGELOG_261.md
 
 ## Next-Session First Action
 
-Plan completed. 后续如要做 GUI 实测，在 `/Users/wanglidong/Repository/agent-deck` 按 CLAUDE.md 重启 dev，打开“数据”tab，验证额度窗口切 tab 缓存、60 秒刷新、Claude 无 live 会话后台查询和未订阅 badge。
+Plan completed. 后续如要做 GUI 实测，在 `.` 按 CLAUDE.md 重启 dev，打开“数据”tab，验证额度窗口切 tab 缓存、60 秒刷新、Claude 无 live 会话后台查询和未订阅 badge。

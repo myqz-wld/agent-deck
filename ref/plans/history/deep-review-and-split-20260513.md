@@ -1,7 +1,7 @@
 ---
 plan_id: deep-review-and-split-20260513
 created_at: 2026-05-13
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-split-20260513
+worktree_path: ./.claude/worktrees/deep-review-and-split-20260513
 status: completed
 base_commit: 08e0b48
 base_branch: main
@@ -73,9 +73,9 @@ final_commit: 850efc3
 
 ### 决策 4：worktree + plan hand off
 
-- worktree path: `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-split-20260513`
+- worktree path: `./.claude/worktrees/deep-review-and-split-20260513`
 - branch: `worktree-deep-review-and-split-20260513`
-- 本 plan 文件路径: `/Users/apple/.claude/plans/piped-fluttering-moth.md`（系统给定，外置 ~/.claude/plans/）
+- 本 plan 文件路径: `$HOME/.claude/plans/piped-fluttering-moth.md`（系统给定，外置 ~/.claude/plans/）
 - 完成时归档到 `<main-repo>/plans/deep-review-and-split-20260513.md` + 同步 `plans/INDEX.md`
 
 ### 决策 5：deep-code-review SKILL 调用约定
@@ -120,7 +120,7 @@ final_commit: 850efc3
 ### Phase 4 — H4 拆 Tier 3 manager.ts（**完成 2026-05-13 H4**）
 
 - [x] **Step 4.0** cold start: `Bash: cat <plan-abs-path>` → `EnterWorktree(path:...)` — done H4 续会话
-- [x] **Step 4.1** 写 sub-plan（class state ownership 重组）→ ExitPlanMode 用户确认 — done，sub-plan `/Users/apple/.claude/plans/adaptive-orbiting-snowglobe.md`
+- [x] **Step 4.1** 写 sub-plan（class state ownership 重组）→ ExitPlanMode 用户确认 — done，sub-plan `$HOME/.claude/plans/adaptive-orbiting-snowglobe.md`
 - [x] **Step 4.2** 走 `agent-deck:deep-code-review` SKILL R1 异构对抗（reviewer-claude + reviewer-codex teammate 各审 sub-plan）— done，22 finding（HIGH 4 / MED 11 / LOW 3 / INFO 4），lead 三态裁决整合 9 必修 + 4 H5 follow-up（含 facade 反向裁决采纳）写入 sub-plan §SKILL R1 finding 整合裁决 节
 - [x] **Step 4.3** 实施拆分：3 atomic commit
   - Step 4.3.1 `b900e37` 抽 manager-enrich.ts (55) + 删 unused top-level agentDeckTeamRepo import
@@ -182,7 +182,7 @@ final_commit: 850efc3
 - **commit 链路**：`80a19d1` Phase 1 → `328354f` Step 2.1 → `cdcb1c7` Step 2.2 → `94bac42` Step 2.3 → `84a306c` Step 3.1 → `8756833` Step 3.2 → `b900e37` Step 4.3.1 → `79c4c65` Step 4.3.2 → `0a920a0` Step 4.3.3 → `850efc3` Step 4.5 docs（main HEAD）
 
 **H4 进度**（2026-05-13，completed）：
-- ✅ Step 4.1 写 sub-plan `/Users/apple/.claude/plans/adaptive-orbiting-snowglobe.md`（设计 4 sibling 文件 + 3 commit 串行 + 7 不变量 + 7 已知踩坑 + 4 决策；Plan agent 评审改 4 处草案）
+- ✅ Step 4.1 写 sub-plan `$HOME/.claude/plans/adaptive-orbiting-snowglobe.md`（设计 4 sibling 文件 + 3 commit 串行 + 7 不变量 + 7 已知踩坑 + 4 决策；Plan agent 评审改 4 处草案）
 - ✅ Step 4.2 deep-code-review SKILL R1 异构对抗（reviewer-claude + reviewer-codex teammate 22 finding，HIGH 4 / MED 11 / LOW 3 / INFO 4）→ lead 三态裁决整合 9 必修 + 反驳 1 (HIGH-B1 facade 反向裁决采纳取代 implements) + 4 H5 follow-up；裁决全文写入 sub-plan §SKILL R1 finding 整合裁决 节
 - ✅ Step 4.3 实施 3 atomic commit：
   - `b900e37` Phase 4 Step 4.3.1 抽 manager-enrich.ts (55 LOC) + 删 unused top-level agentDeckTeamRepo import
@@ -268,17 +268,17 @@ final_commit: 850efc3
 **Cold start prompt 模板**（H2 开始用）：
 
 ```
-按 /Users/apple/.claude/plans/piped-fluttering-moth.md 接力
+按 $HOME/.claude/plans/piped-fluttering-moth.md 接力
 ```
 
 新会话 agent 收到这一句**必做**：
 
-1. `Bash: cat /Users/apple/.claude/plans/piped-fluttering-moth.md`（**严禁用 Read 工具**，详 ~/.claude/CLAUDE.md §Step 3 cold start callout）
-2. 从 frontmatter 拿 `worktree_path` → `EnterWorktree(path:"/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-split-20260513")`
+1. `Bash: cat $HOME/.claude/plans/piped-fluttering-moth.md`（**严禁用 Read 工具**，详 ~/.claude/CLAUDE.md §Step 3 cold start callout）
+2. 从 frontmatter 拿 `worktree_path` → `EnterWorktree(path:"./.claude/worktrees/deep-review-and-split-20260513")`
 3. `Bash: pwd` 确认 cwd 在 worktree 内（含 `.claude/worktrees/deep-review-and-split-20260513`）
 4. `Bash: git log --oneline -3` 确认 HEAD ≥ frontmatter `base_commit`
 5. 按 plan **§步骤 checklist** 当前 Phase 第一个未打勾步骤动手
-6. **所有指向代码资产的路径用 worktree 内绝对路径**（`/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-split-20260513/src/...`）
+6. **所有指向代码资产的路径用 worktree 内绝对路径**（`./.claude/worktrees/deep-review-and-split-20260513/src/...`）
 7. **不重新讨论已记录的 §设计决策**
 
 **H4 cold start 第一步具体指令**：

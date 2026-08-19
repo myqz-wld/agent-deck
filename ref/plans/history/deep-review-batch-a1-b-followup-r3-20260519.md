@@ -1,7 +1,7 @@
 ---
 plan_id: "deep-review-batch-a1-b-followup-r3-20260519"
 created_at: "2026-05-19T15:00:00+08:00"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-batch-a1-b-followup-r3-20260519"
+worktree_path: "./.claude/worktrees/deep-review-batch-a1-b-followup-r3-20260519"
 status: "completed"
 base_commit: "074782eb5101adf320716ad6e3fdf16f908e55ce"
 base_branch: "main"
@@ -479,7 +479,7 @@ Phase 1.6 — `set-permission-mode-rollback.test.ts` 改为调真实 bridge（M4
   mcp__agent-deck__spawn_session({
     adapter: 'claude-code',
     agent_name: 'reviewer-claude',
-    cwd: '<worktree-abs-path>',  // 即 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/<plan-id>
+    cwd: '<worktree-abs-path>',  // 即 ./.claude/worktrees/<plan-id>
     display_name: 'reviewer-claude · R3 verify',
     prompt: '<完整 prompt — scope + focus + skip 详 R3.2/3.3/3.4>',
     team_name: 'r3-verify-followup-20260519',
@@ -624,8 +624,8 @@ Phase 1.6 — `set-permission-mode-rollback.test.ts` 改为调真实 bridge（M4
 
 接力会话 cold start（hand_off_session plan-driven mode 自动发 `按 <plan-abs-path> 接力`）：
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/deep-review-batch-a1-b-followup-r3-20260519.md` 全文（cwd 已是 mainRepo，详 user CLAUDE.md §Step 3）
-2. 从 frontmatter 拿 `worktree_path` → `EnterWorktree(path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-batch-a1-b-followup-r3-20260519)` 进 worktree
+1. `Bash: cat ./.claude/plans/deep-review-batch-a1-b-followup-r3-20260519.md` 全文（cwd 已是 mainRepo，详 user CLAUDE.md §Step 3）
+2. 从 frontmatter 拿 `worktree_path` → `EnterWorktree(path: ./.claude/worktrees/deep-review-batch-a1-b-followup-r3-20260519)` 进 worktree
 3. 自检：worktree 内 `Bash: pwd; git log --oneline -19` 确认 HEAD 含 `e24e335 docs(p6):` commit + `074782e` base_commit（Phase 1+2+3+4+5+6 共 15 commit chain：`034efea` → `aa35c1c` → `d82fa60` → `80cba1f` → `d99592f` → `9e31276` → `1f43302` → `f2184df` → `7aa6103` → `b8a2961` → `7e68a17` → `8fa571c` → `50490f5` → `9c09c8a` → `e24e335`）
 4. **从 Phase R3 起手**（Phase 1+2+3+4+5+6 已完成）：
    - **Phase R3 详细 step**（plan §Phase R3 完整模板）：
@@ -640,9 +640,9 @@ Phase 1.6 — `set-permission-mode-rollback.test.ts` 改为调真实 bridge（M4
 
 **重要约束**：
 - 所有指向代码资产的 Read/Edit/Write 路径必须含 `.claude/worktrees/deep-review-batch-a1-b-followup-r3-20260519/` 前缀（详 user CLAUDE.md §worktree 路径陷阱）
-- node_modules 已 symlink 到 main repo（worktree 内 `ln -s /Users/apple/Repository/personal/agent-deck/node_modules node_modules`），typecheck / vitest 直接用，**不要** pnpm install（防 better-sqlite3 ABI 重 build）
+- node_modules 已 symlink 到 main repo（worktree 内 `ln -s ./node_modules node_modules`），typecheck / vitest 直接用，**不要** pnpm install（防 better-sqlite3 ABI 重 build）
 - 22 条「已知踩坑」必须读全（plan 末尾），特别是踩坑 #2 atomic boundary / #8 F1 真根因 / #11 mock 策略局限 / #14 enrollMember 复活语义 / #19 critical path repo-relative
-- 预存 sandbox flaky test：`src/main/session/__tests__/hand-off.test.ts > summariseSessionForHandOff > uses settings.handOffModel` 在 base commit `074782e` 上同款 fail（写 `/Users/apple/Library/Preferences/electron-store-nodejs/...` EPERM），与本 plan 修法无关；Phase 验收时该 test 失败可忽略
+- 预存 sandbox flaky test：`src/main/session/__tests__/hand-off.test.ts > summariseSessionForHandOff > uses settings.handOffModel` 在 base commit `074782e` 上同款 fail（写 `$HOME/Library/Preferences/electron-store-nodejs/...` EPERM），与本 plan 修法无关；Phase 验收时该 test 失败可忽略
 - Phase 5.5 rejoin-after-soft-exit.test.ts 3 case 在 better-sqlite3 binding ABI mismatch 时 skip 是设计内（与 task-repo / agent-deck-team-repo test 同款 bindingAvailable 守门），typecheck pass 即可
 - Phase 6 注释精确化模式不删 dead code — 仅明确 fallback chain 是 test seam（callerSessionIdOverride: null 路径），生产 3 transport 永不命中（reviewer 后续轮次再发同款 finding 应直接引 plan §Phase 6 注释 skip）
 

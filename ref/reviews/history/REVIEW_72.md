@@ -23,7 +23,7 @@ MCP enter_worktree / exit_worktree（git worktree 创建/删除自动化），4 
 - **文件**: `enter-worktree-impl.ts:232`（修前 `git rev-parse --show-toplevel`）
 - **问题**: 变量名 + 注释都声称解析「main_repo」，但 `--show-toplevel` 返回**当前工作树根**。caller cwd 在主仓库时两者相等，**但 caller cwd 在某 linked worktree 内时分叉**：show-toplevel 给该 worktree，git-common-dir+dirname 给真 main repo。`exit-worktree-impl:205` / `hand-off-session-impl:167` / archive-plan-impl 全用 `--git-common-dir`，enter 是唯一异类。
 - **后果**: caller 已在 worktree1（builtin EnterWorktree 切了 cwd / 之前 mcp enter_worktree 设了 marker）再调 enter_worktree 起 plan2 → mainRepo 误算成 worktree1 → 新 worktree 建到 `worktree1/.claude/worktrees/plan2`（嵌套错位）+ marker 指向嵌套路径。后续 archive_plan 用 git-common-dir 拿真 main repo，与 plan frontmatter 嵌套 worktree_path 对不上 → 收口链错乱。git worktree add 允许嵌套（实测 rc=0）→ 不立即报错，silent 错位更危险。
-- **验证**（lead 本 worktree 内实跑铁证）：`git rev-parse --show-toplevel` → worktree 自身；`git rev-parse --git-common-dir` dirname → 真 main repo（`/Users/apple/Repository/personal/agent-deck`）。grep 确认 enter 是 4 个 impl 中唯一用 show-toplevel 的。
+- **验证**（lead 本 worktree 内实跑铁证）：`git rev-parse --show-toplevel` → worktree 自身；`git rev-parse --git-common-dir` dirname → 真 main repo（`.`）。grep 确认 enter 是 4 个 impl 中唯一用 show-toplevel 的。
 - **修复**: enter-worktree-impl.ts:232 改 `--git-common-dir` + dirname（与 3 兄弟统一），同步修 jsdoc:14 + hint:225。回归 test：caller cwd 在 worktree 内 → worktreePath 派生自真 main repo 非嵌套。
 
 ### ✅ MED-B exit 在「未合并 commit + discardChanges=false」时先删 worktree 才发现 branch 不能删

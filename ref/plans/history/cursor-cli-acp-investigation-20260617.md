@@ -4,7 +4,7 @@ created_at: 2026-06-17T00:00:00+08:00
 status: completed
 base_commit: ec495b1
 base_branch: main
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 motivation_source: user requested Cursor CLI ACP investigation before implementation
 ---
 
@@ -258,7 +258,7 @@ embedded context block。它不是 Cursor CLI 的规则系统，也不是 Codex
   "id": 2,
   "method": "session/new",
   "params": {
-    "cwd": "/Users/wanglidong/Repository/agent-deck",
+    "cwd": ".",
     "mcpServers": []
   }
 }

@@ -4,7 +4,7 @@ Status: complete and accepted; Batch 1 evidence manifest and lead-owned Batch 2 
 Parent plan: [`PLAN_38_feishu-one-click-server.md`](../PLAN_38_feishu-one-click-server.md)
 Planning base commit: `c2a0a1ea4077d67fcfc1ea242d7caae7600b0222`
 User authorization already established: include this work as P0 and prepare it for parallel execution
-Batch 1 envelope approval recorded: approved through the P0 plan gate at `2026-08-13T17:48:01Z`; valid only for the unchanged envelopes below. The complete parent implementation plan was approved on `2026-08-13`, and the managed isolated worktree is active at `/Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/agent-deck-019ffbfd-37c-msrtkmb2` on branch `codex/feishu-one-click-server`.
+Batch 1 envelope approval recorded: approved through the P0 plan gate at `2026-08-13T17:48:01Z`; valid only for the unchanged envelopes below. The complete parent implementation plan was approved on `2026-08-13`, and the managed isolated worktree is active at `./.agent-deck/worktrees/agent-deck-019ffbfd-37c-msrtkmb2` on branch `codex/feishu-one-click-server`.
 
 ## P0 Objective
 
@@ -99,9 +99,9 @@ Batch 1 intentionally performs no source edits. Its reports make the later destr
 #### Runtime
 
 - Pre-dispatch baseline: refreshed clean `main` at `c2a0a1ea4077d67fcfc1ea242d7caae7600b0222` (ignored planning files excluded).
-- Dispatch history: `/root/p0_surface_audit` started prematurely at `2026-08-13T17:48:48Z` and was interrupted at `2026-08-13T17:50:32Z` after the user clarified that scanning must wait for approval of the complete implementation plan. No partial report is accepted.
+- Dispatch history: `lead-workspace/p0_surface_audit` started prematurely at `2026-08-13T17:48:48Z` and was interrupted at `2026-08-13T17:50:32Z` after the user clarified that scanning must wait for approval of the complete implementation plan. No partial report is accepted.
 - Observed controls: native Codex dispatch accepted explicit `gpt-5.6-sol`, `xhigh`, and fresh context; no substitution reported. Read-only behavior was instruction-enforced, and the lead verified the source baseline after interruption.
-- Accepted dispatch: `/root/p0_surface_audit_fresh` was started from the isolated worktree with the unchanged approved envelope. Native dispatch accepted explicit `gpt-5.6-sol`, `xhigh`, and `fork_turns: "none"`; no substitution was reported.
+- Accepted dispatch: `lead-workspace/p0_surface_audit_fresh` was started from the isolated worktree with the unchanged approved envelope. Native dispatch accepted explicit `gpt-5.6-sol`, `xhigh`, and `fork_turns: "none"`; no substitution was reported.
 - Outcome and validation result: completed read-only. The report traced renderer, preload, IPC, main service, Core runtime, trusted Agent/MCP paths, dynamic registration, and serialized contracts. It returned the exact manifest integrated below. The lead accepted it only after the source worktree remained clean at `c2a0a1ea4077d67fcfc1ea242d7caae7600b0222`.
 
 ### Envelope P0-B — Repository Compatibility-Code Audit
@@ -153,9 +153,9 @@ Batch 1 intentionally performs no source edits. Its reports make the later destr
 #### Runtime
 
 - Pre-dispatch baseline: refreshed clean `main` at `c2a0a1ea4077d67fcfc1ea242d7caae7600b0222` (ignored planning files excluded).
-- Dispatch history: `/root/p0_compat_audit` started prematurely at `2026-08-13T17:48:48Z` and was interrupted at `2026-08-13T17:50:32Z` after the user clarified that scanning must wait for approval of the complete implementation plan. No partial report is accepted.
+- Dispatch history: `lead-workspace/p0_compat_audit` started prematurely at `2026-08-13T17:48:48Z` and was interrupted at `2026-08-13T17:50:32Z` after the user clarified that scanning must wait for approval of the complete implementation plan. No partial report is accepted.
 - Observed controls: native Codex dispatch accepted explicit `gpt-5.6-sol`, `xhigh`, and fresh context; no substitution reported. Read-only behavior was instruction-enforced, and the lead verified the source baseline after interruption.
-- Accepted dispatch: `/root/p0_compat_audit_fresh` was started concurrently from the isolated worktree with the unchanged approved envelope. Native dispatch accepted explicit `gpt-5.6-sol`, `xhigh`, and `fork_turns: "none"`; no substitution was reported.
+- Accepted dispatch: `lead-workspace/p0_compat_audit_fresh` was started concurrently from the isolated worktree with the unchanged approved envelope. Native dispatch accepted explicit `gpt-5.6-sol`, `xhigh`, and `fork_turns: "none"`; no substitution was reported.
 - Outcome and validation result: completed read-only. The report traced current and historical producers/consumers, schema and wire boundaries, package exports, deployment/rollback evidence, provider variants, and security fences. It found exactly one safe compatibility cleanup, integrated below. The lead accepted it only after the source worktree remained clean at `c2a0a1ea4077d67fcfc1ea242d7caae7600b0222`.
 
 ## Batch 1 Approval Semantics
@@ -173,7 +173,7 @@ Batch 1 intentionally performs no source edits. Its reports make the later destr
 - Dispatch baseline: clean branch `codex/feishu-one-click-server` at `c2a0a1ea4077d67fcfc1ea242d7caae7600b0222`.
 - Pre-dispatch plan SHA-256 values: parent `fd236d0544c77df3d88b496f6395fdd6d7db8a9202aaf29e422b576d3a121921`; child `a272e31bb8cff84b68a54d0e3f6224d17d1d11acd4284d8fb07bf059a88e80b8`.
 - Both accepted workers reported no mutation and no network use. At `2026-08-13T18:15:45Z`, the lead re-ran full tracked/untracked status, HEAD, diff, and both plan hashes. HEAD, cleanliness, and hashes matched the dispatch baseline exactly.
-- The earlier interrupted `/root/p0_surface_audit` and `/root/p0_compat_audit` outputs remain rejected and were not used.
+- The earlier interrupted `lead-workspace/p0_surface_audit` and `lead-workspace/p0_compat_audit` outputs remain rejected and were not used.
 - Parallel-task controls were satisfied without fallback: native Codex, `gpt-5.6-sol`, `xhigh`, fresh context, read-only instruction fence, structured return, and lead-owned integration.
 
 ## Exact Evidence-Gated Cleanup Manifest

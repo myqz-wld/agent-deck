@@ -21,7 +21,7 @@ related_review: REVIEW_182
 - Created: 2026-07-27
 - Base branch: `main`
 - Base commit: `abc9f8180a9e1e4b828a06c7ae5fff99a6af47a2`
-- Worktree: `/Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/feat__browser-p0-p1-hardening`
+- Worktree: `./.agent-deck/worktrees/feat__browser-p0-p1-hardening`
 - Work branch: `feat/browser-p0-p1-hardening`
 - Agent Deck tasks: T0 `c6cf7daa-5042-4c50-be7f-183e7854049a`; validation T5
   `f9fc017b-353e-4d01-9a02-31a58cef6eee`

@@ -13,14 +13,14 @@ skipped_expired:
 
 排查链路 `inbox-watcher → eventBus → main bridge → IPC → renderer store → PendingTab`，逐层验证全好（DB sessions row source=sdk active team_name 正确、events 表 ingest 路径必写 row、type guard 与 store reducer 都对），唯独 events 表里**零条** `team-permission-request` row + main 终端无任何 `[main] team-permission-requested` 相关 warn → 锁定 `inbox-watcher emit` 之前断链。
 
-最终静态 audit 发现：用户的 `~/.claude` 是 symlink 指向 `/Users/apple/.claude-default`，chokidar 在 macOS fsevents 下回 handle 函数的 `filepath` 是 realpath 化路径，与代码里 `getInboxPath()` 拼出的 raw symlink path 严格 `!==` 比较永远 true → handle 永远 early return → emit 永远不 fire。
+最终静态 audit 发现：用户的 `~/.claude` 是 symlink 指向 `$HOME/.claude-default`，chokidar 在 macOS fsevents 下回 handle 函数的 `filepath` 是 realpath 化路径，与代码里 `getInboxPath()` 拼出的 raw symlink path 严格 `!==` 比较永远 true → handle 永远 early return → emit 永远不 fire。
 
 ## 方法
 
 **非双对抗** — debug-style 排查一步步 trace 现场状态，每一步都是 deterministic 验证（DB SQL / 代码 grep / log 实测），不需要异构对抗。验证手段以「inbox 现场制造测试 entry + 直查 DB events 表 + main 终端 log + node realpath 实测」为主。
 
 **关键证据来源**：
-- `python3 -c "import os; print(os.path.realpath('~/.claude/teams/.../team-lead.json'))"` → `/Users/apple/.claude-default/...` 与 raw `/Users/apple/.claude/...` 不等（铁证 symlink）
+- `python3 -c "import os; print(os.path.realpath('~/.claude/teams/.../team-lead.json'))"` → `$HOME/.claude-default/...` 与 raw `$HOME/.claude/...` 不等（铁证 symlink）
 - `node -e "fs.realpathSync(p)"` 同样输出 `.claude-default` 路径（确证 node 行为）
 - 直接 SQLite 查 `events WHERE payload_json LIKE '%team-permission-request%'` → 0 row（确证 ingest 没走）
 - 直接 SQLite 查 events 43508-43510 含 `"thinking":"看起来这是一个探针请求...都包含 probe 标记"` → lead Claude session 在 chat 里**收到了 PROBE permission_request 作为 user message**（确证 CLI 内部 inbox polling 正常，证伪「inbox 文件本身没被 detect」假设 → bug 在应用层 chokidar）
@@ -53,7 +53,7 @@ src/main/teams/team-watcher.ts
 
 | # | 严重度 | 文件:行号 | 现场 | 验证手段 |
 |---|---|---|---|---|
-| 1 | HIGH | `src/main/teams/inbox-watcher.ts:85-86` (修复前) | chokidar 监听 `inboxesDir`（raw `/Users/apple/.claude/...`），handle 函数收到 chokidar 回的 filepath（realpath 化 `/Users/apple/.claude-default/...`），与 `getInboxPath(name, 'team-lead')` 重新拼出的 raw symlink path `!==` 比较**永远 true** → handle 永远 early return → `processInboxFile` 永远不调 → `eventBus.emit('team-permission-requested', ...)` 永远不触发 → main bridge 永远不 ingest → PendingTab 永远不弹 teammate 审批 | (a) python `os.path.realpath` + node `fs.realpathSync` 双侧确证 `.claude` symlink 解析到 `.claude-default`；(b) 现场往 inbox 追加 fake permission_request `perm-probe-...`，2s 后 SQL `events WHERE id > 43507` 查到 lead Claude **收到 PROBE 作为 user message**（CLI 自己的 inbox polling 正常）但**没有任何 team-permission-request kind row**（应用层 chokidar 没 fire）；(c) main log 全程无 `[main] team-permission-requested ... but no session bound; UI 看不到。` warn（排除「leadSession 找不到」分支）|
+| 1 | HIGH | `src/main/teams/inbox-watcher.ts:85-86` (修复前) | chokidar 监听 `inboxesDir`（raw `$HOME/.claude/...`），handle 函数收到 chokidar 回的 filepath（realpath 化 `$HOME/.claude-default/...`），与 `getInboxPath(name, 'team-lead')` 重新拼出的 raw symlink path `!==` 比较**永远 true** → handle 永远 early return → `processInboxFile` 永远不调 → `eventBus.emit('team-permission-requested', ...)` 永远不触发 → main bridge 永远不 ingest → PendingTab 永远不弹 teammate 审批 | (a) python `os.path.realpath` + node `fs.realpathSync` 双侧确证 `.claude` symlink 解析到 `.claude-default`；(b) 现场往 inbox 追加 fake permission_request `perm-probe-...`，2s 后 SQL `events WHERE id > 43507` 查到 lead Claude **收到 PROBE 作为 user message**（CLI 自己的 inbox polling 正常）但**没有任何 team-permission-request kind row**（应用层 chokidar 没 fire）；(c) main log 全程无 `[main] team-permission-requested ... but no session bound; UI 看不到。` warn（排除「leadSession 找不到」分支）|
 | 1a | HIGH | `src/main/teams/team-coordinator.ts:113` (修复前) | `if (!filepath.startsWith(root)) return;` 同根因失效 — `root = getTeamsRoot()` 是 raw symlink path，`filepath` 来自 chokidar 是 realpath 化路径 → startsWith 永远 false → fs sync 通道完全静默失效，team config 的 fs add/change 永远不触发 sync | main 终端 log 全程只有 `[team-coordinator] sync from pretool` 没有 `sync from fs`（证据：lead 调 TeamCreate 时 PreToolUse hook 触发 sync 兜住了 DB，但纯 fs change → DB 这条路全废）|
 | 1b | HIGH | `src/main/teams/team-watcher.ts:83-84` (修复前) | `dispatchByPath(p)` 内 `if (p === teamDir \|\| p.startsWith(teamDir + '/'))` 同根因失效 — `teamDir = join(getTeamsRoot(), name)` 是 raw symlink path，p 来自 chokidar 是 realpath，比较永远 false → emit `team-data-changed` 永远不触发 → renderer 端 TeamDetail 不知道 team config / task-list 有变化 | 静态代码 audit + 与 inbox-watcher / team-coordinator 同根因（chokidar 在 macOS fsevents 下回 realpath 是固定行为，三处全中招）|
 

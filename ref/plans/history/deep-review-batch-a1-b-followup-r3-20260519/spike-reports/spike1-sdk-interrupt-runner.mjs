@@ -49,7 +49,7 @@ try {
   q = query({
     prompt: userMessages(),
     options: {
-      cwd: '/Users/apple/Repository/personal/agent-deck',
+      cwd: '.',
       // ['user'] 让 SDK 子进程从 ~/.claude/ 读 OAuth + 默认 settings
       settingSources: ['user'],
       // 关掉所有 model 工具,简化 frame 流

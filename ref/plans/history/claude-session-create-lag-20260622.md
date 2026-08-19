@@ -3,7 +3,7 @@ plan_id: claude-session-create-lag-20260622
 status: completed
 created_at: 2026-06-22
 base_commit: 4fb6987
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 ---
 
 # Claude Session Create Lag Investigation

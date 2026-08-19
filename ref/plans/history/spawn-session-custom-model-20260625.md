@@ -1,7 +1,7 @@
 ---
 plan_id: spawn-session-custom-model-20260625
 created_at: 2026-06-25
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 status: completed
 base_commit: 915e8a6ad875d16c3c1115270282ee578b02f25a
 base_branch: main

@@ -1,7 +1,7 @@
 ---
 plan_id: list-sessions-related-default-20260619
 created_at: 2026-06-19
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 status: completed
 base_commit: 8c8066b754419f8f9310495275c799ba8bc96d92
 base_branch: main

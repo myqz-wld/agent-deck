@@ -3,7 +3,7 @@ plan_id: spawn-session-native-fork-20260709
 status: approved
 created_at: 2026-07-09
 base_commit: c509d95b14c93d484100df269a6c829927dec373
-worktree_path: /Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/feat__spawn-session-native-fork-20260709
+worktree_path: ./.agent-deck/worktrees/feat__spawn-session-native-fork-20260709
 work_branch: feat/spawn-session-native-fork-20260709
 approved_at: 2026-07-09
 archived_at: 2026-07-10

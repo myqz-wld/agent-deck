@@ -1,7 +1,7 @@
 ---
 plan_id: "codex-claude-adapter-symmetry-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/codex-claude-adapter-symmetry-20260515"
+worktree_path: "./.claude/worktrees/codex-claude-adapter-symmetry-20260515"
 status: "completed"
 base_commit: "91c4568"
 base_branch: "main"
@@ -108,8 +108,8 @@ R37 收口后剩余「不在 R37 scope」事项中,本 plan 处理 **第 3 类:c
 
 按 user CLAUDE.md cold-start 流程:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/codex-claude-adapter-symmetry-20260515.md` 全文读 plan
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/codex-claude-adapter-symmetry-20260515")` 进 worktree(用 `path` 不是 `name`)
+1. `Bash: cat ./.claude/plans/codex-claude-adapter-symmetry-20260515.md` 全文读 plan
+2. `EnterWorktree(path: "./.claude/worktrees/codex-claude-adapter-symmetry-20260515")` 进 worktree(用 `path` 不是 `name`)
 3. `git log --oneline -5` 自检 HEAD = 91c4568(base_commit) 或之后
 4. **从 Step 1.1 开始动手**:
     - spawn 一对 R1 reviewer-claude + reviewer-codex(team `codex-claude-symmetry-r1`,cwd = 当前 worktree)

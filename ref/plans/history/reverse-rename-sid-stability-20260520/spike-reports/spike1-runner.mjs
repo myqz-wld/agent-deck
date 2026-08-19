@@ -43,7 +43,7 @@ console.log(
 
 // ─── 2. jsonl 文件名 == 第一条 record sessionId 实测 ─────────────────────
 const projectsDir = join(homedir(), '.claude/projects');
-const cwdEncoded = '-Users-apple-Repository-personal-agent-deck';
+const cwdEncoded = 'sibling-agent-deck';
 const targetDir = join(projectsDir, cwdEncoded);
 if (!existsSync(targetDir)) {
   console.error(`[spike1.2] target dir not found: ${targetDir}`);
@@ -91,9 +91,9 @@ if (mismatchCount > 0) {
 function encodeClaudeProjectDir(cwd) {
   return '-' + cwd.split('/').filter(Boolean).join('-');
 }
-const testCwd = '/Users/apple/Repository/personal/agent-deck';
+const testCwd = '.';
 const encoded = encodeClaudeProjectDir(testCwd);
-const expectedDir = '-Users-apple-Repository-personal-agent-deck';
+const expectedDir = 'sibling-agent-deck';
 console.log(
   `[spike1.3] encodeClaudeProjectDir('${testCwd}') = '${encoded}' (expected '${expectedDir}')`,
   encoded === expectedDir ? '✅' : '❌',

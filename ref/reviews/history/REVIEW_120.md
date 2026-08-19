@@ -8,11 +8,11 @@
 ## Decisions
 
 1. **MED fixed: archived team membership was treated as fatal handoff transfer failure**
-   - Evidence: `transferTeams` now classifies archived teams into `skipped` at [resource-transfer-coordinator.ts](/Users/wanglidong/Repository/agent-deck/src/main/agent-deck-mcp/tools/handlers/hand-off-session/resource-transfer-coordinator.ts:122) and returns that diagnostic in the successful team transfer result at [resource-transfer-coordinator.ts](/Users/wanglidong/Repository/agent-deck/src/main/agent-deck-mcp/tools/handlers/hand-off-session/resource-transfer-coordinator.ts:217).
-   - Fix: add `resourceTransfer.teams.skipped` to the result type at [schemas.ts](/Users/wanglidong/Repository/agent-deck/src/main/agent-deck-mcp/tools/schemas.ts:727), skip archived teams without reviving or transferring them, and preserve active-team fatal failures.
+   - Evidence: `transferTeams` now classifies archived teams into `skipped` at [resource-transfer-coordinator.ts](./src/main/agent-deck-mcp/tools/handlers/hand-off-session/resource-transfer-coordinator.ts:122) and returns that diagnostic in the successful team transfer result at [resource-transfer-coordinator.ts](./src/main/agent-deck-mcp/tools/handlers/hand-off-session/resource-transfer-coordinator.ts:217).
+   - Fix: add `resourceTransfer.teams.skipped` to the result type at [schemas.ts](./src/main/agent-deck-mcp/tools/schemas.ts:727), skip archived teams without reviving or transferring them, and preserve active-team fatal failures.
 
 2. **LOW fixed: missing regression coverage for stale archived membership rows**
-   - Evidence: added archived-only and mixed archived+active tests at [hand-off-session.resource-transfer.test.ts](/Users/wanglidong/Repository/agent-deck/src/main/agent-deck-mcp/__tests__/hand-off-session.resource-transfer.test.ts:120) and [hand-off-session.resource-transfer.test.ts](/Users/wanglidong/Repository/agent-deck/src/main/agent-deck-mcp/__tests__/hand-off-session.resource-transfer.test.ts:150).
+   - Evidence: added archived-only and mixed archived+active tests at [hand-off-session.resource-transfer.test.ts](./src/main/agent-deck-mcp/__tests__/hand-off-session.resource-transfer.test.ts:120) and [hand-off-session.resource-transfer.test.ts](./src/main/agent-deck-mcp/__tests__/hand-off-session.resource-transfer.test.ts:150).
    - Fix: tests assert no `swapLead` or `addMember` call for archived-only handoff and assert active teams still transfer while archived memberships are reported in `skipped`.
 
 ## Validation

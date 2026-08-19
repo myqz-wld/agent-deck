@@ -4,7 +4,7 @@ status: completed
 created_at: 2026-06-18
 base_branch: main
 base_commit: 6c06fa7
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 related_changelog: CHANGELOG_291
 related_review: REVIEW_125
 ---

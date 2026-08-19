@@ -1,7 +1,7 @@
 ---
 plan_id: "archive-failure-ux-upthrow-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-failure-ux-upthrow-20260515"
+worktree_path: "./.claude/worktrees/archive-failure-ux-upthrow-20260515"
 status: "completed"
 base_commit: "b7ba2b2"
 base_branch: "main"
@@ -126,15 +126,15 @@ jsdoc 明示**仅 IPC AdapterSendMessage 触发(用户从 UI/CLI 显式 sendMess
 
 **Phase 2 Step 2.2 完整收口,Phase 3 路径在用户决策**。新会话 cold start 后:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/archive-failure-ux-upthrow-20260515.md` 全文(看 Phase 3 三态拆分)
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-failure-ux-upthrow-20260515")` 进同一 worktree(用 `path` 不是 `name`)
+1. `Bash: cat ./.claude/plans/archive-failure-ux-upthrow-20260515.md` 全文(看 Phase 3 三态拆分)
+2. `EnterWorktree(path: "./.claude/worktrees/archive-failure-ux-upthrow-20260515")` 进同一 worktree(用 `path` 不是 `name`)
 3. `git status` 自检 — 应当看到 8 文件 modified(event-bus.ts / ipc-channels.ts / baton-cleanup.ts / baton-cleanup.test.ts / sessions.ts / sessions-hand-off-helper.ts / sessions.test.ts / main/index.ts)等待 Phase 3 commit
 4. **AskUserQuestion 决策 Phase 3 路径**(三选一):
     - **a) 直接进 Step 3.2-3.4 收口**(无 R2 复审):用当前会话的 Phase 1 R1 review + Phase 2 实施作为唯一证据,直接写 REVIEW.md + CHANGELOG.md + archive_plan。优点:省 1 对 reviewer 的 spawn 时间(快约 5-10 min);缺点:实施代码无独立异构 review 守门(只有 R1 review 修法但实施代码没 review)
     - **b) 进 Step 3.1 R2 复审 + Step 3.2-3.4 收口**(推荐):新 team_name=`archive-failure-ux-r2` spawn reviewer-claude + reviewer-codex teammate 异构对抗 review **当前实施代码**(8 文件 diff),三态裁决后再写 REVIEW.md + CHANGELOG.md + archive_plan。优点:实施代码也走异构对抗守门符合本 plan 双 reviewer 文化;缺点:多 5-10 min spawn + 需要再次 reply 收集
     - **c) 暂停 Phase 3 让用户在 SessionDetail 手动验收 K3 hand-off**(实测验证):commit Phase 2 改动 → `pnpm dev` / `pnpm dist` 起本地实例 → 手动触发 K3 hand-off 让 archive 失败(模拟方法:session-repo FK 加 fake 约束 / 用户在 hand-off spawn 后手动锁 session)→ 验证 macOS 系统通知 + IPC 上抛 → 通过后再回 Phase 3。优点:有真实环境守门 production-grade 信心;缺点:模拟 archive 失败本身有难度,且本 plan 已 unit test 全覆盖 ROI 不一定高
 5. 按用户决策跑对应路径
-6. Step 3.4 调 `mcp__agent-deck__archive_plan({ plan_id: 'archive-failure-ux-upthrow-20260515', worktree_path: '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-failure-ux-upthrow-20260515', base_branch: 'main' })` 收口
+6. Step 3.4 调 `mcp__agent-deck__archive_plan({ plan_id: 'archive-failure-ux-upthrow-20260515', worktree_path: './.claude/worktrees/archive-failure-ux-upthrow-20260515', base_branch: 'main' })` 收口
 
 ## 关联
 

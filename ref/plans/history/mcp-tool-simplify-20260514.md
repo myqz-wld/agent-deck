@@ -1,7 +1,7 @@
 ---
 plan_id: "mcp-tool-simplify-20260514"
 created_at: "2026-05-14"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/mcp-tool-simplify-20260514"
+worktree_path: "./.claude/worktrees/mcp-tool-simplify-20260514"
 status: "completed"
 base_commit: "1ca0c85"
 base_branch: "main"
@@ -188,14 +188,14 @@ caller 改用 send_message 时:
 按 plan 进入新 worktree:
 
 ```
-EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/mcp-tool-simplify-20260514")
+EnterWorktree(path: "./.claude/worktrees/mcp-tool-simplify-20260514")
 ```
 
 **注意**:本 plan 是已存在 worktree(commit `7639b23` Phase A 已完成)+ branch `worktree-mcp-tool-simplify-20260514`,接力时用 `EnterWorktree(path: ...)` 进而非 `name`。
 
 新会话起手必做:
 1. `Bash: cat <plan-abs-path>` 全文(严禁 Read tool — 详 user CLAUDE.md §Step 3 末 callout)
-2. `EnterWorktree(path: "/Users/apple/.../mcp-tool-simplify-20260514")` 进 worktree
+2. `EnterWorktree(path: "../.../mcp-tool-simplify-20260514")` 进 worktree
 3. `git log --oneline -5` 自检 HEAD = `7639b23` 或之后
 
 然后按选择继续:
@@ -212,13 +212,13 @@ EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktre
 - D6:archive_plan
 
 **所有指向代码资产的路径必须用 worktree 内绝对路径**:
-- 代码:`/Users/apple/Repository/personal/agent-deck/.claude/worktrees/mcp-tool-simplify-20260514/src/...`
+- 代码:`./.claude/worktrees/mcp-tool-simplify-20260514/src/...`
 - 文档:`<worktree>/resources/claude-config/...`
 - changelog:`<worktree>/changelog/...`
 
 **例外**(plan 文件本身不在 worktree):
-- plan: `/Users/apple/Repository/personal/agent-deck/.claude/plans/mcp-tool-simplify-20260514.md`
-- user CLAUDE.md: `/Users/apple/.claude/CLAUDE.md`
+- plan: `./.claude/plans/mcp-tool-simplify-20260514.md`
+- user CLAUDE.md: `$HOME/.claude/CLAUDE.md`
 
 ## 已知踩坑 / 风险
 

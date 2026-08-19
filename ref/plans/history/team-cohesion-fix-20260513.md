@@ -1,7 +1,7 @@
 ---
 plan_id: team-cohesion-fix-20260513
 created_at: 2026-05-13
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/team-cohesion-fix-20260513
+worktree_path: ./.claude/worktrees/team-cohesion-fix-20260513
 base_commit: 059327fba07cf156da6f986f7a45a082f0856c2e
 status: completed
 ---
@@ -324,7 +324,7 @@ for (const m of memberships) {
 
 ## 当前进度
 
-- 已进 worktree `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/team-cohesion-fix-20260513`
+- 已进 worktree `./.claude/worktrees/team-cohesion-fix-20260513`
 - **Phase A 全部完成**（commit `b5ae047`）：
   - A1 grep team_name 调用点（5 类清单已落「已知踩坑」节）
   - A2 `SessionTeamMembership` type + `findActiveMembershipsBySessionIds` 批量 API（chunk 500 防超 IN 上限）
@@ -389,9 +389,9 @@ for (const m of memberships) {
 
 **前置必做**（cold start 步骤）：
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/team-cohesion-fix-20260513.md` 全文（**严禁 Read 工具**，详 ~/.claude/CLAUDE.md 「Step 3 接力姿势 cold start callout」）
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/team-cohesion-fix-20260513")` 进同一 worktree
-3. `git log --oneline -5` 确认 HEAD 是 Phase B7 commit 或之后；`ls /Users/apple/Repository/personal/agent-deck/.claude/worktrees/team-cohesion-fix-20260513/node_modules` 确认 symlink 在（如不在执行 `ln -sf /Users/apple/Repository/personal/agent-deck/node_modules /Users/apple/Repository/personal/agent-deck/.claude/worktrees/team-cohesion-fix-20260513/node_modules`）
+1. `Bash: cat ./.claude/plans/team-cohesion-fix-20260513.md` 全文（**严禁 Read 工具**，详 ~/.claude/CLAUDE.md 「Step 3 接力姿势 cold start callout」）
+2. `EnterWorktree(path: "./.claude/worktrees/team-cohesion-fix-20260513")` 进同一 worktree
+3. `git log --oneline -5` 确认 HEAD 是 Phase B7 commit 或之后；`ls ./.claude/worktrees/team-cohesion-fix-20260513/node_modules` 确认 symlink 在（如不在执行 `ln -sf ./node_modules ./.claude/worktrees/team-cohesion-fix-20260513/node_modules`）
 4. 跑 `zsh -i -l -c "pnpm typecheck && pnpm exec vitest run src/main/agent-deck-mcp/"` 自检 typecheck 通 + 45 tests 全过
 
 **然后用户选下一步推进方向**（建议 ask 用户）：
@@ -416,7 +416,7 @@ for (const m of memberships) {
 
 - **(3) plan 完成归档**（按 CLAUDE.md「Step 4 完成分支」）：worktree branch 合回 main → frontmatter 置 status: completed → plan 文件挪到 `<main-repo>/plans/` → 同步 `plans/INDEX.md` → 关联 `changelog/CHANGELOG_<X>.md` 引用 4 commit → ExitWorktree(action: keep) → git worktree remove + branch -D
 
-**注意路径陷阱**：进 worktree 后所有指向**代码资产**的路径必须含 `.claude/worktrees/team-cohesion-fix-20260513/` 前缀（按 ~/.claude/CLAUDE.md「Step 1 worktree」节末段路径陷阱条款）。plan 文件本身路径不变（`/Users/apple/Repository/personal/agent-deck/.claude/plans/team-cohesion-fix-20260513.md`，主仓库 .claude/plans/ 下，**不**在 worktree 内）。
+**注意路径陷阱**：进 worktree 后所有指向**代码资产**的路径必须含 `.claude/worktrees/team-cohesion-fix-20260513/` 前缀（按 ~/.claude/CLAUDE.md「Step 1 worktree」节末段路径陷阱条款）。plan 文件本身路径不变（`./.claude/plans/team-cohesion-fix-20260513.md`，主仓库 .claude/plans/ 下，**不**在 worktree 内）。
 
 ## 已知踩坑
 
@@ -495,4 +495,4 @@ for (const m of memberships) {
 
 - 本 plan 起源：用户报"spawn_session 注入有问题，lead 还是没有团队标，团队页面内容很少（事件流 / task 都没），wait_reply 实现很怪 + 应该 send_message 直接拿 reply（用户原话）"
 - 相关 changelog：CHANGELOG_76（spawn_session agent_name 注入 + projectSession 反查 D3 修一半）/ CHANGELOG_77（SessionList 树形折叠 + lead/teammate badge）
-- 相关 plan：`/Users/apple/Repository/personal/agent-deck/plans/deep-review-flow-fix-20260512.md`（已 completed，本 plan 是其 Phase B/C 遗漏的下半场）
+- 相关 plan：`./plans/deep-review-flow-fix-20260512.md`（已 completed，本 plan 是其 Phase B/C 遗漏的下半场）

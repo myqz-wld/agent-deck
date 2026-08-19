@@ -3,7 +3,7 @@ review_id: REVIEW_42
 title: archive-failure-ux-upthrow caller archive 失败 UX 上抛三轮异构对抗 review × fix(R1 修法决策 + R2 实施 review + R3 fix 复核)
 created_at: 2026-05-15
 plan_id: archive-failure-ux-upthrow-20260515
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-failure-ux-upthrow-20260515
+worktree_path: ./.claude/worktrees/archive-failure-ux-upthrow-20260515
 base_commit: b7ba2b2
 final_commit: 67365e7
 parent_review_id: REVIEW_39

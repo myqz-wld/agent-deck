@@ -3,7 +3,7 @@ plan_id: claude-exit-plan-jsonl-precheck-20260623
 status: completed
 created_at: 2026-06-23
 base_commit: 010b8f3
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 ---
 
 # Goal

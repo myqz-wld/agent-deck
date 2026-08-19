@@ -1,7 +1,7 @@
 ---
 plan_id: "task-mcp-merge-into-agent-deck-mcp-20260521"
 created_at: "2026-05-21T20:55:00+08:00"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/task-mcp-merge-into-agent-deck-mcp-20260521"
+worktree_path: "./.claude/worktrees/task-mcp-merge-into-agent-deck-mcp-20260521"
 status: "completed"
 base_commit: "698f345c1f4abd41b4a09949c2f6b12a12b9e237"
 base_branch: "main"
@@ -161,14 +161,14 @@ completed_at: "2026-05-24"
 
 ## 下一会话第一步（cold start 必读）
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/task-mcp-merge-into-agent-deck-mcp-20260521.md` 全文（看 §当前进度 / §步骤 checklist）
+1. `Bash: cat ./.claude/plans/task-mcp-merge-into-agent-deck-mcp-20260521.md` 全文（看 §当前进度 / §步骤 checklist）
 2. **worktree 不存在**（本会话还没进 worktree，等 §Step 1.5 deep-review 后 user confirm）→ 新会话 cold start **按 adapter 分双路径**（R1 F4 修法 — reviewer-codex MED）：
 
    - **claude SDK 会话 (claude-code adapter)**：避开 EnterWorktree CLI v2.1.112 stale base bug 走 Bash 显式建 worktree + `EnterWorktree(path:)` 进入。**Bash 命令末尾必须追加 base_commit `698f345c1f4abd41b4a09949c2f6b12a12b9e237`**（不传时 git 默认用 HEAD，main 前进后会落到新 HEAD 不是 plan frontmatter base）：
      ```bash
-     git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-task-mcp-merge-into-agent-deck-mcp-20260521 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/task-mcp-merge-into-agent-deck-mcp-20260521 698f345c1f4abd41b4a09949c2f6b12a12b9e237
+     git -C . worktree add -b worktree-task-mcp-merge-into-agent-deck-mcp-20260521 ./.claude/worktrees/task-mcp-merge-into-agent-deck-mcp-20260521 698f345c1f4abd41b4a09949c2f6b12a12b9e237
      ```
-     然后 `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/task-mcp-merge-into-agent-deck-mcp-20260521")`
+     然后 `EnterWorktree(path: "./.claude/worktrees/task-mcp-merge-into-agent-deck-mcp-20260521")`
 
    - **codex SDK 会话 (codex-cli adapter)**：codex 无 native EnterWorktree builtin，走 mcp tool 一步完成（参数显式传 base_commit 让 enter-worktree-impl.ts 内部 `git worktree add -b <branch> <path> <base_commit>` 锁版本）：
      ```ts
@@ -182,7 +182,7 @@ completed_at: "2026-05-24"
 4. **优先 Step 1-9**（add 5 个 handler + schemas + tools/index.ts 注册 + types.ts EXTERNAL_CALLER_ALLOWED + 删 task-manager/）→ Step 10-17（删独立 tasksServer 注入路径 / 删 settings toggle / 改 UI / 改文档 / grep 残留）→ Step 18-23（tests port + 新增 D6 D7 D5 测试）
 5. **Step 24** `zsh -i -l -c "pnpm typecheck"` + `pnpm build` + `pnpm exec vitest run` 全过
 6. **Step 25** invoke `/agent-deck:deep-review` SKILL kind='mixed'，args 含本 plan 路径 + 主代码变更文件清单（5 task handler 新增 / task-manager/ 删 / settings.ts / settings-store.ts / mcp-server-init.ts / query-options-builder.ts / read-only-tools.ts / ExperimentalSection.tsx / resources/claude-config/CLAUDE.md / resources/codex-config/CODEX_AGENTS.md / tools/schemas.ts / tools/index.ts / types.ts）
-7. **Step 26** 先写 `CHANGELOG_<X>.md` 引用本 plan + commit 进 main repo（archive_plan 不会自动写 changelog 引用），然后 `ExitWorktree(action: "keep")` → `mcp__agent-deck__archive_plan({ plan_id: "task-mcp-merge-into-agent-deck-mcp-20260521", worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/task-mcp-merge-into-agent-deck-mcp-20260521", base_branch: "main", changelog_id: "<X>" })`
+7. **Step 26** 先写 `CHANGELOG_<X>.md` 引用本 plan + commit 进 main repo（archive_plan 不会自动写 changelog 引用），然后 `ExitWorktree(action: "keep")` → `mcp__agent-deck__archive_plan({ plan_id: "task-mcp-merge-into-agent-deck-mcp-20260521", worktree_path: "./.claude/worktrees/task-mcp-merge-into-agent-deck-mcp-20260521", base_branch: "main", changelog_id: "<X>" })`
 8. **不重新讨论已记录的 §设计决策 D1-D8**；如需变更先告诉用户征得确认再改
 
 ## 已知踩坑

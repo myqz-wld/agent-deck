@@ -4,7 +4,7 @@ created_at: "2026-05-29T17:40:00+08:00"
 status: "completed"
 base_commit: "f0c790b0fdde8af718e4e5ceeac52bfd9336e7e5"
 base_branch: "main"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/mcp-tool-camelcase-migration-20260529"
+worktree_path: "./.claude/worktrees/mcp-tool-camelcase-migration-20260529"
 parent_task_id: "26181f20-a772-434d-9ee5-bc4fe768e432"
 final_commit: "7f0b865ea230b796981bde26857f902ea219c12c"
 completed_at: "2026-05-29"
@@ -491,8 +491,8 @@ grep -rnE '^args\.([a-z]+(_[a-z0-9]+)+)|args\.([a-z]+(_[a-z0-9]+)+)$' src/main/a
 
 ### Step 2 EnterWorktree(user 显式 confirm 后,严禁自动进)
 - [ ] **user 显式 confirm 进 worktree 实施**(应用 §复杂 plan workflow §Step 2 EnterWorktree 节硬约束)
-- [ ] `git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-mcp-tool-camelcase-migration-20260529 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/mcp-tool-camelcase-migration-20260529`
-- [ ] `EnterWorktree(path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/mcp-tool-camelcase-migration-20260529)`(用 path 不用 name 避开 v2.1.112 stale base bug)
+- [ ] `git -C . worktree add -b worktree-mcp-tool-camelcase-migration-20260529 ./.claude/worktrees/mcp-tool-camelcase-migration-20260529`
+- [ ] `EnterWorktree(path: ./.claude/worktrees/mcp-tool-camelcase-migration-20260529)`(用 path 不用 name 避开 v2.1.112 stale base bug)
 - [ ] 进 worktree 后 `Bash: pwd` 自检 + `git log --oneline -3` 自检 HEAD == `f0c790b` 或之后
 
 ### Step 3 实施(R1 fix MED-E:合并为单 green commit + 拆 5 段;每段 typecheck/vitest 必过才进下一段)
@@ -608,7 +608,7 @@ grep -rnE '^args\.([a-z]+(_[a-z0-9]+)+)|args\.([a-z]+(_[a-z0-9]+)+)$' src/main/a
 
 按本 plan **Step 1.5 R6 Deep-Review plan**(本 R5 review 完成 + R5 fix 完成后等 R6 评审):
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/mcp-tool-camelcase-migration-20260529.md` 全文读 plan(已含 R1+R2+R3+R4+R5 fix 共 49 处)
+1. `Bash: cat ./.claude/plans/mcp-tool-camelcase-migration-20260529.md` 全文读 plan(已含 R1+R2+R3+R4+R5 fix 共 49 处)
 2. **R1 + R2 + R3 + R4 fix 摘要**(已在 R2/R3/R4/R5 skip 字段发出过,reviewer 已知;R6 skip 不再重复)
 3. **R5 fix 摘要**(skip 字段,Round 6 发给 reviewer pair 时附带,避免重复评审 R5 已 fix 的内容):
    ```
@@ -619,7 +619,7 @@ grep -rnE '^args\.([a-z]+(_[a-z0-9]+)+)|args\.([a-z]+(_[a-z0-9]+)+)$' src/main/a
    ```
 4. **invoke `agent-deck:deep-review` SKILL R6**(完整 Skill() 命令形式):
    ```
-   Skill(skill: "agent-deck:deep-review", args: '{"kind": "plan", "paths": ["/Users/apple/Repository/personal/agent-deck/.claude/plans/mcp-tool-camelcase-migration-20260529.md"]}')
+   Skill(skill: "agent-deck:deep-review", args: '{"kind": "plan", "paths": ["./.claude/plans/mcp-tool-camelcase-migration-20260529.md"]}')
    ```
    或直接复用 reviewer pair `send_message(reply_to_message_id)`(SKILL Step 5 复用)
 5. fix loop 直到 0 HIGH / 0 真 MED 共识可合(**R6 stop 条件**:R6 出 ≥ 1 HIGH → 继续 fix → R7;R6 出 0 HIGH / 0 真 MED → 共识可合 — **R5 已 reviewer-claude 全 ✅ + reviewer-codex 2 MED 内部一致性已 fix,R6 预估快速通过**)

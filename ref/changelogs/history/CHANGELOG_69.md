@@ -52,4 +52,4 @@
 - **plugin 注入开关在 Skills/Agents 双 tab 同步原理**：两 tab 顶部渲染同一 `injectAgentDeckPlugin` settings key 的两个入口，settings 是单一 React state，update 后 setState → 两 tab 重渲染即一致，无需额外同步代码
 - **dirty 拦截契约保持**：原 `claudeMdDirtyRef` 仅拦截 ClaudeMdEditor 草稿（CLAUDE.md 文本未保存关闭时二次确认）。InjectionToggleBar 是即改即生效（点击即写 settings），无 dirty 概念，不新增拦截
 - **验证**：`pnpm typecheck` ✅；手动验证清单见 plan §验证（10 项含 toggle 跨 tab 同步、wrapper 新建会话验证注入态等）
-- **关联**：plan 文件 `/Users/apple/.claude/plans/modular-booping-valley.md`（用户对齐结论：加分组分隔标题 + 资产 toggle 全部删除只在资产库）；上游 CHANGELOG_57 / 58 把资产编辑 / CLAUDE.md 编辑器搬到资产库，本轮 CHANGELOG_69 完成「设置 / 资产」彻底解耦的最后一步
+- **关联**：plan 文件 `$HOME/.claude/plans/modular-booping-valley.md`（用户对齐结论：加分组分隔标题 + 资产 toggle 全部删除只在资产库）；上游 CHANGELOG_57 / 58 把资产编辑 / CLAUDE.md 编辑器搬到资产库，本轮 CHANGELOG_69 完成「设置 / 资产」彻底解耦的最后一步

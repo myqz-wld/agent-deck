@@ -1,7 +1,7 @@
 ---
 plan_id: diff-panel-sdk-upgrade-20260629
 created_at: 2026-06-29
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 status: completed
 base_commit: 0a8f715593b0b7b821d4ce8c419fe5cf0f2668e1
 ---

@@ -95,4 +95,4 @@
 
 - 下一 phase: Phase 3 C 维架构图通俗化 (8 张 architecture + 9 张 flows .puml 重写, INDEX 概要列重写 ≤ 80 字白话)
 - hand_off 触发点: Phase 2 收口 = phase 边界, 首选 hand off 时机
-- 新会话 cold-start prompt: `按 /Users/apple/Repository/personal/agent-deck/.claude/plans/deep-project-review-comprehensive-20260528.md 接力（Phase: Phase 3 - Step 3.1 起跑）`
+- 新会话 cold-start prompt: `按 ./.claude/plans/deep-project-review-comprehensive-20260528.md 接力（Phase: Phase 3 - Step 3.1 起跑）`

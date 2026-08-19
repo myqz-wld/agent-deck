@@ -4,7 +4,7 @@ created_at: "2026-05-14"
 status: "completed"
 base_commit: "f253794"
 base_branch: "main"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/model-wiring-and-handoff-20260514"
+worktree_path: "./.claude/worktrees/model-wiring-and-handoff-20260514"
 final_commit: "0d3cabb7c163233750541b42e9cf5579ab230179"
 completed_at: "2026-05-14"
 ---

@@ -1,7 +1,7 @@
 ---
 plan_id: "issue-tracker-mcp-20260529"
 created_at: "2026-05-29"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/issue-tracker-mcp-20260529"
+worktree_path: "./.claude/worktrees/issue-tracker-mcp-20260529"
 status: "completed"
 base_commit: "454d6578623a4980839a305bae289600a2dd6cf0"
 base_branch: "main"
@@ -480,8 +480,8 @@ CREATE INDEX idx_issue_appendices_issue ON issue_appendices(issue_id, appended_a
    ```
 
 cold start 路径：
-- 本 plan: /Users/apple/Repository/personal/agent-deck/.claude/plans/issue-tracker-mcp-20260529.md
-- worktree: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/issue-tracker-mcp-20260529
+- 本 plan: ./.claude/plans/issue-tracker-mcp-20260529.md
+- worktree: ./.claude/worktrees/issue-tracker-mcp-20260529
 - 已完成 commit hash: 见 `git log --oneline -10`
 
 ## 已知踩坑

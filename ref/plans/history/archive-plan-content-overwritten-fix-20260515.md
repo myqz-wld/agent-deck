@@ -1,7 +1,7 @@
 ---
 plan_id: "archive-plan-content-overwritten-fix-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515"
+worktree_path: "./.claude/worktrees/archive-plan-content-overwritten-fix-20260515"
 status: "completed"
 base_commit: "30467f6"
 base_branch: "main"
@@ -98,11 +98,11 @@ archive_plan 默认查 `.claude/plans/<id>.md` 和 `~/.claude/plans/<id>.md`,**�
 
 按 user CLAUDE.md cold-start 流程:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515/plans/archive-plan-content-overwritten-fix-20260515.md` 全文读 plan(强制 cat 不用 Read,详 user CLAUDE.md §Step 3 末尾 callout)。**注意路径是 worktree 内的 plan**(latest 内容在 worktree branch,main HEAD 还没 ff-merge),非 main repo `<main>/plans/...md`(那是 stub 旧版)。
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515")` 进 worktree(注意是 path 不是 name;worktree 已存在不需要再建)
+1. `Bash: cat ./.claude/worktrees/archive-plan-content-overwritten-fix-20260515/plans/archive-plan-content-overwritten-fix-20260515.md` 全文读 plan(强制 cat 不用 Read,详 user CLAUDE.md §Step 3 末尾 callout)。**注意路径是 worktree 内的 plan**(latest 内容在 worktree branch,main HEAD 还没 ff-merge),非 main repo `<main>/plans/...md`(那是 stub 旧版)。
+2. `EnterWorktree(path: "./.claude/worktrees/archive-plan-content-overwritten-fix-20260515")` 进 worktree(注意是 path 不是 name;worktree 已存在不需要再建)
 3. 自检 worktree HEAD == 最新 commit(应是包含 Phase 1+2 fix 的 commit `5403b71` + plan 更新 commit):
    ```bash
-   git -C /Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515 log --oneline -5
+   git -C ./.claude/worktrees/archive-plan-content-overwritten-fix-20260515 log --oneline -5
    ```
 4. **node_modules 已 symlink**(上一会话建的 `<worktree>/node_modules → <main-repo>/node_modules`)— 直接 `pnpm exec vitest run ...` 即可。**不要** `pnpm install` / 重建 worktree(会覆盖)。
 5. **从 Phase 3.1 起手 — 起 deep-code-review SKILL**:调 Skill tool `agent-deck:deep-code-review`
@@ -115,12 +115,12 @@ archive_plan 默认查 `.claude/plans/<id>.md` 和 `~/.claude/plans/<id>.md`,**�
    - 三态裁决:双方独立提出 = ✅ 必修 / 单方独有 + HIGH → 起对方反驳轮 → 仍 ✅ 修 / 单方独有 + MED → lead 自己 grep / 写 mini-test 验证 / 双方都说没问题 = ✅ 可合
 6. **review 出 ≥ 1 HIGH finding 必修**:在同 worktree 内改 archive-plan-impl.ts / 测试文件 → 再跑 archive-plan tests + 全套 vitest 验证 → commit message 含「(archive-plan-fix Step 3.1 review fix)」
 7. **Phase 3.1 收口后 → Phase 4**:
-   - **Step 4.1**:Phase 3.1 异构对抗有 ≥ 2 HIGH finding → 写 `reviews/REVIEW_44.md`(下一个 X 是 44,本 worktree 跑 `ls /Users/apple/Repository/personal/agent-deck/reviews/ | grep -oE 'REVIEW_[0-9]+' | sort -t_ -k2 -n | tail -1` 自检最新);否则合并到 CHANGELOG
+   - **Step 4.1**:Phase 3.1 异构对抗有 ≥ 2 HIGH finding → 写 `reviews/REVIEW_44.md`(下一个 X 是 44,本 worktree 跑 `ls ./reviews/ | grep -oE 'REVIEW_[0-9]+' | sort -t_ -k2 -n | tail -1` 自检最新);否则合并到 CHANGELOG
    - **Step 4.2**:写 `changelog/CHANGELOG_X.md`(同样 `ls` 自检最新 X)+ `changelog/INDEX.md` 加行 + `plans/INDEX.md` 后续 archive 时同步(archive_plan tool 自动)
    - **Step 4.3 dogfooding archive**:调 `mcp__agent-deck__archive_plan` 显式传:
      - `plan_id: 'archive-plan-content-overwritten-fix-20260515'`
-     - `worktree_path: '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515'`
-     - `plan_file_path: '/Users/apple/Repository/personal/agent-deck/plans/archive-plan-content-overwritten-fix-20260515.md'`(default 路径不查 `<main>/plans/`,所以必须显式传)
+     - `worktree_path: './.claude/worktrees/archive-plan-content-overwritten-fix-20260515'`
+     - `plan_file_path: './plans/archive-plan-content-overwritten-fix-20260515.md'`(default 路径不查 `<main>/plans/`,所以必须显式传)
      - `base_branch: 'main'`(也可不传,frontmatter 已记录)
      **调前**先 `ExitWorktree(action: keep)`(mcp tool 不能调 CLI 内部 ExitWorktree,caller 必须 cwd 不在 worktree 内)
    - **Step 4.3 dogfooding 验证关键**:archive 完毕回项目 root 看 `<main>/plans/<plan-id>.md` 内容,**步骤 checklist 的 [x] 标记应该全部保留**(如果保留 = 本次 fix 真生效;如果丢 = mcp server 没 hot reload 跑的还是旧 buggy 版本,需重启 dev / 重新打包后再 archive,或者手工修像 commit `30467f6` 那样)

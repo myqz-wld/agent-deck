@@ -1,7 +1,7 @@
 ---
 plan_id: "archive-plan-tool-ux-followup-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-plan-tool-ux-followup-20260515"
+worktree_path: "./.claude/worktrees/archive-plan-tool-ux-followup-20260515"
 status: "completed"
 base_commit: "99f1e61"
 base_branch: "main"
@@ -116,8 +116,8 @@ REVIEW_44(plan archive-plan-content-overwritten-fix-20260515 收口)留 4 条同
 
 本会话已完成 Phase 1+2+3+4.1。剩余:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/plans/archive-plan-tool-ux-followup-20260515.md` 全文(本 plan 文件 — 在 main-repo `plans/` 而非 worktree 内)
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-plan-tool-ux-followup-20260515")` 进 worktree
+1. `Bash: cat ./plans/archive-plan-tool-ux-followup-20260515.md` 全文(本 plan 文件 — 在 main-repo `plans/` 而非 worktree 内)
+2. `EnterWorktree(path: "./.claude/worktrees/archive-plan-tool-ux-followup-20260515")` 进 worktree
 3. (若新会话)从 frontmatter 拿 worktree_path → 路径自检
 4. **从 Phase 4.2 起手**:更新本 plan 进度 + git commit fix 改动(若 session 1 未 commit)+ 同步 plans/INDEX.md 本 plan 行(从 in_progress 改 completed + 关联 CHANGELOG_123 + 4 列对齐)
 5. **Phase 4.3 dogfooding**:用户决策路径 — (A) 重启应用让 mcp server 加载新代码 + 再 dogfood / (B) 走 user CLAUDE.md §Step 4 手工 5 步收口(放弃 dogfood,留下次 mcp server 重启后任意 plan 收口实测 fix 真生效)

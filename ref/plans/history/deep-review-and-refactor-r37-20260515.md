@@ -1,7 +1,7 @@
 ---
 plan_id: "deep-review-and-refactor-r37-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-r37-20260515"
+worktree_path: "./.claude/worktrees/deep-review-and-refactor-r37-20260515"
 status: "completed"
 base_commit: "ffcb663d1be600447dcb6737cbcec9a83f2b9421"
 base_branch: "main"
@@ -94,7 +94,7 @@ R37 异构对抗（reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 xhigh）做
 
 ## 当前进度
 
-- ✅ EnterWorktree 完成（cwd `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-r37-20260515`，branch `worktree-deep-review-and-refactor-r37-20260515`）
+- ✅ EnterWorktree 完成（cwd `./.claude/worktrees/deep-review-and-refactor-r37-20260515`，branch `worktree-deep-review-and-refactor-r37-20260515`）
 - ✅ R1 review 完成（reviewer-claude 14 finding + reviewer-codex 13 finding，全员 grep 实证 + 三态裁决，无反驳证伪）
 - ✅ Plan 文件创建（本文件）
 - ✅ Step 1.1 (D withMcpGuard + subscribe) 完成 — commit bd0be75
@@ -142,8 +142,8 @@ R37 异构对抗（reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 xhigh）做
 
 按 user CLAUDE.md cold-start 流程：
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/deep-review-and-refactor-r37-20260515.md` 全文读 plan
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-r37-20260515")` 进 worktree
+1. `Bash: cat ./.claude/plans/deep-review-and-refactor-r37-20260515.md` 全文读 plan
+2. `EnterWorktree(path: "./.claude/worktrees/deep-review-and-refactor-r37-20260515")` 进 worktree
 3. `git log --oneline -5` 自检 HEAD = 736b24a 或之后
 4. **Phase 5 收口工作清单**（按 plan「步骤 checklist」继续）：
     - **Step 5.2 R3 收口 review**：跑 R3 review 验收 P3 fix（参考下方「复用 R37 reviewer mental model」节判断 R3 reviewer 来源）。R3 focus = 「Phase 4 实施的 4 step (4.1/4.3/4.5/4.7) 0 引新 bug + 与 R2 fix + Phase 1-3 fix 整体一致 + 3 个 calibration 跳过 step (4.2/4.4/4.6) 理由是否 reviewer 端也认可」

@@ -1,7 +1,7 @@
 ---
 plan_id: "deepseek-summary-handoff-sdk-prompt-20260608"
 created_at: "2026-06-08"
-worktree_path: "/Users/wanglidong/Repository/agent-deck/.claude/worktrees/deepseek-summary-handoff-sdk-prompt-20260608"
+worktree_path: "./.claude/worktrees/deepseek-summary-handoff-sdk-prompt-20260608"
 status: "completed"
 base_commit: "e5320bfb90251cb5fbbafe952a934b7db115a363"
 base_branch: "main"
@@ -109,7 +109,7 @@ Deliver the three confirmed user outcomes in one isolated plan:
 
 - Preflight complete in main repo.
 - User confirmed full prompt baseline, PlantUML maintenance, and Deepseek as first-class provider.
-- Worktree created at `/Users/wanglidong/Repository/agent-deck/.claude/worktrees/deepseek-summary-handoff-sdk-prompt-20260608`.
+- Worktree created at `./.claude/worktrees/deepseek-summary-handoff-sdk-prompt-20260608`.
 - npm registry latest dist-tags verified:
   - `@openai/codex-sdk`: `0.137.0` latest, `0.138.0-alpha.6` alpha.
   - `@anthropic-ai/claude-agent-sdk`: `0.3.168` latest / next.
@@ -132,4 +132,4 @@ Deliver the three confirmed user outcomes in one isolated plan:
 
 ## Next-Session First Action
 
-Read this plan from `/Users/wanglidong/Repository/agent-deck/.claude/plans/deepseek-summary-handoff-sdk-prompt-20260608.md`, then work in `/Users/wanglidong/Repository/agent-deck/.claude/worktrees/deepseek-summary-handoff-sdk-prompt-20260608`. Start by running `git -C /Users/wanglidong/Repository/agent-deck/.claude/worktrees/deepseek-summary-handoff-sdk-prompt-20260608 status --short`, then decide whether to archive/merge the validated worktree.
+Read this plan from `./.claude/plans/deepseek-summary-handoff-sdk-prompt-20260608.md`, then work in `./.claude/worktrees/deepseek-summary-handoff-sdk-prompt-20260608`. Start by running `git -C ./.claude/worktrees/deepseek-summary-handoff-sdk-prompt-20260608 status --short`, then decide whether to archive/merge the validated worktree.

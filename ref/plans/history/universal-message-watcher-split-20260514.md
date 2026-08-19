@@ -1,7 +1,7 @@
 ---
 plan_id: "universal-message-watcher-split-20260514"
 created_at: "2026-05-14"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/universal-message-watcher-split-20260514"
+worktree_path: "./.claude/worktrees/universal-message-watcher-split-20260514"
 status: "completed"
 base_commit: "cc9111a"
 base_branch: "main"
@@ -58,7 +58,7 @@ completed_at: "2026-05-14"
 ### 决策 5：worktree 路径前缀
 
 所有 Edit/Write/Read/Grep 操作用 `<worktree-abs-path>/<rel>`：
-`/Users/apple/Repository/personal/agent-deck/.claude/worktrees/universal-message-watcher-split-20260514/...`
+`./.claude/worktrees/universal-message-watcher-split-20260514/...`
 
 ## 各文件拆分方案
 
@@ -134,7 +134,7 @@ SessionDetail/
 如本会话中断,新会话跑 Step 15:
 
 1. `ExitWorktree(action: 'keep')` 让 cwd 出 worktree
-2. `mcp__agent-deck__archive_plan({ plan_id: 'universal-message-watcher-split-20260514', worktree_path: '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/universal-message-watcher-split-20260514', base_branch: 'main' })`
+2. `mcp__agent-deck__archive_plan({ plan_id: 'universal-message-watcher-split-20260514', worktree_path: './.claude/worktrees/universal-message-watcher-split-20260514', base_branch: 'main' })`
 3. archive_plan 自动:ff-merge 到 main / 更新 plan frontmatter status=completed + final_commit + completed_at / mv plan 到 `<main-repo>/plans/` + 同步 INDEX / git commit / worktree remove + branch -D / 默认归档 caller session
 
 ## 已知踩坑

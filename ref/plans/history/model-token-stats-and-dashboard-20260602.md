@@ -1,7 +1,7 @@
 ---
 plan_id: "model-token-stats-and-dashboard-20260602"
 created_at: "2026-06-02"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/model-token-stats-and-dashboard-20260602"
+worktree_path: "./.claude/worktrees/model-token-stats-and-dashboard-20260602"
 status: "completed"
 base_commit: "ad0fd5e510673c11992df9d961065ae57b9f173f"
 base_branch: "main"
@@ -202,8 +202,8 @@ deep-review 3 轮收口的所有 finding 都在实施中落地（max-merge 带 W
 ## 下一会话第一步
 
 若本会话中断，新会话接力：
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/model-token-stats-and-dashboard-20260602.md`
-2. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/model-token-stats-and-dashboard-20260602/spike-reports/spike1-token-usage-source.md`
+1. `Bash: cat ./.claude/plans/model-token-stats-and-dashboard-20260602.md`
+2. `Bash: cat ./.claude/plans/model-token-stats-and-dashboard-20260602/spike-reports/spike1-token-usage-source.md`
 3. deep-review 已 3 轮收口（双方 conclude，0 HIGH/0 MED）。**用户已 confirm** → 按 §Step 2 进 worktree 实施
-4. 进 worktree 走主路径：`git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-model-token-stats-and-dashboard-20260602 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/model-token-stats-and-dashboard-20260602` + `EnterWorktree(path:"/Users/apple/Repository/personal/agent-deck/.claude/worktrees/model-token-stats-and-dashboard-20260602")`（避开 CLI stale base bug）
+4. 进 worktree 走主路径：`git -C . worktree add -b worktree-model-token-stats-and-dashboard-20260602 ./.claude/worktrees/model-token-stats-and-dashboard-20260602` + `EnterWorktree(path:"./.claude/worktrees/model-token-stats-and-dashboard-20260602")`（避开 CLI stale base bug）
 5. 实施顺序：Phase 0 (M 归一 SSOT) → Phase 1 (采集 A1-A5) → Phase 2 (查询 DB/Q1-Q5) → Phase 3 (renderer R0-R5) → Phase 4 (验证 + README + changelog)。每 phase 后 typecheck，改 main 重启 dev 实测

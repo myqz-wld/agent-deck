@@ -9,7 +9,7 @@ skipped_expired:
 
 ## 触发场景
 
-REVIEW_11 修完 4 条 bug 重打包后，用户实测 ExitPlanMode 选「批准并切到完全免询问」（approve-bypass 冷切走 restartWithPermissionMode → closeSession OLD CLI + spawn NEW CLI with bypass）执行完成后，UI 实时面板**仍**出现一条孤儿「外」会话（`source='cli'`，cwd 显示 `/Users/apple` home dir，**不是**用户原会话的真实 cwd）。
+REVIEW_11 修完 4 条 bug 重打包后，用户实测 ExitPlanMode 选「批准并切到完全免询问」（approve-bypass 冷切走 restartWithPermissionMode → closeSession OLD CLI + spawn NEW CLI with bypass）执行完成后，UI 实时面板**仍**出现一条孤儿「外」会话（`source='cli'`，cwd 显示 `$HOME` home dir，**不是**用户原会话的真实 cwd）。
 
 REVIEW_9 1B 修法（renameSdkSession 把 fromId 加进 recentlyDeleted 60s 黑名单 + ingest 入口 isRecentlyDeleted 丢弃）期望覆盖此场景，但用户实测仍复现 → 1B 防护有破洞。
 
@@ -50,13 +50,13 @@ src/shared/types.ts
 | # | 严重度 | 文件:行号 | 问题 | A | B |
 |---|---|---|---|---|---|
 | 5.1 | HIGH | `src/main/adapters/claude-code/sdk-bridge.ts:1185-1191` (closeSession) | closeSession **不**把 sessionId 加进 recentlyDeleted 黑名单 —— 与 SessionManager.delete (manager.ts:396) 和 renameSdkSession (manager.ts:424) 不对称。restartWithPermissionMode 路径下若 CLI 不 fork（`newRealId === OLD_ID`，sdk-bridge.ts:1288 的 if 不进），rename 不触发 → OLD_ID 永远没人加黑名单。OLD CLI 飞 SessionEnd hook 带 OLD_ID 时三道防线全失效。 | ✅ | ✅ |
-| 5.2 | HIGH | `src/main/session/manager.ts:483-486` (extractCwd) + 协议设计层 | OLD CLI 在被 SIGTERM + EOF cleanup race 期间内部已 fork 出新 sessionId Y，飞回的迟到 hook event 携带 sessionId=Y（不在 recentlyDeleted）+ cwd=`/Users/apple`（hook server / CLI 子进程兜底到 HOME 而不是真实 cwd）。`recentlyDeleted` 只挡精确 sessionId，`consumePendingSdkClaim(cwd)` 又只信 hook payload 的 cwd —— hook 带新 ID Y + home dir，**两层兜底全失效** → ensureRecord 创建 source='cli' 孤儿。证据：用户截图「外」会话 cwd 显示 `/Users/apple` 而非真实工作目录。 | ✅ | ✅ |
+| 5.2 | HIGH | `src/main/session/manager.ts:483-486` (extractCwd) + 协议设计层 | OLD CLI 在被 SIGTERM + EOF cleanup race 期间内部已 fork 出新 sessionId Y，飞回的迟到 hook event 携带 sessionId=Y（不在 recentlyDeleted）+ cwd=`$HOME`（hook server / CLI 子进程兜底到 HOME 而不是真实 cwd）。`recentlyDeleted` 只挡精确 sessionId，`consumePendingSdkClaim(cwd)` 又只信 hook payload 的 cwd —— hook 带新 ID Y + home dir，**两层兜底全失效** → ensureRecord 创建 source='cli' 孤儿。证据：用户截图「外」会话 cwd 显示 `$HOME` 而非真实工作目录。 | ✅ | ✅ |
 
 ### ❌ 反驳
 
 | 报项方 | 报项 | 反驳依据 |
 |---|---|---|
-| 假说 B（NEW SDK SessionStart 先到） | NEW SDK 子进程的 SessionStart hook 在 SDK init message 之前到 | sdk-bridge.ts:195 expectSdkSession + line 207 claimAsSdk(opts.resume) 双保险已覆盖；NEW SDK 的 hook 带真实 cwd 必命中 pendingSdkCwds。验证：用户截图「外」会话 cwd=`/Users/apple` 不是 NEW SDK 的真实 cwd，所以「外」record 不可能是 NEW SDK 提前飞的 SessionStart |
+| 假说 B（NEW SDK SessionStart 先到） | NEW SDK 子进程的 SessionStart hook 在 SDK init message 之前到 | sdk-bridge.ts:195 expectSdkSession + line 207 claimAsSdk(opts.resume) 双保险已覆盖；NEW SDK 的 hook 带真实 cwd 必命中 pendingSdkCwds。验证：用户截图「外」会话 cwd=`$HOME` 不是 NEW SDK 的真实 cwd，所以「外」record 不可能是 NEW SDK 提前飞的 SessionStart |
 | 假说 E（TTL 60s 不够） | recentlyDeleted 60s 在某些慢启动场景下不够 | 60s 远超任何 CLI cleanup 延时，事件根本没命中黑名单，主因是 sessionId 不匹配而非 TTL 过期 |
 | 假说 F（hook 路径绕过 ingest） | hook event 通道有完全独立的 ingest 路径 | hook-routes.ts:49-51 taggedEmit 调注入的 emit 最终走 sessionManager.ingest，无独立路径 |
 

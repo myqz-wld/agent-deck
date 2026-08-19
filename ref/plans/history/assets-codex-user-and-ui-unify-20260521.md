@@ -1,7 +1,7 @@
 ---
 plan_id: "assets-codex-user-and-ui-unify-20260521"
 created_at: "2026-05-21T06:49:00+08:00"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/assets-codex-user-and-ui-unify-20260521"
+worktree_path: "./.claude/worktrees/assets-codex-user-and-ui-unify-20260521"
 status: "completed"
 base_commit: "1fed5d8caca4b39a48841901fa237ab12b8ec862"
 base_branch: "main"
@@ -226,20 +226,20 @@ Step 0/0.5 RFC + spike 收敛 → Step 1 plan 写完 → **Step 1.5 R1+R1.5+R2 d
 
 按 plan 步骤 checklist 推进。如本会话写到一半就接力新会话:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/assets-codex-user-and-ui-unify-20260521.md`
+1. `Bash: cat ./.claude/plans/assets-codex-user-and-ui-unify-20260521.md`
 2. 看 frontmatter `worktree_path` 与 `base_commit`(`1fed5d8caca4b39a48841901fa237ab12b8ec862`)
 3. **先检查 worktree 是否已存在**(Step 1.5 reviewer-codex R2 MED-B 修订):
    ```bash
-   git -C /Users/apple/Repository/personal/agent-deck worktree list --porcelain | grep -A 1 'worktree.*assets-codex-user-and-ui-unify-20260521' || echo 'WORKTREE_MISSING'
+   git -C . worktree list --porcelain | grep -A 1 'worktree.*assets-codex-user-and-ui-unify-20260521' || echo 'WORKTREE_MISSING'
    ```
 4. 进 worktree(adapter 分流;按 step 3 输出选 fresh-create vs reuse-existing 分支):
    - **claude-code adapter**(任意状态):
      - **WORKTREE_MISSING**: 走 user CLAUDE.md §Step 2 EnterWorktree CLI stale base bug 主路径 (b) — 先 Bash 显式建 worktree(必须含 base_commit `<commit-ish>`,不能省略否则用 origin/main fallback 撞 stale base bug):
        ```bash
-       git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-assets-codex-user-and-ui-unify-20260521 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/assets-codex-user-and-ui-unify-20260521 1fed5d8caca4b39a48841901fa237ab12b8ec862
+       git -C . worktree add -b worktree-assets-codex-user-and-ui-unify-20260521 ./.claude/worktrees/assets-codex-user-and-ui-unify-20260521 1fed5d8caca4b39a48841901fa237ab12b8ec862
        ```
-       然后 `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/assets-codex-user-and-ui-unify-20260521")`
-     - **worktree EXISTS**(接力场景): 直接 `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/assets-codex-user-and-ui-unify-20260521")`(不能再调 `git worktree add` 撞 path/branch already exists)
+       然后 `EnterWorktree(path: "./.claude/worktrees/assets-codex-user-and-ui-unify-20260521")`
+     - **worktree EXISTS**(接力场景): 直接 `EnterWorktree(path: "./.claude/worktrees/assets-codex-user-and-ui-unify-20260521")`(不能再调 `git worktree add` 撞 path/branch already exists)
      - 进入后立即自检 HEAD: `git -C <wt> rev-parse HEAD` 应等 `1fed5d8caca4b39a48841901fa237ab12b8ec862`(WORKTREE_MISSING fresh create 必等 / EXISTS 状态可能比 base 推进过,确认是该 worktree-<plan-id> 分支即可不要 reset 历史)。仅 fresh + HEAD 不等 → `git -C <wt> reset --hard 1fed5d8caca4b39a48841901fa237ab12b8ec862`(destructive,worktree 是空仍未改动可放心)
    - **codex-cli adapter**(任意状态):
      - **WORKTREE_MISSING**: 走 codex 端 cold-start 协议(详 `resources/codex-config/CODEX_AGENTS.md §enter_worktree` 节) — `mcp__agent-deck__enter_worktree({plan_id:'assets-codex-user-and-ui-unify-20260521', base_commit:'1fed5d8caca4b39a48841901fa237ab12b8ec862'})`,handler 内部 `git worktree add -b <branch> <path> <base_commit>` 显式带 base_commit 避撞 EnterWorktree CLI stale base bug + 自动写 sessionRepo.cwd_release_marker 兜底 archive_plan 4 态预检

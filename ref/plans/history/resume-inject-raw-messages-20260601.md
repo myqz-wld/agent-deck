@@ -4,7 +4,7 @@ created_at: "2026-06-01T18:30:00+08:00"
 status: "completed"
 base_commit: "6084f7d9d99d0fc9afa18752a7d97a438e4f3c56"
 base_branch: "main"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/resume-inject-raw-messages-20260601"
+worktree_path: "./.claude/worktrees/resume-inject-raw-messages-20260601"
 final_commit: "4713300f3827e031c54e12df3ee5b281be65e054"
 completed_at: "2026-06-01"
 ---
@@ -165,8 +165,8 @@ completed_at: "2026-06-01"
 
 **状态：Step 1-8 实施 + 验证完成（typecheck/build/test 三绿 + 文档），worktree 内 4 commit。等用户 dev 实测确认 → archive_plan 收口。**
 
-1. 若用户已 dev 实测确认两端 fallback 注入效果 OK → 走 archive_plan 收口：先 `ExitWorktree(action: "keep")` → `mcp__agent-deck__archive_plan({ planId: "resume-inject-raw-messages-20260601", worktreePath: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/resume-inject-raw-messages-20260601", baseBranch: "main", changelogId: "194" })`
-2. 若用户实测发现问题 → `EnterWorktree(path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/resume-inject-raw-messages-20260601)` 进 worktree 修（worktree clean，4 commit 已落；改前先 `cat` 真实文件）
+1. 若用户已 dev 实测确认两端 fallback 注入效果 OK → 走 archive_plan 收口：先 `ExitWorktree(action: "keep")` → `mcp__agent-deck__archive_plan({ planId: "resume-inject-raw-messages-20260601", worktreePath: "./.claude/worktrees/resume-inject-raw-messages-20260601", baseBranch: "main", changelogId: "194" })`
+2. 若用户实测发现问题 → `EnterWorktree(path: ./.claude/worktrees/resume-inject-raw-messages-20260601)` 进 worktree 修（worktree clean，4 commit 已落；改前先 `cat` 真实文件）
 3. 实测方式提示用户：dev 跑起后，对一个 dormant/closed 会话手动删其 jsonl（claude: `~/.claude/projects/<encoded-cwd>/<cli-sid>.jsonl`；codex: `~/.codex/sessions/<YYYY>/<MM>/<DD>/rollout-*-<thread-id>.jsonl`）→ 在该会话发消息触发 fallback → 看 fresh CLI/thread 首条 prompt 是否含「最近原始对话消息」段 + emit「已注入历史上下文」文案
 
 

@@ -1,10 +1,10 @@
 
-> agent-deck@0.1.0 test /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+> agent-deck@0.1.0 test ./.claude/worktrees/spike-sdk-bump-20260520
 > vitest run --run src/main/adapters/claude-code/ src/main/session/__tests__/hand-off.test.ts
 
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
- RUN  v2.1.9 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+ RUN  v2.1.9 ./.claude/worktrees/spike-sdk-bump-20260520
 
  ✓ src/main/adapters/claude-code/__tests__/sandbox-config.test.ts (22 tests) 5ms
  ✓ src/main/adapters/claude-code/__tests__/translate-post-tool-use-toolcallid.test.ts (5 tests) 2ms

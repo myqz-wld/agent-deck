@@ -4,7 +4,7 @@ created_at: "2026-05-25"
 status: "completed"
 base_commit: "427657fa16c7358fcdf894f4490d584490e0f2f9"
 base_branch: "main"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-code-review-main-3m-20260525"
+worktree_path: "./.claude/worktrees/deep-code-review-main-3m-20260525"
 final_commit: "499d54b83324c553d84b0c6d1306da06db0365c7"
 completed_at: "2026-05-26"
 ---
@@ -176,7 +176,7 @@ Batch B R4 收口后立即 hand off (按 plan §用户授权 第 2 条「context
 
 **新 session cold-start prompt**:
 ```
-按 /Users/apple/Repository/personal/agent-deck/.claude/plans/deep-code-review-main-3m-20260525.md 接力(Phase: Step 7 Batch C R1)
+按 ./.claude/plans/deep-code-review-main-3m-20260525.md 接力(Phase: Step 7 Batch C R1)
 ```
 
 **hand off 后立即任务**:
@@ -237,7 +237,7 @@ Batch C 实际 scope (11 文件 ~3.0k LOC) 比原 plan 估的 11.8k 小很多 �
 **当前会话状态**:
 - 当前是 hand_off baton 接力的第二个 session (上一 caller 在 commit fdd5468 后 hand off)
 - caller_session_id = 0e6332fb-5eb2-4f55-86c3-8c1cb5bada8e
-- 在 worktree 内 (cwd = `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-code-review-main-3m-20260525`,branch worktree-deep-code-review-main-3m-20260525,HEAD c0d988c)
+- 在 worktree 内 (cwd = `./.claude/worktrees/deep-code-review-main-3m-20260525`,branch worktree-deep-code-review-main-3m-20260525,HEAD c0d988c)
 - list_sessions(spawned_by_filter=self) 0 — 当前 session 没 spawn 过 child(Batch B reviewer 是上一 caller spawn 的不在 spawn-link 下)
 - 上下文使用 ~待评估 (前序 batch 累积 + Follow-up #1 修法可能已吃 50%+,需评估是否在 Step 7 启动前再 hand off)
 
@@ -247,9 +247,9 @@ Batch C 实际 scope (11 文件 ~3.0k LOC) 比原 plan 估的 11.8k 小很多 �
 
 如果你是新会话从 cold start 接力,**严格按 user CLAUDE.md §Step 3 §选项 A**:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/deep-code-review-main-3m-20260525.md` 全文(强制 cat 不用 Read 工具,详 user CLAUDE.md §Step 3 末尾 callout)
+1. `Bash: cat ./.claude/plans/deep-code-review-main-3m-20260525.md` 全文(强制 cat 不用 Read 工具,详 user CLAUDE.md §Step 3 末尾 callout)
 2. **不需要 EnterWorktree** — frontmatter `worktree_path: null` 表示当前没有 worktree(review 阶段 read-only)。如果上一会话进入了 fix loop,frontmatter 会被更新成有 `worktree_path`,此时按 §Step 3 §选项 A 第 2 步 `EnterWorktree(path: <worktree_path>)` 进 worktree
-3. `git -C /Users/apple/Repository/personal/agent-deck log --oneline -3` 自检 HEAD 是否在 base_commit `427657fa` 或之后
+3. `git -C . log --oneline -3` 自检 HEAD 是否在 base_commit `427657fa` 或之后
 4. 看 `## 步骤 checklist` 节的 `- [ ]` 第一个未打勾 step,**直接动手**(无需重新讨论已记录的 §设计决策 / §不变量 / §用户授权)
 5. 用 `mcp__agent-deck__task_list` 查 task 状态(本 session 创建的 8 个 task 已通过 §task 自动过继 baton 给新 session,你应该能看到自己 ownership 的 task list)
 6. **特别注意 §用户授权 第 6 条**:除「reviewer 持续 ≥ 30 min 不 reply」「reviewer 失败模板 + 合规兜底前」「用户主动插话」外其他动作 lead 独立决断不必停下问

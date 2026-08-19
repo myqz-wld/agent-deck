@@ -1,7 +1,7 @@
 ---
 plan_id: tok-rate-realtime-streaming-20260603
 created_at: 2026-06-03T09:55:00Z
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/tok-rate-realtime-streaming-20260603
+worktree_path: ./.claude/worktrees/tok-rate-realtime-streaming-20260603
 status: completed
 base_commit: 9afbf68
 base_branch: main
@@ -270,15 +270,15 @@ translateSdkMessage(this.ctx.emit, sid, m, internal);
   - ✅ Phase 3 流式核心（live-token-rate.ts + types LiveTokenEstimateState + translate stream_event 分支 + result clearLiveTokenEstimate + query-options includePartialMessages，typecheck 绿）
   - ✅ Phase 4 IPC channel（TokenRateTickEvent + event-bus 'token-rate-tick' + ipc-channels TokenRateTick + preload onTokenRateTick + bootstrap-wiring 桥，typecheck 绿）
   - ✅ Phase 5 renderer（lib/live-rate.ts SSOT helper + store liveBySession+applyLiveTick+prune + hook tick 订阅+onTokenUsageChanged 即时校准 debounce500+latest-guard + Header 并集+comparator，typecheck 绿）
-  - 每 Phase 过 typecheck（worktree 内用主仓库 binary：`/Users/apple/Repository/personal/agent-deck/node_modules/.bin/tsc --noEmit -p tsconfig.json`）；测试同理用主仓库 vitest binary + worktree cwd
+  - 每 Phase 过 typecheck（worktree 内用主仓库 binary：`./node_modules/.bin/tsc --noEmit -p tsconfig.json`）；测试同理用主仓库 vitest binary + worktree cwd
 - ⏳ 下一步：Phase 6（GC wiring）/ 7（DataPanel）/ 8（测试）/ 9（验证 + 实施期 mixed deep-review）
 
 ## 下一会话第一步（更新 — Phase 1-5 已实施完，从 Phase 6 续）
 
 **plan design 已双对抗 review 收口；Phase 1-5 已实施 + WIP commit。新会话从 Phase 6 续。**
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/tok-rate-realtime-streaming-20260603.md` 全文
-2. `EnterWorktree(path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/tok-rate-realtime-streaming-20260603)` 进 worktree（已存在，commit `3228372`）
+1. `Bash: cat ./.claude/plans/tok-rate-realtime-streaming-20260603.md` 全文
+2. `EnterWorktree(path: ./.claude/worktrees/tok-rate-realtime-streaming-20260603)` 进 worktree（已存在，commit `3228372`）
 3. 自检：`git -C <worktree> log --oneline -1` 应见 `3228372 wip(tok-rate): Phase 1-5`；`pwd` 确认在 worktree
 4. **按 Phase 6 → 7 → 8 → 9 行级 checklist 续做**（先实现后 review）：
    - Phase 6 GC wiring：app-settings/defaults 加 tokenUsageRetentionDays:365 → 新建 token-usage-lifecycle-scheduler.ts（镜像 message-lifecycle-scheduler.ts）→ wiring（_deps/bootstrap-infra/lifecycle-hooks/settings APPLY_FNS/LifecycleSection UI NumberInput）
@@ -286,7 +286,7 @@ translateSdkMessage(this.ctx.emit, sid, m, internal);
    - Phase 8 测试：6 文件（live-token-rate.test 含异常隔离 + translate stream_event 集成 + scheduler test + store applyLiveTick/prune + 渲染集纯空&mixed + query-options includePartialMessages + 不变量10 即时校准）
    - Phase 9 验证：typecheck + build + 重启 dev 实测 + invoke agent-deck:deep-review kind='mixed' 对真实代码再评一轮 + archive_plan 收口
 5. **关键执行约定**：
-   - typecheck/测试用主仓库 binary + worktree cwd：`zsh -i -l -c "/Users/apple/Repository/personal/agent-deck/node_modules/.bin/tsc --noEmit -p tsconfig.json"` / 同款 vitest（worktree 无独立 node_modules）
+   - typecheck/测试用主仓库 binary + worktree cwd：`zsh -i -l -c "./node_modules/.bin/tsc --noEmit -p tsconfig.json"` / 同款 vitest（worktree 无独立 node_modules）
    - 所有代码路径用 worktree 前缀 `.claude/worktrees/tok-rate-realtime-streaming-20260603/`
    - better-sqlite3 ABI 陷阱：测试全 mock repo/eventBus 不碰真 SQLite（详 §Phase 8）
    - 改 main/preload 需重启 dev 才生效（Phase 9.2 实测前）

@@ -3,7 +3,7 @@ review_id: REVIEW_44
 title: archive-plan-content-overwritten-fix step 8b post-ff-merge invariant carry-forward + cleanup hint UX 4 轮异构对抗 review × fix
 created_at: 2026-05-15
 plan_id: archive-plan-content-overwritten-fix-20260515
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-plan-content-overwritten-fix-20260515
+worktree_path: ./.claude/worktrees/archive-plan-content-overwritten-fix-20260515
 base_commit: 33381fc
 final_commit: fa0f0ec
 parent_review_id: REVIEW_43

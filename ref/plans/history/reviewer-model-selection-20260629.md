@@ -1,7 +1,7 @@
 ---
 plan_id: reviewer-model-selection-20260629
 created_at: 2026-06-29
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 status: completed
 base_commit: 353492797ed5b03c653f9ba34a30b0b2b826ac30
 base_branch: main
@@ -83,9 +83,9 @@ Fallbacks respawn the failed selected reviewer slot on the same adapter/agent. T
 
 Read project workflow, prompt-asset-improver skill, complex-plan workflow, bundled reviewer assets, `spawn_session` model alias handling, custom-agent resolution, and related changelog/review records. User approved the scoped plan with `reviewer-deepseek` as the Deepseek reviewer name.
 
-Prompt-asset inventory written to `/Users/wanglidong/Repository/agent-deck/.prompt-asset-improver/local/inventory.json`.
+Prompt-asset inventory written to `./.prompt-asset-improver/local/inventory.json`.
 
-Prompt-asset backup written to `/Users/wanglidong/Repository/agent-deck/.prompt-asset-improver/local/backups/20260629T031459Z`; 10 existing files were backed up, and new `reviewer-deepseek.md` was inventory-only. Backup pruning removed old manifest-backed directories `20260611T102250Z`, `20260612T064813Z`, `20260612T070022Z`, `20260613T150331Z`, `20260613T152206Z`, and `20260613T152344Z`.
+Prompt-asset backup written to `./.prompt-asset-improver/local/backups/20260629T031459Z`; 10 existing files were backed up, and new `reviewer-deepseek.md` was inventory-only. Backup pruning removed old manifest-backed directories `20260611T102250Z`, `20260612T064813Z`, `20260612T070022Z`, `20260613T150331Z`, `20260613T152206Z`, and `20260613T152344Z`.
 
 Focused prompt editor initially dispatched in Agent Deck team `reviewer-model-selection`:
 

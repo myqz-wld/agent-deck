@@ -30,7 +30,7 @@ const PROMPT =
   process.env.SPIKE_PROMPT ||
   '请判断：一个落后 14 个 patch 版本的 SDK 该不该升级到最新版？给出明确判断和理由。不要调用任何工具，直接回答。';
 const WITH_TOOLS = process.env.SPIKE_WITH_TOOLS === '1';
-const CWD = process.env.SPIKE_CWD || '/Users/apple/Repository/personal/agent-deck';
+const CWD = process.env.SPIKE_CWD || '.';
 const OUT_DIR = process.env.SPIKE_OUT_DIR || __dir;
 
 const rawLog = join(OUT_DIR, `${TAG}-raw.jsonl`);
@@ -57,7 +57,7 @@ let append = '';
 if (REAL_ENV) {
   try {
     append = require('node:fs').readFileSync(
-      '/Users/apple/Repository/personal/agent-deck/resources/claude-config/CLAUDE.md',
+      './resources/claude-config/CLAUDE.md',
       'utf8',
     );
   } catch {

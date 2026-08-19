@@ -4,7 +4,7 @@ created_at: "2026-05-18"
 status: "completed"
 base_branch: "main"
 base_commit: "4aefb5ad26ca3842a8ea20302f2e2da930fee0eb"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/codex-handoff-team-alignment-20260518"
+worktree_path: "./.claude/worktrees/codex-handoff-team-alignment-20260518"
 final_commit: "88c94f192cd53986d46ecad3a916a10e6b92aea6"
 completed_at: "2026-05-19"
 ---
@@ -1020,8 +1020,8 @@ P5 收尾后**不立即 archive_plan**；本 plan 有 P6（流程改进）需在
 
 **P5 起手**（详 plan §P5 章节）：
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/codex-handoff-team-alignment-20260518.md` 读全 plan v4.1
-2. `EnterWorktree(path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/codex-handoff-team-alignment-20260518)` 进 worktree（用 `path` 不是 `name`）
+1. `Bash: cat ./.claude/plans/codex-handoff-team-alignment-20260518.md` 读全 plan v4.1
+2. `EnterWorktree(path: ./.claude/worktrees/codex-handoff-team-alignment-20260518)` 进 worktree（用 `path` 不是 `name`）
 3. 自检 `git rev-parse HEAD` 应是 `e2e3090`（Step 4.5）或之后
 4. **进 P5 Step 5.1** — 撤 D6 临时 schema deny（如有）
 5. **接 Step 5.2** — 双对抗 review P1-P4 改动：调 `mcp__agent-deck__spawn_session` × 2 起 reviewer-claude + reviewer-codex teammate（claude lead × claude/codex 异构对），scope = P1-P4 全部代码改动 + 4 个 codex 视角资产文件 + plan 关键节
@@ -1364,7 +1364,7 @@ user 看 CHANGELOG + smoke 通过后 confirm 进 P6.8 archive_plan。
 ```ts
 mcp__agent-deck__archive_plan({
   plan_id: 'codex-handoff-team-alignment-20260518',
-  worktree_path: '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/codex-handoff-team-alignment-20260518',
+  worktree_path: './.claude/worktrees/codex-handoff-team-alignment-20260518',
   base_branch: 'main',
   changelog_id: '<X+1>,<X+2>',  // P5 + P6 两个 CHANGELOG（csv format）
 });

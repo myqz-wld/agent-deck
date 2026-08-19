@@ -1,7 +1,7 @@
 ---
 plan_id: session-trajectory-mcp-tool-20260626
 created_at: 2026-06-26
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 status: completed
 base_commit: fe85c9ca45579b662b91a76dc8b275f3d99900fd
 base_branch: main

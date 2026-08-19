@@ -1,7 +1,7 @@
 ---
 plan_id: "hand-off-session-adopt-teammates-20260520"
 created_at: "2026-05-20"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/hand-off-session-adopt-teammates-20260520"
+worktree_path: "./.claude/worktrees/hand-off-session-adopt-teammates-20260520"
 status: "completed"
 base_commit: "9893cef12bb4342314048ccb6ed728bd7c378387"
 base_branch: "main"
@@ -693,8 +693,8 @@ spike1 v2 已实证 claude-code + codex-cli 双 adapter recoverer 路径。
 
 如果是新会话接力 Phase 7:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/hand-off-session-adopt-teammates-20260520.md` 全文读(优先 §步骤 checklist Phase 7)
-2. EnterWorktree(path: `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/hand-off-session-adopt-teammates-20260520`)— worktree 已存在(Phase 1-6 用过,clean,HEAD=`d52b3ad`)
+1. `Bash: cat ./.claude/plans/hand-off-session-adopt-teammates-20260520.md` 全文读(优先 §步骤 checklist Phase 7)
+2. EnterWorktree(path: `./.claude/worktrees/hand-off-session-adopt-teammates-20260520`)— worktree 已存在(Phase 1-6 用过,clean,HEAD=`d52b3ad`)
 3. `git -C <worktree> rev-parse HEAD` 自检为 `d52b3ad`(Phase 6 commit),在 main HEAD `9893cef` 之后
 4. 按 §步骤 checklist Phase 7 直接动手:
    - 调 `/agent-deck:deep-review` SKILL 走多轮异构对抗 review (kind='code'),scope = Phase 2-6 改动文件:

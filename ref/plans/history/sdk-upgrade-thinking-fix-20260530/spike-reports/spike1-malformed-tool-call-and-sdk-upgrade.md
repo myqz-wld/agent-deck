@@ -54,7 +54,7 @@ GROUP BY substr(session_id,1,8);
 **样本 1（id=329524，15:32）—— 就是「升级 package.json」那条没执行成功的 Edit**：
 ```
 {"text":"收到，不绕了，直接升级。\n\ncourt\n<invoke name=\"Edit\">\n
-<parameter name=\"file_path\">/Users/apple/Repository/personal/agent-deck/package.json</parameter>\n
+<parameter name=\"file_path\">./package.json</parameter>\n
 <parameter name=\"old_string\">    \"@anthropic-ai/claude-agent-sdk\": \"^0.3.144\",</parameter>\n
 <parameter name=\"new_string\">    \"@anthropic-ai/claude-agent-sdk\": \"^0.3.158\",</parameter>\n
 </invoke>","role":"assistant"}

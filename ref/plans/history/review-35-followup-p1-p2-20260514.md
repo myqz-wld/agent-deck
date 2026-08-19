@@ -1,7 +1,7 @@
 ---
 plan_id: "review-35-followup-p1-p2-20260514"
 created_at: "2026-05-14"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/review-35-followup-p1-p2-20260514"
+worktree_path: "./.claude/worktrees/review-35-followup-p1-p2-20260514"
 status: "completed"
 base_commit: "41b0922"
 base_branch: "main"
@@ -61,12 +61,12 @@ completed_at: "2026-05-14"
 
 ## 当前进度
 
-Step 1 done。worktree HEAD = 41b0922 (main HEAD)，pwd = `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/review-35-followup-p1-p2-20260514`。下一步：按 checklist 顺序修。
+Step 1 done。worktree HEAD = 41b0922 (main HEAD)，pwd = `./.claude/worktrees/review-35-followup-p1-p2-20260514`。下一步：按 checklist 顺序修。
 
 ## 下一会话第一步
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/review-35-followup-p1-p2-20260514.md`
-2. `EnterWorktree(path: '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/review-35-followup-p1-p2-20260514')`
+1. `Bash: cat ./.claude/plans/review-35-followup-p1-p2-20260514.md`
+2. `EnterWorktree(path: './.claude/worktrees/review-35-followup-p1-p2-20260514')`
 3. 看 checklist 最后未勾的一步开始干
 
 ## 已知踩坑

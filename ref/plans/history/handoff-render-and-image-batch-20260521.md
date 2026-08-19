@@ -1,7 +1,7 @@
 ---
 plan_id: "handoff-render-and-image-batch-20260521"
 created_at: "2026-05-21T11:50:00+08:00"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/handoff-render-and-image-batch-20260521"
+worktree_path: "./.claude/worktrees/handoff-render-and-image-batch-20260521"
 status: "completed"
 base_commit: "619dca703eaa56e39497bdac80e5daa5253b53bb"
 base_branch: "main"
@@ -226,18 +226,18 @@ Step 0 + Step 0.5（跳过）+ Step 1（首版）+ Step 1.5 R1 + R2 + **R3 收�
 
 ## 下一会话第一步
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/handoff-render-and-image-batch-20260521.md` 全文
+1. `Bash: cat ./.claude/plans/handoff-render-and-image-batch-20260521.md` 全文
 2. 若 plan §进度 已通过 R3 review → 直接走 Step 2 EnterWorktree。**互斥二选一**（先跑 A 后跑 B 或反之都会撞 path 已存在 reject）：
 
    **选项 A — claude 端手工 + builtin EnterWorktree**：
    ```bash
-   git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-handoff-render-and-image-batch-20260521 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/handoff-render-and-image-batch-20260521 619dca703eaa56e39497bdac80e5daa5253b53bb
+   git -C . worktree add -b worktree-handoff-render-and-image-batch-20260521 ./.claude/worktrees/handoff-render-and-image-batch-20260521 619dca703eaa56e39497bdac80e5daa5253b53bb
    ```
    ⚠️ **末尾 `619dca703eaa56e39497bdac80e5daa5253b53bb` 是 plan frontmatter `base_commit` 必须显式传**（R2 codex HIGH 修法 — 缺则 git 默认用 HEAD 作 base，主仓 HEAD 可能已 ahead 于 plan base 几个 commit 跑错 base）。
 
    然后 claude 端进 worktree：
    ```
-   EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/handoff-render-and-image-batch-20260521")
+   EnterWorktree(path: "./.claude/worktrees/handoff-render-and-image-batch-20260521")
    ```
    ⚠️ 用 `path:` 不用 `name:`，避开 user CLAUDE.md §Step 2 EnterWorktree CLI v2.1.112 stale base bug。
 

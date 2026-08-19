@@ -19,7 +19,7 @@ related_review: REVIEW_219, REVIEW_220, REVIEW_221
 Migrate `aws-relay-with-mac-worker` on `35.166.66.245` from the direct user service to a
 digest-pinned rootless Podman Quadlet, keep `mac-worker-for-aws-relay` on the Mac, and bind it to the
 dedicated mode-0700 Workspace
-`/Users/wanglidong/AgentDeckWorkspaces/aws-relay-with-mac-worker`.
+`$HOME/AgentDeckWorkspaces/aws-relay-with-mac-worker`.
 
 ## Invariants
 
@@ -62,9 +62,9 @@ cases the new service was stopped and the old healthy Relay was restored before 
 - Quadlet service: `agent-deck-relay@aws-relay-with-mac-worker.service`
 - Container: `agent-deck-relay-aws-relay-with-mac-worker`
 - Config:
-  `/home/ubuntu/.config/agent-deck-relay/aws-relay-with-mac-worker/config.json`
+  `$HOME/.config/agent-deck-relay/aws-relay-with-mac-worker/config.json`
 - State:
-  `/home/ubuntu/.local/share/agent-deck-relay/aws-relay-with-mac-worker`
+  `$HOME/.local/share/agent-deck-relay/aws-relay-with-mac-worker`
 - Control socket:
   `/run/user/1000/agent-deck-relay/aws-relay-with-mac-worker/control.sock`
 - Host health gate: `/opt/agent-deck/bin/agent-deck-relay-health-gate`

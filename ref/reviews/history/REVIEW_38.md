@@ -3,7 +3,7 @@ review_id: REVIEW_38
 title: Claude Code CLI v2.1.112 EnterWorktree builtin 默认 base 用 origin/<default-branch> 而非 HEAD（contract vs impl 矛盾 bug）— R1 异构对抗 audit + document-only 收口
 created_at: 2026-05-15
 plan_id: worktree-stale-base-bug-20260515
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/worktree-stale-base-bug-20260515
+worktree_path: ./.claude/worktrees/worktree-stale-base-bug-20260515
 base_commit: 91c4568
 final_commit: TBD
 heterogeneous_dual_completed: true
@@ -44,7 +44,7 @@ R37 archive_plan 收口后立即 hand-off 准备阶段实测撞 bug：调 `Enter
 |---|---|
 | Application source `worktree add` 调用 | 25 文件全部教学性 jsdoc / schema description（无 git worktree add 实际 spawn） |
 | Application source `EnterWorktree` 提及 | 同上，全为名词引用 |
-| Claude Code CLI binary | `/Users/apple/.nvm/versions/node/v24.10.0/lib/node_modules/@anthropic-ai/claude-code/cli.js`（13MB minified bundle, v2.1.112） |
+| Claude Code CLI binary | `$HOME/.nvm/versions/node/v24.10.0/lib/node_modules/@anthropic-ai/claude-code/cli.js`（13MB minified bundle, v2.1.112） |
 | CLI sdk-tools.d.ts EnterWorktree input schema | 仅 `name?: string` + `path?: string`，无 base / from / commit 字段 |
 
 ### 2. CLI builtin 实现：默认 base = `origin/<default-branch>`，不是本地 HEAD

@@ -2,7 +2,7 @@
 plan_id: "deep-review-project-20260531"
 created_at: "2026-05-31T11:00:00+08:00"
 status: "completed"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-project-20260531"
+worktree_path: "./.claude/worktrees/deep-review-project-20260531"
 base_commit: "7f96617e00ac6eca5cce0186bf3aa2ed042a4aca"
 base_branch: "main"
 final_commit: "8bcb13864d77d6e68d057d1d2d3d00c88bc466be"
@@ -139,7 +139,7 @@ scope（~8000 LOC，需拆子批 ≤10 文件/批；issue-repo.ts 主体 REVIEW_
 - **reviewer pair（E 批用，Batch E 收官 → dormant 保活可复用 / 或 shutdown）**：reviewer-claude **b5dec7dc-bf0d-4f15-83e9-6fa954742de4** / reviewer-codex **019e7d8e-6c23-7b60-9a8b-1738e3e6bc84**（team **dr-project-e-20260531** / teamId **4ff26dbd-da08-490e-a3ef-95a69b4b35b4**，caller **b5fd153f**）。**Batch E 已收官**：同 caller（b5fd153f）续作 Batch F 可复用（send Round 1 全量 prompt 新 scope，dormant 自动 resume）；hand off 换 caller 则按 §跨会话救火 重 spawn 新 pair（dr-project-f）+ 旧 E pair shutdown。
 - **reviewer pair（D 批用，已收官）**：reviewer-claude c12a42ce / reviewer-codex 019e7d1f（team dr-project-d-20260531，caller 18d3e9ba）— 已 closed
 - **reviewer pair（C 批用，已 closed 不可复用）**：C1-C2 claude 2fc6617f / codex 019e7c9d（dr-project-c）；C3-C4 claude 14fced01 / codex 019e7ced（dr-project-c3）— 均 closed
-- **test 基建**：worktree 无 node_modules → `ln -sfn /Users/apple/Repository/personal/agent-deck/node_modules <worktree>/node_modules`（git ignored），再 `node_modules/.bin/vitest run <files>` 跑测；typecheck 走 `pnpm typecheck`。**SQLite 真测（issue-repo / team-repo / session-repo）**：worktree node_modules 软链到主仓库 → better-sqlite3 binding 是 Electron ABI 130，vitest 默认 node（v24 ABI 137）跑会 skip。真要跑：备份 `cp node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node /tmp/bak` → `nvm use 20.18.3 && npm rebuild better-sqlite3` → 跑测 → **务必还原** `cp /tmp/bak <binding>`（否则 dev/app 起不来，见 CLAUDE.md §打包踩坑）。E2 已用此法验 issue-repo LIMIT test。
+- **test 基建**：worktree 无 node_modules → `ln -sfn ./node_modules <worktree>/node_modules`（git ignored），再 `node_modules/.bin/vitest run <files>` 跑测；typecheck 走 `pnpm typecheck`。**SQLite 真测（issue-repo / team-repo / session-repo）**：worktree node_modules 软链到主仓库 → better-sqlite3 binding 是 Electron ABI 130，vitest 默认 node（v24 ABI 137）跑会 skip。真要跑：备份 `cp node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build/Release/better_sqlite3.node /tmp/bak` → `nvm use 20.18.3 && npm rebuild better-sqlite3` → 跑测 → **务必还原** `cp /tmp/bak <binding>`（否则 dev/app 起不来，见 CLAUDE.md §打包踩坑）。E2 已用此法验 issue-repo LIMIT test。
 
 ## Follow-up 汇总（留用户回来决策，勿在 review 流程中自动改）
 
@@ -161,10 +161,10 @@ scope（~8000 LOC，需拆子批 ≤10 文件/批；issue-repo.ts 主体 REVIEW_
 
 ## 下一会话第一步（cold start）
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/deep-review-project-20260531.md` 读全
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-project-20260531")`
+1. `Bash: cat ./.claude/plans/deep-review-project-20260531.md` 读全
+2. `EnterWorktree(path: "./.claude/worktrees/deep-review-project-20260531")`
 3. `git -C <worktree> log --oneline -10` 确认 HEAD（应见 2a5961a G5 / a810d09 G4 / 234bbad G3 / a001989 G2 / 37bc0ca G1 / 157ef69 F3）
-4. **test 基建**：worktree node_modules 已软链主仓库（若缺 `ln -sfn /Users/apple/Repository/personal/agent-deck/node_modules <worktree>/node_modules`）。普通 test `cd <worktree> && node_modules/.bin/vitest run <files>`；typecheck `zsh -i -l -c "pnpm typecheck"`。**SQLite 真测**（Batch H renderer 通常不碰 store，多数无需）走 §当前进度 Batch G 节末「binding rebuild 流程」：`zsh -i -l -c` 内 source nvm.sh + `nvm use 20.18.3` + prebuild-install --target 20.18.3 → 跑测 → **务必** `cp /tmp/better_sqlite3.electron.bak <binding>` 还原。⚠️ 备份可能跨会话丢失，先 `ls -la <binding>`（1885024=Electron / 1884576=node20）确认
+4. **test 基建**：worktree node_modules 已软链主仓库（若缺 `ln -sfn ./node_modules <worktree>/node_modules`）。普通 test `cd <worktree> && node_modules/.bin/vitest run <files>`；typecheck `zsh -i -l -c "pnpm typecheck"`。**SQLite 真测**（Batch H renderer 通常不碰 store，多数无需）走 §当前进度 Batch G 节末「binding rebuild 流程」：`zsh -i -l -c` 内 source nvm.sh + `nvm use 20.18.3` + prebuild-install --target 20.18.3 → 跑测 → **务必** `cp /tmp/better_sqlite3.electron.bak <binding>` 还原。⚠️ 备份可能跨会话丢失，先 `ls -la <binding>`（1885024=Electron / 1884576=node20）确认
 5. **reviewer pair 复用判断**：G4+G5 pair（claude **362712db** / codex **019e7f0b** / team **dr-project-g4-20260531**）store 收官后可 shutdown（若未 shutdown 仍 dormant，但 H 是 renderer，mental model 与 store 重叠极低 → 重 spawn 无损失）。本次 hand off 换 caller → 撞 no-shared-team，按应用约定 §跨会话救火 **重 spawn 新 pair**（teamName 自定如 dr-project-h）+ 旧 pair shutdown（如还活）
 6. 找 checklist 第一个未打勾批次（**Batch H — renderer core + issue 组件，文案密集**）→ 走 deep-review SKILL 流程（spawn/send → review → 反驳轮 → 三态裁决 → fix → commit + REVIEW_X.md **X 从 93 起** + 打勾）。H scope：`src/renderer/App.tsx` / `stores/*` / `IssueDetail.tsx` / `IssuesPanel.tsx` / `ResolveInNewSessionDialog.tsx` / `SessionDetail.tsx` / `issue-detail-editing.ts`（按内聚拆子批 ≤10 文件；renderer 文件多，注意拆批）。**focus 偏移**：renderer 是 React/TS（非 store SQL），focus 转向 state 管理 race / useEffect 依赖 / stale closure / 文案措辞（issue 组件文案密集）/ XSS（dangerouslySetInnerHTML）/ key collision / 可访问性。**注**：issue 组件含近期改动 + 文案密集是 H 重点
 7. Batch H（renderer+文案）→ I（剩余 ipc/window/utils 可跳，REVIEW_70 issue-tracker 主体刚审）→ plan 收口

@@ -25,5 +25,5 @@ unset ELECTRON_RUN_AS_NODE
 "/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck" new --cwd "$PWD" --prompt "ping"
 sqlite3 ~/Library/Application\ Support/Agent\ Deck/agent-deck.db \
   "SELECT permission_mode, cwd FROM sessions ORDER BY started_at DESC LIMIT 1;"
-# 应显示 bypassPermissions | /Users/.../repo-dir
+# 应显示 bypassPermissions | <repo-dir>
 ```

@@ -42,7 +42,7 @@ $ echo "$PATH" | tr ':' '\n'
 /bin
 /usr/sbin
 /sbin
-/Users/apple/Library/Application Support/agent-deck/agent-deck-plugin/bin
+$HOME/Library/Application Support/agent-deck/agent-deck-plugin/bin
 ```
 
 **只 5 条路径** — launchd minimal PATH (4 条) + agent-deck plugin bin (1 条,应用安装时注入)。
@@ -55,16 +55,16 @@ $ zsh -i -l -c 'echo "$PATH"' | tr ':' '\n'
 
 输出:
 ```
-/Users/apple/.mavis/bin
-/Users/apple/.opencode/bin
-/Users/apple/.bun/bin
-/Users/apple/.claude
-/Users/apple/.antigravity/antigravity/bin
-/Users/apple/.nvm/versions/node/v24.10.0/bin
-/Users/apple/.gvm/pkgsets/go1.19/global/bin
-/Users/apple/.gvm/gos/go1.19/bin
-/Users/apple/.gvm/pkgsets/go1.19/global/overlay/bin
-/Users/apple/.gvm/bin
+$HOME/.mavis/bin
+$HOME/.opencode/bin
+$HOME/.bun/bin
+$HOME/.claude
+$HOME/.antigravity/antigravity/bin
+$HOME/.nvm/versions/node/v24.10.0/bin
+$HOME/.gvm/pkgsets/go1.19/global/bin
+$HOME/.gvm/gos/go1.19/bin
+$HOME/.gvm/pkgsets/go1.19/global/overlay/bin
+$HOME/.gvm/bin
 /opt/homebrew/bin
 /opt/homebrew/sbin
 /usr/local/bin
@@ -77,8 +77,8 @@ $ zsh -i -l -c 'echo "$PATH"' | tr ':' '\n'
 /var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin
 /var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin
 /usr/local/go/bin
-/Users/apple/.cargo/bin
-/Users/apple/Library/Application Support/agent-deck/agent-deck-plugin/bin
+$HOME/.cargo/bin
+$HOME/Library/Application Support/agent-deck/agent-deck-plugin/bin
 ```
 
 **22 条路径** (含 user-defined + system + agent-deck plugin)。
@@ -89,20 +89,20 @@ $ zsh -i -l -c 'echo "$PATH"' | tr ':' '\n'
 
 | 缺失路径 | 用途 |
 |---|---|
-| /Users/apple/.mavis/bin | 用户自定义 |
-| /Users/apple/.opencode/bin | 用户工具 |
-| /Users/apple/.bun/bin | Bun 运行时 |
-| /Users/apple/.claude | Claude 自家 |
-| /Users/apple/.antigravity/antigravity/bin | 用户工具 |
-| /Users/apple/.nvm/versions/node/v24.10.0/bin | **nvm Node 24 (含 pnpm corepack shim)** |
-| /Users/apple/.gvm/* (4 条) | Go 版本管理 |
+| $HOME/.mavis/bin | 用户自定义 |
+| $HOME/.opencode/bin | 用户工具 |
+| $HOME/.bun/bin | Bun 运行时 |
+| $HOME/.claude | Claude 自家 |
+| $HOME/.antigravity/antigravity/bin | 用户工具 |
+| $HOME/.nvm/versions/node/v24.10.0/bin | **nvm Node 24 (含 pnpm corepack shim)** |
+| $HOME/.gvm/* (4 条) | Go 版本管理 |
 | /opt/homebrew/bin | **Homebrew binaries (含 npm/git/cargo/python 等)** |
 | /opt/homebrew/sbin | Homebrew sbin |
 | /usr/local/bin | 传统 /usr/local |
 | /System/Cryptexes/App/usr/bin | macOS Cryptex |
 | /var/run/com.apple.security.cryptexd/* (3 条) | macOS Cryptex 引导 |
 | /usr/local/go/bin | Go 默认安装 |
-| /Users/apple/.cargo/bin | **Rust cargo binaries** |
+| $HOME/.cargo/bin | **Rust cargo binaries** |
 
 **核心命中**: nvm Node 24 不在 SDK PATH → corepack pnpm shim 找不到 → `pnpm command not found`。同款问题影响 cargo / brew / bun / go 等任何用户终端可用的 CLI。
 
@@ -113,7 +113,7 @@ $ which pnpm 2>&1
 pnpm not found  # ← 仅在 SDK 子进程 PATH 不含 nvm 时
 
 $ zsh -i -l -c "which pnpm 2>&1 ; pnpm --version 2>&1"
-/Users/apple/.nvm/versions/node/v24.10.0/bin/pnpm
+$HOME/.nvm/versions/node/v24.10.0/bin/pnpm
 10.33.0
 ```
 
@@ -188,10 +188,10 @@ user 0.17
 ```bash
 $ bash -ilc 'echo "$PATH"' 2>&1 | head -3
 bash: no job control in this shell  ← 警告但成功
-/Users/apple/.cargo/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:...
+$HOME/.cargo/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:...
 
 $ sh -lc 'echo "$PATH"' 2>&1 | head -3
-/Users/apple/.cargo/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:...
+$HOME/.cargo/bin:/usr/local/bin:/System/Cryptexes/App/usr/bin:...
 ```
 
 **重要发现**: bash -ilc 输出的 PATH **比 zsh -ilc 少很多** — bash 不读 ~/.zshrc 的 nvm/brew 配置,所以**修法必须用 user `$SHELL` 不假设 zsh**。

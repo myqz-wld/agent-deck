@@ -18,7 +18,7 @@ plan §设计决策 D1 假设「加 sessions.cli_session_id 列让 sessions.id �
 ### 实测 1.1: SDK `--resume` verbatim 透传
 
 ```bash
-# /Users/apple/Repository/personal/agent-deck/node_modules/.pnpm/@anthropic-ai+claude-agent-sdk@0.3.144_*/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs
+# ./node_modules/.pnpm/@anthropic-ai+claude-agent-sdk@0.3.144_*/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs
 grep "resume" sdk.mjs
 ```
 
@@ -32,7 +32,7 @@ grep "resume" sdk.mjs
 
 ### 实测 1.2: jsonl 文件名 == body.sessionId
 
-抽样 `~/.claude/projects/-Users-apple-Repository-personal-agent-deck/` 下最近 mtime 5 个 .jsonl 文件:
+抽样 `~/.claude/projects/sibling-agent-deck/` 下最近 mtime 5 个 .jsonl 文件:
 
 | jsonl 文件名 (UUID) | body 第一条 record `sessionId` 字段 | match |
 |---|---|---|
@@ -49,11 +49,11 @@ grep "resume" sdk.mjs
 function encodeClaudeProjectDir(cwd) {
   return '-' + cwd.split('/').filter(Boolean).join('-');
 }
-encodeClaudeProjectDir('/Users/apple/Repository/personal/agent-deck')
-// → '-Users-apple-Repository-personal-agent-deck'
+encodeClaudeProjectDir('.')
+// → 'sibling-agent-deck'
 ```
 
-实际目录 `~/.claude/projects/-Users-apple-Repository-personal-agent-deck` 存在 ✅,与应用层 `src/main/platform.ts:23` 实现字面对齐。
+实际目录 `~/.claude/projects/sibling-agent-deck` 存在 ✅,与应用层 `src/main/platform.ts:23` 实现字面对齐。
 
 ### 实测 1.4: SDK forkSession 接口存在
 

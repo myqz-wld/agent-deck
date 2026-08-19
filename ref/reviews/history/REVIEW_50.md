@@ -45,7 +45,7 @@ src/main/store/session-repo/spawn-chain.ts
 | 字段 | reviewer-claude (46248fed) | reviewer-codex tempKey (2af17d51 / UUIDv4) | reviewer-codex realId companion (019e4961 / UUIDv7) |
 |---|---|---|---|
 | agent_id | claude-code | codex-cli | codex-cli |
-| cwd | `/Users/apple/Repository/personal/agent-deck` | **空字符串** | `/Users/apple/Repository/personal/agent-deck` |
+| cwd | `.` | **空字符串** | `.` |
 | title | reviewer-claude · plan-review | **sid 自身** | agent-deck |
 | spawned_by | 8586626b...(lead ✓) | **NULL ✗** | **NULL ✗** |
 | spawn_depth | 1 | 0 | 0 |

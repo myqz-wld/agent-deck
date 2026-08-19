@@ -1,7 +1,7 @@
 ---
 plan_id: deep-review-batch-a1-b-fixes-20260519
 created_at: 2026-05-19T11:50:00+08:00
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-batch-a1-b-fixes-20260519
+worktree_path: ./.claude/worktrees/deep-review-batch-a1-b-fixes-20260519
 status: completed
 base_commit: 7d059e8e7246abffa647b6b3811d388064d4be5b
 base_branch: main
@@ -124,8 +124,8 @@ grep -nE 'hook_event_name.*=.*[^a-zA-Z]|tool_use_id:' node_modules/@anthropic-ai
 
 ### Phase 0：worktree 隔离 + base 自检（user confirm 后执行）
 
-- [ ] Step 0.1 — `git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-deep-review-batch-a1-b-fixes-20260519 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-batch-a1-b-fixes-20260519`（避开 EnterWorktree CLI v2.1.112 stale base bug）
-- [ ] Step 0.2 — `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-batch-a1-b-fixes-20260519")`（注意 path 不是 name）
+- [ ] Step 0.1 — `git -C . worktree add -b worktree-deep-review-batch-a1-b-fixes-20260519 ./.claude/worktrees/deep-review-batch-a1-b-fixes-20260519`（避开 EnterWorktree CLI v2.1.112 stale base bug）
+- [ ] Step 0.2 — `EnterWorktree(path: "./.claude/worktrees/deep-review-batch-a1-b-fixes-20260519")`（注意 path 不是 name）
 - [ ] Step 0.3 — 进 worktree 后**精确自检**（plan-review MED-4 codex 修订 — 旧版 `reset --hard` 过粗）：
   - 跑 `Bash: pwd`（应在 worktree 内）
   - 跑 `git -C <worktree> rev-parse HEAD` 取 worktree HEAD（应等于 base_commit `7d059e8e7246abffa647b6b3811d388064d4be5b`）
@@ -586,7 +586,7 @@ R3 verify prompt 模板（plan-review MED-3 codex 修订 — `<last messageId>` 
 - [ ] Step 5.5 — 更新 `<main-repo>/reviews/INDEX.md`
 - [ ] Step 5.6 — `git -C <worktree> add` + `git commit` 多个逻辑 commit（按 phase 切，commit msg 含 finding ID）
 - [ ] Step 5.7 — `ExitWorktree(action: "keep")` 切 cwd 出 worktree
-- [ ] Step 5.8 — `mcp__agent-deck__archive_plan({plan_id: "deep-review-batch-a1-b-fixes-20260519", worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-batch-a1-b-fixes-20260519", base_branch: "main", changelog_id: "X"})` 一行原子收口
+- [ ] Step 5.8 — `mcp__agent-deck__archive_plan({plan_id: "deep-review-batch-a1-b-fixes-20260519", worktree_path: "./.claude/worktrees/deep-review-batch-a1-b-fixes-20260519", base_branch: "main", changelog_id: "X"})` 一行原子收口
 - [ ] Step 5.9 — `shutdown_session × 6`（4 review + 2 plan-review reviewer）释放 teammate
 
 ---
@@ -611,17 +611,17 @@ R3 verify prompt 模板（plan-review MED-3 codex 修订 — `<last messageId>` 
 
 如本会话 context 不足以走完 phase 1-5，hand_off 给新会话。新会话 cold start：
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/plans/deep-review-batch-a1-b-fixes-20260519.md`（强制 cat 而非 Read，避免 cross-session jsonl cache 拿到旧版本）
+1. `Bash: cat ./plans/deep-review-batch-a1-b-fixes-20260519.md`（强制 cat 而非 Read，避免 cross-session jsonl cache 拿到旧版本）
 2. **worktree 存在性兜底**（plan-review HIGH-5 codex 修订 + plan-review v2 NEW-MED 双方独立修订 — 旧版仅 path exists/missing 二档不覆盖 branch 已存在 / path exists 非 worktree / stale .git/worktrees metadata 等边角）：
-   - 跑 `Bash: test -e /Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-batch-a1-b-fixes-20260519 && echo EXISTS || echo MISSING`
-   - **EXISTS**：先 sanity 检查是否真 worktree：跑 `Bash: git -C /Users/apple/Repository/personal/agent-deck worktree list --porcelain | grep -A1 '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-batch-a1-b-fixes-20260519'`
+   - 跑 `Bash: test -e ./.claude/worktrees/deep-review-batch-a1-b-fixes-20260519 && echo EXISTS || echo MISSING`
+   - **EXISTS**：先 sanity 检查是否真 worktree：跑 `Bash: git -C . worktree list --porcelain | grep -A1 './.claude/worktrees/deep-review-batch-a1-b-fixes-20260519'`
      - 输出含 `branch refs/heads/worktree-deep-review-batch-a1-b-fixes-20260519` → 进 step 3 EnterWorktree（path:）
      - 输出空（path exists 但非已注册 worktree / stale metadata） → 提示 user 决策：手动 `git worktree prune` 清 stale 再重建，或 `rm -rf <path>` 后回到 MISSING 分支
    - **MISSING**：进一步 branch 是否已存在判定（plan-review v2 NEW-MED reviewer-claude 修订）：
-     - 跑 `Bash: git -C /Users/apple/Repository/personal/agent-deck branch --list worktree-deep-review-batch-a1-b-fixes-20260519`
+     - 跑 `Bash: git -C . branch --list worktree-deep-review-batch-a1-b-fixes-20260519`
      - 输出空（branch 也不存在） → 走原 `git -C <main-repo> worktree add -b worktree-<plan-id> <worktree-abs-path>` 新建 branch + worktree
      - 输出非空（branch 已存在但 worktree 被外删 / 跨设备同步未带 working tree） → 走 `git -C <main-repo> worktree add <worktree-abs-path> worktree-<plan-id>` 复用已存在 branch 重建 worktree（不带 -b）
-3. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-batch-a1-b-fixes-20260519")`
+3. `EnterWorktree(path: "./.claude/worktrees/deep-review-batch-a1-b-fixes-20260519")`
 4. 自检 `Bash: pwd`（应在 worktree 内）+ `git -C <worktree> rev-parse HEAD`（应等于 base_commit `7d059e8` 或之后的 fix commit）
 5. 按 plan **§步骤 checklist** 找下一个未打勾步骤继续；不重新讨论 §设计决策；所有指向代码资产的路径换 worktree 前缀（`<main-repo>/.claude/worktrees/<plan-id>/<rel>`）
 6. 进度 / 决策变更先告诉用户征得确认

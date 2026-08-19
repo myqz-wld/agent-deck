@@ -23,7 +23,7 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 
 const MODEL = process.env.SPIKE_MODEL || 'claude-opus-4-8-thinking-max[1m]';
 const TAG = process.env.SPIKE_TAG || 'multiA';
-const CWD = process.env.SPIKE_CWD || '/Users/apple/Repository/personal/agent-deck';
+const CWD = process.env.SPIKE_CWD || '.';
 const OUT_DIR = process.env.SPIKE_OUT_DIR || __dir;
 
 let sdkVer = 'unknown';
@@ -37,9 +37,9 @@ const rawLog = join(OUT_DIR, `${TAG}-raw.jsonl`);
 writeFileSync(rawLog, '');
 
 const PROMPTS = [
-  '读取 /Users/apple/Repository/personal/agent-deck/package.json，告诉我 version 字段的值。',
-  '再读取 /Users/apple/Repository/personal/agent-deck/tsconfig.node.json，告诉我它 extends 什么。',
-  '用 Grep 在 /Users/apple/Repository/personal/agent-deck/package.json 里找 electron 出现在哪些行。',
+  '读取 ./package.json，告诉我 version 字段的值。',
+  '再读取 ./tsconfig.node.json，告诉我它 extends 什么。',
+  '用 Grep 在 ./package.json 里找 electron 出现在哪些行。',
   '基于前面读到的信息，总结这个项目用了哪些核心技术栈，列 3-5 点。',
   '最后评估一下这个项目的依赖管理（pnpm + lockfile）是否规范，给简短结论。',
 ];

@@ -1,7 +1,7 @@
 ---
 plan_id: "log-noise-and-disposed-20260603"
 created_at: "2026-06-03"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/log-noise-and-disposed-20260603"
+worktree_path: "./.claude/worktrees/log-noise-and-disposed-20260603"
 status: "completed"
 base_commit: "34ab566"
 base_branch: "main"
@@ -91,11 +91,11 @@ const safeSend = <T>(channel: string, payload: T): void => {
 
 ## 下一会话第一步
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/log-noise-and-disposed-20260603.md`（必 cat 详会话记录）
+1. `Bash: cat ./.claude/plans/log-noise-and-disposed-20260603.md`（必 cat 详会话记录）
 2. Step 1 建 worktree（先 bash 创 + EnterWorktree(path:)，不用 `EnterWorktree(name:)`）：
    ```bash
-   git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-log-noise-and-disposed-20260603 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/log-noise-and-disposed-20260603
-   EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/log-noise-and-disposed-20260603")
+   git -C . worktree add -b worktree-log-noise-and-disposed-20260603 ./.claude/worktrees/log-noise-and-disposed-20260603
+   EnterWorktree(path: "./.claude/worktrees/log-noise-and-disposed-20260603")
    ```
 3. Step 2-6 在 worktree 内实施（路径全部加 worktree 前缀，避免 §Step 2 末 callout 主仓库污染陷阱）
 4. Step 7 跑 simple-review
@@ -103,7 +103,7 @@ const safeSend = <T>(channel: string, payload: T): void => {
 
 ## 已知踩坑
 
-- **worktree 内跑 vitest 必须用主仓库 Electron binary**（详 message-retention plan §已知踩坑）：worktree 无 node_modules，跑测试走 `/Users/apple/Repository/personal/agent-deck/node_modules/.pnpm/electron@33.4.11/.../Electron` + `ELECTRON_RUN_AS_NODE=1`，**勿 symlink node_modules 进 worktree** 会被 vitest .vite 缓存污染。
+- **worktree 内跑 vitest 必须用主仓库 Electron binary**（详 message-retention plan §已知踩坑）：worktree 无 node_modules，跑测试走 `./node_modules/.pnpm/electron@33.4.11/.../Electron` + `ELECTRON_RUN_AS_NODE=1`，**勿 symlink node_modules 进 worktree** 会被 vitest .vite 缓存污染。
 - **safeSend 内 catch 必须 instanceof Error + 正则匹配**：避免吞掉 TypeError（caller 代码 bug 应 throw）；框架抛错 message 形如 `Error sending from webFrameMain: Error: Render frame was disposed before WebFrameMain could be accessed`（实测日志样本），捕获 message 子串 `'Render frame was disposed'` 即覆盖全部已知 race 形态。
 - **codex-translate 改 warn→debug 影响 dev 终端 console 输出**（silly 级别仍全开）：dev 用户观察 message 路径时不会看到 loader warning —— REVIEW_80 已将 UI emit 路径关掉，dev 调试需要的话自己开 `setLogLevel('debug')`（runtime-logging-electron-log plan §不变量 8 落地）。
 - **N1 safeSend 现 contract 是先 return 再 send 无 try/catch**：本 plan 在 `webContents.send` 调用上加 try/catch 不破坏语义（caller 不感知内部加 try/catch；只对抛 framework 已知 race 时 caller 端表现为「正常返回」）。

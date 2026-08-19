@@ -63,7 +63,7 @@ reviewer-claude + reviewer-codex 双 teammate 各审 plan + 现场 grep 验证�
 - 单方 HIGH lead 反向裁决 1 条：HIGH-B1（Object.freeze facade vs implements）— 复审后 lead **采纳 B 方案** 取代原 implements 路线（facade 闭包让 pipeline cast 不可达，又能让 5 个 helper method 保持 private）
 - 其余 HIGH/MED 全数 ✅ 真问题整合到实施（详 commit 注释）
 
-完整裁决见 plan `/Users/apple/.claude/plans/adaptive-orbiting-snowglobe.md` §SKILL R1 finding 整合裁决 节。
+完整裁决见 plan `$HOME/.claude/plans/adaptive-orbiting-snowglobe.md` §SKILL R1 finding 整合裁决 节。
 
 ### H5 follow-up 列表（写入主 plan piped-fluttering-moth.md Phase 5）
 

@@ -1,7 +1,7 @@
 ---
 plan_id: "deep-project-review-comprehensive-20260528"
 created_at: "2026-05-28T15:00:00+08:00"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-project-review-comprehensive-20260528"
+worktree_path: "./.claude/worktrees/deep-project-review-comprehensive-20260528"
 status: "completed"
 base_commit: "12e1b81cd2bc144267d3ac8052e69035838d2d35"
 base_branch: "main"
@@ -539,15 +539,15 @@ wc: ... open: No such file or directory
 
 ## 下一会话第一步
 
-**cold start prompt**（hand_off_session 自动构造）：`按 /Users/apple/Repository/personal/agent-deck/.claude/plans/deep-project-review-comprehensive-20260528.md 接力（Phase: Phase 6 - Step 6.5 archive_plan 收口）`
+**cold start prompt**（hand_off_session 自动构造）：`按 ./.claude/plans/deep-project-review-comprehensive-20260528.md 接力（Phase: Phase 6 - Step 6.5 archive_plan 收口）`
 
 新会话 4 步（**整 plan 收口 archive-only,Phase 6 Step 6.1+6.2+6.3+6.4 已完成 hand off 19**）：
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/deep-project-review-comprehensive-20260528.md`（不要用 Read 工具——跨会话 cache 陷阱）
-2. 从 frontmatter 取 `worktree_path`：worktree 已存在 → `EnterWorktree(path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-project-review-comprehensive-20260528)`
+1. `Bash: cat ./.claude/plans/deep-project-review-comprehensive-20260528.md`（不要用 Read 工具——跨会话 cache 陷阱）
+2. 从 frontmatter 取 `worktree_path`：worktree 已存在 → `EnterWorktree(path: ./.claude/worktrees/deep-project-review-comprehensive-20260528)`
 3. `Bash: pwd && git rev-parse HEAD && git status --short && git log --oneline -10` 自检 cwd 在 worktree 内 + HEAD 含 Phase 6 R2 fix commit + worktree clean
 4. **Step 6.5 走应用 CLAUDE.md §Step 4 完成节 5 步收口** (`ExitWorktree(action:"keep")` + `mcp__agent-deck__archive_plan` 一次原子完成 ff-merge + plan mv + INDEX 同步 + commit + worktree remove):
-   - 调用: `mcp__agent-deck__archive_plan({plan_id:"deep-project-review-comprehensive-20260528", worktree_path:"/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-project-review-comprehensive-20260528", base_branch:"main", changelog_id:"174,175"})`
+   - 调用: `mcp__agent-deck__archive_plan({plan_id:"deep-project-review-comprehensive-20260528", worktree_path:"./.claude/worktrees/deep-project-review-comprehensive-20260528", base_branch:"main", changelog_id:"174,175"})`
    - **caller 自动归档** (archive_plan default `archived='ok'`,baton 单向交接语义)
    - **changelog 双引用**: `changelog_id:"174,175"` — Phase 2 单独归档 CHANGELOG_174 + Phase 3+4+5+6 总归档 CHANGELOG_175 (plan §下一会话第一步 R1 时写 "174" 是 stale,R2 fix 后改 "174,175")
    - **整 follow-up task 留独立 plan 自行调度** (含 id `26181f20` mcp tool 入参驼峰统一 / id `6aec8cf7` reviewer sandbox PATH / id `e1493ecd` 运行时日志落盘 — Phase 6 不动)

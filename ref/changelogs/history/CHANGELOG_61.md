@@ -146,7 +146,7 @@ agent-deck new --adapter claude --prompt 你好
 - 本批未做 R1.A8（codex-cli 单测扩展 translate / sandbox-restart / summarizer）
   —— A4a 已含 toml-writer 13 tests；A1/A2/A3 测试留 follow-up。
 - A2c（UI sandbox 切档下拉）：bridge 接口已就绪，SessionDetail 加下拉即可。
-- 关联 plan：`/Users/apple/.claude/plans/magical-puzzling-muffin.md` v3
+- 关联 plan：`$HOME/.claude/plans/magical-puzzling-muffin.md` v3
 - 关联 spike 报告：`experiments/spikes/SPIKE_REPORT.md`
 - commit 链路：`da7f224` (A1) / `490f3b4` (A2a) / `ed73637` (A2b) /
   `a748af1` (A3) / `ff61b5a` (A4a) / `f33e01a` (A9)

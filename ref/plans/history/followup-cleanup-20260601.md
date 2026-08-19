@@ -1,7 +1,7 @@
 ---
 plan_id: followup-cleanup-20260601
 created_at: 2026-06-01T13:02:00+08:00
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/followup-cleanup-20260601
+worktree_path: ./.claude/worktrees/followup-cleanup-20260601
 status: completed
 base_commit: 0eb0400dc278aa9f107034c289a88370112c497b
 base_branch: main
@@ -96,7 +96,7 @@ zsh -i -l -c "pnpm postinstall"
 
 ## 下一会话第一步
 
-进 worktree `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/followup-cleanup-20260601`，按 Group A→D 顺序实施。所有代码路径用 worktree 内绝对路径。
+进 worktree `./.claude/worktrees/followup-cleanup-20260601`，按 Group A→D 顺序实施。所有代码路径用 worktree 内绝对路径。
 
 ## 关键文件
 

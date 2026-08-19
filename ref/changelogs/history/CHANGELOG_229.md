@@ -17,6 +17,6 @@
 ## 验证
 
 - `git diff --check` 通过。
-- `diff -u resources/codex-config/agent-deck-plugin/skills/deep-review/SKILL.md /Users/wanglidong/.codex/skills/agent-deck/deep-review/SKILL.md` 为空。
+- `diff -u resources/codex-config/agent-deck-plugin/skills/deep-review/SKILL.md ${CODEX_HOME:-$HOME/.codex}/skills/agent-deck/deep-review/SKILL.md` 为空。
 - `rg` 确认目标 Codex deep-review skill 中无残留 `Bash: grep` / `Bash \`cp` / `Bash \`` 文案。
 - prompt / markdown-only 改动，未运行 typecheck。

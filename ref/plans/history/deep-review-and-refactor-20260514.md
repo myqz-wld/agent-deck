@@ -1,7 +1,7 @@
 ---
 plan_id: "deep-review-and-refactor-20260514"
 created_at: "2026-05-14"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514"
+worktree_path: "./.claude/worktrees/deep-review-and-refactor-20260514"
 status: "completed"
 base_commit: "d06494e98c8e5a6d7eef2b0fc66ea6e69bf07d5a"
 base_branch: "main"
@@ -37,27 +37,27 @@ completed_at: "2026-05-14"
 
 ### Batch A — Universal team backend 数据层 + 路由层
 
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/main/store/agent-deck-message-repo.ts` (487 LOC, 最近 mcp simplify 大改后未深审)
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/main/store/agent-deck-team-repo.ts` (REVIEW_23 后未深审, 最近 churn 1338)
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/main/teams/universal-message-watcher.ts` (539 LOC, wire prefix dispatch 关键路径)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/main/store/agent-deck-message-repo.ts` (487 LOC, 最近 mcp simplify 大改后未深审)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/main/store/agent-deck-team-repo.ts` (REVIEW_23 后未深审, 最近 churn 1338)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/main/teams/universal-message-watcher.ts` (539 LOC, wire prefix dispatch 关键路径)
 
 ### Batch B — Session 子系统
 
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/main/session/summarizer.ts` (546 LOC 全项目最大, 三档降级 LLM/最近 assistant/事件 kind 统计)
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/preload/index.ts` (526 LOC, window.api 强类型 facade 不变量)
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/renderer/stores/session-store.ts` (432 LOC, 渲染权威 store)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/main/session/summarizer.ts` (546 LOC 全项目最大, 三档降级 LLM/最近 assistant/事件 kind 统计)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/preload/index.ts` (526 LOC, window.api 强类型 facade 不变量)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/renderer/stores/session-store.ts` (432 LOC, 渲染权威 store)
 
 ### Batch C — Adapter / PTY / 安全护栏
 
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/main/adapters/generic-pty/pty-bridge.ts` (549 LOC, REVIEW_24 后未重审, churn 1098)
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/main/adapters/claude-code/sdk-bridge/can-use-tool.ts` (366 LOC, READ_ONLY_TOOLS 白名单 + auto-approve 协议)
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/main/teams/inbox-watcher.ts` (551 LOC, fs watcher symlink TOCTOU + race)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/main/adapters/generic-pty/pty-bridge.ts` (549 LOC, REVIEW_24 后未重审, churn 1098)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/main/adapters/claude-code/sdk-bridge/can-use-tool.ts` (366 LOC, READ_ONLY_TOOLS 白名单 + auto-approve 协议)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/main/teams/inbox-watcher.ts` (551 LOC, fs watcher symlink TOCTOU + race)
 
 ### Batch D — Renderer + 未审热点
 
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/renderer/hooks/useImageAttachments.ts` (401 LOC, **从未被任何 review 覆盖** ⚠️)
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/renderer/components/SessionDetail/ComposerSdk.tsx` (484 LOC, REVIEW_19 拆完后未重审)
-- `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514/src/main/index.ts` (372 LOC, 主进程 bootstrap, 高 churn 26 commits/30d)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/renderer/hooks/useImageAttachments.ts` (401 LOC, **从未被任何 review 覆盖** ⚠️)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/renderer/components/SessionDetail/ComposerSdk.tsx` (484 LOC, REVIEW_19 拆完后未重审)
+- `./.claude/worktrees/deep-review-and-refactor-20260514/src/main/index.ts` (372 LOC, 主进程 bootstrap, 高 churn 26 commits/30d)
 
 ## 步骤 checklist
 
@@ -74,13 +74,13 @@ completed_at: "2026-05-14"
 
 ## 当前进度
 
-Step 1 done。worktree HEAD = d06494e，pwd = `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514`。下一步 Wave 1 spawn 4 reviewer。
+Step 1 done。worktree HEAD = d06494e，pwd = `./.claude/worktrees/deep-review-and-refactor-20260514`。下一步 Wave 1 spawn 4 reviewer。
 
 ## 下一会话第一步
 
 如果本会话 hand off：
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/deep-review-and-refactor-20260514.md` 读全 plan
-2. `EnterWorktree(path: '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514')`
+1. `Bash: cat ./.claude/plans/deep-review-and-refactor-20260514.md` 读全 plan
+2. `EnterWorktree(path: './.claude/worktrees/deep-review-and-refactor-20260514')`
 3. `pwd` 确认 cwd
 4. 看「步骤 checklist」最后未勾的一步开始干（不要重审已完成的步骤）
 5. 进度 / 决策变更必须先告诉用户征得确认

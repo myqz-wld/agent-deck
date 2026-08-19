@@ -135,7 +135,7 @@ repo 层(`agent-deck-team-repo/`)**不 import sessionManager**(grep `agent-deck-
 原计划起 mini-runner `spike2-tx-atomic.mjs` 跑 N=100 swap 测真并发 stress,但撞:
 
 ```
-Error: The module '/Users/apple/Repository/personal/agent-deck/node_modules/.pnpm/better-sqlite3@11.10.0/.../better_sqlite3.node'
+Error: The module './node_modules/.pnpm/better-sqlite3@11.10.0/.../better_sqlite3.node'
 was compiled against a different Node.js version using NODE_MODULE_VERSION 130.
 This version of Node.js requires NODE_MODULE_VERSION 137.
 ```

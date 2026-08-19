@@ -4,7 +4,7 @@
 
 Agent Teams 实验特性的 in-process backend 在 teammate 调 Bash / Edit 等需审批工具时，**不会**回到 lead 的 SDK `canUseTool` 回调（那个是绑在 lead Query 实例上的）。CLI 内部协议改为把 `permission_request` JSON 文本塞进 lead 的 inbox 文件 `~/.claude/teams/<team>/inboxes/team-lead.json`，等待 lead 写 `permission_response` 文本回 teammate 的 inbox。
 
-实证：`/Users/apple/.claude/teams/dcr-tm-44/inboxes/team-lead.json` 真有两条 `{"type":"permission_request",...}` 文本消息，`read:true` 但永不被回应——deep-code-review skill 跑 reviewer-codex teammate 时一调 Bash 就死等批复。lead Claude 自己看不懂这种结构化消息，应用之前也没监听 inbox。
+实证：`$HOME/.claude/teams/dcr-tm-44/inboxes/team-lead.json` 真有两条 `{"type":"permission_request",...}` 文本消息，`read:true` 但永不被回应——deep-code-review skill 跑 reviewer-codex teammate 时一调 Bash 就死等批复。lead Claude 自己看不懂这种结构化消息，应用之前也没监听 inbox。
 
 本次实施 Plan A：应用层加 inbox watcher，识别出 teammate 提的 `permission_request` 后走应用 PendingTab 同款 UI（approve / deny 按钮），用户响应时写 `permission_response` 文本回 teammate inbox 文件（与 SDK CLI 同 proper-lockfile 协议）。teammate 收到响应后继续跑。
 
@@ -181,7 +181,7 @@ zsh -i -l -c "pnpm build"       # ✅ main 245.68 kB
 - 上游 team 机制：[CHANGELOG_35](./CHANGELOG_35.md)（M1 sessions.team_name + UI）/ [CHANGELOG_39](./CHANGELOG_39.md)（M2 fs 视图）/ [CHANGELOG_40](./CHANGELOG_40.md)（M3 hook event）
 - 上游 task manager（Part D 后续会基于此重构）：[CHANGELOG_42](./CHANGELOG_42.md) / [CHANGELOG_43](./CHANGELOG_43.md)
 - 上游 deep-code-review skill（被本 PR 解锁的核心使用场景）：[CHANGELOG_44](./CHANGELOG_44.md)
-- plan 文件：`/Users/apple/.claude/plans/indexed-leaping-gizmo.md`
+- plan 文件：`$HOME/.claude/plans/indexed-leaping-gizmo.md`
 
 ## 后续追加（同一 PR）
 
@@ -233,7 +233,7 @@ ls ~/.claude/state/deep-code-review/  # 当前可能为空，跑一次 review �
 涉及文件：
 - `src/main/adapters/claude-code/sdk-bridge.ts`：query options 加 `extraArgs` 字段
 - `resources/claude-config/agent-deck-plugin/skills/deep-code-review/SKILL.md`：Step 0 加「team_name 从环境取」段 + 续接判断升 4 步
-- `~/.claude/state/deep-code-review/-Users-apple-Repository-personal-agent-deck/state.json`：archive 成 `state-archived-pre-fix-*.json`
+- `~/.claude/state/deep-code-review/sibling-agent-deck/state.json`：archive 成 `state-archived-pre-fix-*.json`
 
 **验证**：
 ```bash
@@ -244,7 +244,7 @@ zsh -i -l -c "pnpm typecheck && pnpm build"   # ✅
 1. 新建带 teamName='X' 的 SDK 会话
 2. **不**触发 skill，直接看 `ls ~/.claude/teams/` → 应只有 `X/`，并且 `cat ~/.claude/teams/X/config.json | jq .leadSessionId` 等于该会话 sdk session_id
 3. 触发 skill `/agent-deck:deep-code-review` → spawn teammate 后再看：`X/config.json` 的 members 应有 reviewer-claude / reviewer-codex 两条，**不是**新建一个 `deep-review-<hash>/`
-4. `cat ~/.claude/state/deep-code-review/-Users-apple-Repository-personal-agent-deck/state.json | jq .team_name` 应等于 `"X"`，不是自创名字
+4. `cat ~/.claude/state/deep-code-review/sibling-agent-deck/state.json | jq .team_name` 应等于 `"X"`，不是自创名字
 
 ### 撤回 extraArgs `--team-name` + 仅保留 systemPrompt 注入
 

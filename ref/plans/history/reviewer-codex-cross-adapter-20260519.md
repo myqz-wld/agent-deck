@@ -1,7 +1,7 @@
 ---
 plan_id: "reviewer-codex-cross-adapter-20260519"
 created_at: "2026-05-19"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/reviewer-codex-cross-adapter-20260519"
+worktree_path: "./.claude/worktrees/reviewer-codex-cross-adapter-20260519"
 status: "completed"
 base_commit: "40d7527dbbc410eb04d1ddeabd999f45c87b0a0c"
 base_branch: "main"
@@ -488,9 +488,9 @@ cold-start 后发现 user 已重启 — main process PID 5233 dev mode 跑在 wo
 
 **状态**: Phase 0+1+2+3+4 已完整收口 commit, worktree HEAD `48141ec`, working tree clean。新会话接力 Phase 5+6。
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/reviewer-codex-cross-adapter-20260519.md`（cold start 全文读 plan v6 含 Phase 0-4 完整收口实证 + Phase 5/6 待办)
-2. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/reviewer-codex-cross-adapter-20260519/spike-reports/spike1+2-cross-adapter-teammate-dispatch.md`（重点读 §Phase 0 Step 0.1a/0.2 root cause + 整套 fix v1/v2/v3 + phantom dep blocker 节,Phase 5 端到端回归会用到背景)
-3. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/reviewer-codex-cross-adapter-20260519")` (worktree HEAD `48141ec`,用 `path` 不是 `name`)
+1. `Bash: cat ./.claude/plans/reviewer-codex-cross-adapter-20260519.md`（cold start 全文读 plan v6 含 Phase 0-4 完整收口实证 + Phase 5/6 待办)
+2. `Bash: cat ./.claude/plans/reviewer-codex-cross-adapter-20260519/spike-reports/spike1+2-cross-adapter-teammate-dispatch.md`（重点读 §Phase 0 Step 0.1a/0.2 root cause + 整套 fix v1/v2/v3 + phantom dep blocker 节,Phase 5 端到端回归会用到背景)
+3. `EnterWorktree(path: "./.claude/worktrees/reviewer-codex-cross-adapter-20260519")` (worktree HEAD `48141ec`,用 `path` 不是 `name`)
 4. `Bash: git -C <wt> log --oneline -9`（确认 9 commits 都在: c67ddde fix v1 旧 / 835aa7c fix v2 / 1f70582 phantom dep / eb65878 annotations / 923468e fix v3 / 8cb9ec4 Phase 1 / da5c0eb Phase 2 / 5b727e0 Phase 3 / 48141ec Phase 4)
 5. **Step 4.3 真实视觉验证 (user 重启 dev mode 后)**:
    - **如新会话起来时本会话 lead 已死 / dev mode 已重启**: 表明 user 已重启 → 新 SDK lead session 已装 Phase 4 改动,可直接走 Step 5.5 资产面板 UI 真实视觉验证(打开「📚 资产库」Dialog → Skills tab 看 deep-review/hello-from-deck 单条 [claude]+[codex] 双角标 + 「查看」按钮弹 ContentViewerModal 顶部有 tab 可切换 fetch)
@@ -507,7 +507,7 @@ cold-start 后发现 user 已重启 — main process PID 5233 dev mode 跑在 wo
    - 走 `mcp__agent-deck__archive_plan({plan_id, worktree_path, base_branch:'main', changelog_id:'X'})` 归档 (含 spike-reports/ 子目录自动归档到 `<main-repo>/plans/<plan_id>/spike-reports/`)
 8. **主 repo working tree 清理** (user 决定时机, 与 plan v3 §下一会话第一步 同款):
    - 选项 A (推荐):先不动主 repo dirty,等 ff-merge worktree → main 时主 repo working tree 被 merge target 覆盖一致, 自然 clean
-   - 选项 B:user 立即 `git -C /Users/apple/Repository/personal/agent-deck checkout package.json pnpm-lock.yaml` 撤回 (保留 node_modules `@modelcontextprotocol/sdk` symlink)。**注意**:不要跑 `pnpm install` 撤改动 — pnpm 会发现 main package.json 与 .pnpm 不一致, 可能清理 top-level symlink 让 dev mode 重新撞 phantom dep
+   - 选项 B:user 立即 `git -C . checkout package.json pnpm-lock.yaml` 撤回 (保留 node_modules `@modelcontextprotocol/sdk` symlink)。**注意**:不要跑 `pnpm install` 撤改动 — pnpm 会发现 main package.json 与 .pnpm 不一致, 可能清理 top-level symlink 让 dev mode 重新撞 phantom dep
 9. **残留风险待实证** (Phase 5+ 视场景处理): codex CLI 对其他 `destructiveHint:true` tool (shutdown_session / archive_plan / exit_worktree / shutdown_baton_teammates) 是否也 cancel。本 plan SKILL.md 编排路径 (lead × reviewer 异构对偶) 不需要 codex SDK lead 自治调这类 tool — reviewer 由真 lead claude-code 调 shutdown_session 释放, 走 in-process transport 不受 codex CLI 决策影响。如未来场景需 codex SDK lead 自治 archive_plan 收口, 撞 cancel 时叠加修法选项 B (config 注入 `default_tools_approval_mode='always_allow'`, 代码改动 ≤ 5 行)
 10. 在 §自主推进授权 下自己决定 hand-off 时机;进度 / 决策落 plan §当前进度 + commit 让 user 回来 cat 看完整脉络
 11. 所有进度变更先告诉 user 征求确认 (仅当 user 在场时);离场期间自主推进

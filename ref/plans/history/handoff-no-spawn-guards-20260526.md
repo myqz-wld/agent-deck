@@ -1,7 +1,7 @@
 ---
 plan_id: "handoff-no-spawn-guards-20260526"
 created_at: "2026-05-26T12:45:00+08:00"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/handoff-no-spawn-guards-20260526"
+worktree_path: "./.claude/worktrees/handoff-no-spawn-guards-20260526"
 status: "completed"
 base_commit: "50b46ffbf20b11020153594b041c25937bd9308e"
 base_branch: "main"
@@ -228,19 +228,19 @@ Step 0 RFC + Step 0.5 (跳过) + Step 1 (首版本 plan) + Step 1.5 R1 + Step 1.
 
 ## 下一会话第一步
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/handoff-no-spawn-guards-20260526.md` 全文
-2. 若 §当前进度 仍 Step 1.5 R3 未通过 → invoke `/agent-deck:deep-review` (args: `{kind: 'plan', paths: ['/Users/apple/Repository/personal/agent-deck/.claude/plans/handoff-no-spawn-guards-20260526.md']}`) 走对应轮次复审
+1. `Bash: cat ./.claude/plans/handoff-no-spawn-guards-20260526.md` 全文
+2. 若 §当前进度 仍 Step 1.5 R3 未通过 → invoke `/agent-deck:deep-review` (args: `{kind: 'plan', paths: ['./.claude/plans/handoff-no-spawn-guards-20260526.md']}`) 走对应轮次复审
 3. 若 §当前进度 Step 1.5 R3 已通过(双 reviewer "可合" 共识)→ 用户 confirm 进 worktree 后,**互斥二选一**:
 
    **选项 A — claude 端 手工 git + builtin EnterWorktree**(两步):
    ```bash
-   git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-handoff-no-spawn-guards-20260526 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/handoff-no-spawn-guards-20260526 50b46ffbf20b11020153594b041c25937bd9308e
+   git -C . worktree add -b worktree-handoff-no-spawn-guards-20260526 ./.claude/worktrees/handoff-no-spawn-guards-20260526 50b46ffbf20b11020153594b041c25937bd9308e
    ```
    ⚠️ 末尾 `50b46ffbf20b11020153594b041c25937bd9308e` 是 plan frontmatter `base_commit` **必须显式传**(避开 EnterWorktree CLI v2.1.112 stale base bug,详 user CLAUDE.md §EnterWorktree CLI stale base bug callout)。
 
    然后进 worktree:
    ```
-   EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/handoff-no-spawn-guards-20260526")
+   EnterWorktree(path: "./.claude/worktrees/handoff-no-spawn-guards-20260526")
    ```
    ⚠️ 用 `path:` 不用 `name:`,避开 stale base bug。
 
@@ -249,7 +249,7 @@ Step 0 RFC + Step 0.5 (跳过) + Step 1 (首版本 plan) + Step 1.5 R1 + Step 1.
    mcp__agent-deck__enter_worktree({ plan_id: "handoff-no-spawn-guards-20260526", base_commit: "50b46ffbf20b11020153594b041c25937bd9308e" })
    ```
    ⚠️ **mcp `enter_worktree` 副作用**(`resources/codex-config/CODEX_AGENTS.md:134` 明文):创建 worktree 目录 + 新 branch + setCwdReleaseMarker。**不**自动切 codex SDK session cwd(codex SDK session cwd 在 spawn 时 frozen,后续 shell tool 走子 shell)。
-   ⚠️ **codex 端必须**在 Step 2.1-2.7 后续每个 shell / apply_patch 调用使用 worktree 绝对路径 `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/handoff-no-spawn-guards-20260526/...` 或 `git -C /Users/apple/Repository/personal/agent-deck/.claude/worktrees/handoff-no-spawn-guards-20260526 <cmd>`。**绝不**使用相对路径(会落到 codex spawn 时的 cwd,即主仓库 `/Users/apple/Repository/personal/agent-deck`,污染 main working tree)。
+   ⚠️ **codex 端必须**在 Step 2.1-2.7 后续每个 shell / apply_patch 调用使用 worktree 绝对路径 `./.claude/worktrees/handoff-no-spawn-guards-20260526/...` 或 `git -C ./.claude/worktrees/handoff-no-spawn-guards-20260526 <cmd>`。**绝不**使用相对路径(会落到 codex spawn 时的 cwd,即主仓库 `.`,污染 main working tree)。
 
    **绝不**先跑 A 再跑 B(或反之)— path / branch 已存在,第二条命令必失败。
 
@@ -257,13 +257,13 @@ Step 0 RFC + Step 0.5 (跳过) + Step 1 (首版本 plan) + Step 1.5 R1 + Step 1.
 
    **选项 A 失败 cleanup**(纯 git,无 DB marker 副作用):
    ```bash
-   git -C /Users/apple/Repository/personal/agent-deck worktree remove /Users/apple/Repository/personal/agent-deck/.claude/worktrees/handoff-no-spawn-guards-20260526 --force
-   git -C /Users/apple/Repository/personal/agent-deck branch -D worktree-handoff-no-spawn-guards-20260526
+   git -C . worktree remove ./.claude/worktrees/handoff-no-spawn-guards-20260526 --force
+   git -C . branch -D worktree-handoff-no-spawn-guards-20260526
    ```
 
    **选项 B 失败 cleanup**(MCP 路径,优先用 `exit_worktree` 一并清 marker + worktree + branch — 因 `enter_worktree` 成功步骤 8 写 `cwd_release_marker`,纯 git cleanup 不清 DB marker):
    ```
-   mcp__agent-deck__exit_worktree({ action: "remove", worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/handoff-no-spawn-guards-20260526", discard_changes: true })
+   mcp__agent-deck__exit_worktree({ action: "remove", worktree_path: "./.claude/worktrees/handoff-no-spawn-guards-20260526", discard_changes: true })
    ```
    ⚠️ **`enter_worktree` 在 marker 写入失败的错误分支**(`enter-worktree-impl.ts:302-316` step 8):返回 `error: "worktree created but setCwdReleaseMarker failed: ..."` + hint「caller 必须显式传 `args.worktree_path`」 — 此时 worktree 已建但 marker 没写,exit_worktree 自动反查不到 → caller 必须显式传 `worktree_path` 才能清。
    ⚠️ **MCP exit_worktree 自身失败的兜底**(罕见):退化纯 git cleanup(同选项 A 命令)+ console.warn 提醒「stale `cwd_release_marker` 可能残留 → 重启 app 或手工清 sessions 表 cwd_release_marker 字段」。

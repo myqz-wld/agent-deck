@@ -1,7 +1,7 @@
 ---
 plan_id: review-latest-and-summary-session-filter-20260618
 created_at: 2026-06-18
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 status: completed
 base_commit: 84cba1080cc2aa156276be20343f83eabd36f6f0
 ---

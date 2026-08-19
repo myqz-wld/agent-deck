@@ -1,7 +1,7 @@
 ---
 plan_id: "summarizer-split-20260514"
 created_at: "2026-05-14"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/summarizer-split-20260514"
+worktree_path: "./.claude/worktrees/summarizer-split-20260514"
 status: "completed"
 base_commit: "538e17b6c8ac225596c093f7059f79a659498f4e"
 base_branch: "main"
@@ -56,12 +56,12 @@ completed_at: "2026-05-14"
 
 ## 当前进度
 
-Step 1 done。worktree HEAD = 538e17b6（main HEAD），pwd = `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/summarizer-split-20260514`。下一步 Step 2 读全 summarizer.ts 列拆分点。
+Step 1 done。worktree HEAD = 538e17b6（main HEAD），pwd = `./.claude/worktrees/summarizer-split-20260514`。下一步 Step 2 读全 summarizer.ts 列拆分点。
 
 ## 下一会话第一步
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/summarizer-split-20260514.md` 读全 plan（**严禁用 Read tool**，详 user CLAUDE.md §Step 3 末 callout：跨会话 hand off cold start 第一次读 plan 必须用 Bash cat 防 SDK 缓存误用）
-2. `EnterWorktree(path: '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/summarizer-split-20260514')` 进 worktree
+1. `Bash: cat ./.claude/plans/summarizer-split-20260514.md` 读全 plan（**严禁用 Read tool**，详 user CLAUDE.md §Step 3 末 callout：跨会话 hand off cold start 第一次读 plan 必须用 Bash cat 防 SDK 缓存误用）
+2. `EnterWorktree(path: './.claude/worktrees/summarizer-split-20260514')` 进 worktree
 3. `pwd` + `git log -1 --format='%H %s'` 确认 cwd + base commit = 538e17b6
 4. `Bash: cat <worktree-abs-path>/src/main/session/summarizer.ts` 读全 625 行（同款 cat 防缓存）
 5. 按 §设计决策 拆分到 `summarizer/` 子目录三文件（event-formatter → llm-runners → index facade 顺序）

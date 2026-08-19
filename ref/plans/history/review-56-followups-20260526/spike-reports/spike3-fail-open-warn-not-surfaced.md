@@ -52,13 +52,13 @@ mini-runner 本地复刻 `resolveCallerCwdDeps` + mockable impl + mockable sessi
 --- case 1: sessionRepo.get throw (SQLite locked simulation) ---
 [archive-plan] sessionRepo.get(caller-1) threw — falling back to DEFAULT_DEPS (cwd=process.cwd, marker=null) SQLITE_BUSY: database is locked
 ok return.warnings: [
-  "info: using DEFAULT_DEPS cwd (process.cwd=/Users/apple/.../worktree)"
+  "info: using DEFAULT_DEPS cwd (process.cwd=../.../worktree)"
 ]
 contains fail-open warning in ok return.warnings: ❌ NO (warning LOST — only on console.warn, not on caller-visible ok return.warnings)
 
 --- case 2: sessionRepo.get returns null (caller session not found) ---
 ok return.warnings: [
-  "info: using DEFAULT_DEPS cwd (process.cwd=/Users/apple/.../worktree)"
+  "info: using DEFAULT_DEPS cwd (process.cwd=../.../worktree)"
 ]
 caller knows fell back to DEFAULT_DEPS: ✅ YES (impl info hint) — but no explicit "session not found" warning either
 

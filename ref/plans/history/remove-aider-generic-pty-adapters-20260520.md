@@ -1,7 +1,7 @@
 ---
 plan_id: "remove-aider-generic-pty-adapters-20260520"
 created_at: "2026-05-20"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/remove-aider-generic-pty-adapters-20260520"
+worktree_path: "./.claude/worktrees/remove-aider-generic-pty-adapters-20260520"
 status: "completed"
 base_commit: "84a691051d5c089e81b1c512e4ff2086aa5f49df"
 base_branch: "main"
@@ -289,8 +289,8 @@ completed_at: "2026-05-20"
 - ⏳ P10 归档 — 下一步
 
 **下一会话接力第一步**(P2 起手):
-- `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/remove-aider-generic-pty-adapters-20260520.md` 全文读
-- `EnterWorktree(path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/remove-aider-generic-pty-adapters-20260520)`
+- `Bash: cat ./.claude/plans/remove-aider-generic-pty-adapters-20260520.md` 全文读
+- `EnterWorktree(path: ./.claude/worktrees/remove-aider-generic-pty-adapters-20260520)`
 - `git -C <worktree> log --oneline -10` 确认 HEAD 是 d2cd39b 或之后(不应是 base_commit 84a6910)
 - 进 P2.1:`src/renderer/components/NewSessionDialog.tsx` 删 GenericPtyConfigForm import + GenericPtyConfig type import + genericPtyConfig state + showGenericPtyConfig 路径 + submit() 内 校验 + spread + JSX(详 P2.1 + Round 4 LOW-5 reviewer-claude 注:select option 是 `adapters.map` 动态渲染,不需手改)
 - 按 plan checklist 走完 P2-P10
@@ -308,9 +308,9 @@ completed_at: "2026-05-20"
 > ⚠️ **全局约束**:本 plan 内所有 `pnpm X` / `npm X` / `npx X` 命令必须走 `zsh -i -l -c "..."`(详 user CLAUDE.md §运行时;否则缺 brew / path_helper 注入 PATH 与真实 Terminal 不一致)。
 
 如果是新会话接力:
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/remove-aider-generic-pty-adapters-20260520.md` 全文读
-2. 看 frontmatter `worktree_path` → `EnterWorktree(path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/remove-aider-generic-pty-adapters-20260520)`
-3. `git -C /Users/apple/Repository/personal/agent-deck/.claude/worktrees/remove-aider-generic-pty-adapters-20260520 log --oneline -3` 确认 HEAD ≥ base_commit
+1. `Bash: cat ./.claude/plans/remove-aider-generic-pty-adapters-20260520.md` 全文读
+2. 看 frontmatter `worktree_path` → `EnterWorktree(path: ./.claude/worktrees/remove-aider-generic-pty-adapters-20260520)`
+3. `git -C ./.claude/worktrees/remove-aider-generic-pty-adapters-20260520 log --oneline -3` 确认 HEAD ≥ base_commit
 4. 按 §当前进度 找到上次卡的 step 继续(每步完成后打勾 + 更新 §当前进度)
 5. **commit 粒度**(N8):每个 sub-step 完成后**立即** commit(粒度细方便回滚 + reviewer 易看 diff);commit message format: `feat(adapters): remove <X> (P<N> Step <N>.<M> — see plan)`。**sub-step commit 允许 typecheck 红**(SSOT 链式 enforce 预期中间状态,详 §已知踩坑 第 1 条);**phase 末 checkpoint step**(打 ⚑ 标记的 Step,10 个:`P0.2 / P1.11 / P2.5 / P3.7 / P4.6 / P5.6 / P6.7 / P9.1 / P9.2 / P9.3`)**必须 typecheck/test/build 全绿**才允许进下一 phase
 

@@ -1,7 +1,7 @@
 ---
 plan_id: "add-claude-cli-path-override-and-bump-sdks-20260520"
 created_at: "2026-05-20"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/add-claude-cli-path-override-and-bump-sdks-20260520"
+worktree_path: "./.claude/worktrees/add-claude-cli-path-override-and-bump-sdks-20260520"
 status: "completed"
 base_commit: "4cfe0d8"
 base_branch: "main"
@@ -179,8 +179,8 @@ bump SDK 版本是同主题 follow-up:既然在改 binary 管理路径,顺手把
 
 如果是新会话接力(罕见 — 本 plan Phase 5 R1 已完成,主要剩 Phase 6 收尾 + Phase 4.1-4.3 user 实测):
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/add-claude-cli-path-override-and-bump-sdks-20260520.md` 全文读
-2. **worktree 已建**(Phase 1+2+3 已 commit `99a9373` / `b855fe1` / `38483f1`)→ 走 `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/add-claude-cli-path-override-and-bump-sdks-20260520")` 直接进入
+1. `Bash: cat ./.claude/plans/add-claude-cli-path-override-and-bump-sdks-20260520.md` 全文读
+2. **worktree 已建**(Phase 1+2+3 已 commit `99a9373` / `b855fe1` / `38483f1`)→ 走 `EnterWorktree(path: "./.claude/worktrees/add-claude-cli-path-override-and-bump-sdks-20260520")` 直接进入
 3. 进 worktree 后立刻 `Bash: pwd` 自检 cwd 在 worktree 内 + `git log --oneline -5` 确认 Phase 1-3 commit 在 worktree branch 上
 4. **下一步通常是**:
    - **(a) Phase 4.1-4.3 user 实测**:`pnpm dist` 出 .app + install 验证 boot smoke + claude/codex session smoke + sandbox 切档 + mcp tool approval gate(详 §Phase 4.1-4.3)

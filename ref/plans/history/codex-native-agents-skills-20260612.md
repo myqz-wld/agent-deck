@@ -3,7 +3,7 @@ plan_id: codex-native-agents-skills-20260612
 status: completed
 created_at: 2026-06-12
 base_commit: 166fdb61a55985ae967ca99231aaad2b2f23923b
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 ---
 
 # Codex Native Agents And Skills

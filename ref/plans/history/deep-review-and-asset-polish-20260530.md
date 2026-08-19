@@ -2,8 +2,8 @@
 plan_id: "deep-review-and-asset-polish-20260530"
 planId: "deep-review-and-asset-polish-20260530"
 created_at: "2026-05-30T04:30:00+08:00"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-asset-polish-20260530"
-worktreePath: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-asset-polish-20260530"
+worktree_path: "./.claude/worktrees/deep-review-and-asset-polish-20260530"
+worktreePath: "./.claude/worktrees/deep-review-and-asset-polish-20260530"
 status: "completed"
 base_commit: "535d6e675813fee447672d45bb8ea7e876a46be1"
 baseCommit: "535d6e675813fee447672d45bb8ea7e876a46be1"
@@ -163,8 +163,8 @@ completed_at: "2026-05-30"
 
 > ⚠️ Phase A/B/C/D/E 全部收口（最新 commit `01b4daf`=HEAD）。**仅剩 Phase F**（架构/流程图）—— flow-arch-plantuml SKILL **硬约束必先与 user AskUserQuestion 确认核心变更**，不能 autonomous 静默生成图（plan step 3 + SKILL baseline）。worktree HEAD=01b4daf clean。
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/deep-review-and-asset-polish-20260530.md` 读全文（重点 §当前进度 Phase E 完成 + §Phase F checklist）
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-asset-polish-20260530")` + `Bash: pwd` 自检 + `git -C <worktree> log --oneline -6`（HEAD=01b4daf clean）
+1. `Bash: cat ./.claude/plans/deep-review-and-asset-polish-20260530.md` 读全文（重点 §当前进度 Phase E 完成 + §Phase F checklist）
+2. `EnterWorktree(path: "./.claude/worktrees/deep-review-and-asset-polish-20260530")` + `Bash: pwd` 自检 + `git -C <worktree> log --oneline -6`（HEAD=01b4daf clean）
    - ⚠️ worktree node_modules 是 symlink，typecheck/build 可跑；SQLite vitest ABI skip
 3. **Phase F**（架构/流程图）：invoke `agent-deck:flow-arch-plantuml` SKILL → **SKILL 入口先 AskUserQuestion 与 user 对齐**（是否核心变更 / 图类型 / 新建 vs 修改 vs archived 已有）；user 确认后只生成/改 `.puml` SSOT **不渲染**（严禁 plantuml -tpng/-tsvg）：
    - **F1 issue-tracker**：flow（report_issue→issue-repo→event-changed→UI；append source-bound；GC scheduler）落 `ref/flows/` + architecture（mcp tool/ipc/repo/scheduler/renderer store 跨进程边界）落 `ref/architecture/`

@@ -1,7 +1,7 @@
 ---
 plan_id: "review-33-high-fix-20260513"
 created_at: "2026-05-13"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/review-33-high-fix-20260513"
+worktree_path: "./.claude/worktrees/review-33-high-fix-20260513"
 status: "completed"
 base_commit: "e7c9be7"
 base_branch: "main"
@@ -89,7 +89,7 @@ Step 0-10 全 done。Step 11 待跑 ExitWorktree + archive_plan tool 收口。
 
 按 Step 5 开始 H4 fix（剩余 5 条 HIGH 按 plan 顺序逐条修，每条 1 commit）：
 
-1. read `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/review-33-high-fix-20260513/src/main/teams/team-lifecycle-scheduler.ts:84-118` 的 scan() while-loop pagination
+1. read `./.claude/worktrees/review-33-high-fix-20260513/src/main/teams/team-lifecycle-scheduler.ts:84-118` 的 scan() while-loop pagination
 2. **H4 根因**：scan() 边迭代边调 `_archiveTeam`（line 89/110）。`_archiveTeam` 把 `archived_at` 从 NULL 改非 NULL → 下次 `agentDeckTeamRepo.list({ activeOnly: true, limit: PAGE_SIZE, offset })` active list 缩 → `offset += PAGE_SIZE` 跳错 → 漏扫 N 条 ghost team
 3. **修法**（用户已确认 b. 两阶段）：
    - first pass：while-loop 收集所有满足 archive 条件的 teamId（不调 `_archiveTeam`）→ 候选 list
@@ -101,7 +101,7 @@ Step 0-10 全 done。Step 11 待跑 ExitWorktree + archive_plan tool 收口。
 
 完成全部 Step 9 后跑 Step 10：typecheck + vitest 全套 + 写 changelog/CHANGELOG_101.md（按 reviews/REVIEW_33.md 引用归档形态，重点写「9 条 HIGH 实际修法 + H3 作废 + H1+H2+H8 已落地 + 落地 commit + 单测覆盖」）+ 更新 changelog/INDEX.md。
 
-最后 Step 11：`ExitWorktree(action: "keep")` → `mcp__agent_deck__archive_plan({ plan_id: 'review-33-high-fix-20260513', worktree_path: '/Users/apple/Repository/personal/agent-deck/.claude/worktrees/review-33-high-fix-20260513', base_branch: 'main' })`。
+最后 Step 11：`ExitWorktree(action: "keep")` → `mcp__agent_deck__archive_plan({ plan_id: 'review-33-high-fix-20260513', worktree_path: './.claude/worktrees/review-33-high-fix-20260513', base_branch: 'main' })`。
 
 ---
 

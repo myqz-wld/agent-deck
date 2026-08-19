@@ -107,7 +107,7 @@ Inventory refresh may mark additional `src/main/**` prompt strings as confirmed 
 - Confirmed no pending `.prompt-asset-improver/local/skill-improvements.md` queue exists.
 - Identified primary source candidates: `build-prompt.ts`, `inject-history.ts`, Agent Deck MCP `index.ts`/`schemas.ts`, context-block builders, and `restart-prompts.ts`.
 - Refreshed local inventory with 23 confirmed assets.
-- Created backup `20260610T044741Z` at `/Users/wanglidong/Repository/agent-deck/.prompt-asset-improver/local/backups/20260610T044741Z`; no old backups pruned.
+- Created backup `20260610T044741Z` at `./.prompt-asset-improver/local/backups/20260610T044741Z`; no old backups pruned.
 - Dispatched focused editing agents:
   - Batch A root/resource docs: session `4803d237-3dc3-4597-b886-9c229dd9a730`, anchor `c526564d-c0a3-4c33-a9a5-27ff25fb9be5`.
   - Batch B runtime paired assets: session `019eafdc-cb59-7480-86c3-5dcc6f574751`, anchor `f788cac3-531b-4c3a-9506-2f060f942138`.
@@ -139,4 +139,4 @@ Inventory refresh may mark additional `src/main/**` prompt strings as confirmed 
 
 ## Next-Session First Action
 
-Read this plan at `/Users/wanglidong/Repository/agent-deck/ref/plans/prompt-assets-broad-optimize-20260610.md`, then prepare the final prompt-asset report and mark the Agent Deck task completed if no new user request arrived.
+Read this plan at `./ref/plans/prompt-assets-broad-optimize-20260610.md`, then prepare the final prompt-asset report and mark the Agent Deck task completed if no new user request arrived.

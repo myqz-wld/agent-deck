@@ -36,7 +36,7 @@ src/renderer/components/SessionDetail/ComposerSdk.tsx
 src/renderer/components/SessionDetail/index.tsx
 ```
 
-The local Grok source at `/Users/apple/Repository/personal/grok-build` was read as external
+The local Grok source at `../grok-build` was read as external
 implementation evidence only; it is not part of this repository's patch.
 
 ## Findings and resolutions

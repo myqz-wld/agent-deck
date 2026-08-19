@@ -1,7 +1,7 @@
 ---
 plan_id: "session-list-handoff-role-badge-20260526"
 created_at: "2026-05-26"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/session-list-handoff-role-badge-20260526"
+worktree_path: "./.claude/worktrees/session-list-handoff-role-badge-20260526"
 status: "completed"
 base_commit: "ef167940809bd22904a8f1bdd810f0cf8d02ace4"
 base_branch: "main"
@@ -356,7 +356,7 @@ grep -rn "addAgentDeckTeamMember\|window.api.addAgent\|AddMember" src/renderer/
 - [x] **Step 1.5 R1** — `/agent-deck:deep-review` 走完,共 13 finding(0 HIGH/3 MED reviewer-claude + 0 HIGH/2 MED reviewer-codex),双方独立提出升级 2 HIGH;全 ✅ 接受,本 v2 已整合
 - [x] **Step 1.5 R2** — R2 评审 v2 修订, 共 13 finding(0 raw HIGH/3 MED reviewer-claude + 0 raw HIGH/2 MED reviewer-codex), 升级 2 HIGH: HIGH-A (codex MED-1) D2 Phase 1 无条件 spawn-link 收编破坏 archive_caller:false 反例 + HIGH-B (双方 MED-2) isPureSpawnChain 缺单测; INFO-1 unknown role jsdoc 双方分歧 codex 否决 → 不修。本 v3 已整合
 - [x] **Step 1.5 R3** — R3 评审 v3 修订, 共 8 finding (0 raw HIGH/2 MED reviewer-claude + 0 raw HIGH/1 MED reviewer-codex), 升级 2 HIGH 级: HIGH-α (codex MED-1) hand_off_session schema 无 display_name 字段 (strict safeParse 拦实测) + HIGH-β (双方 claude MED-1/codex LOW-1) 场景 4 期望视觉与场景 1 后实际状态不一致。本 v4 已整合 6 项修订 + INFO grep 时间戳。User 决策 v4 后跳 R4 直接进 Step 2 (修订都是文档/测试 corner 补充, 不是 design 重写, 风险低)
-- [ ] **Step 2** — User confirm 后 EnterWorktree(path:):`git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-session-list-handoff-role-badge-20260526 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/session-list-handoff-role-badge-20260526` + `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/session-list-handoff-role-badge-20260526")` — **当前阶段 (Step 1.5 deep-review 已闭环)**
+- [ ] **Step 2** — User confirm 后 EnterWorktree(path:):`git -C . worktree add -b worktree-session-list-handoff-role-badge-20260526 ./.claude/worktrees/session-list-handoff-role-badge-20260526` + `EnterWorktree(path: "./.claude/worktrees/session-list-handoff-role-badge-20260526")` — **当前阶段 (Step 1.5 deep-review 已闭环)**
 - [ ] **Step 3** — 改代码(全部路径用 worktree 绝对路径):
   - Step 3.1: `Write <worktree>/src/renderer/lib/derive-team-role.ts` — 新建 D1 helper
   - Step 3.2: Edit `<worktree>/src/renderer/components/SessionList.tsx` — D2 双 phase childrenByOwner(含 v3 HIGH-A Phase 1 条件检查 + LOW-4 顺序防御注) + isPureSpawnChain helper + renderNode 接 shared util + 更新 L8-21 节注释 + mid-tier dual-role 注释(R1 MED-3)
@@ -396,7 +396,7 @@ grep -rn "addAgentDeckTeamMember\|window.api.addAgent\|AddMember" src/renderer/
     
     **场景 1: 主修复 — hand_off adopt_teammates=true** (测试矩阵 #2):
     1. **当前 caller 当 lead**: 应用启动后,假设当前在 dev 跑的会话 sid 为 `A` (在 SessionList 选「+ 新建会话」起一个 claude-code SDK session = caller A,记下 `A.sid`)
-    2. **A spawn teammate B**: A 内调 `mcp__agent-deck__spawn_session({adapter:'claude-code', cwd:'/Users/apple/Repository/personal/agent-deck', prompt:'你好,我是 teammate B', team_name:'test-handoff-badge-fix', display_name:'Teammate-B'})` → SessionList 出现 B, A=👑 lead + B=↳ teammate + B 缩进在 A 下 ✓
+    2. **A spawn teammate B**: A 内调 `mcp__agent-deck__spawn_session({adapter:'claude-code', cwd:'.', prompt:'你好,我是 teammate B', team_name:'test-handoff-badge-fix', display_name:'Teammate-B'})` → SessionList 出现 B, A=👑 lead + B=↳ teammate + B 缩进在 A 下 ✓
     3. **A spawn 第二个 teammate C**: 同上 args 但 `display_name:'Teammate-C'` → SessionList A 下挂 B + C 两个 teammate ✓
     4. **A 调 hand_off adopt_teammates=true**: A 内调 `mcp__agent-deck__hand_off_session({adopt_teammates:true, prompt:'你接力,把 teammate 都收下'})` → 等 baton 完成
        - **核心验证**: A 进归档区 (active 列表消失); newSid=D 出现在实时面板(D 的 sid 在 hand_off_session 返回值 `sessionId` 字段 / UI hand-off badge 看到), D=👑 lead 且 **B + C 缩进在 D 下** + B/C=↳ teammate ✓
@@ -415,14 +415,14 @@ grep -rn "addAgentDeckTeamMember\|window.api.addAgent\|AddMember" src/renderer/
         - 若 B2 仍缩进在 A2 下 + D2 root 平铺 → D2 Phase 1 条件检查算法有 bug, abort 回 plan 调整
     
     **场景 4 (可选,验证 D7 mixed role nested spawn)**: 测试矩阵 #6 (**v4 HIGH-β 修订**: 重命名避同名 + 视觉链路对齐场景 1 后实际状态):
-    11. (沿用场景 1 — 场景 1 §5.4.4 后 A 已归档, 实时面板剩 D + B + C, B/C 缩进 D 下) B 已是 T1 teammate (在 D 下), B 自己调 `mcp__agent-deck__spawn_session({adapter, cwd:'/Users/apple/Repository/personal/agent-deck', prompt:'你是 T2 teammate', team_name:'T2-nested', display_name:'Teammate-C2-in-T2'})` → 新 session **C2** 加入 T2 当 teammate, B 加入 T2 当 lead (新 session 命名 C2 避免与场景 1 已有 Teammate-C 同名混淆)
+    11. (沿用场景 1 — 场景 1 §5.4.4 后 A 已归档, 实时面板剩 D + B + C, B/C 缩进 D 下) B 已是 T1 teammate (在 D 下), B 自己调 `mcp__agent-deck__spawn_session({adapter, cwd:'.', prompt:'你是 T2 teammate', team_name:'T2-nested', display_name:'Teammate-C2-in-T2'})` → 新 session **C2** 加入 T2 当 teammate, B 加入 T2 当 lead (新 session 命名 C2 避免与场景 1 已有 Teammate-C 同名混淆)
     12. **核心验证**: 视觉 **D (T1 lead) → B(👑 lead, Phase 1 conditional 让 C2 锁 B 下) → C2(↳ teammate) + D → C (↳ teammate)** ✓ (B 的 mid-tier dual-role 视觉验证: 对 D 是 T1 teammate (缩进位) + 对 C2 是 T2 lead (badge 任一 lead 优先))
         - 若 B 不显示 lead badge → D1 deriveTeamRole「任一 lead 优先」有 bug
         - 若 C2 root 平铺不缩进在 B 下 → Phase 1 conditional check 失效 (HIGH-A 修法 regression)
   - Step 5.5: `lsof -ti:47821,5173 | xargs -r kill -9 && pkill -f 'electron-vite dev' && pkill -f 'Electron.app/Contents/MacOS/Electron'` 收尾杀进程
 - [ ] **Step 6** — `ExitWorktree(action:"keep")` → 主仓库 `git -C <worktree> add` + `commit` 改动到 worktree branch(commit message: `fix(session-list): hand_off teammate role badge + 缩进显示`)
 - [ ] **Step 7** — 写 changelog 条目(R1 reviewer-claude LOW-2):**写 changelog 前先 `ls changelog/ ref/changelogs/ 2>/dev/null` 看哪个存在**(ref-layout-full-migration 状态可能影响目录名),写到存在的那个;追加最新 CHANGELOG_X.md 或新建 CHANGELOG_X+1.md,同步对应 INDEX.md
-- [ ] **Step 8** — `mcp__agent-deck__archive_plan({plan_id:'session-list-handoff-role-badge-20260526', worktree_path:'/Users/apple/Repository/personal/agent-deck/.claude/worktrees/session-list-handoff-role-badge-20260526', changelog_id:'<X>'})` 一键收口归档
+- [ ] **Step 8** — `mcp__agent-deck__archive_plan({plan_id:'session-list-handoff-role-badge-20260526', worktree_path:'./.claude/worktrees/session-list-handoff-role-badge-20260526', changelog_id:'<X>'})` 一键收口归档
 
 ## 测试矩阵覆盖
 
@@ -464,6 +464,6 @@ grep -rn "addAgentDeckTeamMember\|window.api.addAgent\|AddMember" src/renderer/
 > 仅适用于本会话 hand_off 出去的下一会话(如有);本会话当前直接进 Step 1.5 R2 不 hand_off
 
 如真要 hand_off:
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/session-list-handoff-role-badge-20260526.md`
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/session-list-handoff-role-badge-20260526")` (建议先确认 worktree 已创建,详 §Step 2)
+1. `Bash: cat ./.claude/plans/session-list-handoff-role-badge-20260526.md`
+2. `EnterWorktree(path: "./.claude/worktrees/session-list-handoff-role-badge-20260526")` (建议先确认 worktree 已创建,详 §Step 2)
 3. 按上面 §步骤 checklist 当前未打勾的最低 Step 编号开始执行

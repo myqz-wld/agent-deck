@@ -4,7 +4,7 @@ created_at: "2026-05-26"
 status: "completed"
 base_commit: "3eb9da4a518aae5ce23a076ded9271835160e6f6"
 base_branch: "main"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/review-56-followups-20260526"
+worktree_path: "./.claude/worktrees/review-56-followups-20260526"
 final_commit: "68bc6f15bed3f465e14520f0bbf5bb79e6d06137"
 completed_at: "2026-05-26"
 ---
@@ -154,10 +154,10 @@ REVIEW_56 (`reviews/REVIEW_56.md`) §Follow-up tracking 19 条(F1 + F10 已 DONE
 
 如果你是新会话从 cold start 接力,**严格按 user CLAUDE.md §Step 3 §选项 A**:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/review-56-followups-20260526.md` 全文(强制 cat 不用 Read 工具,详 user CLAUDE.md §Step 3 末尾 callout)
-2. **EnterWorktree(path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/review-56-followups-20260526)** — frontmatter `worktree_path` 已指向 worktree(Step 1.5 收口 + user confirm 后 Step 2 进 worktree);Phase 1+ spike batch 在 worktree 内跑
-3. `git -C /Users/apple/Repository/personal/agent-deck log --oneline -3` 自检 HEAD 是否在 base_commit 之后;**且** `git -C /Users/apple/Repository/personal/agent-deck rev-parse --verify 3eb9da4a518aae5ce23a076ded9271835160e6f6^{commit}` 验证 frontmatter 全 40 位 SHA 真实可解析(只看 7 位前缀 `3eb9da4` 会掩盖错误,Plan-Review Round 1 reviewer-codex 实测教训)
-4. 看 `## Phase 分组` 节的 `- [ ]` 第一个未打勾 step(当前是 Step 1.5 SKILL Deep-Review),**直接动手** invoke `agent-deck:deep-review` SKILL,scope 用 typed `{ kind: 'plan', paths: ['/Users/apple/Repository/personal/agent-deck/.claude/plans/review-56-followups-20260526.md'] }`(SKILL §Scope schema SSOT — Skill tool args 是 string field,但 SKILL 内部按 typed object 处理);phase 标签 `'Step 1.5 Plan-Review'` 作为 prompt body context 标注,**不进 scope 字段**
+1. `Bash: cat ./.claude/plans/review-56-followups-20260526.md` 全文(强制 cat 不用 Read 工具,详 user CLAUDE.md §Step 3 末尾 callout)
+2. **EnterWorktree(path: ./.claude/worktrees/review-56-followups-20260526)** — frontmatter `worktree_path` 已指向 worktree(Step 1.5 收口 + user confirm 后 Step 2 进 worktree);Phase 1+ spike batch 在 worktree 内跑
+3. `git -C . log --oneline -3` 自检 HEAD 是否在 base_commit 之后;**且** `git -C . rev-parse --verify 3eb9da4a518aae5ce23a076ded9271835160e6f6^{commit}` 验证 frontmatter 全 40 位 SHA 真实可解析(只看 7 位前缀 `3eb9da4` 会掩盖错误,Plan-Review Round 1 reviewer-codex 实测教训)
+4. 看 `## Phase 分组` 节的 `- [ ]` 第一个未打勾 step(当前是 Step 1.5 SKILL Deep-Review),**直接动手** invoke `agent-deck:deep-review` SKILL,scope 用 typed `{ kind: 'plan', paths: ['./.claude/plans/review-56-followups-20260526.md'] }`(SKILL §Scope schema SSOT — Skill tool args 是 string field,但 SKILL 内部按 typed object 处理);phase 标签 `'Step 1.5 Plan-Review'` 作为 prompt body context 标注,**不进 scope 字段**
 5. Deep-Review pass(0 HIGH design 缺陷) → ask user confirm → Step 2 进 worktree → Phase 1 Spike batch
 6. 用 `mcp__agent-deck__task_list` 查 task 状态(本 session archive 时按 default `team_task_policy: 'clear-team'` 过继 — task 变 personal owner=新 sid,team_id=NULL;`task_list` 默认 visible scope 直接拿到所有过继 task)
 7. **特别注意**:除 spike 实测结论 / Phase 完成边界外其他动作 lead 独立决断(参考本 plan §用户授权 RFC 决策)

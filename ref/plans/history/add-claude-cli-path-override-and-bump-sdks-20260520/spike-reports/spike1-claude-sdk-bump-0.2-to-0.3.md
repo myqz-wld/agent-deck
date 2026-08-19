@@ -16,9 +16,9 @@ plan §Step 0.5 spike1。0.2 → 0.3 是 major version bump，可能含 query() 
 ### Step 1：scratch worktree 创建（避开污染主仓库）
 
 ```bash
-git -C /Users/apple/Repository/personal/agent-deck worktree add \
+git -C . worktree add \
   -b spike/sdk-bump-20260520 \
-  /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+  ./.claude/worktrees/spike-sdk-bump-20260520
 # Verify worktree HEAD == main HEAD（避开 v2.1.112 stale base bug）
 git -C <worktree> rev-parse HEAD == git -C <main-repo> rev-parse HEAD
 # 实测两者均为 10999c4

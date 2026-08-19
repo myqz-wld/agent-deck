@@ -1,7 +1,7 @@
 ---
 plan_id: "message-retention-and-index-20260602"
 created_at: "2026-06-02"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/message-retention-and-index-20260602"
+worktree_path: "./.claude/worktrees/message-retention-and-index-20260602"
 status: "completed"
 base_commit: "6c26d5f"
 base_branch: "main"
@@ -141,11 +141,11 @@ CREATE INDEX IF NOT EXISTS idx_messages_terminal_sent_at
 
 ## 下一会话第一步
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/message-retention-and-index-20260602.md` 读全 plan（已实施到 Step 8，进度节为准）。
-2. 进 worktree：`EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/message-retention-and-index-20260602")`（用 path）。
+1. `Bash: cat ./.claude/plans/message-retention-and-index-20260602.md` 读全 plan（已实施到 Step 8，进度节为准）。
+2. 进 worktree：`EnterWorktree(path: "./.claude/worktrees/message-retention-and-index-20260602")`（用 path）。
 3. **Step 9 实施后 Deep-Review**：invoke `/agent-deck:deep-review` args `{kind:'mixed', paths:[worktree 内 gc.ts / crud.ts / message-lifecycle-scheduler.ts / v030*.sql / bootstrap-wiring.ts / settings.ts + plan]}`（验代码实施 vs plan 一致性）。
 4. Review 通过 → Step 10：README + REVIEW_100 follow-up 标记 + issue resolved + CHANGELOG + archive_plan。
-5. ⚠️ 跑 worktree 测试：worktree 无 node_modules，用 Electron binary `/Users/apple/Repository/personal/agent-deck/node_modules/.pnpm/electron@33.4.11/.../Electron` + `ELECTRON_RUN_AS_NODE=1` 跑主仓库 vitest entry，cwd=worktree（详会话记录；勿 symlink node_modules 进 worktree 会被 vitest 建 .vite 缓存污染，跑完即清）。
+5. ⚠️ 跑 worktree 测试：worktree 无 node_modules，用 Electron binary `./node_modules/.pnpm/electron@33.4.11/.../Electron` + `ELECTRON_RUN_AS_NODE=1` 跑主仓库 vitest entry，cwd=worktree（详会话记录；勿 symlink node_modules 进 worktree 会被 vitest 建 .vite 缓存污染，跑完即清）。
 
 ## 已知踩坑
 

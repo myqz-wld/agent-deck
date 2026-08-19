@@ -1,7 +1,7 @@
 ---
 plan_id: "hand-off-mcp-archive-opt-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/hand-off-mcp-archive-opt-20260515"
+worktree_path: "./.claude/worktrees/hand-off-mcp-archive-opt-20260515"
 status: "completed"
 base_commit: "d635dad"
 base_branch: "main"
@@ -114,7 +114,7 @@ mcp tool description SSOT 在 schemas.ts,改 schema 时 description 同步更新
 
 按 user CLAUDE.md cold-start 流程:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/hand-off-mcp-archive-opt-20260515.md` 全文读 plan
+1. `Bash: cat ./.claude/plans/hand-off-mcp-archive-opt-20260515.md` 全文读 plan
 2. `EnterWorktree(name: "hand-off-mcp-archive-opt-20260515")` 创建新 worktree
 3. `git log --oneline -5` 自检 HEAD = d635dad(base_commit)或之后
 4. **从 Step 1.1 开始动手**:

@@ -2,7 +2,7 @@
 
 ## Scope
 
-Routing index for final review records. Final reviews document debug work, code review, performance audit, security review, and review-driven fixes. Keep non-final review drafts and raw reviewer output in `<repo>/.ref/reviews/` or the current review workspace, and add `.ref/` to `.gitignore`. Feature changes go in `ref/changelogs/` unless they are debug, performance, security, or review-driven fixes.
+Routing index for final review records. Final reviews document debug work, code review, performance audit, security review, and review-driven fixes. Keep non-final review drafts and raw reviewer output in `.ref/reviews/` or the current review workspace, and add `.ref/` to `.gitignore`. Feature changes go in `ref/changelogs/` unless they are debug, performance, security, or review-driven fixes.
 
 This root index defines routing and bucket policy only. Per-record review rows live only in the bucket `INDEX.md` files.
 

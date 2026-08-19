@@ -3,7 +3,7 @@ plan_id: handoff-active-team-membership-api-20260618
 created_at: 2026-06-18
 status: completed
 base_commit: 16ed6084a6d4b46f5afe2d9b28afa53bd2e2322a
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 ---
 
 # Active Team Membership API Optimization

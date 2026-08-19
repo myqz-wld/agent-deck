@@ -1,7 +1,7 @@
 ---
 plan_id: "spawn-teamless-reply-anchor-20260617"
 created_at: "2026-06-17"
-worktree_path: "/Users/wanglidong/Repository/agent-deck"
+worktree_path: "."
 status: "completed"
 base_branch: "main"
 related_changelog: "CHANGELOG_279"

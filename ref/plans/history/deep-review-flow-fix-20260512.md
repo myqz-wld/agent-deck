@@ -1,7 +1,7 @@
 ---
 plan_id: deep-review-flow-fix-20260512
 created_at: 2026-05-12
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-flow-fix-20260512
+worktree_path: ./.claude/worktrees/deep-review-flow-fix-20260512
 status: completed
 base_commit: 8f4f7c70800b4daa507637de0f399d9df3de5401
 completed_at: 2026-05-12
@@ -137,10 +137,10 @@ merged_commits: [9465d92, 8de8401, fe37da9, bb75050]
 
 ## 当前进度
 
-- ✅ EnterWorktree 完成 → cwd `/Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-flow-fix-20260512`
+- ✅ EnterWorktree 完成 → cwd `./.claude/worktrees/deep-review-flow-fix-20260512`
 - ✅ base_commit `8f4f7c70800b4daa507637de0f399d9df3de5401`（main HEAD = CHANGELOG_74 Step 6 docs）
 - ✅ 主仓库 .claude/plans/ 目录已创建
-- ✅ plan 文件落 `/Users/apple/Repository/personal/agent-deck/.claude/plans/deep-review-flow-fix-20260512.md`
+- ✅ plan 文件落 `./.claude/plans/deep-review-flow-fix-20260512.md`
 - ✅ **Phase A 全完**（commit `9465d92`）：reviewer-codex.md `$TMPDIR` + SKILL.md Step 0.6/1/2.5 + resources/claude-config/CLAUDE.md 双 Bash 兜底合规
 - ✅ **Phase T1.1-T1.5 完**（commit `8de8401`）：Cmd+Alt+T 透明化全局快捷键 + README 「键盘快捷键」节 + CHANGELOG_75
 - ✅ **Phase B D1+D3 完**（commit `fe37da9`）：spawn_session agent_name 自动注入 plugin agent body (D1) + projectSession 反查 universal team backend lead teamName (D3) + 5 unit test + SKILL.md 同步 + CHANGELOG_76
@@ -162,7 +162,7 @@ pkill -f "electron-vite dev" 2>/dev/null
 lsof -ti:47821,5173 2>/dev/null | xargs -r kill -9
 
 # 2. 在 worktree 内起 dev
-cd /Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-flow-fix-20260512
+cd ./.claude/worktrees/deep-review-flow-fix-20260512
 zsh -i -l -c "pnpm dev"
 ```
 
@@ -182,13 +182,13 @@ dev 起来后验证 4 件事：
 # 1. ExitWorktree(action: "keep") （在 worktree 内当前会话）
 
 # 2. 主仓库 cwd 合并 worktree branch
-cd /Users/apple/Repository/personal/agent-deck
+cd .
 git checkout main
 git merge worktree-deep-review-flow-fix-20260512
 # 应当无冲突合 4 commit (9465d92 + 8de8401 + fe37da9 + bb75050)
 
 # 3. plan frontmatter 置 status: completed
-# 编辑 /Users/apple/Repository/personal/agent-deck/.claude/plans/deep-review-flow-fix-20260512.md
+# 编辑 ./.claude/plans/deep-review-flow-fix-20260512.md
 # 把 frontmatter 里 `status: in_progress` 改为 `status: completed`
 
 # 4. 删 worktree
@@ -210,8 +210,8 @@ git branch -D worktree-deep-review-flow-fix-20260512
 - **代码资产路径必须含 worktree 前缀**：`<worktree-abs-path>/resources/claude-config/...` 形态，**不要**写 `<main-repo>/resources/claude-config/...` —— 后者在 worktree cwd 下看似 OK 实际操作主仓库（CLAUDE.md 「worktree 路径陷阱」段反复强调）。本 plan 「下一会话第一步」节路径已用 worktree 前缀
 - **Read tool conversation cache 陷阱**：跨会话第一次读本 plan 文件**严禁用 Read tool**，必须 `Bash: cat`（CLAUDE.md「cold start 第一次读 plan 必须走 Bash: cat」段）。本会话内 Write 后立即读其他文件可正常用 Read
 - **typecheck binding ABI 风险**：如改动涉及 sqlite 测试相关，跑前先确认 better-sqlite3 binding 版本（CHANGELOG_42 教训）
-- **worktree 没继承 node_modules**：cold start 跑 typecheck 前若 worktree 没 node_modules（`tsc: command not found`），用 `ln -sf /Users/apple/Repository/personal/agent-deck/node_modules /Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-flow-fix-20260512/node_modules` symlink 兜底（typecheck 纯 TS 编译不依赖 native binding 安全；如要跑 SQLite 真测则按 CHANGELOG_42 单独处理 binding ABI）
+- **worktree 没继承 node_modules**：cold start 跑 typecheck 前若 worktree 没 node_modules（`tsc: command not found`），用 `ln -sf ./node_modules ./.claude/worktrees/deep-review-flow-fix-20260512/node_modules` symlink 兜底（typecheck 纯 TS 编译不依赖 native binding 安全；如要跑 SQLite 真测则按 CHANGELOG_42 单独处理 binding ABI）
 - **reviewer-codex 失败时严禁同源化降级**：Phase A.3 doc 加「双 Bash 主路径」是新合规出路，但仍**禁止**让 reviewer-claude 跑两遍补缺
 - **Phase B `wait_reply` until 语义改动**：旧调用方（包括本 SKILL 自己）会受影响，B.3 必须先改 SKILL.md 同步把所有 `until: 'turn_complete'` 用法 review 一遍是否要换 `'turn_complete_or_waiting'` 兼容
 - **transparent 快捷键冲突**：T1.2 必须先 grep 确认 `Cmd+Shift+T` 没占（macOS 浏览器常用「重开关闭标签页」），占了换 `Cmd+Alt+T`
-- **路径前缀踩坑双向 git 验证**：每完成一个 Phase 跑 `git status` 看 worktree dirty + `git -C /Users/apple/Repository/personal/agent-deck status` 看主仓库 clean（应只 dirty `.claude/plans/deep-review-flow-fix-20260512.md` 这一份 plan 文件）
+- **路径前缀踩坑双向 git 验证**：每完成一个 Phase 跑 `git status` 看 worktree dirty + `git -C . status` 看主仓库 clean（应只 dirty `.claude/plans/deep-review-flow-fix-20260512.md` 这一份 plan 文件）

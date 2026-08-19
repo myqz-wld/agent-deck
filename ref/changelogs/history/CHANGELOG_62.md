@@ -92,5 +92,5 @@ zero new packaging 项需要加。
 - 本批未做 R1.D7（`<userData>/codex-runtime/config.toml` 与用户主 config 协同）
   —— dep R2.B'4（Agent Deck MCP server 通过 codex 自动注入）才能跑通端到端，
   留 R2 周期。
-- 关联 plan：`/Users/apple/.claude/plans/magical-puzzling-muffin.md` v3
+- 关联 plan：`$HOME/.claude/plans/magical-puzzling-muffin.md` v3
 - commit 链路：`785e5f5` (D1) / `d0693b0` (D2) / `44ad9e4` (D4) / 本 changelog

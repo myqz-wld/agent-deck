@@ -3,7 +3,7 @@ review_id: REVIEW_43
 title: archive-toctou-fix K3/baton archive helper TOCTOU race + reasonKind 'probe-throw' + EventMap union narrow 两轮异构对抗 review × fix
 created_at: 2026-05-15
 plan_id: archive-toctou-fix-20260515
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-toctou-fix-20260515
+worktree_path: ./.claude/worktrees/archive-toctou-fix-20260515
 base_commit: 1456824
 final_commit: ddea608
 parent_review_id: REVIEW_42

@@ -4,7 +4,7 @@ status: completed
 created: 2026-06-15
 base_branch: main
 base_commit: b65a0bf
-worktree: /Users/wanglidong/Repository/agent-deck
+worktree: .
 ---
 
 # Goal

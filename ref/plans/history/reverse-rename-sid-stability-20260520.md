@@ -1,7 +1,7 @@
 ---
 plan_id: "reverse-rename-sid-stability-20260520"
 created_at: "2026-05-20"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/reverse-rename-sid-stability-20260520"
+worktree_path: "./.claude/worktrees/reverse-rename-sid-stability-20260520"
 status: "completed"
 base_commit: "9893cef"
 base_branch: "main"
@@ -667,11 +667,11 @@ ingest 入口 4 态分流:
 ⚠️ **Step 0.5 Spike 已完成,plan §设计决策 + §步骤 checklist 已定稿**。下一阶段(本会话 user 确认是否启动):
 
 1. **Step 1.5 Deep-Review (kind=plan)**:把本 plan 走多轮异构对抗 review (reviewer-claude + reviewer-codex teammate),挖 design 缺陷 / 不变量漏洞 / 流程矛盾,直到 reviewer 共识可合
-   - 调用方式: `/agent-deck:deep-review` SKILL,args `{kind:'plan', paths:['/Users/apple/Repository/personal/agent-deck/.claude/plans/reverse-rename-sid-stability-20260520.md']}`
+   - 调用方式: `/agent-deck:deep-review` SKILL,args `{kind:'plan', paths:['./.claude/plans/reverse-rename-sid-stability-20260520.md']}`
    - 出 HIGH finding 必修 / MED 现场验证 → 修订 plan → 用户 confirm 通过
 2. **Step 2 EnterWorktree**(user 显式 confirm 后):
-   - Bash `git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-reverse-rename-sid-stability-20260520 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/reverse-rename-sid-stability-20260520`
-   - `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/reverse-rename-sid-stability-20260520")` (path 不是 name,避 v2.1.112 stale base bug)
+   - Bash `git -C . worktree add -b worktree-reverse-rename-sid-stability-20260520 ./.claude/worktrees/reverse-rename-sid-stability-20260520`
+   - `EnterWorktree(path: "./.claude/worktrees/reverse-rename-sid-stability-20260520")` (path 不是 name,避 v2.1.112 stale base bug)
 3. **Step A → Step B → Step C** 按 §步骤 checklist 拆好的 substep 实施(每 Step 收口前跑 pnpm typecheck + build + vitest + 用户手实验)
 4. **Step 4 收口**: `archive_plan` mcp tool 调用 + CHANGELOG_X 引用归档
 

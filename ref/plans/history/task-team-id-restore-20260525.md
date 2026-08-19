@@ -1,7 +1,7 @@
 ---
 plan_id: "task-team-id-restore-20260525"
 created_at: "2026-05-25T12:42:34+08:00"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/task-team-id-restore-20260525"
+worktree_path: "./.claude/worktrees/task-team-id-restore-20260525"
 status: "completed"
 base_commit: "6cc7c6a96042d9828912421b95b7b78831e1d399"
 base_branch: "main"
@@ -417,14 +417,14 @@ IPC `TaskListByTeam` / `AgentDeckTeamGetFull` 改成 `taskRepo.list({teamId, lim
 
 ## 下一会话第一步(cold start 必读)
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/task-team-id-restore-20260525.md` 全文(看 §当前进度 + §步骤 checklist + §设计决策 D1-D8 + §不变量)
+1. `Bash: cat ./.claude/plans/task-team-id-restore-20260525.md` 全文(看 §当前进度 + §步骤 checklist + §设计决策 D1-D8 + §不变量)
 2. **当前进度速查**: Phase A/B/C/D/E/F 已全完(commits c27d0de → 06b4071),仅 Phase G(测试)+ Phase H(deep-review + 收口) 剩余
-3. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/task-team-id-restore-20260525")` 进 worktree(branch worktree-task-team-id-restore-20260525,base_commit c27d0de + Phase D/E/F commits)
+3. `EnterWorktree(path: "./.claude/worktrees/task-team-id-restore-20260525")` 进 worktree(branch worktree-task-team-id-restore-20260525,base_commit c27d0de + Phase D/E/F commits)
 4. 进 worktree 后**第一件事 `Bash: pwd` 自检** + 所有指向代码资产的路径加 `.claude/worktrees/task-team-id-restore-20260525/` 前缀(详 user CLAUDE.md §Step 2 末 callout)
 5. **stale base 兜底自检**(MED-6 修法 — 普适纪律不应跳;Phase A-F 已多次 commit,worktree HEAD 应 = 最新 commit `06b4071`):
    ```bash
-   git -C /Users/apple/Repository/personal/agent-deck/.claude/worktrees/task-team-id-restore-20260525 rev-parse HEAD
-   git -C /Users/apple/Repository/personal/agent-deck rev-parse HEAD
+   git -C ./.claude/worktrees/task-team-id-restore-20260525 rev-parse HEAD
+   git -C . rev-parse HEAD
    ```
    worktree HEAD 应 = `06b4071`(或之后 Phase G/H commits);main repo HEAD 应仍 = `6cc7c6a` 不变(本 plan worktree 改动未合回主线)。**与 §Step 1 plan 创建时 base_commit 一致性约束分开**:base_commit 标 plan 创建时的 main repo HEAD(`6cc7c6a`),worktree HEAD 可比 base_commit 新(本 plan 已多 commit)
 6. **直接动手 Phase G** (Step G1-G5):
@@ -476,7 +476,7 @@ IPC `TaskListByTeam` / `AgentDeckTeamGetFull` 改成 `taskRepo.list({teamId, lim
 
 ## 参考与 dependencies
 
-- v023 plan(本 plan 是 v023 follow-up):`/Users/apple/Repository/personal/agent-deck/plans/task-mcp-owner-session-id-rewrite-20260521.md`
+- v023 plan(本 plan 是 v023 follow-up):`./plans/task-mcp-owner-session-id-rewrite-20260521.md`
 - v023 deep-review:REVIEW_53(2 MED + 4 LOW 全 land,但 lead 多 team 串流未覆盖 — 本 plan 补)
 - **v011 migration 模板**:`src/main/store/migrations/v011_tasks_team_id.sql` — **v024 的 1:1 模板**(INFO-1 + HIGH-1 修法 Round 1 — v023 §58 显式记录 v007+v011 被合并删除,本 plan 是 v011 重引入,只改注释 + 改名)
 - v009 反证 ALTER REFERENCES:`src/main/store/migrations/v009_mcp_spawn_chain.sql:21` `ALTER TABLE sessions ADD COLUMN spawned_by TEXT REFERENCES sessions(id) ON DELETE SET NULL` — 同款语句 production ship 实证(HIGH-1 修法 Round 1)

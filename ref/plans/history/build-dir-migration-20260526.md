@@ -1,7 +1,7 @@
 ---
 plan_id: "build-dir-migration-20260526"
 created_at: "2026-05-26"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/build-dir-migration-20260526"
+worktree_path: "./.claude/worktrees/build-dir-migration-20260526"
 status: "completed"
 base_commit: "5f8dfa407b6f7229daa62e5f12a44abd83498b97"
 base_branch: "main"
@@ -197,7 +197,7 @@ spike 结论 inline 到 §设计决策 + §已知踩坑;残留风险列表入 §
 
 ### Phase I: Post-archive fs 真验证(同 ref-layout Phase H)
 
-- [ ] I.1 archive 文件真存在(`ls -la /Users/apple/Repository/personal/agent-deck/ref/plans/build-dir-migration-20260526.md`)
+- [ ] I.1 archive 文件真存在(`ls -la ./ref/plans/build-dir-migration-20260526.md`)
 - [ ] I.2 git commit 含 archive
 - [ ] I.3 INDEX append
 - [ ] I.3.5 frontmatter status=completed + final_commit + completed_at
@@ -293,9 +293,9 @@ R3 整体:7 finding(claude 5 + codex 2 — 2 双方独立 overlap = LOW-1/LOW-2x
 
 ### Cold-start 5 步(标准接力流程)
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/build-dir-migration-20260526.md`(全文)
+1. `Bash: cat ./.claude/plans/build-dir-migration-20260526.md`(全文)
 2. 读 §当前进度,找最近一个 ⏳ entry — 就是接力起点
-3. EnterWorktree(builtin) `path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/build-dir-migration-20260526`(避 v2.1.112 stale base bug,worktree 已存在不要再 git worktree add)
+3. EnterWorktree(builtin) `path: ./.claude/worktrees/build-dir-migration-20260526`(避 v2.1.112 stale base bug,worktree 已存在不要再 git worktree add)
 4. `git log --oneline -3` 自检 HEAD 含本 plan 的 commit 历史
 5. 按 §当前进度 ⏳ 起点对应 §Phase 章节实施,每完成一 Phase / Step 在本 plan 文件 `- [ ]` 打勾 + commit 进度
 
@@ -319,14 +319,14 @@ R1+R2+R3 已 finished(0 反驳 + 0 新 HIGH 边界条件 → 无 R4)。本节保
 output_mode: full_review (Round 2)
 
 scope (与 R1 同 — 但本轮 review post finding fix 状态):
-- /Users/apple/Repository/personal/agent-deck/.claude/worktrees/build-dir-migration-20260526/.deep-review-cache/<新 invocation-id>/<sha8>-build-dir-migration-20260526.md (R2 重 cp 更新版)
-- /Users/apple/Repository/personal/agent-deck/.claude/worktrees/build-dir-migration-20260526/electron.vite.config.ts
-- /Users/apple/Repository/personal/agent-deck/.claude/worktrees/build-dir-migration-20260526/package.json
-- /Users/apple/Repository/personal/agent-deck/.claude/worktrees/build-dir-migration-20260526/.gitignore
-- /Users/apple/Repository/personal/agent-deck/.claude/worktrees/build-dir-migration-20260526/src/main/window.ts (Phase C 改后)
-- /Users/apple/Repository/personal/agent-deck/.claude/worktrees/build-dir-migration-20260526/ref/conventions/tally.md (Phase E 改后)
-- /Users/apple/Repository/personal/agent-deck/.claude/worktrees/build-dir-migration-20260526/README.md (Phase E 改后)
-- /Users/apple/Repository/personal/agent-deck/.claude/worktrees/build-dir-migration-20260526/CLAUDE.md (Phase E 改后)
+- ./.claude/worktrees/build-dir-migration-20260526/.deep-review-cache/<新 invocation-id>/<sha8>-build-dir-migration-20260526.md (R2 重 cp 更新版)
+- ./.claude/worktrees/build-dir-migration-20260526/electron.vite.config.ts
+- ./.claude/worktrees/build-dir-migration-20260526/package.json
+- ./.claude/worktrees/build-dir-migration-20260526/.gitignore
+- ./.claude/worktrees/build-dir-migration-20260526/src/main/window.ts (Phase C 改后)
+- ./.claude/worktrees/build-dir-migration-20260526/ref/conventions/tally.md (Phase E 改后)
+- ./.claude/worktrees/build-dir-migration-20260526/README.md (Phase E 改后)
+- ./.claude/worktrees/build-dir-migration-20260526/CLAUDE.md (Phase E 改后)
 
 **placeholder 展开**(本 plan **不**走 deep-review SKILL 自动 cp,接力会话 lead 手动 cp + manifest):① 生成 8-char hex `INV=$(openssl rand -hex 4)` ② `mkdir -p .deep-review-cache/$INV` ③ 为每个 scope 文件 `SHA8=$(shasum -a 256 <file> | cut -c1-8)` 后 `cp <file> .deep-review-cache/$INV/${SHA8}-$(basename <file>)` ④ 写 manifest.json `{invocationId, createdAt, files: [{origAbspath, cachePath}]}`(与 R1 invocation 3ec322b2 / R2 invocation fd973276 / R3 invocation ec60550b manifest 结构同款)
 

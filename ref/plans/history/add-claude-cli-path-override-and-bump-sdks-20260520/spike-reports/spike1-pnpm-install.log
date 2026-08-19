@@ -29,7 +29,7 @@ devDependencies:
 + vitest 2.1.9
 
 
-> agent-deck@0.1.0 postinstall /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+> agent-deck@0.1.0 postinstall ./.claude/worktrees/spike-sdk-bump-20260520
 > electron-builder install-app-deps
 
   • electron-builder  version=25.1.8

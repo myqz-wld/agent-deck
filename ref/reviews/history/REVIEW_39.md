@@ -3,7 +3,7 @@ review_id: REVIEW_39
 title: hand_off_session 不传 team_name 但 UI 渲染 ↳ teammate badge bug R1+R1.5+R2 异构对抗 × 方案 1 fix（reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 xhigh）
 created_at: 2026-05-15
 plan_id: hand-off-mcp-teammate-bug-20260515
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/hand-off-mcp-teammate-bug-20260515
+worktree_path: ./.claude/worktrees/hand-off-mcp-teammate-bug-20260515
 base_commit: 91c4568
 heterogeneous_dual_completed: true
 ---

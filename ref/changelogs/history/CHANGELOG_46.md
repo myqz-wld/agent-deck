@@ -208,4 +208,4 @@ zsh -i -l -c "pnpm build"       # ✅
 - **方案 = 三层反向同步**（PreToolUse 主 + fs / hook 补强）单一收口 `sync()`，幂等
 - **进阶（用户提议）**：探活重启 + in-process MCP 替换 CLI builtin → 各自独立 PR，需 spike
 
-plan 文件：`/Users/apple/.claude/plans/indexed-leaping-gizmo.md`
+plan 文件：`$HOME/.claude/plans/indexed-leaping-gizmo.md`

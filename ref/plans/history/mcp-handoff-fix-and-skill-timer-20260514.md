@@ -1,7 +1,7 @@
 ---
 plan_id: mcp-handoff-fix-and-skill-timer-20260514
 created_at: 2026-05-14
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/mcp-handoff-fix-and-skill-timer-20260514
+worktree_path: ./.claude/worktrees/mcp-handoff-fix-and-skill-timer-20260514
 status: completed
 base_commit: 5db9844
 base_branch: main
@@ -104,7 +104,7 @@ completed_at: 2026-05-14
 
 - [x] **B1. docs/agent-deck-mcp-protocol.md 降级 stub（H3+D6）** — done by sid `<this-sid>` on 2026-05-14, commit `0cc4f79`. 729 行 ADR → 30 行 stub + 真实 SSOT 路径表
 - [x] **B2. 跨会话救火加 shared-team 前置（H4）** — done by sid `<this-sid>` on 2026-05-14, commit `0cc4f79`. 应用 CLAUDE.md §跨会话救火 节加 callout，列同 caller / 跨 caller 三种续接姿势
-- [x] **B3. user CLAUDE.md 加「§Step 2.5 何时主动 hand off」（H6+D4）** — done by sid `<this-sid>` on 2026-05-14, commit `0cc4f79` (worktree 改) + user home 直改 `/Users/apple/.claude/CLAUDE.md`. 新节客观信号 + 用户语义信号 + 例外
+- [x] **B3. user CLAUDE.md 加「§Step 2.5 何时主动 hand off」（H6+D4）** — done by sid `<this-sid>` on 2026-05-14, commit `0cc4f79` (worktree 改) + user home 直改 `$HOME/.claude/CLAUDE.md`. 新节客观信号 + 用户语义信号 + 例外
 - [x] **B4. SKILL.md 加 timer fallback + 边界澄清（M4+D5+用户三件事 #3）** — done by sid `<this-sid>` on 2026-05-14, commit `0cc4f79`. Step 2 「严禁」清单调整 (阻塞 vs 非阻塞)；新增 §timer fallback 子节 (CronCreate recurring durable:false / 7-10min / CronDelete 三时机)
 - [x] **B5. tool name 5 份文档全改连字符（H1）** — done by sid `<this-sid>` on 2026-05-14. user home `~/.claude/CLAUDE.md` 4 处替换；模板未涉及 mcp tool name 跳过；worktree 内文档已在 A3 批量改完
 - [x] **B6. wait_reply nudge_text 文档同步（H2 配套）** — done by sid `<this-sid>` on 2026-05-14, commit `0cc4f79`. 应用 CLAUDE.md §wait_reply 节 ok return shape 加 `nudgeMessageIds` + 加 nudge 死锁修复说明段
@@ -153,13 +153,13 @@ completed_at: 2026-05-14
 
 ## 下一会话第一步
 
-按 plan 进入 worktree（`EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/mcp-handoff-fix-and-skill-timer-20260514")`）→ 找 plan checklist 下一个未勾 step（**B1**）→ 直接动手。
+按 plan 进入 worktree（`EnterWorktree(path: "./.claude/worktrees/mcp-handoff-fix-and-skill-timer-20260514")`）→ 找 plan checklist 下一个未勾 step（**B1**）→ 直接动手。
 
 **Phase B 起手清单**（按顺序做，每改一组 commit 一次）：
 
 1. **B1**：把 `<worktree>/docs/agent-deck-mcp-protocol.md` 完整改成 stub（保留文件名，内容缩成 ~30 行：标题 + 1 段「为什么不维护完整版」+ 真实 SSOT 路径列表 → SKILL.md / reviewer-{claude,codex}.md / app CLAUDE.md / src/main/agent-deck-mcp/tools/schemas.ts）
 2. **B2**：`<worktree>/resources/claude-config/CLAUDE.md` §跨会话救火 节加 callout（shared-team 前置）
-3. **B3** ⚠️ **改的是 user home（不在 worktree）**：`/Users/apple/.claude/CLAUDE.md` 在 §复杂 plan 内插入新子节「§Step 2.5 何时主动 hand off（lead 自检触发）」。触发条件：context ≥ 60% / 完成独立 phase / worktree 干净 / plan 已写好下一步 + 用户语义信号「告一段落 / 先停一下 / 累了 / 先这样」；命中即默认走 §选项 B（K2 baton），plan 未填好 / worktree dirty 是例外
+3. **B3** ⚠️ **改的是 user home（不在 worktree）**：`$HOME/.claude/CLAUDE.md` 在 §复杂 plan 内插入新子节「§Step 2.5 何时主动 hand off（lead 自检触发）」。触发条件：context ≥ 60% / 完成独立 phase / worktree 干净 / plan 已写好下一步 + 用户语义信号「告一段落 / 先停一下 / 累了 / 先这样」；命中即默认走 §选项 B（K2 baton），plan 未填好 / worktree dirty 是例外
 4. **B4**：`<worktree>/resources/claude-config/agent-deck-plugin/skills/deep-code-review/SKILL.md` Step 2 加「§timer fallback」分节（CronCreate `recurring: true, durable: false` 周期 7-10min 兜底；收到 reply / fix / shutdown 时 CronDelete；保留 user-driven 主路径不变） + 改写「为什么 user-driven 而非 wait_reply / ScheduleWakeup」段澄清「禁阻塞型 timer，CronCreate 非阻塞 fire-then-prompt OK」
 5. **B5**：tool name 5 份文档已在 Phase A3 批量改完连字符 → ⚠️ **但 user CLAUDE.md 不在 worktree**，需要顺手在 B3 同会话改 `~/.claude/CLAUDE.md` 同款替换（`mcp__agent_deck__` → `mcp__agent-deck__`，3 处），同时 `~/.claude/templates/reviewer-{claude,codex}.sh.tmpl` 也改（B11 配套）
 6. **B6**：`<worktree>/resources/claude-config/CLAUDE.md` L46 wait_reply 字段说明加注「nudge 内部已自动双查（A2 修），返回 `nudgeMessageIds: string[]` caller 可旁路 check_reply 自检」
@@ -167,7 +167,7 @@ completed_at: 2026-05-14
 8. **B8**：SKILL.md L27 「Opus 4.7 xhigh」 → 「Opus 4.7 default thinking」(M3)
 9. **B9**：reviewer-{claude,codex}.md §核心纪律 第 9/12 条加 wire format invariant 锚定 (M5)
 10. **B10**：reviewer-{claude,codex}.md §核心纪律「找不到 [msg ...]」段加「退化裸 message reply（不传 reply_to_message_id）+ 警告 lead 该 reply 不进 wait_reply 流程」(M6)
-11. **B11**：`/Users/apple/.claude/templates/reviewer-{claude,codex}.sh.tmpl` 同步成 `$TMPDIR/...` mktemp 形式 (M8) — 这与 B5 user home 改动配套
+11. **B11**：`$HOME/.claude/templates/reviewer-{claude,codex}.sh.tmpl` 同步成 `$TMPDIR/...` mktemp 形式 (M8) — 这与 B5 user home 改动配套
 12. **B12**：app CLAUDE.md L38「shutdown 不删数据」补 `messages` + 「team_member soft-exit / spawn_link 全保留」备注（A6 已在 src 侧改了 shutdown.ts + tools/index.ts，本条文档对齐）
 13. **B13**：LOW + INFO 顺手批量改（SKILL.md「10 个 tool」 → 「5-6 核心 + 4-5 救火」 / SKILL.md Step 5 加 skip 字段格式示例 / SKILL.md「6 步」 → 「7 步」 / app CLAUDE.md L20 §Agent Teams stale ref 改写 / resources README 7 tool → 10 tool / app CLAUDE.md L37 send_message replyToMessageId 加「首条 null」/ reviewer-codex.md mktemp 注释加 sandbox 解释）
 
@@ -178,8 +178,8 @@ completed_at: 2026-05-14
 - changelog: `<worktree>/changelog/...`
 
 **例外**（不在 worktree 的合法路径，直接用 home 路径）：
-- user CLAUDE.md: `/Users/apple/.claude/CLAUDE.md`（B3 / B5 改）
-- 外部 reviewer 模板: `/Users/apple/.claude/templates/reviewer-{claude,codex}.sh.tmpl`（B11 改）
+- user CLAUDE.md: `$HOME/.claude/CLAUDE.md`（B3 / B5 改）
+- 外部 reviewer 模板: `$HOME/.claude/templates/reviewer-{claude,codex}.sh.tmpl`（B11 改）
 
 **reviewer 续接（Phase C R2 时）**：
 - 直接 `mcp__agent-deck__send_message({session_id, text, team_id: '6c080133-0aec-4dff-a271-f289f24dbee1'})` 给两个 reviewer 发 R2 prompt

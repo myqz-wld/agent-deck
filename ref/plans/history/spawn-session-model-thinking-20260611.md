@@ -1,7 +1,7 @@
 ---
 plan_id: spawn-session-model-thinking-20260611
 created_at: 2026-06-11
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 status: in_progress
 base_commit: 9cf68a9
 ---

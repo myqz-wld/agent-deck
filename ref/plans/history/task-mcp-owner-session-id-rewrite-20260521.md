@@ -1,7 +1,7 @@
 ---
 plan_id: "task-mcp-owner-session-id-rewrite-20260521"
 created_at: "2026-05-21T19:15:00+08:00"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/task-mcp-owner-session-id-rewrite-20260521"
+worktree_path: "./.claude/worktrees/task-mcp-owner-session-id-rewrite-20260521"
 status: "completed"
 base_commit: "619dca703eaa56e39497bdac80e5daa5253b53bb"
 base_branch: "main"
@@ -121,8 +121,8 @@ SELECT t.* FROM tasks t
 
 ## 下一会话第一步（cold start 必读）
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/task-mcp-owner-session-id-rewrite-20260521.md` 全文（看 §当前进度 / §步骤 checklist Step 1-9 ✅ + Step 10-13 ⏳）
-2. **worktree 已存在**（前会话用 EnterWorktree 进过）→ 新会话 cold start 直接 `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/task-mcp-owner-session-id-rewrite-20260521")` 进入
+1. `Bash: cat ./.claude/plans/task-mcp-owner-session-id-rewrite-20260521.md` 全文（看 §当前进度 / §步骤 checklist Step 1-9 ✅ + Step 10-13 ⏳）
+2. **worktree 已存在**（前会话用 EnterWorktree 进过）→ 新会话 cold start 直接 `EnterWorktree(path: "./.claude/worktrees/task-mcp-owner-session-id-rewrite-20260521")` 进入
 3. `git -C <worktree_path> rev-parse HEAD` 自检（前会话改了 Step 1-9 但未 commit，worktree HEAD 仍 == base_commit `619dca7`，改动在 worktree dirty 中；运行 `git -C <worktree_path> status` 看 12+ 文件 unstaged）
 4. **优先收尾 Step 10**（旧 test 全 outdated 需重写，101 typecheck errors 集中在 `src/main/store/__tests__/task-repo.test.ts` / `src/main/task-manager/__tests__/tools.crud.test.ts` / `src/main/task-manager/__tests__/tools.read-ingest.test.ts`）：
    - **删** `tools.crud.test.ts` + `tools.read-ingest.test.ts` 旧 schema 测试 → 重写覆盖新 owner_session_id model（test 矩阵详 §测试覆盖矩阵节）

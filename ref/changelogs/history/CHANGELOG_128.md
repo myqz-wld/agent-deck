@@ -105,7 +105,7 @@ typecheck / 826 全套测试 / build 全过。R3 verify 重 spawn 4 reviewer 出
 - 现有测试增量:TC15 cwd-marker(状态 c-2)/ hand-off stem case / exit_worktree partial-success case
 - Phase 1 mainRepo dirty precheck 引入的 mock 队列偏移 regression:`archive-plan/_setup.ts` makeDeps
   加透明拦截 mainRepo `git status --porcelain` mock(默认 '' clean,不消耗 gitMockPlan 队列也不 push
-  gitCalls,`recognizedMainRepos` 默认含 `/Users/test/repo`),所有现有 archive-plan 测试不动。修 base_branch
+  gitCalls,`recognizedMainRepos` 默认含 `$HOME/repo`),所有现有 archive-plan 测试不动。修 base_branch
   verify args 期望(`refs/heads/<name>` 改动)
 - InternalSession mock 补 `pendingFileChangeIntents: new Map()` 字段
   (`can-use-tool.test.ts` / `sdk-bridge.consume-fork.test.ts`)

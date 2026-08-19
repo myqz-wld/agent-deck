@@ -3,7 +3,7 @@ plan_id: handoff-archived-team-transfer-20260618
 created_at: 2026-06-18
 status: completed
 base_commit: 7a1b850bcd71b8cd645b218f20284c2923cefaca
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 ---
 
 # hand_off_session Archived Team Transfer Fix

@@ -4,7 +4,7 @@ created_at: 2026-06-10T00:20:00+08:00
 status: completed
 base_commit: 2c8cf870dd87b3b1c052046f4908551153232b42
 base_branch: main
-worktree_path: /Users/wanglidong/Repository/agent-deck-worktrees/codex-mid-turn-steering-20260610
+worktree_path: ../agent-deck-worktrees/codex-mid-turn-steering-20260610
 work_branch: codex-mid-turn-steering-20260610
 motivation_source: user requested Codex mid-turn steering support and prompt asset updates
 ---
@@ -118,7 +118,7 @@ adapter capabilities, IPC, preload, and the session composer UI.
 
 - User provided protocol findings and confirmed PlantUML maintenance.
 - Worktree created at
-  `/Users/wanglidong/Repository/agent-deck-worktrees/codex-mid-turn-steering-20260610`.
+  `../agent-deck-worktrees/codex-mid-turn-steering-20260610`.
 - Root worktree has one unrelated dirty file outside this plan:
   `src/main/agent-deck-mcp/tools/handlers/hand-off-session/handler-main.ts`.
   This plan will not touch it.

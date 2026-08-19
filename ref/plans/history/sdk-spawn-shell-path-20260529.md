@@ -4,7 +4,7 @@ created_at: "2026-05-29T08:30:00+08:00"
 status: "completed"
 base_commit: "e1fbc6e75c59b7d8c3943fac9dfb93ff894f14b1"
 base_branch: "main"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/sdk-spawn-shell-path-20260529"
+worktree_path: "./.claude/worktrees/sdk-spawn-shell-path-20260529"
 final_commit: "e5b023f7d4235ebb4d68de0dcbad5b9d75658cda"
 completed_at: "2026-05-29"
 ---
@@ -208,7 +208,7 @@ RFC 阶段 user 进一步问「这是不是只能解决 pnpm 的问题,有没有
 
 按本 plan **Step 3.6 Round 2 verify**:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/sdk-spawn-shell-path-20260529.md` 全文读 plan(本节更新到 Round 2 fix)
+1. `Bash: cat ./.claude/plans/sdk-spawn-shell-path-20260529.md` 全文读 plan(本节更新到 Round 2 fix)
 2. 等 reviewer-{claude,codex} Round 2 reply 自动注入 lead conversation flow(SKILL §Step 2 等 reply 模式;reviewer 已知 Round 1 fix 摘要 + 新 sentinel design + bootstrap '' 守门)
 3. 收 reply 后做三态裁决:
    - 0 HIGH/MED 共识可合 → Step 3.6 ✅ → 进 Step 4 收口
@@ -222,7 +222,7 @@ RFC 阶段 user 进一步问「这是不是只能解决 pnpm 的问题,有没有
 ## 已知踩坑(写作过程发现)
 
 1. **bash -ilc 'no job control' warning** — 不要让此 stderr 进主进程 log,用 `stdio: ['ignore', 'pipe', 'ignore']` 抑制(spike1 Finding G)
-2. **tcsh/csh/fish/nu shell 用户 explicit non-goal(§不变量 11)** — 这些 shell 都不支持 `-ilc` 复合标志(tcsh/csh:`Unknown option: '-lc'`;fish:`-i: unknown flag`)→ `captureUserShellPath()` execFileSync throw → catch + console.warn → return null → `unionUserShellPath` fallback 原 process.env.PATH(tcsh/csh/fish 用户 SDK 子进程 PATH 仍是 launchd minimal,pnpm/cargo/brew 仍找不到)。本 plan **不解决**(reviewer-codex Round 2 现场实测推翻 spike1 §G 默认列表全兼容断言;无 spike 不能纳入 fish/tcsh/csh 修法 — 各 shell 的 PATH 来源、login/interactive config 加载、nvm/fnm/asdf 初始化链都需先 spike2 实测),留 follow-up plan `sdk-spawn-shell-path-other-shells-<YYYYMMDD>`:`spike2-other-shell-path-behavior.md`(tcsh/csh `-l + -c` PATH 等价性 / fish `-l -c` PATH 等价性 / 各 shell rc 文件加载 / nvm/fnm/asdf 跨 shell 初始化链)+ helper 内加 shell-specific detect。**这些 shell 用户当前 workaround**:切回 zsh/bash(`chsh -s /bin/zsh`)或在 shell rc 文件设 `set -gx PATH /opt/homebrew/bin /Users/<user>/.nvm/versions/node/v<ver>/bin $PATH`(fish 语法)/ `setenv PATH "/opt/homebrew/bin:..."`(tcsh/csh 语法)后启动应用
+2. **tcsh/csh/fish/nu shell 用户 explicit non-goal(§不变量 11)** — 这些 shell 都不支持 `-ilc` 复合标志(tcsh/csh:`Unknown option: '-lc'`;fish:`-i: unknown flag`)→ `captureUserShellPath()` execFileSync throw → catch + console.warn → return null → `unionUserShellPath` fallback 原 process.env.PATH(tcsh/csh/fish 用户 SDK 子进程 PATH 仍是 launchd minimal,pnpm/cargo/brew 仍找不到)。本 plan **不解决**(reviewer-codex Round 2 现场实测推翻 spike1 §G 默认列表全兼容断言;无 spike 不能纳入 fish/tcsh/csh 修法 — 各 shell 的 PATH 来源、login/interactive config 加载、nvm/fnm/asdf 初始化链都需先 spike2 实测),留 follow-up plan `sdk-spawn-shell-path-other-shells-<YYYYMMDD>`:`spike2-other-shell-path-behavior.md`(tcsh/csh `-l + -c` PATH 等价性 / fish `-l -c` PATH 等价性 / 各 shell rc 文件加载 / nvm/fnm/asdf 跨 shell 初始化链)+ helper 内加 shell-specific detect。**这些 shell 用户当前 workaround**:切回 zsh/bash(`chsh -s /bin/zsh`)或在 shell rc 文件设 `set -gx PATH /opt/homebrew/bin $HOME/.nvm/versions/node/v<ver>/bin $PATH`(fish 语法)/ `setenv PATH "/opt/homebrew/bin:..."`(tcsh/csh 语法)后启动应用
 3. **bash 不读 zsh rc** — spike1 Finding G,修法必须用 user `$SHELL` 不假设 zsh
 4. **bootstrap import 时序** — `bootstrap-infra.ts` 顶层已 static import `claudeCodeAdapter` / `codexCliAdapter`(L34-36),import 在 `initInfra()` 函数体执行前完成 — 所以"Phase 0 必须在 sdk-runtime / codex sdk-bridge 被 import 之前 mutate"**表述错误,无法满足**。**实际成立条件**:Phase 0 mutate process.env.PATH 必须在**首次调** `getSdkRuntimeOptions()` / `snapshotProcessEnv()` 之前(即首次 createSession / ensureCodex 之前)。**实证**:`src/main/adapters/claude-code/sdk-runtime.ts:40-57` `getSdkRuntimeOptions()` 是 spawn-time 函数(`create-session-sdk-query.ts:72` 才调),`src/main/adapters/codex-cli/sdk-bridge/index.ts:57-63` `snapshotProcessEnv()` 也是函数内构造(`index.ts:261` spawn 前才取快照)— 两者都不是 module-level cache,Phase 0 mutate 之后 Phase 4-5 adapter initAll / Phase 7 scheduler / 首次 spawn 时调 spread 自动拿到新 PATH ✅。轻量 order test 验证:mock `unionUserShellPath` 断言在 `adapterRegistry.initAll` 前完成 PATH mutation
 5. **execFileSync timeout 3000ms 选取理由** — spike1 实测 460ms 平均,3000ms 给慢 ~/.zshrc(oh-my-zsh + nvm + starship)留 6x 安全余量;超 3s 用 process.env.PATH 兜底

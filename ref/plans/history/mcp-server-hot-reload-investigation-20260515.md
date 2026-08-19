@@ -75,7 +75,7 @@ parent_review_id: "REVIEW_44"
 
 按 user CLAUDE.md cold-start 流程(本 plan 简化版,无 worktree):
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/plans/mcp-server-hot-reload-investigation-20260515.md` 全文读 plan
+1. `Bash: cat ./plans/mcp-server-hot-reload-investigation-20260515.md` 全文读 plan
 2. **不 EnterWorktree**(本 plan 调查阶段无 worktree,scope 确定后 Phase 2 实施前再建)— 直接在 main repo 做 Phase 1 调查
 3. 自检 main HEAD ≥ 99f1e61(本 stub 创建时):`git log --oneline -3`
 4. **从 Phase 1.1 起手** — read `src/main/agent-deck-mcp/index.ts` + grep main `bootstrap` 找 mcp server 启动姿势

@@ -188,6 +188,6 @@ emit('message', { text: `🔄 Codex 正在重连... ${progressLabel}` });
 ## 下一会话第一步
 
 如果跨会话接力（罕见，本 plan 应能单会话完成）：
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/codex-stream-error-classify-20260521.md`
+1. `Bash: cat ./.claude/plans/codex-stream-error-classify-20260521.md`
 2. 不进 worktree（轻 plan，base_branch=main 直接改）
 3. 看「步骤 checklist」打勾位置接续；当前 Step 2 实施

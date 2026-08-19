@@ -1,10 +1,10 @@
 
-> agent-deck@0.1.0 test /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+> agent-deck@0.1.0 test ./.claude/worktrees/spike-sdk-bump-20260520
 > vitest run --run src/main/adapters/claude-code/ src/main/session/__tests__/hand-off.test.ts
 
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
- RUN  v2.1.9 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/spike-sdk-bump-20260520
+ RUN  v2.1.9 ./.claude/worktrees/spike-sdk-bump-20260520
 
  ✓ src/main/adapters/claude-code/__tests__/sandbox-config.test.ts (22 tests) 5ms
  ✓ src/main/adapters/claude-code/__tests__/translate-post-tool-use-toolcallid.test.ts (5 tests) 2ms
@@ -55,13 +55,13 @@ stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > s
 [sdk-bridge] post-fallback rename sess-no-jsonl → new-sid (carry app-side events/file_changes/summaries history)
 
 stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_99: cwd 不存在 + .claude/worktrees/ 启发式命中 → fallback main repo + 走 jsonl missing 同款下游
-[sdk-bridge] cwd fallback for sess-cwd-bad: /Users/apple/myrepo/.claude/worktrees/dead-plan → /Users/apple/myrepo
-[sdk-bridge] cwdFellBack for sess-cwd-bad → /Users/apple/myrepo, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
+[sdk-bridge] cwd fallback for sess-cwd-bad: ../myrepo/.claude/worktrees/dead-plan → ../myrepo
+[sdk-bridge] cwdFellBack for sess-cwd-bad → $HOME/myrepo, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
 [sdk-bridge] post-fallback rename sess-cwd-bad → new-sid (carry app-side events/file_changes/summaries history)
 
 stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_99: cwd 不存在 + 启发式 1 不命中 + parent walk 命中 → fallback 到父目录
-[sdk-bridge] cwd fallback for sess-walk: /Users/apple/some/deep/dead/cwd → /Users/apple/some
-[sdk-bridge] cwdFellBack for sess-walk → /Users/apple/some, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
+[sdk-bridge] cwd fallback for sess-walk: ../some/deep/dead/cwd → ../some
+[sdk-bridge] cwdFellBack for sess-walk → $HOME/some, falling back to new CLI session (CLI history lost but app DB preserved); summary skipped reason=no-events
 [sdk-bridge] post-fallback rename sess-walk → new-sid (carry app-side events/file_changes/summaries history)
 
 stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_107: jsonl 不存在 + 摘要成功 → prepended prompt + emit「LLM 摘要已注入」
@@ -77,8 +77,8 @@ stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > s
 [sdk-bridge] post-fallback rename sess-thunk-throw → new-sid (carry app-side events/file_changes/summaries history)
 
 stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > CHANGELOG_107: cwdFellBack=true + 摘要成功 → prepended prompt + emit cwdFellBack 摘要成功文案
-[sdk-bridge] cwd fallback for sess-cwd-summary: /Users/apple/myrepo/.claude/worktrees/dead-plan → /Users/apple/myrepo
-[sdk-bridge] cwdFellBack for sess-cwd-summary → /Users/apple/myrepo, falling back to new CLI session with auto-generated summary prepended (prompt 92 chars)
+[sdk-bridge] cwd fallback for sess-cwd-summary: ../myrepo/.claude/worktrees/dead-plan → ../myrepo
+[sdk-bridge] cwdFellBack for sess-cwd-summary → $HOME/myrepo, falling back to new CLI session with auto-generated summary prepended (prompt 92 chars)
 [sdk-bridge] post-fallback rename sess-cwd-summary → new-sid (carry app-side events/file_changes/summaries history)
 
 stderr | src/main/adapters/claude-code/__tests__/sdk-bridge.recovery.test.ts > sdk-bridge.sendMessage 断连自愈（B 方案） > REVIEW_36 HIGH-1: jsonl 不存在 + record claudeCodeSandbox=strict → fallback 透传 strict

@@ -78,7 +78,7 @@ Models must not execute `cd`, infer transition state, or require the user to sen
 
 - Implementation branch: `agent-deck/worktree-cwd-turn-transition`.
 - Worktree:
-  `/Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/agent-deck__worktree-cwd-turn-transition`.
+  `./.agent-deck/worktrees/agent-deck__worktree-cwd-turn-transition`.
 - Final delivery must commit and push every intended change before invoking
   `exit_worktree(deleteBranch=false, discardChanges=false)`.
 - If commit or push fails, retain the worktree and marker. Never delete the branch or discard

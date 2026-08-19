@@ -1,7 +1,7 @@
 ---
 plan_id: "p4-baseadapter-d2-implement-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/p4-baseadapter-d2-implement-20260515"
+worktree_path: "./.claude/worktrees/p4-baseadapter-d2-implement-20260515"
 status: "completed"
 base_commit: "a6dbbe07a3ffb35f41c6f04eb444e4446fab33c3"
 base_branch: "main"
@@ -115,7 +115,7 @@ completed_at: "2026-05-15"
 本 plan 已完成所有实施步骤。下一会话不需接力 — 走 archive_plan 收口即可:
 
 1. lead 调 `ExitWorktree(action: "keep")` 切出 worktree
-2. lead 调 `mcp__agent-deck__archive_plan({ plan_id: "p4-baseadapter-d2-implement-20260515", worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/p4-baseadapter-d2-implement-20260515" })` 自动收尾(ff merge worktree branch → main + frontmatter 改 status=completed + 同步 plans/INDEX.md + commit + worktree remove + branch -D + caller session shutdown)
+2. lead 调 `mcp__agent-deck__archive_plan({ plan_id: "p4-baseadapter-d2-implement-20260515", worktree_path: "./.claude/worktrees/p4-baseadapter-d2-implement-20260515" })` 自动收尾(ff merge worktree branch → main + frontmatter 改 status=completed + 同步 plans/INDEX.md + commit + worktree remove + branch -D + caller session shutdown)
 
 ## 已知踩坑(供后续 reviewer 参考)
 

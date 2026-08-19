@@ -1,7 +1,7 @@
 ---
 plan_id: ref-layout-full-migration-20260526
 created_at: 2026-05-26
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/ref-layout-full-migration-20260526
+worktree_path: ./.claude/worktrees/ref-layout-full-migration-20260526
 status: completed
 final_commit: eb379b6ec4bba2f3ba94e3a1db9dea808188d125
 completed_at: 2026-05-26T12:47:19Z
@@ -133,7 +133,7 @@ git rename detection 默认 50% 相似度,文件内容不变直接 mv,history �
 
 ### E. 项目根 CLAUDE.md 引用更新(**精确化:实测 17 处 — 初版报 10+ 漏列 7 处**)
 
-`/Users/apple/Repository/personal/agent-deck/CLAUDE.md` 实测 `grep -nE "changelog/|reviews/|conventions/| plans/| ref/plans"` 命中 **17 行**:
+`./CLAUDE.md` 实测 `grep -nE "changelog/|reviews/|conventions/| plans/| ref/plans"` 命中 **17 行**:
 
 L24 / L30 / L31 / L33 / L35 / L38 / L39 / L41 / L43 / L45 / L50 / L64 / L146 / L152 / L153 / L157 / L160
 
@@ -180,7 +180,7 @@ L24 / L30 / L31 / L33 / L35 / L38 / L39 / L41 / L43 / L45 / L50 / L64 / L146 / L
 
 - [ ] **Pre-A.0 检测 main working tree 是否含 SSOT dirty**:
   ```bash
-  git -C /Users/apple/Repository/personal/agent-deck status --short \
+  git -C . status --short \
     resources/claude-config/CLAUDE.md \
     resources/claude-config/agent-deck-plugin/skills/flow-arch-plantuml/
   ```
@@ -189,20 +189,20 @@ L24 / L30 / L31 / L33 / L35 / L38 / L39 / L41 / L43 / L45 / L50 / L64 / L146 / L
 - [ ] **Pre-A.1 stash dirty(含 untracked 新文件)**:
   ```bash
   # 关键:新 SKILL.md 是 untracked,git stash 默认不含 — 需要 -u flag 或先 git add -N
-  cd /Users/apple/Repository/personal/agent-deck
+  cd .
   git stash push -u -m "plantuml-skill-ssot-for-ref-layout-plan"
   # -u = 含 untracked;-m 加描述方便后续辨识
   ```
 - [ ] **Pre-A.2 进 worktree 后 pop stash**:
   ```bash
   # 在 §Step 2 EnterWorktree 后立即跑(worktree cwd):
-  git -C /Users/apple/Repository/personal/agent-deck/.claude/worktrees/ref-layout-full-migration-20260526 \
+  git -C ./.claude/worktrees/ref-layout-full-migration-20260526 \
     stash pop
   # 应输出 "Changes not staged for commit" 含两文件
   ```
 - [ ] **Pre-A.3 worktree 内 commit SSOT 改动**(让后续 plan A-F 改动建在新 SSOT 基线上):
   ```bash
-  WT=/Users/apple/Repository/personal/agent-deck/.claude/worktrees/ref-layout-full-migration-20260526
+  WT=./.claude/worktrees/ref-layout-full-migration-20260526
   git -C "$WT" add \
     resources/claude-config/CLAUDE.md \
     resources/claude-config/agent-deck-plugin/skills/flow-arch-plantuml/SKILL.md
@@ -270,13 +270,13 @@ L24 / L30 / L31 / L33 / L35 / L38 / L39 / L41 / L43 / L45 / L50 / L64 / L146 / L
   done
   ```
   全 4 OK 才进 D.5+。**注**(R4-M6):D.1-D.4 「每个 git mv 独立 commit」(详 §已知踩坑)— commit 后 git status empty,`^R ` rename entries 已消失;**不能** 用 `git status --short | grep "^R "` 校验(误报「漏跑」)。改用 `git -C <main> log --oneline -4 | grep -cE "git mv|mv .* ref/"` 校验最近 4 commit 是 git mv;或仅靠上面 for 循环 dir 存在性即可(commit 已成功 = dir 存在)
-- [ ] D.5 改项目根 `/Users/apple/Repository/personal/agent-deck/CLAUDE.md` — **实测 17 处**(L24 / L30 / L31 / L33 / L35 / L38 / L39 / L41 / L43 / L45 / L50 / L64 / L146 / L152 / L153 / L157 / L160);用 BSD sed 批量(**R2 MED-3 完整命令模板**):
+- [ ] D.5 改项目根 `./CLAUDE.md` — **实测 17 处**(L24 / L30 / L31 / L33 / L35 / L38 / L39 / L41 / L43 / L45 / L50 / L64 / L146 / L152 / L153 / L157 / L160);用 BSD sed 批量(**R2 MED-3 完整命令模板**):
   ```bash
   sed -i '' \
     -e 's|`changelog/|`ref/changelogs/|g' \
     -e 's|`reviews/|`ref/reviews/|g' \
     -e 's|`conventions/|`ref/conventions/|g' \
-    /Users/apple/Repository/personal/agent-deck/CLAUDE.md
+    ./CLAUDE.md
   ```
   注意 `\``反引号 markdown 内 inline code 形态;改后 `grep -nE "changelog/|reviews/|conventions/" CLAUDE.md` 仅剩 `ref/changelogs/` / `ref/reviews/` / `ref/conventions/` 形态
 - [ ] **D.6 cross-ref markdown link 批量 sed 替换(R1 HIGH-3 新增 + R2 HIGH-3/HIGH-6 升级 + R3 LOW-1 计数精修 + R3 MED-3 双跳删)**:**63 处** `../changelog/CHANGELOG_X.md`(单数!)→ `../changelogs/CHANGELOG_X.md`,实测分布:
@@ -361,7 +361,7 @@ L24 / L30 / L31 / L33 / L35 / L38 / L39 / L41 / L43 / L45 / L50 / L64 / L146 / L
 - [ ] **E.0(条件性 — 仅走 §Phase G tool 路径才必须)重启 dev 让 worktree 内 src/build 生效**(R2 HIGH-2 + R3 HIGH-4/HIGH-5 修订 — §不变量 10 enforce):
   - **前置警告**:pkill .app 会终结所有 lead + teammate session(详 §已知踩坑 pkill .app 风险);若本会话即将实施 → 跳过 E.0 走 §Phase G 手工路径;若 user 在 dev mode 新会话内实施 → 跑 E.0 重启 worktree 内 dev
   - `pkill -f "electron-vite dev" 2>/dev/null && pkill -f "Electron.app/Contents/MacOS/Electron" 2>/dev/null && pkill -f "/Applications/Agent Deck.app/Contents/MacOS/Agent Deck" 2>/dev/null`(R3 HIGH-4 — 加 pkill .app 覆盖已安装版)
-  - `cd /Users/apple/Repository/personal/agent-deck/.claude/worktrees/ref-layout-full-migration-20260526 && pnpm dev`(在 worktree cwd 重启)
+  - `cd ./.claude/worktrees/ref-layout-full-migration-20260526 && pnpm dev`(在 worktree cwd 重启)
   - **验证 dev cwd**(R3 HIGH-5 修订 — macOS ps 不显示 cwd 列必须用 lsof):
     ```bash
     PID=$(pgrep -f "electron-vite dev" | head -1)
@@ -398,7 +398,7 @@ L24 / L30 / L31 / L33 / L35 / L38 / L39 / L41 / L43 / L45 / L50 / L64 / L146 / L
 
 - [ ] **G.0 worktree clean gate**(R3 HIGH-2 新增 — 双 reviewer 独立提出;archive_plan impl L488-495 内部 dirty precheck 必 reject):
   ```bash
-  WT=/Users/apple/Repository/personal/agent-deck/.claude/worktrees/ref-layout-full-migration-20260526
+  WT=./.claude/worktrees/ref-layout-full-migration-20260526
   git -C "$WT" status --short
   ```
   必须 0 行(empty output)。否则 Phase A-F 还有 dirty 改动,先 commit:
@@ -414,7 +414,7 @@ L24 / L30 / L31 / L33 / L35 / L38 / L39 / L41 / L43 / L45 / L50 / L64 / L146 / L
 
 - [ ] **G-tool.2.0 算下一个 changelog X — 从 worktree 内 ref/changelogs/ 算**(R3 HIGH-1 修法 — 双方独立提出 + R4-M_dual_2 占位符):
   ```bash
-  WT=/Users/apple/Repository/personal/agent-deck/.claude/worktrees/ref-layout-full-migration-20260526
+  WT=./.claude/worktrees/ref-layout-full-migration-20260526
   test -d "$WT/ref/changelogs" || { echo "FATAL: $WT/ref/changelogs 不存在 — D.2 mv 没跑"; exit 1; }
   X=$(ls "$WT/ref/changelogs/CHANGELOG_"*.md 2>/dev/null \
     | sed 's|.*/CHANGELOG_\([0-9]*\)\.md|\1|' | sort -n | tail -1)
@@ -427,13 +427,13 @@ L24 / L30 / L31 / L33 / L35 / L38 / L39 / L41 / L43 / L45 / L50 / L64 / L146 / L
 - [ ] **G-tool.2 写 `<worktree>/ref/changelogs/CHANGELOG_<COMPUTED-X>.md`**(把 `<COMPUTED-X>` 替换为 G-tool.2.0 实际 echo 出的 X 数字)— 引用本 plan 归档 + 关键 commit;同步 append `<worktree>/ref/changelogs/INDEX.md` 一行
 - [ ] **G-tool.3 git commit changelog**:
   ```bash
-  WT=/Users/apple/Repository/personal/agent-deck/.claude/worktrees/ref-layout-full-migration-20260526
+  WT=./.claude/worktrees/ref-layout-full-migration-20260526
   X=<COMPUTED-X>   # 替换为 G-tool.2.0 echo 的实际数字
   git -C "$WT" add ref/changelogs/CHANGELOG_${X}.md ref/changelogs/INDEX.md
   git -C "$WT" commit -m "docs(changelog): CHANGELOG_${X} ref-layout-full-migration 归档"
   ```
 - [ ] **G-tool.4 invoke `mcp__agent-deck__archive_plan({plan_id: "ref-layout-full-migration-20260526", worktree_path: "<worktree-abs>", changelog_id: "<COMPUTED-X>"})`**(把 `<COMPUTED-X>` 替换为 G-tool.2.0 echo 的实际 X 数字串如 `"152"` / `"153"`)— tool 自动 ff-merge worktree branch 到 base_branch / mv plan 到 ref/plans/ / commit / git worktree remove + branch -D / 默认归档 caller session
-- [ ] **G-tool.5 验证 archive_plan return**:从 ok return 确认 `archivedPath: <main-repo>/ref/plans/ref-layout-full-migration-20260526.md` + `commitHash` + `plansIndexAction` + `spikeReportsArchived: null` + `archived: 'ok'`。**R2 MED-3**:return 字段是 impl resolve string 不是 fs.stat 真存在性;**R4-H1**:G-tool.4 后 caller 已 archived,本会话不能继续跑 Bash → user 必须起新 SDK 会话(cold-start prompt = `按 /Users/apple/Repository/personal/agent-deck/ref/plans/ref-layout-full-migration-20260526.md 接力跑 Phase H`)进 Phase H fs 真验证
+- [ ] **G-tool.5 验证 archive_plan return**:从 ok return 确认 `archivedPath: <main-repo>/ref/plans/ref-layout-full-migration-20260526.md` + `commitHash` + `plansIndexAction` + `spikeReportsArchived: null` + `archived: 'ok'`。**R2 MED-3**:return 字段是 impl resolve string 不是 fs.stat 真存在性;**R4-H1**:G-tool.4 后 caller 已 archived,本会话不能继续跑 Bash → user 必须起新 SDK 会话(cold-start prompt = `按 ./ref/plans/ref-layout-full-migration-20260526.md 接力跑 Phase H`)进 Phase H fs 真验证
 
 #### G-manual 路径(本会话 / 任何会话都可走;无 dog-fooding 但避开死锁)
 
@@ -444,14 +444,14 @@ L24 / L30 / L31 / L33 / L35 / L38 / L39 / L41 / L43 / L45 / L50 / L64 / L146 / L
 - [ ] **G-manual.3 commit changelog** 同 G-tool.3(用 `<COMPUTED-X>` 替换实际值)
 - [ ] **G-manual.4 ff-merge worktree branch 到 base_branch**(plan frontmatter `base_branch: main`):
   ```bash
-  WT=/Users/apple/Repository/personal/agent-deck/.claude/worktrees/ref-layout-full-migration-20260526
-  MAIN=/Users/apple/Repository/personal/agent-deck
+  WT=./.claude/worktrees/ref-layout-full-migration-20260526
+  MAIN=.
   git -C "$MAIN" checkout main
   git -C "$MAIN" merge --ff-only worktree-ref-layout-full-migration-20260526
   ```
 - [ ] **G-manual.5 更新 plan frontmatter + mv plan 文件 + git mv 入归档位置**(R4-M_dual_1 — 双方独立提出 — 加可执行命令):
   ```bash
-  MAIN=/Users/apple/Repository/personal/agent-deck
+  MAIN=.
   PLAN_SRC="$MAIN/.claude/plans/ref-layout-full-migration-20260526.md"
   PLAN_DST="$MAIN/ref/plans/ref-layout-full-migration-20260526.md"
   FINAL_COMMIT=$(git -C "$MAIN" rev-parse HEAD)   # G-manual.4 ff-merge 后 HEAD 即归档基线 commit
@@ -482,44 +482,44 @@ caller G-tool.5 / G-manual.6 跑完后(若走 G-tool 则 caller 已 archive,本�
 
 - [ ] **H.1 fs.stat 验证 archive 文件真存在**:
   ```bash
-  test -f /Users/apple/Repository/personal/agent-deck/ref/plans/ref-layout-full-migration-20260526.md \
+  test -f ./ref/plans/ref-layout-full-migration-20260526.md \
     && echo "OK: archive file exists" \
     || echo "FAIL: archive missing — impl bug / fs write failed / 手工 mv 漏跑"
   ```
 - [ ] **H.2 verify git commit 含 archive 文件**:
   ```bash
-  git -C /Users/apple/Repository/personal/agent-deck log -1 --format="%H %s" \
+  git -C . log -1 --format="%H %s" \
     -- ref/plans/ref-layout-full-migration-20260526.md
   ```
 - [ ] **H.3 verify INDEX append 本 plan 行**:
   ```bash
   grep -l "ref-layout-full-migration-20260526" \
-    /Users/apple/Repository/personal/agent-deck/ref/plans/INDEX.md
+    ./ref/plans/INDEX.md
   ```
 - [ ] **H.3.5 verify plan frontmatter 已更新 status: completed + final_commit + completed_at**(R4-M_dual_1 fix 验证):
   ```bash
   grep -nE "status: completed|^final_commit:|^completed_at:" \
-    /Users/apple/Repository/personal/agent-deck/ref/plans/ref-layout-full-migration-20260526.md
+    ./ref/plans/ref-layout-full-migration-20260526.md
   # 应输出 3 行:status: completed / final_commit: <hash> / completed_at: <ISO>
   ```
 - [ ] **H.4 verify git mv history 保留**(R3 MED-5 升级 — git rename detection 失败兜底):
   ```bash
   # Primary: --follow(默认 50% 阈值)
-  git -C /Users/apple/Repository/personal/agent-deck log --follow \
+  git -C . log --follow \
     --format="%H %s" ref/changelogs/CHANGELOG_1.md | head -5
   # Fallback 1: 调高阈值
-  git -C /Users/apple/Repository/personal/agent-deck log --follow --find-renames=20 \
+  git -C . log --follow --find-renames=20 \
     --format="%H %s" ref/changelogs/CHANGELOG_1.md | head -5
   # Fallback 2: 显式 rename 查询(找 R 状态 commit)
-  git -C /Users/apple/Repository/personal/agent-deck log --all --diff-filter=R --raw \
+  git -C . log --all --diff-filter=R --raw \
     -- ref/changelogs/CHANGELOG_1.md
   ```
   应能 trace 回 mv 前的 changelog/CHANGELOG_1.md 历史
 - [ ] **H.5 worktree + branch 真删**(R3 MED-2 修法 — git show-ref 替代 grep -v 始终 success):
   ```bash
-  WT=/Users/apple/Repository/personal/agent-deck/.claude/worktrees/ref-layout-full-migration-20260526
+  WT=./.claude/worktrees/ref-layout-full-migration-20260526
   test ! -d "$WT" && echo "OK: worktree dir removed" || echo "FAIL: worktree dir 还在"
-  ! git -C /Users/apple/Repository/personal/agent-deck show-ref --verify --quiet \
+  ! git -C . show-ref --verify --quiet \
     refs/heads/worktree-ref-layout-full-migration-20260526 \
     && echo "OK: branch removed" || echo "FAIL: branch 还在"
   ```
@@ -553,7 +553,7 @@ caller G-tool.5 / G-manual.6 跑完后(若走 G-tool 则 caller 已 archive,本�
 > - **G-tool 路径** = 真实 dog-fooding archive_plan tool,但前置 user 必须在 dev mode 内(非已装 .app)起新 lead session 接力。**死锁规避**:不能在 .app 内 lead session(如本会话场景)走 G-tool — pkill .app 终结自己
 > - **G-manual 路径** = 走 user CLAUDE.md §Step 4 5 步手工归档,任何会话都可执行;无 dog-fooding 验证但避开死锁。**Phase A-F 通过 vitest + typecheck 后已基本确信 impl 正确,接受 dog-fooding 降级**
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/ref-layout-full-migration-20260526.md`(全文)
+1. `Bash: cat ./.claude/plans/ref-layout-full-migration-20260526.md`(全文)
 2. **当前会话已 cold-start cat plan + EnterWorktree(path:) 进 worktree + commit Phase Pre-A/A/B/C/D 全 ✅;F R1+R2 已 ✅ 收口**(详 §当前进度);新会话接力直接进 §Phase G-manual 收口 + §Phase H
 3. **G-manual 收口流程**(本 plan 已选定路径):
    - **G.0** worktree clean gate:`git -C <worktree-abs> status --short` 必 0 行(否则先 commit 剩余 dirty);本 commit 后会话即可直接跑

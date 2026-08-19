@@ -1,7 +1,7 @@
 ---
 plan_id: "restart-controller-jsonl-precheck-20260521"
 created_at: "2026-05-21T17:55:00+08:00"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/restart-controller-jsonl-precheck-20260521"
+worktree_path: "./.claude/worktrees/restart-controller-jsonl-precheck-20260521"
 status: "completed"
 base_commit: "619dca7"
 base_branch: "main"
@@ -360,7 +360,7 @@ restart 路径新建 2 文案样例：
 
 ## 下一会话第一步
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/restart-controller-jsonl-precheck-20260521.md` 全文
+1. `Bash: cat ./.claude/plans/restart-controller-jsonl-precheck-20260521.md` 全文
 2. 跳到 §步骤 checklist 找 unchecked 项继续
 3. **未进 worktree**：从 §Step 1.5 deep-review 开始
 4. **已进 worktree**：从 frontmatter `worktree_path` 读出路径 → `EnterWorktree(path: <wt-path>)` 进 worktree → Step 3a-Step 5 推进

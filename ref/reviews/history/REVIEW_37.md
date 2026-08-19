@@ -3,7 +3,7 @@ review_id: REVIEW_37
 title: 宏观重构机会 R1+R2+R3 深度 review × P1+P2+P3 三档落地（reviewer-claude Opus 4.7 + reviewer-codex gpt-5.5 xhigh）
 created_at: 2026-05-15
 plan_id: deep-review-and-refactor-r37-20260515
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-r37-20260515
+worktree_path: ./.claude/worktrees/deep-review-and-refactor-r37-20260515
 base_commit: ffcb663
 final_commit: 736b24a
 heterogeneous_dual_completed: true

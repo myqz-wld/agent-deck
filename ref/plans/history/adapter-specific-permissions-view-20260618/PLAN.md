@@ -3,7 +3,7 @@ plan_id: adapter-specific-permissions-view-20260618
 status: complete
 created: 2026-06-18
 base_commit: a303197
-worktree: /Users/wanglidong/Repository/agent-deck
+worktree: .
 ---
 
 # Adapter-Specific Permissions View

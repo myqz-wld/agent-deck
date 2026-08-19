@@ -1,7 +1,7 @@
 ---
 plan_id: "cross-adapter-parity-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/cross-adapter-parity-20260515"
+worktree_path: "./.claude/worktrees/cross-adapter-parity-20260515"
 status: "completed"
 base_commit: "d635dad"
 base_branch: "main"
@@ -69,7 +69,7 @@ A 和 B 互相正交(不同文件 / 不同流程),拆 2 commit 链:
 -- hand_off_session 外置 worktree 后 app 重启 SDK 写 mainRepo plan 文件静默失败
 -- (sandbox.allowWrite 不含原 mainRepo)。本 migration 加 TEXT JSON 列实现 jsdoc 承诺。
 --
--- 字段值:JSON array of absolute paths,e.g. `["/Users/apple/repo"]`。NULL = 不指定
+-- 字段值:JSON array of absolute paths,e.g. `["$HOME/repo"]`。NULL = 不指定
 -- (与 caller 不传 extraAllowWrite 行为同款,sandbox.allowWrite 仅含 cwd + /tmp + cache)。
 ALTER TABLE sessions ADD COLUMN extra_allow_write TEXT;
 ```
@@ -154,7 +154,7 @@ OLD sessionId fallback path 触发新一轮 recovery(sessions Map 仍 miss),与�
 
 按 user CLAUDE.md cold-start 流程:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/cross-adapter-parity-20260515.md` 全文读 plan
+1. `Bash: cat ./.claude/plans/cross-adapter-parity-20260515.md` 全文读 plan
 2. `EnterWorktree(name: "cross-adapter-parity-20260515")` 创建新 worktree
 3. `git log --oneline -5` 自检 HEAD = d635dad(base_commit)或之后
 4. **从 Step A.1 开始动手**(或 Step B.1 — lead 自定):

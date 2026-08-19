@@ -18,7 +18,7 @@ heterogeneous_dual_completed: false  # 用户主动中止 deep-code-review SKILL
 4. **Bug 4**：spawn 出来的 reviewer 在 SessionList / TeamDetail 只显示 cwd basename（如多组并行 review 全是 `agent-deck`），完全分不出哪个是 reviewer-claude 哪个是 reviewer-codex
 5. **Bug 5（pre-existing，本轮一并修）**：跑 `pnpm exec vitest run` 全套发现 `manager-public-api.test.ts > archive()` + `manager-delete.test.ts > 删除窗口` 两处 stderr 报 `Database not initialized` —— 三个 manager test 文件没 mock `@main/store/agent-deck-team-repo`，sessionManager.list/delete/markClosed 内部调真 repo 路径全挂
 
-DB 铁证（`/Users/apple/Library/Application Support/agent-deck/agent-deck.db` snapshot）锁定 Bug 1+2 同根因：
+DB 铁证（`$HOME/Library/Application Support/agent-deck/agent-deck.db` snapshot）锁定 Bug 1+2 同根因：
 
 ```sql
 SELECT id, length(body) AS body_len, substr(body,1,80) AS body_head, status

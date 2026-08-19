@@ -3,7 +3,7 @@ plan_id: codex-file-change-accuracy-20260618
 created_at: 2026-06-18
 status: completed
 base_commit: fdb9c55ccc692c392c3dcda8ec0d4e165d28cae7
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 ---
 
 # Codex File Change Accuracy

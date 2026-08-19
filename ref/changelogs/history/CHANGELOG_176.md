@@ -34,7 +34,7 @@ User 一句反馈「reviewer 起来后 sandbox 内 pnpm 找不到」 + 「这是
 落 `<plan-artifact-dir>/spike-reports/spike1-shell-path-actual.md`(归档后 mv 到 `ref/plans/sdk-spawn-shell-path-20260529/spike-reports/`)。实测发现:
 
 - **Finding A** SDK 子进程 PATH(当前 user 机器双击 .app)只 5 条:`/usr/bin:/bin:/usr/sbin:/sbin:<plugin/bin>`(launchd 4 + agent-deck-plugin/bin 1)
-- **Finding B** 用户真实终端 PATH(zsh -ilc)22 条:含 `/Users/<user>/.nvm/versions/node/v24.10.0/bin` + `/opt/homebrew/bin` + `/Users/<user>/.cargo/bin` + `/Users/<user>/.bun/bin` 等
+- **Finding B** 用户真实终端 PATH(zsh -ilc)22 条:含 `$HOME/.nvm/versions/node/v24.10.0/bin` + `/opt/homebrew/bin` + `$HOME/.cargo/bin` + `$HOME/.bun/bin` 等
 - **Finding C** 缺失 17 条:含 nvm Node 24 / Homebrew / Rust cargo / Go / Bun / .gvm / .claude
 - **Finding D** pnpm 实际位置 `~/.nvm/versions/node/v24.10.0/bin/pnpm`(corepack-managed via nvm Node 24,版本 10.33.0)
 - **Finding E** 应用 spawn options.env 当前实现 — `sdk-runtime.ts:40-57 getSdkRuntimeOptions()` baseEnv 100% 拷贝 `process.env`;`codex-cli/sdk-bridge/index.ts:57-63 snapshotProcessEnv()` 同款 spread。Bug 已知性:`sdk-runtime.ts:6-9` 注释明文「macOS .app 走 launchd 启动时 PATH 只有 /usr/bin:/bin:/usr/sbin:/sbin」,应用层已知但未根治

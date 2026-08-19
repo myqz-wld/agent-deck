@@ -28,13 +28,17 @@ Create or maintain files in this structure. Do not create parallel directories f
 - `ref/*/{recent-3-days,recent-week,recent-month,history}/INDEX.md`: mutually exclusive time-bucket indexes for final records.
 - `.ref/`: add to `.gitignore`; store non-final plans, reviews, raw outputs, spike drafts, scratch notes, and other unarchived LLM-facing material here, never final records.
 
+## Path Privacy
+
+- Treat the repository root as the base for all recorded in-project paths. Use repository-relative paths and never persist a repository/worktree absolute prefix, home-directory path, or username. For known external tools or configuration, use portable environment-variable references such as `$HOME` or `$CODEX_HOME`; otherwise use a non-identifying logical label.
+
 ## Required After Changes
 
 Before starting, run `find ref/changelogs ref/plans ref/reviews -maxdepth 2 -type f -name '*.md' 2>/dev/null || true` to see existing records. Missing directories are setup work, not an error. Before creating or moving a final typed `ref/` record, read the relevant root `ref/<type>/INDEX.md` and affected bucket `INDEX.md`. Scan every same-type bucket, choose `X` as the maximum existing same-type number plus 1, and do not guess. Use a short stable kebab-case `<topic>` that is not vague like `update`, `fix`, or `misc`.
 
 1. When user-visible behavior, file structure, startup steps, ports, dependencies, or validation steps change, update the matching `README.md` section. Pure bug fixes and internal refactors do not require README changes.
 2. For each meaningful feature, behavior, API, or dependency change, write `ref/changelogs/<bucket>/CHANGELOG_X_<topic>.md`, rebucket all changelogs by `changed_at`, and update the root and affected bucket indexes. For debug, performance, security, or review-driven fixes, do the same under `ref/reviews/` using `REVIEW_X_<topic>.md` and `reviewed_at`. Keep index summaries to 80 characters or one short sentence.
-3. Keep non-final plans in the current environment's plan workspace; if no stronger contract exists, use `<repo>/.ref/plans/<plan-id>.md`. Keep non-final review drafts and raw reviewer output in the current review workspace or `<repo>/.ref/reviews/`. At final handoff, archive plans into the correct `ref/plans/<bucket>/PLAN_X_<topic>.md`, rebucket by completed date, update the root and affected bucket indexes, and clean up workspace copies.
+3. Keep non-final plans in the current environment's plan workspace; if no stronger contract exists, use `.ref/plans/<plan-id>.md`. Keep non-final review drafts and raw reviewer output in the current review workspace or `.ref/reviews/`. At final handoff, archive plans into the correct `ref/plans/<bucket>/PLAN_X_<topic>.md`, rebucket by completed date, update the root and affected bucket indexes, and clean up workspace copies.
 4. Store durable extra LLM-facing materials, including spike reports, investigation notes, and reusable evidence, somewhere under `ref/` and link them from the relevant final record. Keep temporary scratch, raw logs, and non-final drafts in `.ref/` or the current environment workspace.
 5. Keep the advisory `.ref` archive pre-commit hook installed with `bash scripts/ref-archive-reminder-pre-commit.sh --install` after setup or whenever `.git/hooks/pre-commit` is reset. The installer replaces only its managed block and preserves unrelated hook logic. The hook exits 0, but agents must classify each `.ref/` file as durable context to archive, intentionally non-final workspace material to retain, or scratch to remove.
 6. Before changing long-lived prompt assets, inventory and back up the confirmed editable files, check paired Claude/Codex assets for semantic drift, and validate local links. Bundled Agent Deck behavior must remain self-contained in `resources/`.
@@ -86,7 +90,7 @@ The concise command sequence is in `README.md`; topology-specific prerequisites 
 
 ### Authentication And Session Boundaries
 
-- The app **does not read or write** any API key. All SDK calls use local `~/.claude/.credentials.json` (OAuth).
+- The app **does not read or write** any API key. All SDK calls use local `$HOME/.claude/.credentials.json` (OAuth).
 - SDK oneshots used for intermittent summaries set `settingSources: []` to avoid hook loops back into themselves.
 - In-app session SDKs set `settingSources: ['user', 'project', 'local']`, equivalent to running `claude` in that cwd.
 
@@ -200,7 +204,7 @@ the DMG and block map remain in `build/dist`.
 - Before validating the wrapper, always `unset ELECTRON_RUN_AS_NODE`; if the binary behaves like Node or parses `new` as a script, the validation environment is polluted. Do not change the wrapper / packaging config for that.
 - Before and after real vitest SQLite tests, protect the better-sqlite3 binding (evidence: CHANGELOG_42). If Electron reports `NODE_MODULE_VERSION 115 vs 130`, clear the npm prebuild cache and binding build directory, then force rebuild:
   ```bash
-  rm -f ~/.npm/_prebuilds/*better-sqlite3*
+  rm -f "$HOME"/.npm/_prebuilds/*better-sqlite3*
   rm -rf node_modules/.pnpm/better-sqlite3@11.10.0/node_modules/better-sqlite3/build
   zsh -i -l -c "pnpm postinstall"
   ```

@@ -2,7 +2,7 @@
 plan_id: "sqlite-tests-no-skip-20260601"
 created_at: "2026-06-01"
 status: "completed"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/sqlite-tests-no-skip-20260601"
+worktree_path: "./.claude/worktrees/sqlite-tests-no-skip-20260601"
 base_commit: "8302aa8106967f050d4b4ef12b02bcbe77573468"
 base_branch: "main"
 final_commit: "29e5db33ad26914b068c868044349c78a5e250ff"
@@ -184,11 +184,11 @@ pnpm dev            # 可选肉眼确认: app bootstrap 不报 NODE_MODULE_VERSI
 > ⚠️ worktree **目前尚未创建**(Step 2 EnterWorktree 待用户 confirm 后才执行;deep-review R1 codex MED-3 实证 `test -d <worktreePath>` = MISSING)。下面分「worktree 已建 / 未建」+「claude / codex adapter」两维度给 adapter-safe 指令。
 
 新会话:
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/sqlite-tests-no-skip-20260601.md` 读全
-2. **判断 worktree 是否已建**:`Bash: test -d /Users/apple/Repository/personal/agent-deck/.claude/worktrees/sqlite-tests-no-skip-20260601 && echo EXISTS || echo MISSING`
+1. `Bash: cat ./.claude/plans/sqlite-tests-no-skip-20260601.md` 读全
+2. **判断 worktree 是否已建**:`Bash: test -d ./.claude/worktrees/sqlite-tests-no-skip-20260601 && echo EXISTS || echo MISSING`
 3. **进/建 worktree(按 adapter 分流)**:
-   - **claude adapter + worktree 已建**:`EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/sqlite-tests-no-skip-20260601")`
-   - **claude adapter + worktree 未建**:先 `Bash: git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-sqlite-tests-no-skip-20260601 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/sqlite-tests-no-skip-20260601`(隐式 HEAD 作 base,避开 EnterWorktree CLI stale base bug)→ 再 `EnterWorktree(path: ...)`
+   - **claude adapter + worktree 已建**:`EnterWorktree(path: "./.claude/worktrees/sqlite-tests-no-skip-20260601")`
+   - **claude adapter + worktree 未建**:先 `Bash: git -C . worktree add -b worktree-sqlite-tests-no-skip-20260601 ./.claude/worktrees/sqlite-tests-no-skip-20260601`(隐式 HEAD 作 base,避开 EnterWorktree CLI stale base bug)→ 再 `EnterWorktree(path: ...)`
    - **codex adapter**(无 native EnterWorktree):worktree 未建 → `mcp__agent-deck__enter_worktree({ planId: 'sqlite-tests-no-skip-20260601', baseCommit: '8302aa8106967f050d4b4ef12b02bcbe77573468' })`(自建 + 写 cwd marker;不改 codex cwd);已建 → 不调 enter_worktree,直接对 `<worktreePath>/...` 或 `git -C <worktreePath>` 操作
 4. 按 checklist 未打勾项推进。**所有代码资产路径加 worktree 前缀** `.claude/worktrees/sqlite-tests-no-skip-20260601/`(claude 进 worktree 后用相对/绝对均可;codex 始终用绝对路径或 `git -C <worktreePath>`)
 5. 每步改完先 `pnpm test:node`(快)验非 SQLite 不回归,SQLite 相关步骤用 `pnpm test`(Electron-as-node)验

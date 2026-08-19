@@ -1,7 +1,7 @@
 ---
 plan_id: mcp-bug-and-feature-batch-20260513
 created_at: 2026-05-13
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/mcp-bug-and-feature-batch-20260513
+worktree_path: ./.claude/worktrees/mcp-bug-and-feature-batch-20260513
 status: completed
 base_commit: bfccc10
 base_branch: main
@@ -354,12 +354,12 @@ private → #private + 反射测试改 hasSdkClaim API；跑全 vitest 验证。
 **Cold start prompt 模板**（H6 用）：
 
 ```
-按 /Users/apple/.claude/plans/mcp-bug-and-feature-batch-20260513.md 接力
+按 $HOME/.claude/plans/mcp-bug-and-feature-batch-20260513.md 接力
 ```
 
 cold start 必做：
-1. `Bash: cat /Users/apple/.claude/plans/mcp-bug-and-feature-batch-20260513.md`（**严禁 Read tool**）
-2. 从 frontmatter 拿 `worktree_path` → `EnterWorktree(path:"/Users/apple/Repository/personal/agent-deck/.claude/worktrees/mcp-bug-and-feature-batch-20260513")`
+1. `Bash: cat $HOME/.claude/plans/mcp-bug-and-feature-batch-20260513.md`（**严禁 Read tool**）
+2. 从 frontmatter 拿 `worktree_path` → `EnterWorktree(path:"./.claude/worktrees/mcp-bug-and-feature-batch-20260513")`
 3. `Bash: pwd` 确认 cwd 在 worktree 内
 4. `Bash: git log --oneline -3 && git status --short` 确认 HEAD ≥ frontmatter `latest_commit`（H5 后 = `5a44e34`）+ worktree clean
 5. **H6 起点**：Phase 6 收口首步 = `Step 6.1 完整 pnpm typecheck && pnpm build`

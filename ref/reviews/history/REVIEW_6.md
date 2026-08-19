@@ -64,7 +64,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk/sdk.mjs';
 const RESUME_ID = '00356caf-8a33-46a2-9d99-09c46fef93cc'; // jsonl 文件确认存在
 const q = query({
   prompt: userInputAsyncIterable(),
-  options: { cwd: '/Users/apple/Repository/personal/agent-deck', resume: RESUME_ID, ... },
+  options: { cwd: '.', resume: RESUME_ID, ... },
 });
 for await (const msg of q) {
   if (msg.session_id) {

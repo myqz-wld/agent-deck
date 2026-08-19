@@ -1,7 +1,7 @@
 ---
 plan_id: "cross-adapter-sandbox-inherit-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/cross-adapter-sandbox-inherit-20260515"
+worktree_path: "./.claude/worktrees/cross-adapter-sandbox-inherit-20260515"
 status: "in_progress"
 base_commit: "a6dbbe07a3ffb35f41c6f04eb444e4446fab33c3"
 base_branch: "main"
@@ -103,20 +103,20 @@ parent_plan_id: "adapter-architecture-design-20260515"
 
 按 user CLAUDE.md cold-start 流程:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/plans/cross-adapter-sandbox-inherit-20260515.md` 全文读 plan(强制 cat 不用 Read,详 user CLAUDE.md §Step 3 末尾 callout)
+1. `Bash: cat ./plans/cross-adapter-sandbox-inherit-20260515.md` 全文读 plan(强制 cat 不用 Read,详 user CLAUDE.md §Step 3 末尾 callout)
 2. **避开 EnterWorktree CLI stale base bug**(详 user CLAUDE.md §Step 1 末尾 callout):用 Bash 显式建 worktree(隐式用 HEAD 作 base):
    ```bash
-   git -C /Users/apple/Repository/personal/agent-deck worktree add -b worktree-cross-adapter-sandbox-inherit-20260515 /Users/apple/Repository/personal/agent-deck/.claude/worktrees/cross-adapter-sandbox-inherit-20260515
+   git -C . worktree add -b worktree-cross-adapter-sandbox-inherit-20260515 ./.claude/worktrees/cross-adapter-sandbox-inherit-20260515
    ```
-   然后 `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/cross-adapter-sandbox-inherit-20260515")` 进入(注意是 path 不是 name)
+   然后 `EnterWorktree(path: "./.claude/worktrees/cross-adapter-sandbox-inherit-20260515")` 进入(注意是 path 不是 name)
 3. 自检 worktree HEAD == main HEAD == frontmatter `base_commit` (`a6dbbe07a3ff...`):
    ```bash
-   git -C /Users/apple/Repository/personal/agent-deck/.claude/worktrees/cross-adapter-sandbox-inherit-20260515 rev-parse HEAD
-   git -C /Users/apple/Repository/personal/agent-deck rev-parse HEAD
+   git -C ./.claude/worktrees/cross-adapter-sandbox-inherit-20260515 rev-parse HEAD
+   git -C . rev-parse HEAD
    ```
    不等 → `git -C <worktree-abs-path> reset --hard <main-HEAD>` 修正(参 user CLAUDE.md §Step 1 callout)
-4. **串行约束自检**:`Bash: grep -E "^status:" /Users/apple/Repository/personal/agent-deck/plans/p4-baseadapter-d2-implement-20260515.md` 必须返回 `status: "completed"`,否则 abort 等 Chapter 1 plan 收尾再启动本 plan(防 schema 字段冲突)
-5. `Bash: cat /Users/apple/Repository/personal/agent-deck/docs/adapter-architecture-rfc-20260515.md` 读 RFC 全文(尤其 §2.1.2.1 lossy 清单 + §2.3 Option D/E 重写 完整 snippet + §2.5 touchpoint + §2.8 迁移路线)
+4. **串行约束自检**:`Bash: grep -E "^status:" ./plans/p4-baseadapter-d2-implement-20260515.md` 必须返回 `status: "completed"`,否则 abort 等 Chapter 1 plan 收尾再启动本 plan(防 schema 字段冲突)
+5. `Bash: cat ./docs/adapter-architecture-rfc-20260515.md` 读 RFC 全文(尤其 §2.1.2.1 lossy 清单 + §2.3 Option D/E 重写 完整 snippet + §2.5 touchpoint + §2.8 迁移路线)
 6. **从 Step 1.1 开始动手**:打开 `src/main/agent-deck-mcp/tools/schemas.ts:444-456`(SpawnSessionArgs)看现 schema,按 RFC §2.3 加新字段
 7. 改完每步:
    - **路径全用 worktree 内绝对路径**(详 user CLAUDE.md §Step 1 末尾 callout)

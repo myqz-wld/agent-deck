@@ -3,7 +3,7 @@ review_id: REVIEW_41
 title: cross-adapter-parity 单轮异构对抗 review × 3 MED fix(reviewer-claude sandbox 失败 + reviewer-codex gpt-5.5 xhigh 单方实证)
 created_at: 2026-05-15
 plan_id: cross-adapter-parity-20260515
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/cross-adapter-parity-20260515
+worktree_path: ./.claude/worktrees/cross-adapter-parity-20260515
 base_commit: d635dad
 final_commit: 779a050
 parent_review_id: REVIEW_40

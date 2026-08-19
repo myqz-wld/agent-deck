@@ -23,7 +23,7 @@ Implementation tasks T0–T8, source review, commits, push, and the clean-commit
 - Status: closed at user request after packaged delivery
 - Created: 2026-08-11
 - Base commit: `012306082ea33db399d642cadf3ba922391183ce`
-- Source repository: `/Users/wanglidong/Repository/agent-deck`
+- Source repository: `.`
 - Implementation isolation: Agent Deck worktree
   `agent-deck-019fec55-85a-msow8y9m`, created at the frozen base and closed after delivery.
 - Final integration: product commit `8b67c4a9324938cfd78bc35a1705951b3f2bddf5` was pushed to

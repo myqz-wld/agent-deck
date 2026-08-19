@@ -6,7 +6,7 @@ Base commit: `c2a0a1ea4077d67fcfc1ea242d7caae7600b0222`
 Owner: user
 Implementation authorization: granted by the user on `2026-08-13`; execute continuously through validation and leave the final result for user acceptance
 Target branch: `codex/feishu-one-click-server`
-Isolation: `/Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/agent-deck-019ffbfd-37c-msrtkmb2` on branch `codex/feishu-one-click-server`
+Isolation: `./.agent-deck/worktrees/agent-deck-019ffbfd-37c-msrtkmb2` on branch `codex/feishu-one-click-server`
 
 ## Phase 0 — Remove Dead Product Surfaces and Expired Compatibility First
 

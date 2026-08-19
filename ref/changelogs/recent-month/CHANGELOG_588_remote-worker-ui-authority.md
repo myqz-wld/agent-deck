@@ -49,7 +49,7 @@ Remote contracts and explicit capability limits.
   independent verification reported healthy.
 - The exact-commit macOS package was installed and the official Worker deployment upgraded
   `worker-df9dfaddfd410be3979119c7`; the isolated Workspace remained
-  `/Users/wanglidong/AgentDeckWorkspaces` and both service verifications passed.
+  `$HOME/AgentDeckWorkspaces` and both service verifications passed.
 - An isolated protocol 2.2 Client observed 23 capabilities and completed 16 concurrent authority
   reads without an in-flight incompatibility failure. Session total, Teams, Issues, Usage, Worker
   configuration, all three Hook statuses, packaged assets/content, conventions, projects,

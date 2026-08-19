@@ -1,7 +1,7 @@
 ---
 plan_id: diff-present-tool-and-walkthrough-skill-20260622
 created_at: 2026-06-22
-worktree_path: /Users/wanglidong/Repository/agent-deck
+worktree_path: .
 status: completed
 base_commit: 25ab300
 ---
@@ -14,7 +14,7 @@ Add a user-facing diff presentation path to Agent Deck and Skill Market:
 
 - Agent Deck MCP exposes `present_diff` for showing diff content to the user and waiting for confirmation or revision feedback.
 - Agent Deck exposes the plan gate as `present_plan`, grouped with `present_diff` as user presentation rather than session orchestration.
-- Skill Market publishes `diff-walkthrough` for Claude and Codex in external repo `/Users/wanglidong/Repository/skill-market` commit `73ae58247c891d2018419334e7338ac06ca2f9b8`, covering PR walkthrough and merge-conflict walkthrough one fragment at a time.
+- Skill Market publishes `diff-walkthrough` for Claude and Codex in external repo `../skill-market` commit `73ae58247c891d2018419334e7338ac06ca2f9b8`, covering PR walkthrough and merge-conflict walkthrough one fragment at a time.
 
 ## Scope
 
@@ -25,7 +25,7 @@ Implemented in Agent Deck:
 - Pending diff presentation service, IPC/preload bridge, renderer store/selectors, PendingTab, ActivityFeed, TeamDetail pending counts, and pending row UI.
 - Settings panel grouping, README, Claude/Codex runtime prompt assets, MCP counts, external-caller docs, and MCP PlantUML/index updates.
 
-Implemented in Skill Market external repo `/Users/wanglidong/Repository/skill-market` commit `73ae58247c891d2018419334e7338ac06ca2f9b8`:
+Implemented in Skill Market external repo `../skill-market` commit `73ae58247c891d2018419334e7338ac06ca2f9b8`:
 
 - `skills/claude/diff-walkthrough/SKILL.md`
 - `skills/claude/diff-walkthrough/agents/openai.yaml`
@@ -46,8 +46,8 @@ Implemented in Skill Market external repo `/Users/wanglidong/Repository/skill-ma
 
 - `pnpm typecheck`
 - `pnpm exec vitest run src/main/agent-deck-mcp/__tests__/request-plan-review.handler.test.ts src/main/agent-deck-mcp/__tests__/present-diff.handler.test.ts src/main/agent-deck-mcp/__tests__/helpers.deny-external.test.ts src/main/agent-deck-mcp/__tests__/spoofing-attack-paths.test.ts`
-- Skill Market Ruby YAML/frontmatter and OpenAI metadata parse check in `/Users/wanglidong/Repository/skill-market` commit `73ae58247c891d2018419334e7338ac06ca2f9b8`
-- Skill Market Claude/Codex skill and metadata alignment checks in `/Users/wanglidong/Repository/skill-market` commit `73ae58247c891d2018419334e7338ac06ca2f9b8`
+- Skill Market Ruby YAML/frontmatter and OpenAI metadata parse check in `../skill-market` commit `73ae58247c891d2018419334e7338ac06ca2f9b8`
+- Skill Market Claude/Codex skill and metadata alignment checks in `../skill-market` commit `73ae58247c891d2018419334e7338ac06ca2f9b8`
 
 ## Notes
 

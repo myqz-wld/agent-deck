@@ -21,7 +21,7 @@ expired: false
 **范围**: 8 文件 + 7 文件 git diff (253 行 unified diff `/tmp/agent-deck-prompt-asset-diff.patch`) + user CLAUDE.md fs current state (494 行)
 
 ```text
-/Users/apple/.claude/CLAUDE.md                                                   # user global, 494 行
+$HOME/.claude/CLAUDE.md                                                   # user global, 494 行
 README.md                                                                         # 项目根, 373 行
 resources/claude-config/CLAUDE.md                                                # 应用打包, 185 行
 resources/claude-config/README.md                                                # plugin doc, 38 行

@@ -3,7 +3,7 @@ review_id: REVIEW_35
 title: deep-review-and-refactor-20260514 12 文件热点综合 R1 + Wave 2 + R2 三轮异构对抗
 created_at: 2026-05-14
 plan_id: deep-review-and-refactor-20260514
-worktree_path: /Users/apple/Repository/personal/agent-deck/.claude/worktrees/deep-review-and-refactor-20260514
+worktree_path: ./.claude/worktrees/deep-review-and-refactor-20260514
 base_commit: d06494e98c8e5a6d7eef2b0fc66ea6e69bf07d5a
 final_commit: 4a85f68
 heterogeneous_dual_completed: true
@@ -163,7 +163,7 @@ heterogeneous_dual_completed: true
 2. **dispatcher cache fix 半解**：HIGH-A1 R2 揭示 emit 路径不齐时单点 fix 不够 — 需要 SSOT 在 caller 层（多处 emit）或 receiver 层（dispatcher 防御）二选一。本次走防御方案（dispatcher 兼容「未见 team 但已 archived」），代价小但语义显式。
 3. **regression test 必须 stateful 而非 regex grep**：Wave 1 backpressure fix 我用了「源码 regex 字面量校验」当 regression test，rA-claude R2 直接指出是技术债 — 未来重构时无 safety net。**fix 必须配套 stateful 行为测试**（in-memory db + spy mock），下次必须遵守。
 4. **scope path 必须 git ls-files 实证不能用 stale wc -l**：Wave 2 spawn 时把 inbox-watcher.ts (已删除 commit 7d36b07) 和 pty-bridge.ts (已拆成目录 commit b7e4dce) 写进 scope，reviewer 自动 pivot 但浪费 token。**spawn 前必须 `git ls-files | grep <file>` 实证**。
-5. **scope 路径全用绝对路径含 worktree 前缀**：reviewer 看到的 prompt 路径如果不是 worktree 内绝对路径会触发 SCOPE PATH MISMATCH。本次 12 文件全部用 `/Users/.../.claude/worktrees/<plan-id>/...` 形态，0 报警。
+5. **scope 路径全用 worktree 前缀**：reviewer 看到的 prompt 路径如果不是 worktree 内路径会触发 SCOPE PATH MISMATCH。本次 12 文件全部用 `.claude/worktrees/<plan-id>/...` 形态，0 报警。
 
 ## Follow-up plan 候选
 

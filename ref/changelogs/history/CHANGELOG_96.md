@@ -126,7 +126,7 @@ CASCADE 后 sessions DELETE 不再撞 FK，但 `leaveTeamsAndAutoArchive` 仍 aw
 
 ## 关联
 
-- **plan**: `/Users/apple/.claude/plans/linked-swimming-platypus.md`（in_progress → 写完 CHANGELOG 后置 completed）
+- **plan**: `$HOME/.claude/plans/linked-swimming-platypus.md`（in_progress → 写完 CHANGELOG 后置 completed）
 - **CHANGELOG_27**：CLI 隐式 fork rename 路径来源（fork detection + sessionRepo.rename 触发）
 - **REVIEW_5 H4 / REVIEW_7 M3**：renameSdkSession sdkOwned claim 转移内聚（本 PR 不动该路径）
 - **v010 schema 注释**：补 marker 引用 v017 + 解释为什么 RESTRICT 设计被推翻

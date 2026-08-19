@@ -1,7 +1,7 @@
 ---
 plan_id: "cwd-resilience-fix-20260514"
 created_at: "2026-05-14"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/cwd-resilience-fix-20260514"
+worktree_path: "./.claude/worktrees/cwd-resilience-fix-20260514"
 status: "completed"
 base_commit: "22d90e8"
 base_branch: "main"
@@ -190,7 +190,7 @@ K2 当前强绑 plan + worktree,用户希望任意会话都能 baton 交给新 s
 
 ## 下一会话第一步
 
-按 plan 进入 worktree(`EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/cwd-resilience-fix-20260514")`) → 找 plan checklist 下一个未勾 step → 直接动手。
+按 plan 进入 worktree(`EnterWorktree(path: "./.claude/worktrees/cwd-resilience-fix-20260514")`) → 找 plan checklist 下一个未勾 step → 直接动手。
 
 **当前接力点(若上一会话刚完成 A1/A2/A3)**:
 1. 收尾 **A4** 单测:已改 happy path mainRepo 字段 + 启发式 hit + 启发式 miss + override 路径 git 1 次。剩余需要快速 `pnpm exec vitest run start-next-session.test.ts` 跑一次确认全过。
@@ -208,13 +208,13 @@ K2 当前强绑 plan + worktree,用户希望任意会话都能 baton 交给新 s
 8. **Phase B-F** 按原计划
 
 **所有指向代码资产的路径必须用 worktree 内绝对路径**:
-- 代码:`/Users/apple/Repository/personal/agent-deck/.claude/worktrees/cwd-resilience-fix-20260514/src/main/agent-deck-mcp/...`
+- 代码:`./.claude/worktrees/cwd-resilience-fix-20260514/src/main/agent-deck-mcp/...`
 - 文档:`<worktree>/resources/claude-config/...`
 - changelog:`<worktree>/changelog/...`
 
 **例外**(plan 文件本身不在 worktree):
-- plan: `/Users/apple/Repository/personal/agent-deck/.claude/plans/cwd-resilience-fix-20260514.md`
-- user CLAUDE.md(D4 改): `/Users/apple/.claude/CLAUDE.md`
+- plan: `./.claude/plans/cwd-resilience-fix-20260514.md`
+- user CLAUDE.md(D4 改): `$HOME/.claude/CLAUDE.md`
 
 ## 已知踩坑
 

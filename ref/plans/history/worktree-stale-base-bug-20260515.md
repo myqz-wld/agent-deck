@@ -1,7 +1,7 @@
 ---
 plan_id: "worktree-stale-base-bug-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/worktree-stale-base-bug-20260515"
+worktree_path: "./.claude/worktrees/worktree-stale-base-bug-20260515"
 status: "completed"
 base_commit: "91c4568"
 base_branch: "main"
@@ -71,7 +71,7 @@ completed_at: "2026-05-15"
 ### Phase 1: 排查 + 复现
 
 - [x] **Step 1.1 — 复现实验**:外部 git cli `git worktree add /tmp/wt-repro-cli/wt` baseline 完全正确(worktree HEAD = main HEAD = 91c4568)。reviewer-claude R1 内补做 A/B 实测:`git worktree add ... -b X1`(隐式 HEAD)→ 91c4568 ✓ 与 `git worktree add ... -b X2 origin/main`(模拟 CLI builtin)→ f2537947 ✓ 完全复现 stale base bug
-- [x] **Step 1.2 — 代码定位**:grep 25 文件全部教学性 jsdoc / schema description / 用户文档,无 application 内实际 git worktree add 调用;EnterWorktree 是 Claude Code CLI v2.1.112 builtin,binary 在 `/Users/apple/.nvm/versions/node/v24.10.0/lib/node_modules/@anthropic-ai/claude-code/cli.js`,实现核心位置 byte ≈ 11794070
+- [x] **Step 1.2 — 代码定位**:grep 25 文件全部教学性 jsdoc / schema description / 用户文档,无 application 内实际 git worktree add 调用;EnterWorktree 是 Claude Code CLI v2.1.112 builtin,binary 在 `$HOME/.nvm/versions/node/v24.10.0/lib/node_modules/@anthropic-ai/claude-code/cli.js`,实现核心位置 byte ≈ 11794070
 - [x] **Step 1.3 — 异构对抗 R1 review**:team `worktree-stale-base-r1` spawn reviewer-claude (Opus 4.7, sid `2f6292c1`) + reviewer-codex (gpt-5.5 xhigh, sid `551eda2a`) teammate。两份独立 finding 双方一致 ✅ 6 HIGH(含 reflog 加强证据)+ 3 ✅ MED/LOW + 1 ❌(fromHead 隐藏参数)+ 1 ❓(bare/submodule)。fix vs document 分歧 lead 三态裁决 document-only(plan §设计决策 5 阈值「fix 复杂留独立 plan」)。两个 reviewer 已 shutdown
 
 ### Phase 2: fix / document(根据 R1 三态裁决决定)
@@ -96,7 +96,7 @@ completed_at: "2026-05-15"
 - ✅ **Step 1.1 复现实验完成**:外部 git cli `git worktree add /tmp/wt-repro-cli/wt` 直接调 → worktree HEAD = main HEAD = 91c4568(完全正确)。说明 git 本身无 bug,问题在 application / CLI 层
 - ✅ **Step 1.2 grep 完成**:`worktree add` / `EnterWorktree` 在 application source 25 个文件全部只是 jsdoc / schema description / 用户文档**教学性提及**,**没有任何 git worktree add 实际调用**。EnterWorktree 是 **Claude Code CLI v2.1.112 builtin 工具**,不是 application 实现
 - ✅ **Root cause 100% 实证定位**:CLI 自带的 EnterWorktree builtin 工具默认用 `origin/<default-branch>` 作 base,**不用本地 HEAD**。Bug 实证链:
-    1. CLI binary 路径:`/Users/apple/.nvm/versions/node/v24.10.0/lib/node_modules/@anthropic-ai/claude-code/cli.js`(13MB minified bundle,v2.1.112)
+    1. CLI binary 路径:`$HOME/.nvm/versions/node/v24.10.0/lib/node_modules/@anthropic-ai/claude-code/cli.js`(13MB minified bundle,v2.1.112)
     2. EnterWorktree 实现位置:cli.js byte 11793500-11794800(`worktree add` 实际调用 ≈ byte 11794069)
     3. 实现逻辑(pretty-printed minified):
        ```js
@@ -121,8 +121,8 @@ completed_at: "2026-05-15"
 
 按 user CLAUDE.md cold-start 流程:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/worktree-stale-base-bug-20260515.md` 全文读 plan
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/worktree-stale-base-bug-20260515")` 进 worktree(用 `path` 不是 `name`)
+1. `Bash: cat ./.claude/plans/worktree-stale-base-bug-20260515.md` 全文读 plan
+2. `EnterWorktree(path: "./.claude/worktrees/worktree-stale-base-bug-20260515")` 进 worktree(用 `path` 不是 `name`)
 3. `git log --oneline -3` 自检 HEAD = 91c4568
 4. **从 Step 1.1 开始**:在 `/tmp/wt-repro-X/` 等临时目录跑复现实验(不要在 plan worktree 内复现避免污染),记录复现 trace
 5. Step 1.2 grep 找 EnterWorktree CLI 实现

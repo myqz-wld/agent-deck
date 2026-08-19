@@ -1,6 +1,6 @@
 # CHANGELOG_169 — Deep-Review 批 A fix (mcp tools handler)
 
-> 计划文件: `/Users/apple/.claude/plans/glowing-mapping-badger.md`（in_progress）
+> 计划文件: `$HOME/.claude/plans/glowing-mapping-badger.md`（in_progress）
 >
 > 本批 fix 收口 deep-review 批 A（mcp tools 核心 handler）异构对抗多轮 review 三态裁决出的
 > **2 HIGH + 8 MED = 10 条必修 finding**。reviewer 双方独立提出 + 反驳轮验证 + 主 agent 现场

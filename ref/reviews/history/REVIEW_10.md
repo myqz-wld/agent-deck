@@ -102,7 +102,7 @@ src/main/window.ts
 [adapter] aider initialized
 [adapter] generic-pty initialized
 [hook-server] listening on 127.0.0.1:47821
-[session-mgr] expect sdk session @ /Users/apple/Repository/personal/agent-deck (ttl 60000ms)
+[session-mgr] expect sdk session @ . (ttl 60000ms)
 [window] shown via did-finish-load
 ```
 

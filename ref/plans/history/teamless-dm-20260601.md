@@ -1,7 +1,7 @@
 ---
 plan_id: "teamless-dm-20260601"
 created_at: "2026-06-01T13:15:14Z"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/teamless-dm-20260601"
+worktree_path: "./.claude/worktrees/teamless-dm-20260601"
 status: "completed"
 base_commit: "6084f7d9d99d0fc9afa18752a7d97a438e4f3c56"
 base_branch: "main"

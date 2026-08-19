@@ -8,7 +8,7 @@ approved_at: 2026-08-03
 completed_at: 2026-08-03
 base_branch: main
 base_commit: 027fa817e32ab72faddb878bcf1d9b8bb506e9c3
-worktree_path: /Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/agent-deck-019fc66e-45c-mscy450g
+worktree_path: ./.agent-deck/worktrees/agent-deck-019fc66e-45c-mscy450g
 implementation_branch: codex/context-window-observation-unification
 agent_deck_task_id: 48ee75bd-b117-410f-a7b8-8bfb83197842
 related_changelog: CHANGELOG_430
@@ -424,7 +424,7 @@ freshness, fallback sizing, persistence, freezing, and validation are determinis
   passed 86 files / 573 tests; T3 passed 81 files / 499 tests; T2 passed 8 files / 70 tests; T1
   passed 4 files / 15 tests; original audit baseline remains 8 files / 106 tests.
 - Workspace state at final validation: isolated worktree
-  `/Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/agent-deck-019fc66e-45c-mscy450g`
+  `./.agent-deck/worktrees/agent-deck-019fc66e-45c-mscy450g`
   entered at `027fa817e32ab72faddb878bcf1d9b8bb506e9c3`; implementation branch is
   `codex/context-window-observation-unification`; reviewed implementation HEAD is `fce0f761`.
 - Review state: user selected reviewer-claude + reviewer-codex. Claude workers use Gateway

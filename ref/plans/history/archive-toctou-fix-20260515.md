@@ -1,7 +1,7 @@
 ---
 plan_id: "archive-toctou-fix-20260515"
 created_at: "2026-05-15"
-worktree_path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-toctou-fix-20260515"
+worktree_path: "./.claude/worktrees/archive-toctou-fix-20260515"
 status: "completed"
 base_commit: "1456824"
 base_branch: "main"
@@ -183,8 +183,8 @@ R1 review 决策修法 A vs B,然后实施 Phase 2 一并 reasonKind + union nar
 
 新会话 cold start:
 
-1. `Bash: cat /Users/apple/Repository/personal/agent-deck/.claude/plans/archive-toctou-fix-20260515.md` 全文(看当前阶段 + 已踩坑)
-2. `EnterWorktree(path: "/Users/apple/Repository/personal/agent-deck/.claude/worktrees/archive-toctou-fix-20260515")` 进同一 worktree(用 `path` 不是 `name`)
+1. `Bash: cat ./.claude/plans/archive-toctou-fix-20260515.md` 全文(看当前阶段 + 已踩坑)
+2. `EnterWorktree(path: "./.claude/worktrees/archive-toctou-fix-20260515")` 进同一 worktree(用 `path` 不是 `name`)
 3. `git status` + `git log --oneline -3` 自检 — HEAD 应在 base_commit `1456824` 或之后
 4. 按当前 phase checkbox 推进:
    - Phase 1 未完成 → spawn R1 reviewer team(`agent-deck:deep-code-review` SKILL 帮忙编排)

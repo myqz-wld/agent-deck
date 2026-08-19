@@ -1,11 +1,11 @@
 captured_at=2026-07-10T21:10:19-07:00
-source_root=/Users/wanglidong/Repository/agent-deck
+source_root=.
 source_branch=main
 source_head=e4729c31a11942a0bb9788f682f25e08a498a541
 source_tracked_diff_sha256=b3b3ba13e66928a23d3100f25410b97e3d1249a0b0e8050ed6ad3871a5a53d56
 source_untracked_feature_count=16
 excluded_runtime_artifact=.agent-deck/
-worktree=/Users/wanglidong/Repository/agent-deck/.agent-deck/worktrees/codex__unified-continuation-context
+worktree=./.agent-deck/worktrees/codex__unified-continuation-context
 work_branch=codex/unified-continuation-context
 worktree_baseline_commit=92382b43aae51875531c7f56a08550acdc9dad9e
 
