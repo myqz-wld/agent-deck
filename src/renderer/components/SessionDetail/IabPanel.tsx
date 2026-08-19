@@ -17,6 +17,11 @@ interface AnnotationDraft {
   readonly targetKey: string;
 }
 
+interface PlacementRequest {
+  readonly key: string;
+  pending: boolean;
+}
+
 function tabTitle(value: string): string {
   const title = value.trim() || '新标签页';
   return title.length > 80 ? `${title.slice(0, 79)}…` : title;
@@ -53,6 +58,7 @@ export function IabPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [closingTabId, setClosingTabId] = useState<number | null>(null);
   const [captureBusy, setCaptureBusy] = useState(false);
+  const [placementReady, setPlacementReady] = useState(false);
   const [annotation, setAnnotation] = useState<AnnotationDraft | null>(null);
   const [placementEpoch, setPlacementEpoch] = useState(0);
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -67,6 +73,7 @@ export function IabPanel({
   sourceRef.current = source;
   const beginRevisionRef = useRef<number | null>(null);
   const lastPlacementRef = useRef<string | null>(null);
+  const placementRequestRef = useRef<PlacementRequest | null>(null);
   const selectedTab = useMemo(
     () => snapshot.tabs.find((tab) => tab.id === selectedTabId) ?? snapshot.tabs[0] ?? null,
     [selectedTabId, snapshot.tabs],
@@ -75,9 +82,11 @@ export function IabPanel({
   const restorePresentation = useCallback((message: string | null): void => {
     captureRequestRef.current += 1;
     setCaptureBusy(false);
+    setPlacementReady(false);
     setAnnotation(null);
     setNotice(message);
     lastPlacementRef.current = null;
+    placementRequestRef.current = null;
     setPlacementEpoch((value) => value + 1);
   }, []);
 
@@ -91,9 +100,11 @@ export function IabPanel({
     lastPlacementRef.current = null;
     setLeaseId(null);
     setCaptureBusy(false);
+    setPlacementReady(false);
     setAnnotation(null);
     setError(null);
     setNotice(null);
+    placementRequestRef.current = null;
   }, [sourceIdentity]);
 
   useEffect(() => {
@@ -121,6 +132,7 @@ export function IabPanel({
     captureRequestRef.current += 1;
     const lease = leaseRef.current;
     leaseRef.current = null;
+    placementRequestRef.current = null;
     if (lease != null) void window.api.parkBrowserPresentation({ leaseId: lease.leaseId });
   }, [sourceIdentity]);
 
@@ -135,17 +147,19 @@ export function IabPanel({
       reason = 'IAB 标签已切换，未完成的标注已取消。';
     } else if (composerTarget.key !== annotation.targetKey || composerTarget.status !== 'supported') {
       reason = '当前会话的图片输入能力已变化，未完成的标注已取消。';
-    } else if (tab == null) {
-      reason = '原 IAB 标签已关闭，未完成的标注已取消。';
-    } else if (
-      sanitizedBrowserUrl(tab.url) !== capture.url ||
-      tab.viewportRevision !== capture.viewportRevision
-    ) {
-      reason = '页面内容或视口已变化，未完成的标注已取消。';
+    } else if (snapshot.revision >= capture.snapshot.revision) {
+      if (tab == null) {
+        reason = '原 IAB 标签已关闭，未完成的标注已取消。';
+      } else if (
+        sanitizedBrowserUrl(tab.url) !== capture.url ||
+        tab.viewportRevision !== capture.viewportRevision
+      ) {
+        reason = '页面内容或视口已变化，未完成的标注已取消。';
+      }
     }
     if (reason != null) restorePresentation(reason);
   }, [annotation, composerTarget.key, composerTarget.status, restorePresentation,
-    selectedTabId, snapshot.tabs, sourceIdentity]);
+    selectedTabId, snapshot.revision, snapshot.tabs, sourceIdentity]);
 
   useEffect(() => {
     const element = viewportRef.current;
@@ -155,7 +169,10 @@ export function IabPanel({
     const place = (): void => {
       frame = 0;
       const bounds = integerBounds(element);
-      if (bounds == null) return;
+      if (bounds == null) {
+        setPlacementReady(false);
+        return;
+      }
       if (annotation != null) {
         if (!sameBounds(bounds, annotation.capture.presentationBounds)) {
           restorePresentation('IAB 面板尺寸已变化，未完成的标注已取消。');
@@ -163,14 +180,30 @@ export function IabPanel({
         return;
       }
       const placementKey = JSON.stringify([leaseId, selectedTabId, bounds, placementEpoch]);
-      if (placementKey === lastPlacementRef.current) return;
+      if (placementKey === lastPlacementRef.current) {
+        const request = placementRequestRef.current;
+        if (request == null || request.key !== placementKey || !request.pending) {
+          setPlacementReady(true);
+        }
+        return;
+      }
       lastPlacementRef.current = placementKey;
+      const request: PlacementRequest = { key: placementKey, pending: true };
+      placementRequestRef.current = request;
+      setPlacementReady(false);
       void window.api.updateBrowserPresentation({
         leaseId,
         tabId: selectedTabId,
         bounds,
+      }).then(() => {
+        request.pending = false;
+        if (!disposed && placementRequestRef.current === request) setPlacementReady(true);
       }).catch(() => {
-        if (!disposed) setError('IAB 视图连接已失效，请重新打开此标签。');
+        request.pending = false;
+        if (disposed || placementRequestRef.current !== request) return;
+        lastPlacementRef.current = null;
+        setPlacementReady(false);
+        setError('IAB 视图连接已失效，请重新打开此标签。');
       });
     };
     const schedule = (): void => {
@@ -193,6 +226,9 @@ export function IabPanel({
     if (tabId !== selectedTabId && annotation != null) {
       restorePresentation('IAB 标签已切换，未完成的标注已取消。');
     }
+    placementRequestRef.current = null;
+    lastPlacementRef.current = null;
+    setPlacementReady(false);
     setSelectedTabId(tabId);
     setError(null);
   };
@@ -202,7 +238,7 @@ export function IabPanel({
     const currentLease = leaseRef.current;
     if (
       captureBusy || selectedId == null || currentLease == null ||
-      composerTarget.status !== 'supported'
+      !placementReady || composerTarget.status !== 'supported'
     ) return;
     const requestId = captureRequestRef.current + 1;
     captureRequestRef.current = requestId;
@@ -222,9 +258,12 @@ export function IabPanel({
         currentTarget.key !== composerTarget.key || currentTarget.status !== 'supported'
       ) {
         lastPlacementRef.current = null;
+        placementRequestRef.current = null;
+        setPlacementReady(false);
         setPlacementEpoch((value) => value + 1);
         return;
       }
+      setPlacementReady(false);
       setAnnotation({ capture, targetKey: currentTarget.key });
     } catch (cause) {
       if (captureRequestRef.current === requestId) {
@@ -261,6 +300,9 @@ export function IabPanel({
     void window.api.closeBrowserPresentationTab({ leaseId, tabId }).then((result) => {
       const next = result.snapshot?.tabs.find((tab) => tab.active)?.id ??
         result.snapshot?.tabs[0]?.id ?? null;
+      placementRequestRef.current = null;
+      lastPlacementRef.current = null;
+      setPlacementReady(false);
       setSelectedTabId(next);
       setError(null);
     }).catch(() => setError('关闭 IAB 标签失败，请稍后重试。'))
@@ -305,7 +347,7 @@ export function IabPanel({
           <button
             type="button"
             className="shrink-0 rounded border border-deck-border/60 px-1.5 py-0.5 text-[9px] text-deck-text hover:bg-white/10 disabled:opacity-40"
-            disabled={leaseId == null || captureBusy || annotation != null}
+            disabled={leaseId == null || !placementReady || captureBusy || annotation != null}
             onClick={() => void beginAnnotation()}
           >
             {captureBusy ? '截图中…' : '标注'}

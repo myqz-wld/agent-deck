@@ -180,6 +180,115 @@ describe('Browser presentation controller', () => {
     expect(JSON.stringify(capture)).not.toContain('opaque-owner');
   });
 
+  it('retries a viewport capture after one transient presentation revision', async () => {
+    const { controller, snapshot } = await setup(1);
+    const lease = controller.begin(42, source, snapshot.revision);
+    controller.update(42, lease.leaseId, 1, bounds);
+    const png = Buffer.alloc(24);
+    Buffer.from('89504e470d0a1a0a', 'hex').copy(png, 0);
+    png.writeUInt32BE(456, 16);
+    png.writeUInt32BE(321, 20);
+    const surface = surfaces[0]!;
+    let captureCount = 0;
+    surface.window.webContents.capturePage.mockImplementation(async () => {
+      captureCount += 1;
+      if (captureCount === 1) surface.viewportRevisionValue += 1;
+      return {
+        toPNG: () => png,
+        getSize: () => ({ width: 456, height: 321 }),
+        resize: () => ({ toPNG: () => png }),
+      };
+    });
+
+    const capture = await controller.captureAnnotation(42, lease.leaseId, 1);
+
+    expect(captureCount).toBe(2);
+    expect(capture).toMatchObject({
+      viewportRevision: 2,
+      presentationBounds: bounds,
+      physicalPixels: { width: 456, height: 321 },
+    });
+  });
+
+  it('still rejects a viewport that changes throughout every capture attempt', async () => {
+    const { controller, snapshot } = await setup(1);
+    const lease = controller.begin(42, source, snapshot.revision);
+    controller.update(42, lease.leaseId, 1, bounds);
+    const png = Buffer.alloc(24);
+    Buffer.from('89504e470d0a1a0a', 'hex').copy(png, 0);
+    png.writeUInt32BE(456, 16);
+    png.writeUInt32BE(321, 20);
+    const surface = surfaces[0]!;
+    surface.window.webContents.capturePage.mockImplementation(async () => {
+      surface.viewportRevisionValue += 1;
+      return {
+        toPNG: () => png,
+        getSize: () => ({ width: 456, height: 321 }),
+        resize: () => ({ toPNG: () => png }),
+      };
+    });
+
+    await expect(controller.captureAnnotation(42, lease.leaseId, 1))
+      .rejects.toThrow(/page changed/);
+    expect(surface.window.webContents.capturePage).toHaveBeenCalledTimes(3);
+    expect(surface.park).not.toHaveBeenCalled();
+  });
+
+  it('retries when page scroll settles between capture attempts', async () => {
+    const { controller, snapshot } = await setup(1);
+    const lease = controller.begin(42, source, snapshot.revision);
+    controller.update(42, lease.leaseId, 1, bounds);
+    const png = Buffer.alloc(24);
+    Buffer.from('89504e470d0a1a0a', 'hex').copy(png, 0);
+    png.writeUInt32BE(456, 16);
+    png.writeUInt32BE(321, 20);
+    const surface = surfaces[0]!;
+    let viewportRead = 0;
+    surface.window.jsHandler = () => {
+      viewportRead += 1;
+      return {
+        scrollX: viewportRead === 1 ? 0 : 24,
+        scrollY: 0,
+        width: 456,
+        height: 321,
+      };
+    };
+    surface.window.webContents.capturePage.mockResolvedValue({
+      toPNG: () => png,
+      getSize: () => ({ width: 456, height: 321 }),
+      resize: () => ({ toPNG: () => png }),
+    });
+
+    const capture = await controller.captureAnnotation(42, lease.leaseId, 1);
+
+    expect(surface.window.webContents.capturePage).toHaveBeenCalledTimes(2);
+    expect(capture.scroll).toEqual({ x: 24, y: 0 });
+  });
+
+  it('does not retry an annotation capture across real navigation', async () => {
+    const { controller, snapshot } = await setup(1);
+    const lease = controller.begin(42, source, snapshot.revision);
+    controller.update(42, lease.leaseId, 1, bounds);
+    const png = Buffer.alloc(24);
+    Buffer.from('89504e470d0a1a0a', 'hex').copy(png, 0);
+    png.writeUInt32BE(456, 16);
+    png.writeUInt32BE(321, 20);
+    const surface = surfaces[0]!;
+    surface.window.webContents.capturePage.mockImplementation(async () => {
+      surface.window.url = 'https://example.test/next';
+      return {
+        toPNG: () => png,
+        getSize: () => ({ width: 456, height: 321 }),
+        resize: () => ({ toPNG: () => png }),
+      };
+    });
+
+    await expect(controller.captureAnnotation(42, lease.leaseId, 1))
+      .rejects.toThrow(/page changed/);
+    expect(surface.window.webContents.capturePage).toHaveBeenCalledOnce();
+    expect(surface.park).not.toHaveBeenCalled();
+  });
+
   it('rejects an unsafe physical canvas size before parking the live view', async () => {
     const { controller, snapshot } = await setup(1);
     const lease = controller.begin(42, source, snapshot.revision);

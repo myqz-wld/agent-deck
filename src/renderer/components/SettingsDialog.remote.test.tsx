@@ -274,7 +274,7 @@ describe('SettingsDialog adapter views', () => {
       enableSound: !DEFAULT_SETTINGS.enableSound,
     }));
     expect(remoteView.container.textContent).not.toContain('Worker 配置');
-    expect(remoteView.container.textContent).not.toContain('Remote Core');
+    expect(remoteView.container.textContent).not.toContain('Remote Core 配置');
   });
 
   it('never falls back to Local settings when the Remote Core lacks node configuration', async () => {

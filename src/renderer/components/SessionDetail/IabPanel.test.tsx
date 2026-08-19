@@ -68,6 +68,12 @@ function RegisterTarget({ addPng }: { addPng: (file: File) => Promise<boolean> }
   return null;
 }
 
+async function clickReadyAnnotation(): Promise<void> {
+  const button = await screen.findByRole('button', { name: '标注' });
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(button);
+}
+
 describe('IabPanel annotation handoff', () => {
   const originalResizeObserver = globalThis.ResizeObserver;
   let currentRect: DOMRect;
@@ -103,6 +109,75 @@ describe('IabPanel annotation handoff', () => {
     cleanup();
   });
 
+  it('keeps annotation disabled until the native view placement settles', async () => {
+    let resolvePlacement!: (value: {
+      snapshot: BrowserStateSnapshot;
+      appliedBounds: { x: number; y: number; width: number; height: number };
+    }) => void;
+    const placement = new Promise<{
+      snapshot: BrowserStateSnapshot;
+      appliedBounds: { x: number; y: number; width: number; height: number };
+    }>((resolve) => { resolvePlacement = resolve; });
+    window.api = {
+      beginBrowserPresentation: vi.fn(async () => ({ leaseId: 'lease-a', source, snapshot })),
+      updateBrowserPresentation: vi.fn(() => placement),
+      captureBrowserAnnotation: vi.fn(async () => capture),
+      parkBrowserPresentation: vi.fn(async () => true),
+    } as unknown as typeof window.api;
+    render(
+      <IabComposerBridgeProvider>
+        <RegisterTarget addPng={vi.fn(async () => true)} />
+        <IabPanel source={source} snapshot={snapshot} />
+      </IabComposerBridgeProvider>,
+    );
+
+    const button = await screen.findByRole('button', { name: '标注' });
+    expect((button as HTMLButtonElement).disabled).toBe(true);
+    resolvePlacement({ snapshot, appliedBounds: capture.presentationBounds });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it('keeps a capture while its authoritative projection is ahead of renderer state', async () => {
+    const nextSnapshot: BrowserStateSnapshot = {
+      ...snapshot,
+      revision: snapshot.revision + 1,
+      tabs: [{ ...snapshot.tabs[0]!, viewportRevision: 4 }],
+    };
+    const nextCapture: BrowserAnnotationCapture = {
+      ...capture,
+      snapshot: nextSnapshot,
+      viewportRevision: 4,
+    };
+    window.api = {
+      beginBrowserPresentation: vi.fn(async () => ({ leaseId: 'lease-a', source, snapshot })),
+      updateBrowserPresentation: vi.fn(async (request) => ({
+        snapshot, appliedBounds: request.bounds,
+      })),
+      captureBrowserAnnotation: vi.fn(async () => nextCapture),
+      parkBrowserPresentation: vi.fn(async () => true),
+    } as unknown as typeof window.api;
+    const view = render(
+      <IabComposerBridgeProvider>
+        <RegisterTarget addPng={vi.fn(async () => true)} />
+        <IabPanel source={source} snapshot={snapshot} />
+      </IabComposerBridgeProvider>,
+    );
+
+    const button = await screen.findByRole('button', { name: '标注' });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await screen.findByTestId('annotation-canvas');
+    await waitFor(() => expect(screen.queryByTestId('annotation-canvas')).toBeTruthy());
+
+    view.rerender(
+      <IabComposerBridgeProvider>
+        <RegisterTarget addPng={vi.fn(async () => true)} />
+        <IabPanel source={source} snapshot={nextSnapshot} />
+      </IabComposerBridgeProvider>,
+    );
+    expect(await screen.findByTestId('annotation-canvas')).toBeTruthy();
+  });
+
   it('adds the completed PNG only through the registered composer attachment target', async () => {
     const addPng = vi.fn(async (_file: File) => true);
     window.api = {
@@ -121,7 +196,7 @@ describe('IabPanel annotation handoff', () => {
       </IabComposerBridgeProvider>,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: '标注' }));
+    await clickReadyAnnotation();
     await screen.findByTestId('annotation-canvas');
     fireEvent.click(screen.getByRole('button', { name: '完成测试标注' }));
 
@@ -169,7 +244,7 @@ describe('IabPanel annotation handoff', () => {
         <IabPanel source={source} snapshot={snapshot} />
       </IabComposerBridgeProvider>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: '标注' }));
+    await clickReadyAnnotation();
     await screen.findByTestId('annotation-canvas');
 
     const navigated: BrowserStateSnapshot = {
@@ -205,7 +280,7 @@ describe('IabPanel annotation handoff', () => {
         <IabPanel source={source} snapshot={snapshot} />
       </IabComposerBridgeProvider>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: '标注' }));
+    await clickReadyAnnotation();
     await screen.findByTestId('annotation-canvas');
 
     currentRect = {
