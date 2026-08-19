@@ -1,7 +1,7 @@
 ---
 plan_id: claude-restart-jsonl-drain-20260622
 created_at: 2026-06-22
-worktree_path: <repo>
+worktree_path: .
 status: completed
 base_commit: 9469073
 ---

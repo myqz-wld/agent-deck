@@ -2,7 +2,7 @@
 
 ## Scope
 
-Routing index for final plan documents. Only final plan documents enter `ref/plans/`. Keep non-final plans in the current environment's plan workspace; if no stronger contract exists, use `<repo>/.ref/plans/`. Add `.ref/` to `.gitignore`. Archive durable support materials meant for future agents somewhere under `ref/` and link them back to the plan; keep unarchived support materials in `.ref/`.
+Routing index for final plan documents. Only final plan documents enter `ref/plans/`. Keep non-final plans in the current environment's plan workspace; if no stronger contract exists, use `.ref/plans/`. Add `.ref/` to `.gitignore`. Archive durable support materials meant for future agents somewhere under `ref/` and link them back to the plan; keep unarchived support materials in `.ref/`.
 
 This root index defines routing and bucket policy only. Per-record plan rows live only in the bucket `INDEX.md` files.
 

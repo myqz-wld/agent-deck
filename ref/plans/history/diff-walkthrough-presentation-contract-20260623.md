@@ -2,7 +2,7 @@
 plan_id: diff-walkthrough-presentation-contract-20260623
 created_at: 2026-06-23
 status: completed
-worktree_path: <repo>
+worktree_path: .
 base_commit: 2a7b2c8930b5bf422c587883df8a69ccb51cf242
 ---
 
@@ -25,23 +25,23 @@ Invariants:
 
 Editable Agent Deck assets:
 
-- `<repo>/src/main/agent-deck-mcp/tools/index.ts`
-- `<repo>/src/main/agent-deck-mcp/tools/schemas.ts`
+- `./src/main/agent-deck-mcp/tools/index.ts`
+- `./src/main/agent-deck-mcp/tools/schemas.ts`
 
 Agent Deck counterpart check only:
 
-- `<repo>/resources/claude-config/CLAUDE.md`
-- `<repo>/resources/codex-config/CODEX_AGENTS.md`
+- `./resources/claude-config/CLAUDE.md`
+- `./resources/codex-config/CODEX_AGENTS.md`
 
 Editable Skill Market assets:
 
-- `$HOME/Repository/skill-market/skills/claude/diff-walkthrough/SKILL.md`
-- `$HOME/Repository/skill-market/skills/codex/diff-walkthrough/SKILL.md`
+- `../skill-market/skills/claude/diff-walkthrough/SKILL.md`
+- `../skill-market/skills/codex/diff-walkthrough/SKILL.md`
 
 Skill Market metadata check only:
 
-- `$HOME/Repository/skill-market/skills/claude/diff-walkthrough/agents/openai.yaml`
-- `$HOME/Repository/skill-market/skills/codex/diff-walkthrough/agents/openai.yaml`
+- `../skill-market/skills/claude/diff-walkthrough/agents/openai.yaml`
+- `../skill-market/skills/codex/diff-walkthrough/agents/openai.yaml`
 
 Installed user skill copies under `~/.claude` and `~/.codex` are comparison targets only unless scope is explicitly expanded.
 

@@ -3,7 +3,7 @@ plan_id: codex-create-session-latency-20260619
 status: completed
 created_at: 2026-06-19
 base_commit: d50c906
-worktree_path: <repo>
+worktree_path: .
 ---
 
 # Goal

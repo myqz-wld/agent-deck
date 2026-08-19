@@ -62,9 +62,9 @@ cases the new service was stopped and the old healthy Relay was restored before 
 - Quadlet service: `agent-deck-relay@aws-relay-with-mac-worker.service`
 - Container: `agent-deck-relay-aws-relay-with-mac-worker`
 - Config:
-  `/home/ubuntu/.config/agent-deck-relay/aws-relay-with-mac-worker/config.json`
+  `$HOME/.config/agent-deck-relay/aws-relay-with-mac-worker/config.json`
 - State:
-  `/home/ubuntu/.local/share/agent-deck-relay/aws-relay-with-mac-worker`
+  `$HOME/.local/share/agent-deck-relay/aws-relay-with-mac-worker`
 - Control socket:
   `/run/user/1000/agent-deck-relay/aws-relay-with-mac-worker/control.sock`
 - Host health gate: `/opt/agent-deck/bin/agent-deck-relay-health-gate`

@@ -70,7 +70,7 @@ R1 reviewer-codex teammate 第一次撞 codex CLI sandbox `read-only` EPERM 链�
 
 - reviewer-claude MED-2 + reviewer-codex Batch A M1 + reviewer-codex Batch B H2（codex 升 HIGH）
 - 文件：`hand-off-session.ts:209` + `sandbox-config.ts:156`
-- 问题：CHANGELOG_99 plan-driven default cwd 改为 mainRepo（cwd resilience）。约定 worktree（`<mainRepo>/.claude/worktrees/<plan-id>`）正常 ✓。但**外置 worktree**（用户手动 `git worktree add /tmp/wt` / `/Users/me/elsewhere/wt`）下 cwd=mainRepo + sandbox.allowWrite=[mainRepo, /tmp, ~/.cache] 不覆盖外置路径 → workspace-write 写每个文件弹框 / strict 完全卡死
+- 问题：CHANGELOG_99 plan-driven default cwd 改为 mainRepo（cwd resilience）。约定 worktree（`<mainRepo>/.claude/worktrees/<plan-id>`）正常 ✓。但**外置 worktree**（用户手动 `git worktree add /tmp/wt` / `../elsewhere/wt`）下 cwd=mainRepo + sandbox.allowWrite=[mainRepo, /tmp, ~/.cache] 不覆盖外置路径 → workspace-write 写每个文件弹框 / strict 完全卡死
 - 修法：plan-driven 模式 default cwd 推导加分支 — `worktreePath.startsWith(mainRepo + '/')` 命中 → mainRepo（约定 worktree）；否则 → worktreePath（外置 worktree）。判定用 `mainRepo + '/'` 严格防同名前缀误命中（`/repo` vs `/repo-other`）
 
 ### ✅ LOW 真问题（trivial 直接合）
@@ -101,7 +101,7 @@ R1 fix 全过 + 无回归 ✅（reviewer-claude R2 详 audit + reviewer-codex Ba
 
 - reviewer-codex 双批共识：Batch A R2 H1 + Batch B R2 H2（HIGH-3 follow-up）
 - reviewer-claude R2 视为「fallback 路径固有 trade-off」，reviewer-codex 视为 silent escalation HIGH
-- 问题：recoverer.ts cwd fallback 后 sandbox.allowWrite=[fallback cwd, /tmp, ~/.cache]，原 worktree 写边界扩大到 fallback 父目录（如 `/Users/me/elsewhere/wt` 删了 → fallback `/Users/me/elsewhere`）
+- 问题：recoverer.ts cwd fallback 后 sandbox.allowWrite=[fallback cwd, /tmp, ~/.cache]，原 worktree 写边界扩大到 fallback 父目录（如 `../elsewhere/wt` 删了 → fallback `$HOME/elsewhere`）
 - **轻量级架构修法**（不走 migration）：保留 fallback 算法（不破坏现有 best-effort 体验）+ 强 emit warn message 告诉用户「workspace-write 档下 sandbox 写权限边界变化，原写权限范围 X，新写权限范围 Y（fallback 父目录），如安全敏感请右键归档新建会话」。让用户透明知情决策。strict / off 档不需提示（无 allowWrite / 无 sandbox）
 
 ### ✅ R2 MED 真问题

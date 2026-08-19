@@ -140,7 +140,7 @@ R3 重 spawn 4 reviewer fresh review,**未识别 fix 引入 regression**(plan §
   - `src/main/agent-deck-mcp/__tests__/plan-path-helpers.test.ts` (8 cases 3 档 fallback + 优先级)
   - `src/main/agent-deck-mcp/tools/handlers/plan-path-helpers.ts` (新增 helper)
 - 现有测试增量:TC15 cwd-marker / hand-off stem case / exit_worktree partial-success case
-- Phase 1 fix mainRepo dirty precheck 引入的 mock 队列偏移 regression 通过 `archive-plan/_setup.ts` 透明拦截 mainRepo `git status` mock 修复(`recognizedMainRepos` 默认含 `/Users/test/repo`)
+- Phase 1 fix mainRepo dirty precheck 引入的 mock 队列偏移 regression 通过 `archive-plan/_setup.ts` 透明拦截 mainRepo `git status` mock 修复(`recognizedMainRepos` 默认含 `$HOME/repo`)
 
 ## 验证
 

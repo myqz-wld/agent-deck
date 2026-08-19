@@ -134,7 +134,7 @@ src/renderer/stores/session-store.ts
 |---|---|---|---|
 | L1 | `activity-feed/index.tsx:104` | `<ol>` 缺 `role="log"` / `aria-live="polite"`，事件流式推入屏阅器静默 | A MED + B LOW |
 | L2 | `SettingsDialog.tsx:115-126,119` | modal 缺 ESC 关闭、缺 backdrop 点击关闭、缺 `role="dialog"` / `aria-modal` / focus trap，`✕` 按钮无 aria-label | A MED + B LOW |
-| L3 | `ClaudeMdEditor.tsx:37,62,90` | main 抛错原文带绝对路径直接渲染 UI（如 `ENOENT: no such file '/Users/.../.claude/CLAUDE.md'`） | A LOW + B MED |
+| L3 | `ClaudeMdEditor.tsx:37,62,90` | main 抛错原文带绝对路径直接渲染 UI（如 `ENOENT: no such file '$HOME/.claude/CLAUDE.md'`） | A LOW + B MED |
 | L4 | `activity-feed/shared.ts:32` | `EMPTY_EVENTS: AgentEvent[] = []` 暴露可变数组，消费方误 push 即污染所有会话兜底引用 | A LOW |
 | L5 | `activity-feed/describe.ts:9,28,5-37` | `cwd ?? ''` 留尾随 " · "；`p.message as string` 对象会变 `[object Object]`；default 显示原始 kind 字符串 | A LOW |
 | L6 | `controls.tsx:248,129` | `(err as Error).message` 没 `?? String(err)` 兜底，非 Error throw 渲染 "失败：undefined"；`path.split('/')` 假设 POSIX（macOS-only 当下 OK） | A LOW |
