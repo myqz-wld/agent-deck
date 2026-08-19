@@ -421,7 +421,11 @@ describe('SessionDetail source shell', () => {
     try {
       render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
       fireEvent.click(await screen.findByRole('button', { name: 'IAB' }));
-      fireEvent.click(await screen.findByRole('button', { name: '标注' }));
+      const annotationButton = await screen.findByRole('button', { name: '标注' });
+      await waitFor(() => {
+        expect((annotationButton as HTMLButtonElement).disabled).toBe(false);
+      });
+      fireEvent.click(annotationButton);
       fireEvent.click(await screen.findByRole('button', { name: '完成远程标注' }));
 
       expect(await screen.findByAltText('iab-annotation.png')).toBeTruthy();
