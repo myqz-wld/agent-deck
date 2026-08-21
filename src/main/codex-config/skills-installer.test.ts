@@ -278,10 +278,11 @@ describe('Codex bundled skills mirror', () => {
 
     setFilesystem();
     writeSkillsSource('v1');
+    expect(syncSkills()).toEqual(['alpha', 'beta']);
     expect(getCodexSkillExtraRootsForSession()).toEqual([mirrorRoot]);
   });
 
-  it('validates repeated calls and skips copying only while source and mirror still match', async () => {
+  it('keeps session reads shallow and repairs a changed mirror only during explicit sync', async () => {
     const { getCodexSkillExtraRootsForSession, setFilesystem, syncSkills } = await loadModules();
     let copyAttempts = 0;
     setFilesystem({
@@ -298,6 +299,8 @@ describe('Codex bundled skills mirror', () => {
 
     writeFileSync(join(mirrorRoot, 'beta', 'SKILL.md'), '# partial overwrite', 'utf8');
     expect(getCodexSkillExtraRootsForSession()).toEqual([mirrorRoot]);
+    expect(copyAttempts).toBe(1);
+    expect(syncSkills()).toEqual(['alpha', 'beta']);
     expect(copyAttempts).toBe(2);
     expect(readFileSync(join(mirrorRoot, 'beta', 'SKILL.md'), 'utf8')).toContain('# beta v1');
     expect(getMirrorOperationArtifacts()).toEqual([]);

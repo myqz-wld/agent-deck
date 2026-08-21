@@ -47,6 +47,7 @@ const defaultSkillsMirrorFilesystem: SkillsMirrorFilesystem = {
 
 let skillsMirrorFilesystem = defaultSkillsMirrorFilesystem;
 let skillsMirrorStore = createMirrorStore(skillsMirrorFilesystem);
+let preparedSkillNames: string[] | null = null;
 
 /** Test-only reset/injection point. */
 export function __setSkillsMirrorFilesystemForTests(
@@ -54,6 +55,7 @@ export function __setSkillsMirrorFilesystemForTests(
 ): void {
   skillsMirrorFilesystem = { ...defaultSkillsMirrorFilesystem, ...overrides };
   skillsMirrorStore = createMirrorStore(skillsMirrorFilesystem);
+  preparedSkillNames = null;
 }
 
 function createMirrorStore(filesystem: SkillsMirrorFilesystem): SkillsMirrorStore {
@@ -110,11 +112,11 @@ export function getBuiltinCodexSkillsSourceDir(): string {
   );
 }
 
-/** Prepare and validate the app-owned extra root for a new in-app Codex session. */
+/** Return the root already prepared by bootstrap or the settings apply hook. */
 export function getCodexSkillExtraRootsForSession(): string[] {
-  const written = syncSkills();
-  if (!written || written.length === 0) return [];
-  return [getCodexSkillsExtraRootDir()];
+  if (!settingsStore.get('injectAgentDeckCodexSkills') || !preparedSkillNames?.length) return [];
+  const root = getCodexSkillsExtraRootDir();
+  return skillsMirrorFilesystem.existsSync(root) ? [root] : [];
 }
 
 /**
@@ -128,10 +130,18 @@ export function syncSkills(): string[] | null {
   const mirrorDir = getCodexSkillsExtraRootDir();
   if (!settingsStore.get('injectAgentDeckCodexSkills')) {
     skillsMirrorStore.remove(mirrorDir);
+    preparedSkillNames = [];
     return [];
   }
-  return skillsMirrorStore.sync({
-    source: getBuiltinCodexSkillsSourceDir(),
-    destination: mirrorDir,
-  });
+  try {
+    const result = skillsMirrorStore.sync({
+      source: getBuiltinCodexSkillsSourceDir(),
+      destination: mirrorDir,
+    });
+    preparedSkillNames = result ? [...result] : null;
+    return result;
+  } catch (error) {
+    preparedSkillNames = null;
+    throw error;
+  }
 }

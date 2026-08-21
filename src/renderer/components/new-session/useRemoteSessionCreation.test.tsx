@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
 import type { SessionConsoleCapabilitiesResult } from '@contracts/index';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
+import { FAST_ASYNC_FALLBACK_GRACE_MS } from '@renderer/hooks/useDelayedAsyncFallback';
 import { useRemoteSessionCreation } from './useRemoteSessionCreation';
 
 function deferred<T>(): {
@@ -156,13 +157,39 @@ describe('useRemoteSessionCreation authority projection', () => {
     expect(hook.result.current.presentationOptions.model).toBe('gpt-5');
     expect(hook.result.current.descriptor).toBeNull();
 
-    await act(() => vi.advanceTimersByTimeAsync(120));
+    await act(() => vi.advanceTimersByTimeAsync(0));
     await act(async () => next.resolve(sessionConsoleCapabilitiesFixture('claude-code', '.')));
     expect(hook.result.current.adapterId).toBe('claude-code');
     expect(hook.result.current.presentationAdapterId).toBe('claude-code');
     expect(hook.result.current.presentationDescriptor?.selectedAdapterId).toBe('claude-code');
     expect(hook.result.current.presentationOptions.model).toBe('sonnet');
     expect(hook.result.current.ready).toBe(true);
+  });
+
+  it('releases a slow remote adapter switch to the target loading projection at 150 ms', async () => {
+    vi.useFakeTimers();
+    const next = deferred<SessionConsoleCapabilitiesResult>();
+    const getSessionCapabilities = vi.fn()
+      .mockResolvedValueOnce(descriptor('default-provider'))
+      .mockReturnValueOnce(next.promise);
+    const hook = renderHook(() => useRemoteSessionCreation({
+      active: true,
+      scopeKey: 'dialog-a',
+      source: source(getSessionCapabilities),
+      workingDirectory: '.',
+    }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    act(() => hook.result.current.setAdapterId('claude-code'));
+    expect(hook.result.current.presentationAdapterId).toBe('codex-cli');
+    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
+    expect(hook.result.current.presentationAdapterId).toBe('codex-cli');
+
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(hook.result.current.presentationAdapterId).toBe('claude-code');
+    expect(hook.result.current.presentationDescriptor).toBeNull();
+    expect(hook.result.current.loading).toBe(true);
+    await act(async () => next.resolve(sessionConsoleCapabilitiesFixture('claude-code', '.')));
   });
 
   it('invalidates an in-flight snapshot across same-identity disconnect and reconnect', async () => {

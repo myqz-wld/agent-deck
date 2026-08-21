@@ -93,7 +93,7 @@ export function useSessionCreationOptions({
   });
   const defaultsRequestGeneration = useRef(0);
   const providerCatalogGeneration = useRef(0);
-  const resolvedScope = useRef<string | null>(null);
+  const resolvedSelectionIdentity = useRef<string | null>(null);
   const requestKey = `${scopeKey}\u0000${adapterId}\u0000${cwd.trim()}\u0000${selectionRevision}`;
   const current = selection.identity === selectionIdentity
     ? selection.value
@@ -104,7 +104,7 @@ export function useSessionCreationOptions({
   useEffect(() => {
     const generation = ++defaultsRequestGeneration.current;
     if (!active) {
-      resolvedScope.current = null;
+      resolvedSelectionIdentity.current = null;
       setResolvedRequestKey(null);
       return;
     }
@@ -121,7 +121,7 @@ export function useSessionCreationOptions({
               identity: selectionIdentity,
               value: mergeRemembered(adapterId, resolved),
             });
-            resolvedScope.current = scopeKey;
+            resolvedSelectionIdentity.current = selectionIdentity;
             setResolvedRequestKey(requestKey);
           }
         })
@@ -134,11 +134,11 @@ export function useSessionCreationOptions({
               identity: selectionIdentity,
               value: mergeRemembered(adapterId, fallbackForAdapter(adapterId)),
             });
-            resolvedScope.current = scopeKey;
+            resolvedSelectionIdentity.current = selectionIdentity;
             setResolvedRequestKey(requestKey);
           }
         });
-    }, resolvedScope.current === scopeKey ? 120 : 0);
+    }, resolvedSelectionIdentity.current === selectionIdentity ? 120 : 0);
 
     return () => {
       if (defaultsRequestGeneration.current === generation) {

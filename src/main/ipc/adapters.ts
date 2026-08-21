@@ -1,5 +1,7 @@
 /** Adapter creation, messaging, pending requests, and runtime-control IPC handlers. */
 import { homedir } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
@@ -35,6 +37,7 @@ import {
   registerAdapterSandboxRestartIpc,
 } from './adapters-runtime-controls';
 import log from '@main/utils/logger';
+import { safeDiagnostic, safeErrorSummary } from '@main/utils/safe-diagnostic';
 
 const logger = log.scope('ipc-adapters');
 type PendingRequestList = Array<{ requestId: string }>;
@@ -71,6 +74,28 @@ export function registerAdaptersIpc(): void {
       throw new IpcInputError('opts', 'must be object');
     }
     const raw = opts as Record<string, unknown>;
+    const requestId = readCreateRequestId(raw._agentDeckCreateRequestId);
+    const startedAt = performance.now();
+    let phase = 'validation';
+    const slowTimer = setTimeout(() => {
+      logger.warn('[ipc createSession] request is still pending', safeDiagnostic({
+        event: 'adapter_session_create',
+        phase,
+        outcome: 'slow',
+        requestId,
+        adapterId: validAgentId,
+        durationMs: Math.round(performance.now() - startedAt),
+      }));
+    }, 2_000);
+    slowTimer.unref();
+    logger.info('[ipc createSession] request received', safeDiagnostic({
+      event: 'adapter_session_create',
+      phase: 'received',
+      outcome: 'started',
+      requestId,
+      adapterId: validAgentId,
+    }));
+    try {
     // cwd：留空 / 非字符串 → 兜底 homedir。renderer 对话框允许「不填」，CLI 也共用这条兜底。
     const cwdInput = raw.cwd;
     const cwd =
@@ -121,6 +146,7 @@ export function registerAdaptersIpc(): void {
       );
     }
     // attachments 写盘：失败 throw 已回滚兄弟附件。createSession throw 时本 handler 同款回滚。
+    phase = 'attachments';
     const attachments = await persistAdapterAttachments(raw.attachments, 'opts.attachments');
     let sid: string;
     try {
@@ -146,12 +172,14 @@ export function registerAdaptersIpc(): void {
       if (createOptions.agentId === 'codex-cli' && approvalPolicy !== null) {
         createOptions.approvalPolicy = approvalPolicy;
       }
+      phase = 'adapter-create';
       sid = await adapter.createSession(createOptions);
     } catch (err) {
       // createSession 失败：path 还没塞进 SDK 队列，安全清干净
       await Promise.all(attachments.map((r) => deleteUploadIfExists(r.path)));
       throw err;
     }
+    phase = 'post-create';
     // 持久化 permissionMode：抽到 sessionManager.recordCreatedPermissionMode，
     // CLI 路径（cli.ts applyCliInvocation）也走同一个 helper，确保两条入口语义一致。
     // REVIEW_108 MED-3：与 mcp spawn_session handler（spawn.ts:364-380）对称，把
@@ -172,7 +200,30 @@ export function registerAdaptersIpc(): void {
         );
       }
     }
+    logger.info('[ipc createSession] request completed', safeDiagnostic({
+      event: 'adapter_session_create',
+      phase: 'completed',
+      outcome: 'success',
+      requestId,
+      adapterId: validAgentId,
+      sessionShort: sid.slice(0, 12),
+      durationMs: Math.round(performance.now() - startedAt),
+    }));
     return sid;
+    } catch (error) {
+      logger.warn('[ipc createSession] request failed', safeDiagnostic({
+        event: 'adapter_session_create',
+        phase,
+        outcome: 'failed',
+        requestId,
+        adapterId: validAgentId,
+        durationMs: Math.round(performance.now() - startedAt),
+        error: safeErrorSummary(error),
+      }));
+      throw error;
+    } finally {
+      clearTimeout(slowTimer);
+    }
   });
   on(IpcInvoke.AdapterInterrupt, async (_e, agentId, sessionId) => {
     const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
@@ -386,4 +437,10 @@ export function registerAdaptersIpc(): void {
     return out;
   });
 
+}
+
+function readCreateRequestId(value: unknown): string {
+  if (typeof value !== 'string') return randomUUID();
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9-]{8,64}$/.test(trimmed) ? trimmed : randomUUID();
 }

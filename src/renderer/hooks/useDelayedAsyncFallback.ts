@@ -26,6 +26,34 @@ export function useDelayedAsyncFallback(
 }
 
 /**
+ * Keep the currently presented identity while a replacement is still pending.
+ *
+ * A fast replacement becomes visible atomically as soon as it settles. A slow replacement is
+ * allowed through after the shared grace period so the destination can present its own loading
+ * state. Unlike `useInitialAsyncPresentation`, this hook is for an already-mounted surface that
+ * has useful content to retain during an identity switch.
+ */
+export function useDeferredPendingIdentity(
+  pending: boolean,
+  identity: string,
+  delayMs: number = FAST_ASYNC_FALLBACK_GRACE_MS,
+): string {
+  const [visibleIdentity, setVisibleIdentity] = useState(identity);
+
+  useLayoutEffect(() => {
+    if (visibleIdentity === identity) return;
+    if (!pending) {
+      setVisibleIdentity(identity);
+      return;
+    }
+    const timer = window.setTimeout(() => setVisibleIdentity(identity), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [delayMs, identity, pending, visibleIdentity]);
+
+  return visibleIdentity;
+}
+
+/**
  * Gate only the first unresolved projection for one exact identity.
  *
  * Once that identity settles it remains ready during later revalidation, allowing callers to keep

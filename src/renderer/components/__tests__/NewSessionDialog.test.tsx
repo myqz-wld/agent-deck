@@ -160,8 +160,8 @@ describe('NewSessionDialog model options', () => {
     fireEvent.change(screen.getByPlaceholderText(/输入任务或问题/), {
       target: { value: '完成这个任务' },
     });
-    const create = screen.getByRole('button', { name: '创建' }) as HTMLButtonElement;
-    await waitFor(() => expect(create.disabled).toBe(false));
+    const create = await screen.findByRole('button', { name: '创建' }) as HTMLButtonElement;
+    expect(create.disabled).toBe(false);
     fireEvent.click(create);
 
     await waitFor(() => {

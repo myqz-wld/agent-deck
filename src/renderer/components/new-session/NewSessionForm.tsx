@@ -95,7 +95,8 @@ export function NewSessionForm(props: Props): JSX.Element | null {
   );
   const disabled = props.busy;
   const configurationDisabled = disabled || props.configurationControlsBlocked === true;
-  const submissionDisabled = disabled || props.configurationSubmissionBlocked === true;
+  const preparingConfiguration = !disabled && props.configurationSubmissionBlocked === true;
+  const submissionDisabled = disabled || preparingConfiguration;
   const titleId = `${props.authoringId.replace(/[^A-Za-z0-9_-]/g, '-')}-title`;
   const modalRootRef = useRef<HTMLDivElement>(null);
   useModalFocus({ blocked: props.busy, dialogRef: modalRootRef, onClose: props.onClose });
@@ -268,10 +269,17 @@ export function NewSessionForm(props: Props): JSX.Element | null {
                 type="button"
                 onClick={props.onCreate}
                 disabled={!props.canCreate || submissionDisabled}
+                title={preparingConfiguration ? '正在读取会话配置' : undefined}
                 className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
               >
-                {!props.busy && <SendIcon className="mr-1 inline h-3 w-3" />}
-                {props.busy ? (props.creatingLabel ?? '创建中…') : (props.createLabel ?? '创建')}
+                {!props.busy && !preparingConfiguration && (
+                  <SendIcon className="mr-1 inline h-3 w-3" />
+                )}
+                {props.busy
+                  ? (props.creatingLabel ?? '创建中…')
+                  : preparingConfiguration
+                    ? '正在准备…'
+                    : (props.createLabel ?? '创建')}
               </button>
             </div>
           </div>

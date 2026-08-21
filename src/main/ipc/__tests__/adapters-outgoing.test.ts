@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   restartWithGrokSandbox: vi.fn(),
   resolveCreationDefaults: vi.fn(),
   respondDiffReview: vi.fn(),
+  loggerInfo: vi.fn(),
+  loggerWarn: vi.fn(),
 }));
 
 vi.mock('@main/adapters/registry', () => ({
@@ -64,7 +66,13 @@ vi.mock('../adapters-message-dispatch', () => ({
   dispatchAdapterMessageWithHandOffRedirect: mocks.dispatch,
 }));
 vi.mock('@main/utils/logger', () => ({
-  default: { scope: () => ({ warn: vi.fn(), error: vi.fn() }) },
+  default: {
+    scope: () => ({
+      info: mocks.loggerInfo,
+      warn: mocks.loggerWarn,
+      error: vi.fn(),
+    }),
+  },
 }));
 
 import { registerAdaptersIpc } from '../adapters';
@@ -282,6 +290,34 @@ describe('adapter outgoing queue IPC', () => {
     expect(() => parseAdapterCreateRuntimeControls('codex-cli', {
       approvalPolicy: 'always',
     })).toThrow('approvalPolicy');
+  });
+
+  it('correlates create-session diagnostics without forwarding the internal request id', async () => {
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {},
+      'codex-cli',
+      { cwd: '/repo', _agentDeckCreateRequestId: 'create-request-1234' },
+    )).resolves.toBe('codex-created');
+
+    expect(mocks.createSession).toHaveBeenCalledWith(
+      expect.not.objectContaining({ _agentDeckCreateRequestId: expect.anything() }),
+    );
+    expect(mocks.loggerInfo).toHaveBeenCalledWith(
+      '[ipc createSession] request received',
+      expect.objectContaining({
+        event: 'adapter_session_create',
+        phase: 'received',
+        requestId: 'create-request-1234',
+      }),
+    );
+    expect(mocks.loggerInfo).toHaveBeenCalledWith(
+      '[ipc createSession] request completed',
+      expect.objectContaining({
+        event: 'adapter_session_create',
+        phase: 'completed',
+        requestId: 'create-request-1234',
+      }),
+    );
   });
 
   it('defaults approvalPolicy to never when a non-UI caller supplies no override', async () => {

@@ -5,7 +5,9 @@ import type { SessionThinkingChoice } from '@renderer/components/SessionModelFie
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import { getLastAdapter, setLastAdapter } from '@renderer/hooks/useLastSessionDefaults';
 import { useSessionCreationOptions } from '@renderer/hooks/useSessionCreationOptions';
+import { useSessionCreationProjection } from '@renderer/hooks/useSessionCreationProjection';
 import { errorMessage } from '@renderer/lib/error-message';
+import log from '@renderer/utils/logger';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { NewSessionForm } from './new-session/NewSessionForm';
 import { RemoteWorkspaceDirectoryDialog } from './new-session/RemoteWorkspaceDirectoryDialog';
@@ -24,6 +26,8 @@ export {
   remoteControls,
 } from './new-session/session-dialog-actions';
 export type { LocalSessionAdapterInfo } from './new-session/session-dialog-actions';
+
+const logger = log.scope('new-session');
 
 interface Props {
   open: boolean;
@@ -75,6 +79,13 @@ export function NewSessionDialog({
     cwd: workingDirectory,
     active: open && !remoteMode,
     scopeKey: authoringScope,
+  });
+  const selectedLocalAdapter = localAdapters.find((adapter) => adapter.id === localAdapterId);
+  const localPresentation = useSessionCreationProjection({
+    scopeKey: authoringScope,
+    adapterId: localAdapterId,
+    adapter: selectedLocalAdapter,
+    options: localOptions,
   });
   const remote = useRemoteSessionCreation({
     active: open && remoteMode,
@@ -160,13 +171,17 @@ export function NewSessionDialog({
   if (!open) return null;
 
   const adapterId = remoteMode ? remote.presentationAdapterId : localAdapterId;
-  const selectedLocalAdapter = localAdapters.find((adapter) => adapter.id === localAdapterId);
+  const configurationAdapterId = remoteMode
+    ? remote.presentationAdapterId
+    : localPresentation.adapterId;
+  const presentedLocalAdapter = localPresentation.adapter;
+  const presentedLocalOptions = localPresentation.options;
   const descriptor = remote.presentationDescriptor;
   const createOptions = remoteMode ? remote.presentationOptions : null;
-  const provider = remoteMode ? createOptions?.provider ?? '' : localOptions.provider;
-  const model = remoteMode ? createOptions?.model ?? '' : localOptions.model;
+  const provider = remoteMode ? createOptions?.provider ?? '' : presentedLocalOptions.provider;
+  const model = remoteMode ? createOptions?.model ?? '' : presentedLocalOptions.model;
   const thinking = (
-    remoteMode ? createOptions?.thinking ?? '' : localOptions.thinking
+    remoteMode ? createOptions?.thinking ?? '' : presentedLocalOptions.thinking
   ) as SessionThinkingChoice;
   const adapters: DeckSelectOption<string>[] = remoteMode
     ? remote.adapters.map((adapter) => ({
@@ -179,10 +194,14 @@ export function NewSessionDialog({
     : localAdapters.map((adapter) => ({ value: adapter.id, label: adapter.displayName }));
   const controls = remoteMode
     ? remoteControls(descriptor, remote.options, remote.setOption)
-    : localControls(localAdapterId, selectedLocalAdapter, localOptions);
+    : localControls(
+        localPresentation.adapterId,
+        presentedLocalAdapter,
+        presentedLocalOptions,
+      );
   const acceptsAttachments = remoteMode
     ? descriptor?.create.attachments.enabled === true
-    : selectedLocalAdapter?.capabilities.canAcceptAttachments === true;
+    : presentedLocalAdapter?.capabilities.canAcceptAttachments === true;
   const combinedError = error ?? remote.error ?? remoteSource?.error ?? null;
   const formIdentity = remoteMode
     ? `new-session:${authoringInstanceId}:${remote.readinessIdentity}`
@@ -234,7 +253,15 @@ export function NewSessionDialog({
     createInFlightRef.current = true;
     const requestSequence = ++createSequenceRef.current;
     const dialogEpoch = dialogEpochRef.current;
+    const createRequestId = window.crypto.randomUUID();
     setBusy(true);
+    logger.info('[new-session] create requested', {
+      event: 'new_session_create',
+      phase: 'renderer_requested',
+      requestId: createRequestId,
+      adapterId: remoteMode ? remote.adapterId : localAdapterId,
+      remote: remoteMode,
+    });
     try {
       const id = remoteMode
         ? await submitRemoteSession(
@@ -251,10 +278,17 @@ export function NewSessionDialog({
             workingDirectory,
             prompt,
             images.toIpcInputs(),
+            createRequestId,
           );
       if (requestSequence !== createSequenceRef.current ||
           dialogEpoch !== dialogEpochRef.current || !openRef.current) return;
       onCreated(id);
+      logger.info('[new-session] create accepted', {
+        event: 'new_session_create',
+        phase: 'renderer_accepted',
+        requestId: createRequestId,
+        adapterId: remoteMode ? remote.adapterId : localAdapterId,
+      });
       setPrompt('');
       images.clear();
       dialogEpochRef.current += 1;
@@ -262,6 +296,13 @@ export function NewSessionDialog({
       createInFlightRef.current = false;
       onClose();
     } catch (reason) {
+      logger.warn('[new-session] create failed', {
+        event: 'new_session_create',
+        phase: 'renderer_failed',
+        requestId: createRequestId,
+        adapterId: remoteMode ? remote.adapterId : localAdapterId,
+        error: errorMessage(reason),
+      });
       if (requestSequence === createSequenceRef.current &&
           dialogEpoch === dialogEpochRef.current && openRef.current) {
         setError(errorMessage(reason));
@@ -310,21 +351,23 @@ export function NewSessionDialog({
         images={images}
         initializing={initializing}
         configurationPending={remoteMode ? remote.loading : localOptions.configurationLoading}
-        configurationControlsBlocked={remoteMode && (
-          remote.initializing ||
-          (remote.loading && remote.presentationAdapterId !== remote.adapterId)
-        )}
+        configurationControlsBlocked={
+          (remoteMode && (
+            remote.initializing ||
+            (remote.loading && remote.presentationAdapterId !== remote.adapterId)
+          )) || (!remoteMode && localPresentation.deferred)
+        }
         configurationSubmissionBlocked={remoteMode
           ? remote.loading
           : localOptions.configurationLoading}
         model={{
-          adapterId,
+          adapterId: configurationAdapterId,
           provider,
           model,
           thinking,
           providerOptions: remoteMode
             ? descriptor?.create.options.provider.allowedValues?.map((id) => ({ id })) ?? []
-            : localOptions.providerOptions,
+            : presentedLocalOptions.providerOptions,
           thinkingOptions: remoteMode
             ? descriptor?.create.options.thinking.allowedValues?.map((value) => ({
                 value: value as SessionThinkingChoice,
@@ -340,11 +383,11 @@ export function NewSessionDialog({
               ? null : descriptor?.create.options.thinking.disabledReason,
           } : undefined,
           onProviderChange: (value) => remoteMode
-            ? remote.setOption('provider', value) : localOptions.setProvider(value),
+            ? remote.setOption('provider', value) : presentedLocalOptions.setProvider(value),
           onModelChange: (value) => remoteMode
-            ? remote.setOption('model', value) : localOptions.setModel(value),
+            ? remote.setOption('model', value) : presentedLocalOptions.setModel(value),
           onThinkingChange: (value) => remoteMode
-            ? remote.setOption('thinking', value) : localOptions.setThinking(value),
+            ? remote.setOption('thinking', value) : presentedLocalOptions.setThinking(value),
         }}
         pickingDirectory={pickingDirectory}
         prompt={prompt}
