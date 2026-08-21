@@ -8,6 +8,7 @@ import {
 } from 'react';
 
 import type { BrowserAnnotationCapture } from '@shared/browser-view';
+import { StableButtonContent } from '../StableButtonContent';
 import {
   appendAnnotationPoint,
   commitAnnotationStroke,
@@ -169,7 +170,15 @@ export function IabAnnotationCanvas({
         <button type="button" className="rounded px-2 py-1 text-[10px] text-deck-muted hover:bg-white/10" disabled={strokes.length === 0} onClick={() => setStrokes([])}>清空</button>
         <span className="min-w-2 flex-1" />
         <button type="button" className="rounded px-2 py-1 text-[10px] text-deck-muted hover:bg-white/10" disabled={exporting} onClick={onCancel}>取消</button>
-        <button type="button" className="rounded bg-red-500/80 px-2 py-1 text-[10px] text-white hover:bg-red-500 disabled:opacity-40" disabled={exporting || strokes.length === 0} onClick={() => void complete()}>{exporting ? '处理中…' : '加入消息'}</button>
+        <button type="button" className="rounded bg-red-500/80 px-2 py-1 text-[10px] text-white hover:bg-red-500 disabled:opacity-40" disabled={exporting || strokes.length === 0} onClick={() => void complete()}>
+          <StableButtonContent
+            activeKey={exporting ? 'busy' : 'idle'}
+            variants={[
+              { key: 'idle', content: '加入消息' },
+              { key: 'busy', content: '处理中…' },
+            ]}
+          />
+        </button>
       </div>
       {error && <div role="alert" className="shrink-0 bg-red-500/15 px-2 py-1 text-[9px] text-red-200">{error}</div>}
       <div ref={containerRef} className="relative min-h-0 flex-1 overflow-hidden">

@@ -7,6 +7,7 @@ import { ChangeTimeline } from './ChangeTimeline';
 import type { FileChangeGroup } from './helpers';
 import type { FileChangeLoadSummary } from './use-file-changes';
 import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExpandIcon } from '../icons';
+import { StableButtonContent } from '../StableButtonContent';
 
 type DiffMode = 'single' | 'final';
 type FileGroup = FileChangeGroup<FileChangeSummary>;
@@ -144,7 +145,13 @@ export function DiffTab({
               disabled={loadingMore}
               className="rounded bg-white/[0.05] px-2 py-1 hover:bg-white/[0.1] disabled:opacity-50"
             >
-              {loadingMore ? '加载中…' : '继续查找更早改动'}
+              <StableButtonContent
+                activeKey={loadingMore ? 'busy' : 'idle'}
+                variants={[
+                  { key: 'idle', content: '继续查找更早改动' },
+                  { key: 'busy', content: '加载中…' },
+                ]}
+              />
             </button>
           )}
         </div>
@@ -199,7 +206,13 @@ export function DiffTab({
                 disabled={loadingMore}
                 className="rounded bg-white/[0.05] px-2 py-1 text-[10px] text-deck-muted hover:bg-white/[0.1] disabled:opacity-50"
               >
-                {loadingMore ? '加载中…' : '加载更早改动'}
+                <StableButtonContent
+                  activeKey={loadingMore ? 'busy' : 'idle'}
+                  variants={[
+                    { key: 'idle', content: '加载更早改动' },
+                    { key: 'busy', content: '加载中…' },
+                  ]}
+                />
               </button>
             )}
           </div>

@@ -8,6 +8,7 @@ import type {
 } from '@shared/types';
 import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
 import { RefreshIcon } from './icons';
+import { StableButtonContent } from './StableButtonContent';
 import {
   thinkingOptionsForAdapter,
   type SessionThinkingChoice,
@@ -313,7 +314,8 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       statusText={preparing ? '正在整理会话上下文…' : committing ? '正在创建…' : undefined}
       busy={committing}
       onClose={close}
-      primaryLabel={committing ? '正在创建续接会话…' : '打开新会话接力'}
+      primaryLabel="打开新会话接力"
+      primaryBusyLabel="正在创建续接会话…"
       primaryDisabled={busy || !preparation}
       onPrimary={() => { void commit(); }}
       ariaBusy={presentation === 'fallback'}
@@ -413,12 +415,17 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
             }
             className="self-start rounded bg-status-working/30 px-3 py-1.5 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
           >
-            {!preparing && preparation ? <RefreshIcon className="mr-1 inline h-3 w-3" /> : null}
-            {preparing
-              ? '正在整理会话上下文…'
-              : preparation
-                ? '重新生成续接上下文'
-                : '生成续接上下文'}
+            <StableButtonContent
+              activeKey={preparing ? 'busy' : preparation ? 'refresh' : 'idle'}
+              variants={[
+                { key: 'idle', content: '生成续接上下文' },
+                {
+                  key: 'refresh',
+                  content: <><RefreshIcon className="mr-1 h-3 w-3" />重新生成续接上下文</>,
+                },
+                { key: 'busy', content: '正在整理会话上下文…' },
+              ]}
+            />
           </button>
 
           {preparation && (

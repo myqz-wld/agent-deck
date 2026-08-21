@@ -4,6 +4,7 @@ import { useSessionStore } from '@renderer/stores/session-store';
 import { loadStableSnapshot } from '@renderer/lib/load-stable-snapshot';
 import { errorMessage } from '@renderer/lib/error-message';
 import { ChevronDownIcon, ChevronUpIcon } from './icons';
+import { StableButtonContent } from './StableButtonContent';
 
 interface Props {
   sessionId: string;
@@ -88,8 +89,19 @@ export function SummaryRecordsView({
           onClick={() => setExpanded((v) => !v)}
           className="self-start text-[10px] text-deck-muted hover:text-deck-text"
         >
-          {expanded ? <ChevronUpIcon className="mr-1 inline h-3 w-3" /> : <ChevronDownIcon className="mr-1 inline h-3 w-3" />}
-          {expanded ? '收起历史' : `展开 ${rest.length} 条历史`}
+          <StableButtonContent
+            activeKey={expanded ? 'expanded' : 'collapsed'}
+            variants={[
+              {
+                key: 'collapsed',
+                content: <><ChevronDownIcon className="mr-1 h-3 w-3" />展开 {rest.length} 条历史</>,
+              },
+              {
+                key: 'expanded',
+                content: <><ChevronUpIcon className="mr-1 h-3 w-3" />收起历史</>,
+              },
+            ]}
+          />
         </button>
       )}
       {expanded && rest.length > 0 && (

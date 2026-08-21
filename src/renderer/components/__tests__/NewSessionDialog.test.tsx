@@ -80,13 +80,17 @@ describe('NewSessionDialog directory picker', () => {
   it('dedupes repeated directory picker clicks while the native dialog is open', async () => {
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
 
-    const chooseButton = (await screen.findByText('选择…')) as HTMLButtonElement;
+    const chooseButton = (await screen.findByText('选择…')).closest(
+      'button',
+    ) as HTMLButtonElement;
     fireEvent.click(chooseButton);
     fireEvent.click(chooseButton);
 
     expect(chooseDirectory).toHaveBeenCalledTimes(1);
     await waitFor(() => {
-      const pendingButton = screen.getByText('选择中…') as HTMLButtonElement;
+      const pendingButton = screen.getByText('选择中…').closest(
+        'button',
+      ) as HTMLButtonElement;
       expect(pendingButton.disabled).toBe(true);
     });
 
@@ -99,7 +103,7 @@ describe('NewSessionDialog directory picker', () => {
       expect(cwdInput.value).toBe('/tmp/agent-deck');
     });
     expect(screen.queryByText('留空时使用当前用户主目录。')).toBeNull();
-    const readyButton = screen.getByText('选择…') as HTMLButtonElement;
+    const readyButton = screen.getByText('选择…').closest('button') as HTMLButtonElement;
     expect(readyButton.disabled).toBe(false);
   });
 });

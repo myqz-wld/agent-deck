@@ -15,6 +15,7 @@ import {
 } from '../format';
 import { toolIcon } from '../tool-icons';
 import { ChevronDownIcon, ChevronRightIcon } from '../../icons';
+import { StableButtonContent } from '../../StableButtonContent';
 
 export { ToolEndRow } from './tool-end-row';
 
@@ -354,10 +355,19 @@ export function ToolStartRow({
             aria-expanded={diffOpen}
             className="rounded bg-white/8 px-1.5 py-0.5 text-[9px] text-deck-muted hover:bg-white/15 hover:text-deck-text"
           >
-            {diffOpen
-              ? <ChevronDownIcon className="mr-0.5 inline h-3 w-3" />
-              : <ChevronRightIcon className="mr-0.5 inline h-3 w-3" />}
-            {diffOpen ? '收起改动' : '查看改动'}
+            <StableButtonContent
+              activeKey={diffOpen ? 'open' : 'closed'}
+              variants={[
+                {
+                  key: 'closed',
+                  content: <><ChevronRightIcon className="mr-0.5 h-3 w-3" />查看改动</>,
+                },
+                {
+                  key: 'open',
+                  content: <><ChevronDownIcon className="mr-0.5 h-3 w-3" />收起改动</>,
+                },
+              ]}
+            />
           </button>
         )}
         <span className="ml-auto font-mono text-[9px] tabular-nums text-deck-muted/60">

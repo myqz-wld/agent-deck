@@ -382,12 +382,14 @@ export function ComposerSdk({
       interrupt={{
         disabled: !turnBusy || interrupting,
         label: interrupting ? '中断中…' : '中断',
+        stableLabels: ['中断', '中断中…'],
         title: !turnBusy ? '当前没有运行中的任务' : interrupting ? '正在中断当前任务' : '中断当前任务',
         onClick: () => { void interrupt(); },
       }}
       submit={{
         disabled: !canSubmit,
         label: submitLabel,
+        stableLabels: ['发送', '修正', '插入'],
         title: submitLabel,
         busy,
         onClick: () => { void send(); },

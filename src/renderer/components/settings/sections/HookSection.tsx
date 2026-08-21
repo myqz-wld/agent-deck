@@ -1,4 +1,5 @@
 import { type JSX } from 'react';
+import { StableButtonContent } from '../../StableButtonContent';
 import { Section } from '../controls';
 
 export interface HookStatusPresentation {
@@ -61,7 +62,14 @@ export function HookSection({
                 onClick={() => void uninstallHook()}
                 className="rounded bg-status-waiting/20 px-2 py-1 text-[11px] text-status-waiting hover:bg-status-waiting/30 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                卸载
+                <StableButtonContent
+                  activeKey="uninstall"
+                  variants={[
+                    { key: 'install', content: installLabel },
+                    { key: 'repair', content: '修复 Hook' },
+                    { key: 'uninstall', content: '卸载' },
+                  ]}
+                />
               </button>
             ) : (
               <button
@@ -70,7 +78,14 @@ export function HookSection({
                 onClick={() => void installHook()}
                 className="rounded bg-status-working/20 px-2 py-1 text-[11px] text-status-working hover:bg-status-working/30 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {partial ? '修复 Hook' : installLabel}
+                <StableButtonContent
+                  activeKey={partial ? 'repair' : 'install'}
+                  variants={[
+                    { key: 'install', content: installLabel },
+                    { key: 'repair', content: '修复 Hook' },
+                    { key: 'uninstall', content: '卸载' },
+                  ]}
+                />
               </button>
             )}
           </div>

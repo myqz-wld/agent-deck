@@ -13,6 +13,7 @@ import {
 import log from '@renderer/utils/logger';
 import { MemoizedMarkdownText } from '../MarkdownText';
 import { CloseIcon } from '../icons';
+import { StableButtonContent } from '../StableButtonContent';
 import { PlanQuoteContextMenu, type PlanQuoteMenuState } from './PlanQuoteContextMenu';
 import { PlanQuotePreview } from './PlanQuotePreview';
 import { PlanReviewConversation } from './PlanReviewConversation';
@@ -417,7 +418,13 @@ export function PlanDeepReviewDialog({
                   onClick={() => void submitQuestion()}
                   className="shrink-0 rounded bg-white/10 px-3 py-1 text-[10px] text-deck-text hover:bg-white/15 disabled:opacity-40"
                 >
-                  {questionBusy ? '发送中…' : '发送问题'}
+                  <StableButtonContent
+                    activeKey={questionBusy ? 'busy' : 'idle'}
+                    variants={[
+                      { key: 'idle', content: '发送问题' },
+                      { key: 'busy', content: '发送中…' },
+                    ]}
+                  />
                 </button>
               </div>
             </div>

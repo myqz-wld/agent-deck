@@ -213,12 +213,16 @@ describe('NewSessionDialog readiness', () => {
 
     await act(() => vi.advanceTimersByTimeAsync(0));
     expect(screen.getByText(/模型：sonnet/)).toBeTruthy();
+    fireEvent.click(screen.getByText('模型配置'));
+    const modelInput = screen.getByLabelText('模型') as HTMLInputElement;
     const createButton = screen.getByRole('button', { name: '创建' });
     fireEvent.click(screen.getByRole('button', { name: '助手' }));
     fireEvent.click(screen.getByRole('option', { name: 'Codex' }));
 
     expect(screen.getByRole('button', { name: '助手' }).textContent).toContain('Codex');
     expect(screen.getByText(/模型：sonnet/)).toBeTruthy();
+    expect(modelInput.disabled).toBe(false);
+    expect(modelInput.closest('[inert]')).toBeTruthy();
     expect(screen.getByRole('button', { name: '创建' })).toBe(createButton);
     expect(screen.queryByText('正在准备…')).toBeNull();
     await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
@@ -231,6 +235,8 @@ describe('NewSessionDialog readiness', () => {
     }));
     expect(screen.queryByText(/模型：sonnet/)).toBeNull();
     expect(screen.getByText(/模型：gpt-5.6-sol/)).toBeTruthy();
+    expect((screen.getByLabelText('模型') as HTMLInputElement).disabled).toBe(false);
+    expect(screen.getByLabelText('模型').closest('[inert]')).toBeNull();
     expect(screen.getByRole('button', { name: '创建' })).toBe(createButton);
   });
 
@@ -262,7 +268,8 @@ describe('NewSessionDialog readiness', () => {
 
     expect(screen.queryByText(/模型：sonnet/)).toBeNull();
     expect(screen.getByText(/模型：配置文件/)).toBeTruthy();
-    expect(screen.getByText('正在更新会话配置…')).toBeTruthy();
+    const progress = screen.getByText('正在更新会话配置…');
+    expect(progress.closest('[data-new-session-actions]')).toBeTruthy();
     expect(screen.getByRole('button', { name: '创建' })).toBe(createButton);
     await act(async () => codexDefaults.resolve({
       ...sessionCreationDefaults(),

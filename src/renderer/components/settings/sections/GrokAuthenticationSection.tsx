@@ -1,6 +1,7 @@
 import { useState, type JSX } from 'react';
 import type { GrokAuthProbeResult } from '@shared/types';
 import { PlayIcon } from '../../icons';
+import { StableButtonContent } from '../../StableButtonContent';
 import { Section } from '../controls';
 
 export function GrokAuthenticationSection({ readOnly = false }: { readOnly?: boolean }): JSX.Element {
@@ -41,8 +42,17 @@ export function GrokAuthenticationSection({ readOnly = false }: { readOnly?: boo
           onClick={() => void probe()}
           className="no-drag rounded bg-white/10 px-2 py-0.5 text-[10px] text-deck-text hover:bg-white/20 disabled:opacity-50"
         >
-          <PlayIcon className="mr-1 inline h-3 w-3" />
-          {busy ? '检测中…' : readOnly ? '仅可在远端检查' : '检测'}
+          <StableButtonContent
+            activeKey={busy ? 'busy' : readOnly ? 'remote' : 'idle'}
+            variants={[
+              { key: 'idle', content: <><PlayIcon className="mr-1 h-3 w-3" />检测</> },
+              {
+                key: 'remote',
+                content: <><PlayIcon className="mr-1 h-3 w-3" />仅可在远端检查</>,
+              },
+              { key: 'busy', content: <><PlayIcon className="mr-1 h-3 w-3" />检测中…</> },
+            ]}
+          />
         </button>
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">

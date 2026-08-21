@@ -9,6 +9,7 @@ import { DeckSelect } from '@renderer/components/DeckSelect';
 import type { PlanDeepReviewTransport } from '@renderer/plan-review/transport';
 import { usePlanDeepReviewStore } from '@renderer/stores/plan-deep-review-store';
 import log from '@renderer/utils/logger';
+import { StableButtonContent } from '../StableButtonContent';
 import { PlanDeepReviewDialog } from './PlanDeepReviewDialog';
 import { PlanMarkdownPanel } from './plan-markdown-panel';
 import { ExpandableFeedbackField } from './review-detail/ExpandableFeedbackField';
@@ -79,11 +80,6 @@ export function ExitPlanRow({
   const keepPlanningLabel = '继续规划';
   const deepReviewRunning =
     deepReviewDraft?.questionBusy === true || deepReviewDraft?.feedbackDraftBusy === true;
-  const deepReviewLabel = deepReviewRunning
-    ? '审阅进行中…'
-    : deepReviewDraft
-      ? '返回审阅'
-      : '深度审阅';
 
   useEffect(() => {
     if (!stillPending) clearDeepReviewDraft(reviewKey);
@@ -237,7 +233,14 @@ export function ExitPlanRow({
                 }
                 className="rounded border border-status-waiting/50 bg-status-waiting/10 px-2.5 py-0.5 text-[10px] text-status-waiting hover:bg-status-waiting/20 disabled:opacity-50"
               >
-                {deepReviewLabel}
+                <StableButtonContent
+                  activeKey={deepReviewRunning ? 'running' : deepReviewDraft ? 'return' : 'idle'}
+                  variants={[
+                    { key: 'idle', content: '深度审阅' },
+                    { key: 'return', content: '返回审阅' },
+                    { key: 'running', content: '审阅进行中…' },
+                  ]}
+                />
               </button>
             )}
             <button

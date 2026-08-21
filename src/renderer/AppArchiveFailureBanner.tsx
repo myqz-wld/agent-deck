@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 
 import type { CallerArchiveFailedEvent } from '@shared/types';
+import { StableButtonContent } from './components/StableButtonContent';
 
 interface AppArchiveFailureBannerProps {
   failure: CallerArchiveFailedEvent;
@@ -26,7 +27,13 @@ export function AppArchiveFailureBanner({
       </div>
       {failure.reasonKind !== 'row-missing' && (
         <button type="button" disabled={retrying} onClick={onRetry} className="shrink-0 rounded bg-red-400 px-2 py-1 font-semibold text-black disabled:opacity-50">
-          {retrying ? '重试中…' : '重试归档'}
+          <StableButtonContent
+            activeKey={retrying ? 'busy' : 'idle'}
+            variants={[
+              { key: 'idle', content: '重试归档' },
+              { key: 'busy', content: '重试中…' },
+            ]}
+          />
         </button>
       )}
       <button

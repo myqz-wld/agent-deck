@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, ty
 import { createPortal } from 'react-dom';
 import log from '@renderer/utils/logger';
 import { CloseIcon, RefreshIcon } from '../../icons';
+import { StableButtonContent } from '../../StableButtonContent';
 import { useModalFocus } from '../../use-modal-focus';
 
 const logger = log.scope('log-viewer');
@@ -131,7 +132,13 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
               disabled={loading}
               className="rounded bg-white/8 px-2 py-0.5 text-[10px] text-deck-muted hover:bg-white/15 hover:text-deck-text disabled:opacity-50"
             >
-              {loading ? '加载中…' : <><RefreshIcon className="mr-1 inline h-3 w-3" />刷新</>}
+              <StableButtonContent
+                activeKey={loading ? 'busy' : 'idle'}
+                variants={[
+                  { key: 'idle', content: <><RefreshIcon className="mr-1 h-3 w-3" />刷新</> },
+                  { key: 'busy', content: '加载中…' },
+                ]}
+              />
             </button>
             <button
               type="button"

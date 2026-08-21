@@ -11,6 +11,8 @@ import {
 import type { UseImageAttachmentsResult } from '@renderer/hooks/useImageAttachments';
 import { CloseIcon, FolderOpenIcon, SendIcon } from '../icons';
 import { GrokSandboxPicker } from '../GrokSandboxPicker';
+import { InertInteractionBoundary } from '../InertInteractionBoundary';
+import { StableButtonContent } from '../StableButtonContent';
 import { FirstMessageAuthoring } from './FirstMessageAuthoring';
 import { useModalFocus } from '../use-modal-focus';
 
@@ -94,7 +96,7 @@ export function NewSessionForm(props: Props): JSX.Element | null {
     `${props.authoringId}:configuration`,
   );
   const disabled = props.busy;
-  const configurationDisabled = disabled || props.configurationControlsBlocked === true;
+  const configurationInteractionBlocked = props.configurationControlsBlocked === true;
   const preparingConfiguration = !disabled && props.configurationSubmissionBlocked === true;
   const submissionDisabled = disabled || preparingConfiguration;
   const settledCanCreateRef = useRef(props.canCreate);
@@ -167,24 +169,26 @@ export function NewSessionForm(props: Props): JSX.Element | null {
                 value={props.adapterId}
                 onChange={props.onAdapterChange}
                 options={props.adapters}
-                disabled={configurationDisabled}
+                disabled={disabled}
                 buttonClassName={SELECT_CLASS}
               />
             </Field>
 
-            <SessionModelDisclosure
-              adapterId={props.model.adapterId}
-              provider={props.model.provider}
-              model={props.model.model}
-              thinking={props.model.thinking}
-              disabled={configurationDisabled}
-              providerOptions={props.model.providerOptions}
-              thinkingOptions={props.model.thinkingOptions}
-              disabledReasons={props.model.disabledReasons}
-              onProviderChange={props.model.onProviderChange}
-              onModelChange={props.model.onModelChange}
-              onThinkingChange={props.model.onThinkingChange}
-            />
+            <InertInteractionBoundary blocked={configurationInteractionBlocked}>
+              <SessionModelDisclosure
+                adapterId={props.model.adapterId}
+                provider={props.model.provider}
+                model={props.model.model}
+                thinking={props.model.thinking}
+                disabled={disabled}
+                providerOptions={props.model.providerOptions}
+                thinkingOptions={props.model.thinkingOptions}
+                disabledReasons={props.model.disabledReasons}
+                onProviderChange={props.model.onProviderChange}
+                onModelChange={props.model.onModelChange}
+                onThinkingChange={props.model.onThinkingChange}
+              />
+            </InertInteractionBoundary>
 
             <Field label="工作目录">
               <div className="flex gap-1">
@@ -204,8 +208,16 @@ export function NewSessionForm(props: Props): JSX.Element | null {
                     disabled={disabled || props.pickingDirectory}
                     className="shrink-0 rounded bg-white/10 px-2 text-[10px] hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {!props.pickingDirectory && <FolderOpenIcon className="mr-1 inline h-3 w-3" />}
-                    {props.pickingDirectory ? '选择中…' : '选择…'}
+                    <StableButtonContent
+                      activeKey={props.pickingDirectory ? 'busy' : 'idle'}
+                      variants={[
+                        {
+                          key: 'idle',
+                          content: <><FolderOpenIcon className="mr-1 h-3 w-3" />选择…</>,
+                        },
+                        { key: 'busy', content: '选择中…' },
+                      ]}
+                    />
                   </button>
                 )}
               </div>
@@ -232,43 +244,46 @@ export function NewSessionForm(props: Props): JSX.Element | null {
 
             {props.controls.map((control) => (
               <Field key={control.label} label={control.label}>
-                {control.disabledReason ? (
-                  <div
-                    role="note"
-                    className="break-words rounded border border-white/[0.07] bg-white/[0.03] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted [overflow-wrap:anywhere]"
-                  >
-                    不可用：{control.disabledReason}
-                  </div>
-                ) : control.customGrok ? (
-                  <GrokSandboxPicker
-                    value={control.value}
-                    onChange={control.onChange}
-                    allowUnset={false}
-                    disabled={configurationDisabled}
-                    ariaLabel="Grok Build 沙盒请求档位"
-                  />
-                ) : (
-                  <DeckSelect
-                    value={control.value}
-                    onChange={control.onChange}
-                    options={control.options}
-                    disabled={configurationDisabled}
-                    buttonClassName={SELECT_CLASS}
-                  />
-                )}
+                <InertInteractionBoundary blocked={configurationInteractionBlocked}>
+                  {control.disabledReason ? (
+                    <div
+                      role="note"
+                      className="break-words rounded border border-white/[0.07] bg-white/[0.03] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted [overflow-wrap:anywhere]"
+                    >
+                      不可用：{control.disabledReason}
+                    </div>
+                  ) : control.customGrok ? (
+                    <GrokSandboxPicker
+                      value={control.value}
+                      onChange={control.onChange}
+                      allowUnset={false}
+                      disabled={disabled}
+                      ariaLabel="Grok Build 沙盒请求档位"
+                    />
+                  ) : (
+                    <DeckSelect
+                      value={control.value}
+                      onChange={control.onChange}
+                      options={control.options}
+                      disabled={disabled}
+                      buttonClassName={SELECT_CLASS}
+                    />
+                  )}
+                </InertInteractionBoundary>
               </Field>
             ))}
-
-            {showConfigurationProgress && (
-              <div role="status" className="rounded bg-white/[0.035] px-2 py-1 text-[10px] text-deck-muted">
-                正在更新会话配置…
-              </div>
-            )}
             {props.error && (
               <FormError error={props.error} onRetry={props.onRetryConfiguration} />
             )}
 
-            <div className="mt-1 flex justify-end gap-2">
+            <div data-new-session-actions className="mt-1 flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                {showConfigurationProgress && (
+                  <div role="status" className="truncate rounded bg-white/[0.035] px-2 py-1 text-[10px] text-deck-muted">
+                    正在更新会话配置…
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={props.onClose}
@@ -286,25 +301,16 @@ export function NewSessionForm(props: Props): JSX.Element | null {
                   createButtonVisuallyDisabled ? 'opacity-50' : ''
                 }`}
               >
-                <span className="inline-grid place-items-center">
-                  <span
-                    aria-hidden="true"
-                    className="invisible col-start-1 row-start-1 inline-flex items-center whitespace-nowrap"
-                  >
-                    <SendIcon className="mr-1 h-3 w-3" />
-                    {createLabel}
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className="invisible col-start-1 row-start-1 whitespace-nowrap"
-                  >
-                    {creatingLabel}
-                  </span>
-                  <span className="col-start-1 row-start-1 inline-flex items-center whitespace-nowrap">
-                    {!props.busy && <SendIcon className="mr-1 h-3 w-3" />}
-                    {props.busy ? creatingLabel : createLabel}
-                  </span>
-                </span>
+                <StableButtonContent
+                  activeKey={props.busy ? 'busy' : 'idle'}
+                  variants={[
+                    {
+                      key: 'idle',
+                      content: <><SendIcon className="mr-1 h-3 w-3" />{createLabel}</>,
+                    },
+                    { key: 'busy', content: creatingLabel },
+                  ]}
+                />
               </button>
             </div>
           </div>

@@ -2,6 +2,7 @@ import { useRef, type ComponentProps, type JSX, type ReactNode } from 'react';
 import type { UploadedAttachmentEntry } from '@renderer/hooks/useImageAttachments';
 import { PendingImageAttachments } from '../PendingImageAttachments';
 import { HandOffIcon, ImageIcon, SendIcon, StopIcon } from '../icons';
+import { StableButtonContent } from '../StableButtonContent';
 import { ComposerInput } from './composer-sdk/ComposerInput';
 
 type SharedComposerInput = ComponentProps<typeof ComposerInput>;
@@ -9,6 +10,7 @@ type SharedComposerInput = ComponentProps<typeof ComposerInput>;
 export interface SessionComposerAction {
   readonly disabled: boolean;
   readonly label: string;
+  readonly stableLabels?: readonly string[];
   readonly title: string;
   readonly onClick: () => void;
 }
@@ -42,6 +44,14 @@ export function SessionComposerView({
   submit: SessionComposerAction & { busy: boolean };
 }): JSX.Element {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const interruptLabels = [...new Set([
+    ...(interrupt.stableLabels ?? []),
+    interrupt.label,
+  ])];
+  const submitIdleLabels = [...new Set([
+    ...(submit.stableLabels ?? []),
+    ...(submit.busy ? [] : [submit.label]),
+  ])];
   return (
     <div data-session-composer className="shrink-0 border-t border-deck-border px-2.5 py-2">
       {controls}
@@ -97,7 +107,13 @@ export function SessionComposerView({
           className="h-7 shrink-0 rounded px-2.5 text-[10px] text-deck-muted hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40"
           title={interrupt.title}
         >
-          <StopIcon className="mr-1 inline h-3 w-3" />{interrupt.label}
+          <StableButtonContent
+            activeKey={interrupt.label}
+            variants={interruptLabels.map((label) => ({
+              key: label,
+              content: <><StopIcon className="mr-1 h-3 w-3" />{label}</>,
+            }))}
+          />
         </button>
         <button
           type="button"
@@ -106,7 +122,16 @@ export function SessionComposerView({
           title={submit.title}
           className="h-7 shrink-0 rounded bg-status-working/30 px-3 text-[10px] font-medium text-status-working hover:bg-status-working/40 disabled:opacity-40"
         >
-          {!submit.busy && <SendIcon className="mr-1 inline h-3 w-3" />}{submit.label}
+          <StableButtonContent
+            activeKey={submit.busy ? 'busy' : `idle:${submit.label}`}
+            variants={[
+              ...submitIdleLabels.map((label) => ({
+                key: `idle:${label}`,
+                content: <><SendIcon className="mr-1 h-3 w-3" />{label}</>,
+              })),
+              { key: 'busy', content: submit.busy ? submit.label : '发送中…' },
+            ]}
+          />
         </button>
       </div>
     </div>

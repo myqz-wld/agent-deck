@@ -1,4 +1,5 @@
 import type { JSX, RefObject } from 'react';
+import { StableButtonContent } from '../StableButtonContent';
 import { ExpandableReviewTextField } from './review-detail/ExpandableReviewTextField';
 
 interface Props {
@@ -51,7 +52,13 @@ export function PlanReviewDecisionFooter({
             onClick={onGenerate}
             className="rounded border border-deck-border bg-white/[0.06] px-2.5 py-1 text-[10px] text-deck-muted hover:bg-white/[0.12] hover:text-deck-text disabled:opacity-40"
           >
-            {generating ? '正在生成意见…' : '根据上下文生成意见'}
+            <StableButtonContent
+              activeKey={generating ? 'busy' : 'idle'}
+              variants={[
+                { key: 'idle', content: '根据上下文生成意见' },
+                { key: 'busy', content: '正在生成意见…' },
+              ]}
+            />
           </button>
         </div>
         <ExpandableReviewTextField

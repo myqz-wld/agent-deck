@@ -153,18 +153,22 @@ describe('Remote handoff dialog authority', () => {
 
     await act(() => vi.advanceTimersByTimeAsync(0));
     fireEvent.click(screen.getByText('模型配置'));
-    fireEvent.click(screen.getByLabelText('模型网关'));
+    const provider = screen.getByLabelText('模型网关') as HTMLInputElement;
+    fireEvent.click(provider);
     fireEvent.click(screen.getByRole('option', { name: 'openai-custom' }));
 
     expect(screen.getByText('模型配置')).toBeTruthy();
+    expect(provider.disabled).toBe(false);
+    expect(provider.closest('[inert]')).toBeTruthy();
     await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
     expect(screen.queryByText('正在更新会话配置…')).toBeNull();
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(getSessionCapabilities).toHaveBeenCalledTimes(2);
-    expect(screen.getByText('正在更新会话配置…')).toBeTruthy();
+    expect(screen.getByText('正在更新会话配置…').closest('footer')).toBeTruthy();
 
     await act(async () => refreshed.resolve(sessionConsoleCapabilitiesFixture('codex-cli', '.')));
     expect(screen.queryByText('正在更新会话配置…')).toBeNull();
+    expect(screen.getByLabelText('模型网关').closest('[inert]')).toBeNull();
   });
 
   it('recovers a capability-read failure in place', async () => {

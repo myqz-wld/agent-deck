@@ -7,6 +7,7 @@ import type {
   RemoteHostProfileDto,
 } from '@shared/remote-host';
 import { CloseIcon } from '../icons';
+import { StableButtonContent } from '../StableButtonContent';
 import { useModalFocus } from '../use-modal-focus';
 
 const INPUT_CLASS = 'w-full rounded-md border border-white/[0.08] bg-black/[0.12] px-2.5 py-2 text-[11px] outline-none transition placeholder:text-deck-muted/40 hover:border-white/[0.12] focus:border-white/[0.18] focus:bg-black/[0.08]';
@@ -157,7 +158,13 @@ export function RemoteProfileForm({
         <div className="mt-4 flex justify-end gap-2">
           <button type="button" onClick={onClose} disabled={effectiveBusy} className="rounded px-3 py-1.5 text-[11px] text-deck-muted hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40">取消</button>
           <button type="submit" disabled={effectiveBusy} className="rounded-md border border-white/[0.10] bg-white/[0.06] px-3 py-1.5 text-[11px] text-deck-text transition hover:border-white/[0.16] hover:bg-white/[0.09] disabled:opacity-50">
-            {effectiveBusy ? '保存中…' : '保存'}
+            <StableButtonContent
+              activeKey={effectiveBusy ? 'busy' : 'idle'}
+              variants={[
+                { key: 'idle', content: '保存' },
+                { key: 'busy', content: '保存中…' },
+              ]}
+            />
           </button>
         </div>
       </form>
