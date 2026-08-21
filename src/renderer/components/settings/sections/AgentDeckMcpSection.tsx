@@ -64,14 +64,6 @@ export function AgentDeckMcpSection({ settings, update, readOnly = false }: Prop
             <code className="rounded bg-white/5 px-1">report_issue</code> /
             <code className="rounded bg-white/5 px-1">append_issue_context</code> /
             <code className="rounded bg-white/5 px-1">update_issue_status</code>
-            <div className="mt-1">
-              <strong className="text-deck-text/85">Browser：</strong>
-              不再属于本地 Agent Deck MCP 工具。Claude Code、Codex CLI 和 Grok Build 统一通过
-              内置 Browser Skill 与会话专属
-              <code className="rounded bg-white/5 px-1">agent-deck-browser</code> CLI 使用；由各适配器的
-              Skills 开关控制，Agent 不需要传递会话 ID。Remote Core 的兼容面由远端能力独立控制，
-              不会回退到本地会话。
-            </div>
           </div>
         </details>
         <div className="mt-1">
