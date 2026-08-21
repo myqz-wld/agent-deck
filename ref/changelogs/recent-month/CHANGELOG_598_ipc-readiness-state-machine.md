@@ -56,4 +56,4 @@ production TypeScript file remains below 500 lines.
 
 ## Related review
 
-See `ref/reviews/recent-3-days/REVIEW_238_ipc-readiness-lifecycle-audit.md`.
+See `ref/reviews/recent-month/REVIEW_238_ipc-readiness-lifecycle-audit.md`.

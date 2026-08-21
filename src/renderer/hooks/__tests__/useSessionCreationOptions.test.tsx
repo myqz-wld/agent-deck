@@ -112,7 +112,7 @@ describe('useSessionCreationOptions request fencing', () => {
     act(() => hook.result.current.setProvider('deepseek'));
     await act(() => vi.advanceTimersByTimeAsync(120));
     hook.rerender({ adapterId: 'codex-cli', cwd: '/repo/two' });
-    await act(() => vi.advanceTimersByTimeAsync(120));
+    await act(() => vi.advanceTimersByTimeAsync(0));
 
     await act(async () => requests[2].resolve(defaults('latest')));
     expect(hook.result.current.model).toBe('latest');

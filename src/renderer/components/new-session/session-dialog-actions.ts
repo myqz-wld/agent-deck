@@ -173,8 +173,10 @@ export async function submitLocalSession(
   cwd: string,
   prompt: string,
   attachments: ImageInputs,
+  createRequestId?: string,
 ): Promise<string> {
   return window.api.createAdapterSession(adapterId, {
+    ...(createRequestId ? { _agentDeckCreateRequestId: createRequestId } : {}),
     cwd: cwd.trim(), prompt: prompt.trim() || undefined,
     permissionMode: adapter?.capabilities.canSetPermissionMode ? options.permissionMode : undefined,
     sessionMode: adapter?.capabilities.canSetSessionMode ? options.sessionMode : undefined,

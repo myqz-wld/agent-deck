@@ -4,6 +4,7 @@ import type { SessionThinkingChoice } from '@renderer/components/SessionModelFie
 import { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import { getLastAdapter, setLastAdapter } from '@renderer/hooks/useLastSessionDefaults';
 import { useSessionCreationOptions } from '@renderer/hooks/useSessionCreationOptions';
+import { useSessionCreationProjection } from '@renderer/hooks/useSessionCreationProjection';
 import { errorMessage } from '@renderer/lib/error-message';
 import type { IssueRecord } from '@shared/types';
 import {
@@ -42,6 +43,13 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     cwd: workingDirectory,
     scopeKey: `issue-resolution:${issue.id}`,
   });
+  const selectedAdapter = adapters.find((adapter) => adapter.id === adapterId);
+  const presentation = useSessionCreationProjection({
+    scopeKey: `issue-resolution:${issue.id}`,
+    adapterId,
+    adapter: selectedAdapter,
+    options,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -71,8 +79,10 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
     };
   }, []);
 
-  const selectedAdapter = adapters.find((adapter) => adapter.id === adapterId);
-  const acceptsAttachments = selectedAdapter?.capabilities.canAcceptAttachments === true;
+  const acceptsAttachments =
+    presentation.adapter?.capabilities.canAcceptAttachments === true;
+  const targetAcceptsAttachments =
+    selectedAdapter?.capabilities.canAcceptAttachments === true;
 
   const browse = async (): Promise<void> => {
     if (busy || pickingDirectory) return;
@@ -101,7 +111,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       setError('请输入第一条消息或添加图片');
       return;
     }
-    if (images.attachments.length > 0 && !acceptsAttachments) {
+    if (images.attachments.length > 0 && !targetAcceptsAttachments) {
       setError('当前运行时不支持图片输入；图片仍保留，可切换运行时后重试。');
       return;
     }
@@ -164,7 +174,11 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       canCreate={Boolean(
         selectedAdapter && !rollbackBlocked && (prompt.trim() || images.attachments.length > 0),
       )}
-      controls={localControls(adapterId, selectedAdapter, options)}
+      controls={localControls(
+        presentation.adapterId,
+        presentation.adapter,
+        presentation.options,
+      )}
       createLabel="新建会话"
       creatingLabel="创建中…"
       directoryHelp={<>留空时沿用问题目录；问题没有目录时使用当前用户主目录。</>}
@@ -173,16 +187,17 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       images={images}
       initializing={!adaptersSettled || (adapters.length > 0 && options.configurationLoading)}
       configurationPending={options.configurationLoading}
+      configurationControlsBlocked={presentation.deferred}
       configurationSubmissionBlocked={options.configurationLoading}
       model={{
-        adapterId,
-        provider: options.provider,
-        model: options.model,
-        thinking: options.thinking as SessionThinkingChoice,
-        providerOptions: options.providerOptions,
-        onProviderChange: options.setProvider,
-        onModelChange: options.setModel,
-        onThinkingChange: options.setThinking,
+        adapterId: presentation.adapterId,
+        provider: presentation.options.provider,
+        model: presentation.options.model,
+        thinking: presentation.options.thinking as SessionThinkingChoice,
+        providerOptions: presentation.options.providerOptions,
+        onProviderChange: presentation.options.setProvider,
+        onModelChange: presentation.options.setModel,
+        onThinkingChange: presentation.options.setThinking,
       }}
       notice={issue.resolutionSessionId ? (
         <div className="rounded bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">

@@ -48,4 +48,4 @@ and all changed production TypeScript files remain below 500 lines.
 
 ## Related review
 
-See `ref/reviews/recent-3-days/REVIEW_237_remote-provider-readiness-and-history-parity.md`.
+See `ref/reviews/recent-month/REVIEW_237_remote-provider-readiness-and-history-parity.md`.

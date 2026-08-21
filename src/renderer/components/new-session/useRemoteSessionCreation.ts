@@ -9,6 +9,7 @@ import {
   type SessionConsoleCreateOptions,
 } from '@contracts/index';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
+import { useDeferredPendingIdentity } from '@renderer/hooks/useDelayedAsyncFallback';
 
 const EMPTY_OPTIONS: SessionConsoleCreateOptions = Object.freeze({
   approvalPolicy: null,
@@ -152,7 +153,7 @@ export function useRemoteSessionCreation({
   const [failure, setFailure] = useState<RequestFailure | null>(null);
   const [requestRevision, setRequestRevision] = useState(0);
   const generation = useRef(0);
-  const settledScope = useRef<string | null>(null);
+  const settledAdapterIdentity = useRef<string | null>(null);
   const authoring = authoringState.scopeKey === scopeKey
     ? authoringState
     : emptyAuthoring(scopeKey);
@@ -165,21 +166,33 @@ export function useRemoteSessionCreation({
     normalizedDirectory,
   );
   const sameScopeSnapshot = snapshot?.scopeKey === scopeKey ? snapshot : null;
-  const presentationDescriptor = sameScopeSnapshot?.descriptor ?? null;
   const descriptor = sameScopeSnapshot?.requestKey === requestKey
     ? sameScopeSnapshot.descriptor
     : null;
-  const presentCommittedAdapter = Boolean(
+  const currentFailure = failure?.requestKey === requestKey ? failure : null;
+  const loading = Boolean(active && source && canRead && !descriptor && !currentFailure);
+  const targetPresentationIdentity = `${scopeKey}\u0000${authoring.adapterId}`;
+  const visiblePresentationIdentity = useDeferredPendingIdentity(
+    loading,
+    targetPresentationIdentity,
+  );
+  const switchingAdapter = Boolean(
     sameScopeSnapshot && !descriptor && sameScopeSnapshot.adapterId !== authoring.adapterId,
   );
+  const presentCommittedAdapter = switchingAdapter && (
+    visiblePresentationIdentity !== targetPresentationIdentity
+  );
+  const presentationDescriptor = presentCommittedAdapter
+    ? sameScopeSnapshot!.descriptor
+    : switchingAdapter
+      ? null
+      : sameScopeSnapshot?.descriptor ?? null;
   const presentationAdapterId = presentCommittedAdapter
     ? sameScopeSnapshot!.adapterId
     : authoring.adapterId;
   const presentationOptions = presentCommittedAdapter
     ? sameScopeSnapshot!.options
     : authoring.options;
-  const currentFailure = failure?.requestKey === requestKey ? failure : null;
-  const loading = Boolean(active && source && canRead && !descriptor && !currentFailure);
   const error = !active || !source
     ? null
     : !canRead
@@ -224,17 +237,17 @@ export function useRemoteSessionCreation({
           options: committedOptions,
           descriptor: result,
         });
-        settledScope.current = scopeKey;
+        settledAdapterIdentity.current = `${scopeKey}\u0000${result.selectedAdapterId}`;
         setFailure(null);
       }).catch((reason: unknown) => {
         if (generation.current !== currentGeneration) return;
-        settledScope.current = scopeKey;
+        settledAdapterIdentity.current = `${scopeKey}\u0000${authoring.adapterId}`;
         setFailure({
           requestKey,
           message: reason instanceof Error ? reason.message : String(reason),
         });
       });
-    }, settledScope.current === scopeKey ? 120 : 0);
+    }, settledAdapterIdentity.current === `${scopeKey}\u0000${authoring.adapterId}` ? 120 : 0);
     return () => {
       if (generation.current === currentGeneration) generation.current += 1;
       window.clearTimeout(timer);
@@ -258,7 +271,7 @@ export function useRemoteSessionCreation({
       authorityCycle.current.value,
     ]),
     adapterId: authoring.adapterId,
-    adapters: canRead ? presentationDescriptor?.adapters ?? [] : [],
+    adapters: canRead ? sameScopeSnapshot?.descriptor.adapters ?? [] : [],
     descriptor: canRead ? descriptor : null,
     presentationDescriptor: canRead ? presentationDescriptor : null,
     presentationAdapterId: canRead ? presentationAdapterId : '',
@@ -271,14 +284,13 @@ export function useRemoteSessionCreation({
     retry: () => {
       if (!active || !source || !canRead) return;
       generation.current += 1;
-      settledScope.current = null;
+      settledAdapterIdentity.current = null;
       setFailure(null);
       setRequestRevision((current) => current + 1);
     },
     setAdapterId: (value) => {
       if (value === authoring.adapterId && descriptor) return;
       generation.current += 1;
-      settledScope.current = scopeKey;
       setAuthoringState({
         ...emptyAuthoring(scopeKey),
         adapterId: value,
