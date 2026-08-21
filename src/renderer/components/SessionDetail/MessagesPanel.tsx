@@ -8,6 +8,7 @@ import { relativeTime } from '../session-presentation';
 import { ArrowRightIcon, ReplyIcon } from '../icons';
 import { MessageStatusBadge } from '../MessageStatusBadge';
 import { safeErrorData } from '../activity-feed/viewers/safe-error-data';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 
 /**
  * Session message history preserves delivery state and reply relationships. The panel refreshes
@@ -120,8 +121,15 @@ export function SessionMessagesView({
   error: string | null;
   truncated?: boolean;
 }): JSX.Element {
-  if (!loaded && messages.length === 0) {
-    return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
+  const initialPending = !loaded && error === null && messages.length === 0;
+  const showInitialLoading = useDelayedAsyncFallback(
+    initialPending,
+    `${sessionId}:messages-initial`,
+  );
+  if (initialPending) {
+    return showInitialLoading
+      ? <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>
+      : <div className="h-full" aria-hidden="true" />;
   }
   if (error && messages.length === 0) {
     return (

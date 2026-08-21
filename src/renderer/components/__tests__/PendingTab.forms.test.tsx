@@ -127,6 +127,7 @@ beforeEach(() => {
     pendingAskQuestionsBySession: new Map(),
     pendingExitPlanModesBySession: new Map(),
     pendingDiffReviewsBySession: new Map(),
+    pendingInitialized: true,
   });
 });
 

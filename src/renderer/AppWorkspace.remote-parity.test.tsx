@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { RemoteSessionSourceView } from './remote-host/source-types';
@@ -7,27 +7,69 @@ import type { RemoteUsageSourceView } from './remote-host/use-remote-usage-sourc
 import type { AppView } from './components/AppHeader';
 import type { RemoteHostConnectionStatus } from '@shared/remote-host';
 
+const readiness = vi.hoisted(() => ({ history: true, issues: true, pending: true }));
+
 vi.mock('./components/DataPanel', () => ({
   DataPanel: ({ remoteUsage }: { remoteUsage: RemoteUsageSourceView | null }) => (
     <div data-testid="data">{remoteUsage ? 'remote data' : 'local data'}</div>
   ),
 }));
 vi.mock('./components/HistoryPanel', () => ({
-  HistoryPanel: ({ remoteSource }: { remoteSource?: RemoteSessionSourceView }) => (
-    <div data-testid="history">{remoteSource ? 'remote history' : 'local history'}</div>
+  HistoryPanel: ({
+    remoteSource,
+    onPresentationReadyChange,
+  }: {
+    remoteSource?: RemoteSessionSourceView;
+    onPresentationReadyChange?: (ready: boolean) => void;
+  }) => (
+    <div
+      ref={(node) => { if (node) onPresentationReadyChange?.(readiness.history); }}
+      data-testid="history"
+    >
+      {remoteSource ? 'remote history' : 'local history'}
+    </div>
   ),
 }));
 vi.mock('./components/IssuesPanel', () => ({
-  IssuesPanel: () => <div data-testid="issues">local issues</div>,
+  IssuesPanel: ({
+    onPresentationReadyChange,
+  }: {
+    onPresentationReadyChange?: (ready: boolean) => void;
+  }) => <div
+    ref={(node) => { if (node) onPresentationReadyChange?.(readiness.issues); }}
+    data-testid="issues"
+  >local issues</div>,
 }));
 vi.mock('./components/issues/RemoteIssuesPanel', () => ({
-  RemoteIssuesPanel: ({ source }: { source: RemoteSessionSourceView }) => (
-    <div data-testid="issues">{source ? 'remote issues' : 'invalid'}</div>
+  RemoteIssuesPanel: ({
+    source,
+    onPresentationReadyChange,
+  }: {
+    source: RemoteSessionSourceView;
+    onPresentationReadyChange?: (ready: boolean) => void;
+  }) => (
+    <div
+      ref={(node) => { if (node) onPresentationReadyChange?.(readiness.issues); }}
+      data-testid="issues"
+    >
+      {source ? 'remote issues' : 'invalid'}
+    </div>
   ),
 }));
 vi.mock('./components/PendingTab', () => ({
-  PendingTab: ({ remoteSource }: { remoteSource?: RemoteSessionSourceView }) => (
-    <div data-testid="pending">{remoteSource ? 'remote pending' : 'local pending'}</div>
+  PendingTab: ({
+    remoteSource,
+    onPresentationReadyChange,
+  }: {
+    remoteSource?: RemoteSessionSourceView;
+    onPresentationReadyChange?: (ready: boolean) => void;
+  }) => (
+    <div
+      ref={(node) => { if (node) onPresentationReadyChange?.(readiness.pending); }}
+      data-testid="pending"
+    >
+      {remoteSource ? 'remote pending' : 'local pending'}
+    </div>
   ),
 }));
 vi.mock('./components/SessionDetail', () => ({
@@ -43,7 +85,13 @@ vi.mock('./components/SessionList', () => ({
 
 import { AppWorkspace } from './AppWorkspace';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  readiness.history = true;
+  readiness.issues = true;
+  readiness.pending = true;
+  vi.useRealTimers();
+});
 
 function source(
   capabilities: string[],
@@ -111,9 +159,120 @@ describe('AppWorkspace Local and Remote page parity', () => {
     expect(screen.getByTestId(testId).textContent).toBe(`remote ${testId}`);
   });
 
+  it('keeps History mounted offscreen so tab switches reuse the prefetched projection', () => {
+    const current = workspace('live', false, []);
+    const history = screen.getByTestId('history');
+    expect(history.parentElement?.hidden).toBe(true);
+
+    current.rerender(
+      <AppWorkspace
+        view="history"
+        authority="local"
+        authorityError={null}
+        onAuthorityRetry={vi.fn()}
+        localDetail={null}
+        remoteSource={source([])}
+        remoteUsage={usage}
+        onLocalClose={vi.fn()}
+        onLocalHistorySelect={vi.fn()}
+        onOpenLocalSession={vi.fn()}
+        onViewChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('history')).toBe(history);
+    expect(history.parentElement?.hidden).toBe(false);
+  });
+
+  it('retains and inerts the previous workspace until History is complete or has a fallback', () => {
+    readiness.history = false;
+    const current = workspace('live', false, []);
+    const props = {
+      authority: 'local' as const,
+      authorityError: null,
+      onAuthorityRetry: vi.fn(),
+      localDetail: null,
+      remoteSource: source([]),
+      remoteUsage: usage,
+      onLocalClose: vi.fn(),
+      onLocalHistorySelect: vi.fn(),
+      onOpenLocalSession: vi.fn(),
+      onViewChange: vi.fn(),
+    };
+
+    current.rerender(<AppWorkspace {...props} view="history" />);
+    expect(screen.getByTestId('live')).toBeTruthy();
+    expect(screen.getByTestId('live').closest('[inert]')).toBeTruthy();
+    expect(screen.getByTestId('history').parentElement?.hidden).toBe(true);
+
+    readiness.history = true;
+    current.rerender(<AppWorkspace {...props} view="history" />);
+    expect(screen.queryByTestId('live')).toBeNull();
+    expect(screen.getByTestId('history').parentElement?.hidden).toBe(false);
+  });
+
+  it('keeps Issues mounted offscreen so tab switches reuse the prefetched projection', () => {
+    const current = workspace('live', false, []);
+    const issues = screen.getByTestId('issues');
+    expect(issues.parentElement?.hidden).toBe(true);
+
+    current.rerender(
+      <AppWorkspace
+        view="issues"
+        authority="local"
+        authorityError={null}
+        onAuthorityRetry={vi.fn()}
+        localDetail={null}
+        remoteSource={source([])}
+        remoteUsage={usage}
+        onLocalClose={vi.fn()}
+        onLocalHistorySelect={vi.fn()}
+        onOpenLocalSession={vi.fn()}
+        onViewChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('issues')).toBe(issues);
+    expect(issues.parentElement?.hidden).toBe(false);
+  });
+
   it('routes Remote session detail through the Remote source', () => {
     workspace('live', true, ['sessions.presentation.read'], 'remote-session');
     expect(screen.getByTestId('detail').textContent).toBe('remote detail');
+  });
+
+  it('retains the Remote list for 149 ms before a slow detail fallback', async () => {
+    vi.useFakeTimers();
+    const currentSource = source(['sessions.presentation.read']);
+    const props = {
+      authority: 'remote' as const,
+      authorityError: null,
+      onAuthorityRetry: vi.fn(),
+      localDetail: null,
+      remoteUsage: usage,
+      onLocalClose: vi.fn(),
+      onLocalHistorySelect: vi.fn(),
+      onOpenLocalSession: vi.fn(),
+      onViewChange: vi.fn(),
+    };
+    const view = render(<AppWorkspace {...props} view="live" remoteSource={currentSource} />);
+    const pendingSource = source(
+      ['sessions.presentation.read'],
+      'remote-session',
+    );
+    pendingSource.selectedSession = null;
+    view.rerender(<AppWorkspace {...props} view="live" remoteSource={pendingSource} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.getByTestId('live')).toBeTruthy();
+    expect(screen.getByTestId('live').closest('[inert]')).toBeTruthy();
+    expect(screen.queryByTestId('detail')).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(149));
+    expect(screen.queryByTestId('detail')).toBeNull();
+
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByTestId('detail')).toBeTruthy();
+    expect(screen.queryByTestId('live')).toBeNull();
   });
 
   it('renders the same DataPanel component without mixing Local usage', () => {

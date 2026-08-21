@@ -60,6 +60,7 @@ export interface RemoteSessionSourceView {
   error: string | null;
   eventLoadError: string | null;
   events: RemoteHostEventListDto | null;
+  historyInitialized: boolean;
   historyLoadError: string | null;
   historyLoading: boolean;
   historyPaginationBusy: boolean;
@@ -73,6 +74,7 @@ export interface RemoteSessionSourceView {
   livePaginationBusy: boolean;
   pendingBuckets: readonly RemoteHostPendingIndexBucketDto[];
   pendingBySession: ReadonlyMap<string, RemoteHostPendingListDto>;
+  pendingInitialized: boolean;
   pendingLoading: boolean;
   pendingPaginationBusy: boolean;
   pendingLoadError: string | null;

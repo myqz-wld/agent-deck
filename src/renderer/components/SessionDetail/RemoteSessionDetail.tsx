@@ -132,6 +132,7 @@ export function RemoteSessionDetail({
           tasks={source.tasks?.tasks ?? []}
           loaded={source.tasks !== null}
           error={source.taskLoadError}
+          presentationIdentity={detailIdentity}
         />
       ),
     diff: <RemoteDiffPanel source={source} />,
@@ -140,6 +141,7 @@ export function RemoteSessionDetail({
           summaries={source.summaries?.summaries ?? []}
           loaded={source.summaries !== null}
           loadError={source.summaryLoadError}
+          presentationIdentity={detailIdentity}
         />
       ),
     messages: (

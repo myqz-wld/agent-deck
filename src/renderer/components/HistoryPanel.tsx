@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { ArchiveIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
+import { InertInteractionBoundary } from './InertInteractionBoundary';
 import { LocalHistorySummaryCard } from './LocalHistorySummaryCard';
 import { RemoteSessionSummaryCard } from './RemoteSessionSummaryCard';
 
@@ -17,6 +19,7 @@ interface Filters {
 
 interface Props {
   onSelect: (id: string) => void;
+  onPresentationReadyChange?: (ready: boolean) => void;
   remoteSource?: RemoteSessionSourceView;
 }
 
@@ -27,18 +30,33 @@ interface Props {
  */
 const KEYWORD_DEBOUNCE_MS = 300;
 
-export function HistoryPanel({ onSelect, remoteSource }: Props): JSX.Element {
+export function HistoryPanel({
+  onSelect,
+  onPresentationReadyChange,
+  remoteSource,
+}: Props): JSX.Element {
   return remoteSource
-    ? <RemoteHistoryPanel source={remoteSource} onSelect={onSelect} />
-    : <LocalHistoryPanel onSelect={onSelect} />;
+    ? <RemoteHistoryPanel
+        source={remoteSource}
+        onSelect={onSelect}
+        onPresentationReadyChange={onPresentationReadyChange}
+      />
+    : <LocalHistoryPanel
+        onSelect={onSelect}
+        onPresentationReadyChange={onPresentationReadyChange}
+      />;
 }
 
-function LocalHistoryPanel({ onSelect }: Pick<Props, 'onSelect'>): JSX.Element {
+function LocalHistoryPanel({
+  onSelect,
+  onPresentationReadyChange,
+}: Pick<Props, 'onSelect' | 'onPresentationReadyChange'>): JSX.Element {
   const [filters, setFilters] = useState<Filters>({});
   /** 输入框的实时值（用户每打一个字就更新），与 filters.keyword 解耦避免每次输入都触发 reload */
   const [keywordInput, setKeywordInput] = useState('');
   const [rows, setRows] = useState<SessionRecord[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** reload 序列号：每次发起递增；then 回调先比较序列号，过期请求直接丢弃。
    * REVIEW_2 修：旧筛选慢请求返回会覆盖新筛选结果（搜索 / 切「仅归档」时列表回跳到过期数据）。 */
@@ -75,9 +93,25 @@ function LocalHistoryPanel({ onSelect }: Pick<Props, 'onSelect'>): JSX.Element {
         setError(`历史会话读取失败：${errorMessage(err)}`);
       }
     } finally {
-      if (cur === reqIdRef.current) setLoading(false);
+      if (cur === reqIdRef.current) {
+        setInitialized(true);
+        setLoading(false);
+      }
     }
   };
+
+  const showInitialLoading = useDelayedAsyncFallback(
+    !initialized,
+    'local-history-initial',
+  );
+  const showRefreshProgress = useDelayedAsyncFallback(
+    initialized && loading,
+    'local-history-refresh',
+  );
+  useLayoutEffect(() => {
+    onPresentationReadyChange?.(initialized || showInitialLoading);
+  }, [initialized, onPresentationReadyChange, showInitialLoading]);
+  const refreshError = initialized && rows.length > 0 ? error : null;
 
   useEffect(() => {
     void reload();
@@ -181,34 +215,49 @@ function LocalHistoryPanel({ onSelect }: Pick<Props, 'onSelect'>): JSX.Element {
             <ArchiveIcon className="mr-1 inline h-3 w-3" />仅归档
           </button>
         </div>
-        <p className="mt-0.5 text-[9px] text-deck-muted/70">
-          长工具输出仅搜索开头和结尾各 2,048 个字符。
+        <p className="mt-0.5 flex items-center justify-between gap-2 text-[9px] text-deck-muted/70">
+          <span>长工具输出仅搜索开头和结尾各 2,048 个字符。</span>
+          <span
+            aria-live="polite"
+            title={refreshError ?? undefined}
+            className={refreshError
+              ? 'max-w-48 shrink-0 truncate text-status-waiting'
+              : showRefreshProgress
+                ? 'shrink-0'
+                : 'invisible shrink-0'}
+          >
+            {refreshError ? '刷新失败' : '刷新中…'}
+          </span>
         </p>
-        {error && (
+        {error && rows.length === 0 && (
           <div className="rounded bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
             {error}
           </div>
         )}
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
-        {loading ? (
+        {!initialized ? showInitialLoading ? (
           <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">加载中…</div>
+        ) : (
+          <div className="h-full" aria-hidden="true" />
         ) : rows.length === 0 ? (
           <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">没有匹配结果</div>
         ) : (
-          <ol className="flex flex-col gap-1.5">
-            {rows.map((s) => (
-              <li key={s.id}>
-                <LocalHistorySummaryCard
-                  session={s}
-                  onSelect={() => onSelect(s.id)}
-                  onArchive={() => archive(s.id)}
-                  onUnarchive={() => unarchive(s.id)}
-                  onDelete={() => remove(s.id)}
-                />
-              </li>
-            ))}
-          </ol>
+          <InertInteractionBoundary blocked={loading}>
+            <ol className="flex flex-col gap-1.5">
+              {rows.map((s) => (
+                <li key={s.id}>
+                  <LocalHistorySummaryCard
+                    session={s}
+                    onSelect={() => onSelect(s.id)}
+                    onArchive={() => archive(s.id)}
+                    onUnarchive={() => unarchive(s.id)}
+                    onDelete={() => remove(s.id)}
+                  />
+                </li>
+              ))}
+            </ol>
+          </InertInteractionBoundary>
         )}
       </div>
     </div>
@@ -218,13 +267,29 @@ function LocalHistoryPanel({ onSelect }: Pick<Props, 'onSelect'>): JSX.Element {
 function RemoteHistoryPanel({
   source,
   onSelect,
+  onPresentationReadyChange,
 }: {
   source: RemoteSessionSourceView;
   onSelect: (id: string) => void;
+  onPresentationReadyChange?: (ready: boolean) => void;
 }): JSX.Element {
   const [keyword, setKeyword] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const canMutate = source.usable && source.capabilities.has('sessions.history.write');
+  const showInitialLoading = useDelayedAsyncFallback(
+    !source.historyInitialized,
+    `${source.identity}:history-initial`,
+  );
+  const showRefreshProgress = useDelayedAsyncFallback(
+    source.historyInitialized && source.historyLoading,
+    `${source.identity}:history-refresh`,
+  );
+  useLayoutEffect(() => {
+    onPresentationReadyChange?.(source.historyInitialized || showInitialLoading);
+  }, [onPresentationReadyChange, showInitialLoading, source.historyInitialized]);
+  const refreshError = source.historyInitialized && source.historySessions.length > 0
+    ? source.historyLoadError
+    : null;
   useEffect(() => {
     setKeyword('');
   }, [source.identity]);
@@ -288,8 +353,19 @@ function RemoteHistoryPanel({
             <ArchiveIcon className="mr-1 inline h-3 w-3" />仅归档
           </button>
         </div>
-        <p className="mt-0.5 text-[9px] text-deck-muted/70">
-          长工具输出仅搜索开头和结尾各 2,048 个字符。
+        <p className="mt-0.5 flex items-center justify-between gap-2 text-[9px] text-deck-muted/70">
+          <span>长工具输出仅搜索开头和结尾各 2,048 个字符。</span>
+          <span
+            aria-live="polite"
+            title={refreshError ?? undefined}
+            className={refreshError
+              ? 'max-w-48 shrink-0 truncate text-status-waiting'
+              : showRefreshProgress
+                ? 'shrink-0'
+                : 'invisible shrink-0'}
+          >
+            {refreshError ? '刷新失败' : '刷新中…'}
+          </span>
         </p>
         {actionError && (
           <div role="alert" className="rounded bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
@@ -298,51 +374,52 @@ function RemoteHistoryPanel({
         )}
       </div>
       <div className="flex-1 overflow-y-auto scrollbar-deck px-3 py-2">
-        {source.historyLoadError && source.historySessions.length === 0 ? (
+        {!source.historyInitialized ? showInitialLoading ? (
+          <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">加载中…</div>
+        ) : (
+          <div className="h-full" aria-hidden="true" />
+        ) : source.historyLoadError && source.historySessions.length === 0 ? (
           <div className="flex h-full items-center justify-center text-[11px] text-status-waiting/90">
             {source.historyLoadError}
           </div>
-        ) : source.historyLoading && source.historySessions.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">加载中…</div>
         ) : rows.length === 0 ? (
           <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">
             {source.historyQuery ? '没有匹配结果' : '没有历史会话'}
           </div>
         ) : (
-          <ol className="flex flex-col gap-1.5">
-            {rows.map((session) => (
-              <li key={`${source.identity}:${session.id}`}>
-                <RemoteSessionSummaryCard
-                  session={session}
-                  history
-                  onSelect={() => onSelect(session.id)}
-                  {...(canMutate ? {
-                    onArchive: () => run('归档', () => source.archiveHistorySession(session)),
-                    onUnarchive: () => run(
-                      '取消归档',
-                      () => source.unarchiveHistorySession(session),
-                    ),
-                    onDelete: () => remove(session),
-                  } : {})}
-                />
-              </li>
-            ))}
-            {source.hasMoreHistorySessions && (
-              <li>
-                <button
-                  type="button"
-                  disabled={source.historyPaginationBusy}
-                  onClick={() => void source.loadMoreHistorySessions()}
-                  className="w-full rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
-                >
-                  加载更多历史会话
-                </button>
-              </li>
-            )}
-            {source.historyLoadError && (
-              <li className="text-[10px] text-status-waiting/90">{source.historyLoadError}</li>
-            )}
-          </ol>
+          <InertInteractionBoundary blocked={source.historyLoading}>
+            <ol className="flex flex-col gap-1.5">
+              {rows.map((session) => (
+                <li key={`${source.identity}:${session.id}`}>
+                  <RemoteSessionSummaryCard
+                    session={session}
+                    history
+                    onSelect={() => onSelect(session.id)}
+                    {...(canMutate ? {
+                      onArchive: () => run('归档', () => source.archiveHistorySession(session)),
+                      onUnarchive: () => run(
+                        '取消归档',
+                        () => source.unarchiveHistorySession(session),
+                      ),
+                      onDelete: () => remove(session),
+                    } : {})}
+                  />
+                </li>
+              ))}
+              {source.hasMoreHistorySessions && (
+                <li>
+                  <button
+                    type="button"
+                    disabled={source.historyPaginationBusy}
+                    onClick={() => void source.loadMoreHistorySessions()}
+                    className="w-full rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
+                  >
+                    加载更多历史会话
+                  </button>
+                </li>
+              )}
+            </ol>
+          </InertInteractionBoundary>
         )}
       </div>
     </div>

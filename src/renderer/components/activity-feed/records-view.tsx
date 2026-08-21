@@ -1,4 +1,5 @@
 import { memo, useMemo, type JSX } from 'react';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 
 import { AskRow, DiffReviewRow, ExitPlanRow, PermissionRow } from '@renderer/components/pending-rows';
 import type {
@@ -59,6 +60,11 @@ export function ActivityRecordsView({
   renderPendingEvent,
 }: ActivityRecordsViewProps): JSX.Element {
   const derived = useMemo(() => deriveSources(events, pendingIds), [events, pendingIds]);
+  const initialPending = !loaded && loadError === null && events.length === 0;
+  const showInitialLoading = useDelayedAsyncFallback(
+    initialPending,
+    `${sessionId}:activity-initial`,
+  );
   if (loadError && events.length === 0) {
     return (
       <div className="px-2 py-3 text-[11px] text-status-waiting/90 leading-snug">
@@ -66,8 +72,10 @@ export function ActivityRecordsView({
       </div>
     );
   }
-  if (!loaded && events.length === 0) {
-    return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
+  if (initialPending) {
+    return showInitialLoading
+      ? <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>
+      : <div className="h-full" aria-hidden="true" />;
   }
   if (events.length === 0) {
     return <div className="px-2 py-3 text-[11px] text-deck-muted">无活动记录</div>;

@@ -27,6 +27,8 @@ import {
   presentLocalHookStatus,
   presentRemoteHookStatus,
 } from './settings/hook-status-presentation';
+import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
+import { remoteHookUnavailableReason } from './settings/remote-settings-availability';
 
 interface Props {
   open: boolean;
@@ -94,6 +96,10 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
     : 'local';
   const remoteAuthorityRef = useRef(remoteAuthorityKey);
   remoteAuthorityRef.current = remoteAuthorityKey;
+  const initialPresentation = useInitialAsyncPresentation(
+    open && settings === null && loadError === null,
+    `${remoteAuthorityKey}:${open ? 'open' : 'closed'}:settings`,
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -292,7 +298,9 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
         )}
 
         {!settings ? (
-          <div className="py-6 text-center text-[11px] text-deck-muted">读取设置中…</div>
+          initialPresentation === 'fallback'
+            ? <div className="py-6 text-center text-[11px] text-deck-muted">读取设置中…</div>
+            : <div className="min-h-12" aria-hidden="true" />
         ) : (
           <>
             <nav
@@ -464,15 +472,6 @@ function remoteConfigurationUnavailableReason(remote: NonNullable<Props['remote'
   if (!remote.usable) return '当前远端环境尚未连接，暂时无法读取设置。';
   if (!remote.supportsNodeConfiguration) {
     return '当前远端版本不支持读取设置，请升级后重试。';
-  }
-  if (!remote.profileId) return '当前远端连接信息不完整。';
-  return null;
-}
-
-function remoteHookUnavailableReason(remote: NonNullable<Props['remote']>): string | null {
-  if (!remote.usable) return '当前远端环境尚未连接，暂时无法读取 Hook 状态。';
-  if (!remote.supportsNodeHooksRead) {
-    return '当前远端版本不支持读取 Hook 状态，请升级后重试。';
   }
   if (!remote.profileId) return '当前远端连接信息不完整。';
   return null;

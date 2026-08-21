@@ -36,8 +36,14 @@ export function useLocalAppBridges(enabled: boolean): void {
       isCancelled: () => cancelled,
     }).then((result) => {
       if (result === 'unstable') logger.warn('[app] pending snapshot stayed unstable; kept live state');
+      if (!cancelled && result !== 'applied') {
+        useSessionStore.getState().markPendingInitialized();
+      }
     }).catch((err: unknown) => {
-      if (!cancelled) logger.warn('[app] initial pending snapshot failed', err);
+      if (!cancelled) {
+        useSessionStore.getState().markPendingInitialized();
+        logger.warn('[app] initial pending snapshot failed', err);
+      }
     });
     return () => {
       cancelled = true;

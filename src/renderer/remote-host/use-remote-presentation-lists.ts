@@ -31,6 +31,7 @@ export interface RemotePresentationLists {
   total: number | null;
   loading: boolean;
   error: string | null;
+  historyInitialized: boolean;
   historyLoading: boolean;
   historyLoadError: string | null;
   historyArchivedOnly: boolean;
@@ -39,6 +40,7 @@ export interface RemotePresentationLists {
   hasMoreHistorySessions: boolean;
   pendingBuckets: readonly RemoteHostPendingIndexBucketDto[];
   pendingBySession: ReadonlyMap<string, RemoteHostPendingListDto>;
+  pendingInitialized: boolean;
   pendingLoading: boolean;
   pendingLoadError: string | null;
   pendingTotal: number | null;
@@ -110,6 +112,7 @@ export function useRemotePresentationLists(
   const [sessionTotal, setSessionTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [historyInitialized, setHistoryInitialized] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoadError, setHistoryLoadError] = useState<string | null>(null);
   const [historyQuery, setHistoryQueryState] = useState('');
@@ -120,6 +123,7 @@ export function useRemotePresentationLists(
   const [pendingBuckets, setPendingBuckets] = useState<RemoteHostPendingIndexBucketDto[]>([]);
   const [pendingBySession, setPendingBySession] =
     useState<ReadonlyMap<string, RemoteHostPendingListDto>>(EMPTY_PENDING);
+  const [pendingInitialized, setPendingInitialized] = useState(false);
   const [pendingLoading, setPendingLoading] = useState(false);
   const [pendingLoadError, setPendingLoadError] = useState<string | null>(null);
   const [pendingTotal, setPendingTotal] = useState<number | null>(null);
@@ -167,6 +171,7 @@ export function useRemotePresentationLists(
     setSessionTotal(null);
     setLoading(false);
     setError(null);
+    setHistoryInitialized(false);
     setHistoryLoading(false);
     setHistoryLoadError(null);
     setSessionCursor(null);
@@ -174,6 +179,7 @@ export function useRemotePresentationLists(
     setPendingCursor(null);
     setPendingBuckets([]);
     setPendingBySession(EMPTY_PENDING);
+    setPendingInitialized(false);
     setPendingLoading(false);
     setPendingLoadError(null);
     setPendingTotal(null);
@@ -229,7 +235,10 @@ export function useRemotePresentationLists(
       } catch (reason) {
         if (isCurrent()) setHistoryLoadError(message(reason));
       } finally {
-        if (isCurrent()) setHistoryLoading(false);
+        if (isCurrent()) {
+          setHistoryInitialized(true);
+          setHistoryLoading(false);
+        }
       }
     },
   });
@@ -256,7 +265,10 @@ export function useRemotePresentationLists(
       } catch (reason) {
         if (isCurrent()) setPendingLoadError(message(reason));
       } finally {
-        if (isCurrent()) setPendingLoading(false);
+        if (isCurrent()) {
+          setPendingInitialized(true);
+          setPendingLoading(false);
+        }
       }
     },
   });
@@ -356,12 +368,15 @@ export function useRemotePresentationLists(
     sessions: usable ? sessions : [], historySessions: usable ? historySessions : [],
     counts: usable ? counts : null, total: usable ? sessionTotal : null,
     loading: usable && loading,
-    error: usable ? error : null, historyLoading: usable && historyLoading,
+    error: usable ? error : null,
+    historyInitialized: usable && historyInitialized,
+    historyLoading: usable && historyLoading,
     historyLoadError: usable ? historyLoadError : null, historyQuery, historyArchivedOnly,
     hasMoreSessions: usable && sessionCursor !== null,
     hasMoreHistorySessions: usable && historyCursor !== null,
     pendingBuckets: usable ? pendingBuckets : [],
     pendingBySession: usable ? pendingBySession : EMPTY_PENDING,
+    pendingInitialized: usable && pendingInitialized,
     pendingLoading: usable && pendingLoading,
     pendingLoadError: usable ? pendingLoadError : null,
     pendingTotal: usable ? pendingTotal : null,

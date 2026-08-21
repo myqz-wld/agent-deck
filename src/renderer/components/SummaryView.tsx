@@ -5,6 +5,7 @@ import { loadStableSnapshot } from '@renderer/lib/load-stable-snapshot';
 import { errorMessage } from '@renderer/lib/error-message';
 import { ChevronDownIcon, ChevronUpIcon } from './icons';
 import { StableButtonContent } from './StableButtonContent';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 
 interface Props {
   sessionId: string;
@@ -44,24 +45,38 @@ export function SummaryView({ sessionId }: Props): JSX.Element {
     };
   }, [sessionId, setLocal]);
 
-  return <SummaryRecordsView summaries={local} loaded={loaded} loadError={loadError} />;
+  return <SummaryRecordsView
+    summaries={local}
+    loaded={loaded}
+    loadError={loadError}
+    presentationIdentity={sessionId}
+  />;
 }
 
 export function SummaryRecordsView({
   summaries,
   loaded,
   loadError,
+  presentationIdentity = 'summary',
 }: {
   summaries: readonly SummaryRecord[];
   loaded: boolean;
   loadError: string | null;
+  presentationIdentity?: string;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
+  const initialPending = !loaded && loadError === null && summaries.length === 0;
+  const showInitialLoading = useDelayedAsyncFallback(
+    initialPending,
+    `${presentationIdentity}:summary-initial`,
+  );
   if (loadError && summaries.length === 0) {
     return <div className="px-2 py-3 text-[11px] text-status-waiting/90">{loadError}</div>;
   }
-  if (!loaded && summaries.length === 0) {
-    return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
+  if (initialPending) {
+    return showInitialLoading
+      ? <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>
+      : <div className="h-full" aria-hidden="true" />;
   }
   if (summaries.length === 0) {
     return (

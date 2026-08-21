@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -15,7 +16,8 @@ import { AskRow, DiffReviewRow, ExitPlanRow, PermissionRow } from './pending-row
 import { CheckIcon, ChevronRightIcon, CloseIcon, CrownIcon, ShieldIcon, UsersIcon } from './icons';
 import log from '@renderer/utils/logger';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
-import { RemotePendingBucketSection } from './RemotePendingBucketSection';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
+import { RemotePendingTab } from './RemotePendingTab';
 
 /**
  * Central pending surface. It reuses the same request rows as the activity
@@ -25,21 +27,37 @@ const logger = log.scope('renderer-pending-tab');
 
 interface Props {
   onOpenSession: (sid: string) => void;
+  onPresentationReadyChange?: (ready: boolean) => void;
   remoteSource?: RemoteSessionSourceView;
 }
 
-export function PendingTab({ onOpenSession, remoteSource }: Props): JSX.Element {
+export function PendingTab({
+  onOpenSession,
+  onPresentationReadyChange,
+  remoteSource,
+}: Props): JSX.Element {
   return remoteSource
-    ? <RemotePendingTab source={remoteSource} onOpenSession={onOpenSession} />
-    : <LocalPendingTab onOpenSession={onOpenSession} />;
+    ? <RemotePendingTab
+        source={remoteSource}
+        onOpenSession={onOpenSession}
+        onPresentationReadyChange={onPresentationReadyChange}
+      />
+    : <LocalPendingTab
+        onOpenSession={onOpenSession}
+        onPresentationReadyChange={onPresentationReadyChange}
+      />;
 }
 
-function LocalPendingTab({ onOpenSession }: Pick<Props, 'onOpenSession'>): JSX.Element {
+function LocalPendingTab({
+  onOpenSession,
+  onPresentationReadyChange,
+}: Pick<Props, 'onOpenSession' | 'onPresentationReadyChange'>): JSX.Element {
   const sessions = useSessionStore((s) => s.sessions);
   const pendingPerms = useSessionStore((s) => s.pendingPermissionsBySession);
   const pendingAsks = useSessionStore((s) => s.pendingAskQuestionsBySession);
   const pendingExits = useSessionStore((s) => s.pendingExitPlanModesBySession);
   const pendingDiffs = useSessionStore((s) => s.pendingDiffReviewsBySession);
+  const initialized = useSessionStore((s) => s.pendingInitialized);
   const resolvePermission = useSessionStore((s) => s.resolvePermission);
   const resolveAsk = useSessionStore((s) => s.resolveAskQuestion);
   const resolveExitPlan = useSessionStore((s) => s.resolveExitPlanMode);
@@ -49,7 +67,20 @@ function LocalPendingTab({ onOpenSession }: Pick<Props, 'onOpenSession'>): JSX.E
     () => selectPendingBuckets(sessions, pendingPerms, pendingAsks, pendingExits, pendingDiffs),
     [sessions, pendingPerms, pendingAsks, pendingExits, pendingDiffs],
   );
+  const showInitialLoading = useDelayedAsyncFallback(
+    !initialized && buckets.length === 0,
+    'local-pending-initial',
+  );
 
+  useLayoutEffect(() => {
+    onPresentationReadyChange?.(initialized || buckets.length > 0 || showInitialLoading);
+  }, [buckets.length, initialized, onPresentationReadyChange, showInitialLoading]);
+
+  if (!initialized && buckets.length === 0) {
+    return showInitialLoading
+      ? <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">加载中…</div>
+      : <div className="h-full" aria-hidden="true" />;
+  }
   if (buckets.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center text-deck-muted">
@@ -76,92 +107,6 @@ function LocalPendingTab({ onOpenSession }: Pick<Props, 'onOpenSession'>): JSX.E
           />
         ))}
       </ol>
-    </div>
-  );
-}
-
-function RemotePendingTab({
-  source,
-  onOpenSession,
-}: {
-  source: RemoteSessionSourceView;
-  onOpenSession: (sid: string) => void;
-}): JSX.Element {
-  const buckets = source.pendingBuckets;
-  if (!source.capabilities.has('pending.index.read')) {
-    return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">当前远端版本无法列出全部待处理请求，请更新远端服务。</div>;
-  }
-  if (source.pendingLoading && buckets.length === 0) {
-    return <div className="flex h-full items-center justify-center px-6 text-center text-[11px] text-deck-muted">正在读取远程待处理事项…</div>;
-  }
-  if (source.pendingLoadError && buckets.length === 0) {
-    return (
-      <div role="alert" className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[11px] text-status-waiting">
-        <span>{source.pendingLoadError}</span>
-        <button type="button" onClick={source.refresh} className="rounded border border-white/10 px-2 py-1 text-[10px] hover:bg-white/[0.05]">重试</button>
-      </div>
-    );
-  }
-  if (source.pendingTotal === null && buckets.length === 0) {
-    return (
-      <div
-        role="status"
-        className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-[11px] text-deck-muted"
-      >
-        <span>远程待处理总数尚未确认。</span>
-        <button
-          type="button"
-          onClick={source.refresh}
-          className="rounded border border-white/10 px-2 py-1 text-[10px] hover:bg-white/[0.05]"
-        >
-          重新读取
-        </button>
-      </div>
-    );
-  }
-  if (buckets.length === 0) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center text-deck-muted">
-        <div className="text-[12px]">没有待处理事项</div>
-        <div className="text-[10px] leading-relaxed text-deck-muted/70">
-          当前没有需要你授权、回答或确认的内容。
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="h-full overflow-y-auto scrollbar-deck px-3 py-2">
-      <div className="mb-2 flex items-center justify-between text-[10px] text-deck-muted/75">
-        <span>
-          {source.pendingTotal === null
-            ? `总数待确认 · 已载入 ${buckets.reduce((sum, bucket) => sum + bucket.pending.requests.length, 0)} 项`
-            : `待处理 ${source.pendingTotal} 项`}
-        </span>
-        {source.pendingScanTruncated && <span className="text-amber-300/80">结果已按安全上限截断</span>}
-      </div>
-      <ol className="flex flex-col gap-3">
-        {buckets.map((bucket) => (
-          <RemotePendingBucketSection
-            key={`${source.identity}:${bucket.session.id}`}
-            bucket={bucket}
-            source={source}
-            onOpenSession={onOpenSession}
-          />
-        ))}
-      </ol>
-      {source.hasMorePending && (
-        <button
-          type="button"
-          disabled={source.pendingPaginationBusy}
-          onClick={() => void source.loadMorePending()}
-          className="mt-3 w-full rounded border border-dashed border-white/10 px-3 py-2 text-[10px] text-deck-muted hover:bg-white/[0.04] disabled:opacity-40"
-        >
-          加载更多待处理会话
-        </button>
-      )}
-      {source.pendingLoadError && (
-        <div role="alert" className="mt-2 rounded bg-red-500/10 px-2 py-1 text-[10px] text-red-200">{source.pendingLoadError}</div>
-      )}
     </div>
   );
 }

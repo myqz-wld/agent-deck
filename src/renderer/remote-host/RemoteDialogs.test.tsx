@@ -15,6 +15,7 @@ import { deferred, hosts, source } from './remote-dialogs-test-fixture';
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   Reflect.deleteProperty(window, 'api');
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -324,18 +325,29 @@ describe('remote source surfaces', () => {
     expect(screen.queryByText(/1\/9/)).toBeNull();
   });
 
-  it('does not show a false empty Pending state while the Core aggregate is loading or failed', () => {
+  it('delays the unresolved Pending fallback for 150 ms and never shows a false empty state', async () => {
+    vi.useFakeTimers();
     const pendingSource = source();
     pendingSource.capabilities = new Set(['pending.index.read', 'pending.respond']);
     const view = render(<PendingTab
-      remoteSource={{ ...pendingSource, pendingLoading: true }}
+      remoteSource={{
+        ...pendingSource,
+        pendingInitialized: false,
+        pendingLoading: true,
+      }}
       onOpenSession={vi.fn()}
     />);
-    expect(screen.getByText('正在读取远程待处理事项…')).toBeTruthy();
+    expect(screen.queryByText('正在读取远程待处理事项…')).toBeNull();
     expect(screen.queryByText('没有待处理事项')).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(149));
+    expect(screen.queryByText('正在读取远程待处理事项…')).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByText('正在读取远程待处理事项…')).toBeTruthy();
     view.rerender(<PendingTab
       remoteSource={{
         ...pendingSource,
+        pendingInitialized: true,
+        pendingLoading: false,
         pendingLoadError: '待处理索引读取失败。',
       }}
       onOpenSession={vi.fn()}

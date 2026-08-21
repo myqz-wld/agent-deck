@@ -312,7 +312,9 @@ export function App(): JSX.Element {
     : localStats;
   const pending = authority === 'unknown'
     ? null
-    : remoteMode ? remoteSource.pendingTotal : localPending;
+    : remoteMode
+      ? remoteSource.pendingTotal
+      : localState?.pendingInitialized ? localPending : null;
 
   const jumpToPending = (): void => {
     if (pending === null || pending === 0) return;
