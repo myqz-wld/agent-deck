@@ -108,7 +108,7 @@ describe('ResolveInNewSessionDialog model options', () => {
     fireEvent.click(approvalPicker);
     fireEvent.click(screen.getByRole('option', { name: '按需询问' }));
     const create = await screen.findByRole('button', { name: '新建会话' }) as HTMLButtonElement;
-    expect(create.disabled).toBe(false);
+    await waitFor(() => expect(create.disabled).toBe(false));
     fireEvent.click(create);
 
     await waitFor(() => {
