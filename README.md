@@ -37,11 +37,17 @@ Each session keeps its agent's own model, permission, approval, and sandbox sett
 
 ## Runtime Configuration
 
-### Codex Gateways
+### Gateway Profiles
 
-Agent Deck discovers Codex Gateway profiles from `${CODEX_HOME:-~/.codex}/gateways/*.toml`. The filename stem is the Gateway id, and each file is a complete native Codex configuration. Selecting the empty entry delegates to the normal `${CODEX_HOME:-~/.codex}/config.toml`.
+Gateway profiles remain adapter-native:
 
-Gateway changes do not interrupt an active turn; they apply when the same thread resumes for its next turn. See [resources/README.md](resources/README.md) for the exact runtime and Gateway contract.
+| Adapter | Gateway configuration |
+| --- | --- |
+| Claude Code | `~/.claude/gateways/<id>.json`, passed to the SDK session as its settings file |
+| Codex CLI | `${CODEX_HOME:-~/.codex}/gateways/<id>.toml`, applied as a complete native Codex configuration |
+| Grok Build | No Agent Deck Gateway selector; Grok keeps its native ACP/provider configuration |
+
+For Claude and Codex, the filename stem is the Gateway id and an empty selection delegates to the adapter's normal native configuration. Agent Deck reads these profiles without writing them or carrying a Gateway choice across adapters. See [resources/README.md](resources/README.md) for the exact runtime contracts.
 
 ### Browser and In-App View
 
