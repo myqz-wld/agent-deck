@@ -1,4 +1,4 @@
-import { useRef, type JSX, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type JSX, type ReactNode } from 'react';
 
 import type { DeckSelectOption } from '@renderer/components/DeckSelect';
 import { DeckSelect } from '@renderer/components/DeckSelect';
@@ -97,6 +97,18 @@ export function NewSessionForm(props: Props): JSX.Element | null {
   const configurationDisabled = disabled || props.configurationControlsBlocked === true;
   const preparingConfiguration = !disabled && props.configurationSubmissionBlocked === true;
   const submissionDisabled = disabled || preparingConfiguration;
+  const settledCanCreateRef = useRef(props.canCreate);
+  useLayoutEffect(() => {
+    if (!preparingConfiguration) settledCanCreateRef.current = props.canCreate;
+  }, [preparingConfiguration, props.canCreate]);
+  const visuallyCanCreate = preparingConfiguration && !showConfigurationProgress
+    ? settledCanCreateRef.current
+    : props.canCreate;
+  const createButtonVisuallyDisabled = disabled || !visuallyCanCreate || (
+    preparingConfiguration && showConfigurationProgress
+  );
+  const createLabel = props.createLabel ?? '创建';
+  const creatingLabel = props.creatingLabel ?? '创建中…';
   const titleId = `${props.authoringId.replace(/[^A-Za-z0-9_-]/g, '-')}-title`;
   const modalRootRef = useRef<HTMLDivElement>(null);
   useModalFocus({ blocked: props.busy, dialogRef: modalRootRef, onClose: props.onClose });
@@ -270,16 +282,29 @@ export function NewSessionForm(props: Props): JSX.Element | null {
                 onClick={props.onCreate}
                 disabled={!props.canCreate || submissionDisabled}
                 title={preparingConfiguration ? '正在读取会话配置' : undefined}
-                className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
+                className={`rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 ${
+                  createButtonVisuallyDisabled ? 'opacity-50' : ''
+                }`}
               >
-                {!props.busy && !preparingConfiguration && (
-                  <SendIcon className="mr-1 inline h-3 w-3" />
-                )}
-                {props.busy
-                  ? (props.creatingLabel ?? '创建中…')
-                  : preparingConfiguration
-                    ? '正在准备…'
-                    : (props.createLabel ?? '创建')}
+                <span className="inline-grid place-items-center">
+                  <span
+                    aria-hidden="true"
+                    className="invisible col-start-1 row-start-1 inline-flex items-center whitespace-nowrap"
+                  >
+                    <SendIcon className="mr-1 h-3 w-3" />
+                    {createLabel}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="invisible col-start-1 row-start-1 whitespace-nowrap"
+                  >
+                    {creatingLabel}
+                  </span>
+                  <span className="col-start-1 row-start-1 inline-flex items-center whitespace-nowrap">
+                    {!props.busy && <SendIcon className="mr-1 h-3 w-3" />}
+                    {props.busy ? creatingLabel : createLabel}
+                  </span>
+                </span>
               </button>
             </div>
           </div>

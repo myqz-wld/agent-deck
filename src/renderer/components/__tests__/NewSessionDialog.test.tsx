@@ -161,7 +161,7 @@ describe('NewSessionDialog model options', () => {
       target: { value: '完成这个任务' },
     });
     const create = await screen.findByRole('button', { name: '创建' }) as HTMLButtonElement;
-    expect(create.disabled).toBe(false);
+    await waitFor(() => expect(create.disabled).toBe(false));
     fireEvent.click(create);
 
     await waitFor(() => {
