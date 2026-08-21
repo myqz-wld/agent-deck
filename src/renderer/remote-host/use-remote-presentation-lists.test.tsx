@@ -108,6 +108,50 @@ function renderLists(
 }
 
 describe('useRemotePresentationLists', () => {
+  it('distinguishes an unresolved empty History page from a settled empty result', async () => {
+    const history = deferred<RemoteHostSessionPresentationPageDto>();
+    window.api = {
+      listRemoteHostSessionPresentations: vi.fn((request) => request.kind === 'history'
+        ? history.promise
+        : Promise.resolve(page('live'))),
+      listRemoteHostPendingIndex: vi.fn(async () => pending()),
+    } as unknown as typeof window.api;
+
+    const hook = renderLists();
+    await waitFor(() => expect(hook.result.current.historyLoading).toBe(true));
+    expect(hook.result.current.historyInitialized).toBe(false);
+
+    await act(async () => {
+      history.resolve(page('history'));
+      await history.promise;
+    });
+
+    await waitFor(() => expect(hook.result.current.historyInitialized).toBe(true));
+    expect(hook.result.current.historyLoading).toBe(false);
+    expect(hook.result.current.historySessions).toEqual([]);
+  });
+
+  it('distinguishes an unresolved empty Pending page from a settled empty result', async () => {
+    const pendingPage = deferred<RemoteHostPendingIndexDto>();
+    window.api = {
+      listRemoteHostSessionPresentations: vi.fn((request) => Promise.resolve(page(request.kind))),
+      listRemoteHostPendingIndex: vi.fn(() => pendingPage.promise),
+    } as unknown as typeof window.api;
+
+    const hook = renderLists();
+    await waitFor(() => expect(hook.result.current.pendingLoading).toBe(true));
+    expect(hook.result.current.pendingInitialized).toBe(false);
+
+    await act(async () => {
+      pendingPage.resolve({ ...pending(), buckets: [], totalBuckets: 0, totalRequests: 0 });
+      await pendingPage.promise;
+    });
+
+    await waitFor(() => expect(hook.result.current.pendingInitialized).toBe(true));
+    expect(hook.result.current.pendingLoading).toBe(false);
+    expect(hook.result.current.pendingBuckets).toEqual([]);
+  });
+
   it('does not request presentations without the presentation capability', async () => {
     const listPresentations = vi.fn();
     window.api = {

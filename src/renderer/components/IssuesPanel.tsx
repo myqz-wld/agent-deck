@@ -1,16 +1,25 @@
 /** Bounded issue query list; the application-level bridge owns live event subscription. */
 
-import { useEffect, useMemo, useState, type JSX } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useState, type JSX } from 'react';
 import {
   useIssuesStore,
   selectFilteredIssues,
 } from '../stores/issues-store';
 import { IssueDetail } from './IssueDetail';
 import { EmptyIssueDetail, IssueBoard } from './issues/IssueBoard';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 
 const KEYWORD_DEBOUNCE_MS = 300;
 
-export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) => void }): JSX.Element {
+export function IssuesPanel({
+  active = true,
+  onOpenSession,
+  onPresentationReadyChange,
+}: {
+  active?: boolean;
+  onOpenSession?: (sid: string) => void;
+  onPresentationReadyChange?: (ready: boolean) => void;
+}): JSX.Element {
   const issues = useIssuesStore((s) => s.issues);
   const queryIssueIds = useIssuesStore((s) => s.queryIssueIds);
   const filters = useIssuesStore((s) => s.filters);
@@ -22,7 +31,8 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
   const selectIssue = useIssuesStore((s) => s.selectIssue);
 
   const [keywordInput, setKeywordInput] = useState(filters.titleKeyword ?? '');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [listReloadNonce, setListReloadNonce] = useState(0);
 
@@ -69,6 +79,7 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
       })
       .finally(() => {
         if (cancelled) return;
+        setInitialized(true);
         setLoading(false);
       });
     return () => {
@@ -86,18 +97,32 @@ export function IssuesPanel({ onOpenSession }: { onOpenSession?: (sid: string) =
     cancelListRequest,
   ]);
 
+  const showInitialLoading = useDelayedAsyncFallback(
+    !initialized,
+    'local-issues-initial',
+  );
+  const showRefreshProgress = useDelayedAsyncFallback(
+    initialized && loading,
+    'local-issues-refresh',
+  );
+  useLayoutEffect(() => {
+    onPresentationReadyChange?.(initialized || showInitialLoading);
+  }, [initialized, onPresentationReadyChange, showInitialLoading]);
+
   return (
     <IssueBoard
       filters={filters}
       issues={filteredList}
       keywordInput={keywordInput}
       listError={listError}
-      loading={loading}
+      loading={!initialized ? showInitialLoading : showRefreshProgress && filteredList.length === 0}
+      deferred={!initialized && !showInitialLoading && filteredList.length === 0}
+      refreshing={initialized && showRefreshProgress}
       selectedIssueId={selectedIssueId}
       onFiltersChange={setFilters}
       onKeywordChange={setKeywordInput}
       onSelectIssue={selectIssue}
-      detail={selectedIssueId ? (
+      detail={active && selectedIssueId ? (
         // The key resets the per-issue edit baseline before another issue can receive the draft.
         <IssueDetail
           key={selectedIssueId}

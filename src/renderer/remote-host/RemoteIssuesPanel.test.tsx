@@ -9,6 +9,7 @@ import type {
   RemoteHostResourceRevisions,
 } from '@shared/remote-host';
 import { RemoteIssuesPanel } from '@renderer/components/issues/RemoteIssuesPanel';
+import { FAST_ASYNC_FALLBACK_GRACE_MS } from '@renderer/hooks/useDelayedAsyncFallback';
 import { RemoteUserIntentLedger } from './remote-intent-ledger';
 import type { RemoteSessionSourceView } from './source-types';
 
@@ -83,6 +84,7 @@ function source(
     eventLoadError: null,
     events: null,
     historyLoadError: null,
+    historyInitialized: true,
     historyLoading: false,
     historyPaginationBusy: false,
     historyArchivedOnly: false,
@@ -95,6 +97,7 @@ function source(
     livePaginationBusy: false,
     pendingBuckets: [],
     pendingBySession: new Map(),
+    pendingInitialized: true,
     pendingLoading: false,
     pendingPaginationBusy: false,
     pendingLoadError: null,
@@ -157,6 +160,38 @@ function source(
 }
 
 describe('RemoteIssuesPanel', () => {
+  it('shows an unresolved initial list only after the shared 150 ms boundary', async () => {
+    vi.useFakeTimers();
+    let resolve!: (value: {
+      issues: RemoteHostIssueDto[];
+      revision: number;
+      truncated: boolean;
+    }) => void;
+    const request = new Promise<{
+      issues: RemoteHostIssueDto[];
+      revision: number;
+      truncated: boolean;
+    }>((done) => { resolve = done; });
+    window.api = {
+      listRemoteHostIssues: vi.fn(() => request),
+    } as unknown as typeof window.api;
+    render(<RemoteIssuesPanel source={source()} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.queryByText('加载中…')).toBeNull();
+    expect(screen.queryByText(/暂无问题/u)).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
+    expect(screen.queryByText('加载中…')).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByText('加载中…')).toBeTruthy();
+
+    await act(async () => {
+      resolve({ issues: [issue('remote-fast', 'Remote fast issue')], revision: 1, truncated: false });
+      await request;
+    });
+    expect(screen.getByText('Remote fast issue')).toBeTruthy();
+  });
+
   it('performs one initial list request for a stable identity and empty keyword', async () => {
     vi.useFakeTimers();
     const listRemoteHostIssues = vi.fn(async () => ({
@@ -227,9 +262,13 @@ describe('RemoteIssuesPanel', () => {
     }));
     const title = await screen.findByDisplayValue('Remote issue');
     fireEvent.change(title, { target: { value: 'Updated issue' } });
-    fireEvent.click(screen.getByRole('button', { name: /保存/u }));
-    expect(await screen.findByText('问题更新失败，请稍后重试。')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /保存/u }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /保存/u }));
+    });
+    expect(screen.getByText('问题更新失败，请稍后重试。')).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /保存/u }));
+    });
 
     await waitFor(() => expect(api.updateRemoteHostIssue).toHaveBeenCalledTimes(2));
     const [first, second] = api.updateRemoteHostIssue.mock.calls;

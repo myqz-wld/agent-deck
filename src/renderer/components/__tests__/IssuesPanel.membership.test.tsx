@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IssueRecord } from '@shared/types';
 import { useIssuesStore } from '@renderer/stores/issues-store';
+import { FAST_ASYNC_FALLBACK_GRACE_MS } from '@renderer/hooks/useDelayedAsyncFallback';
 import { IssuesPanel } from '../IssuesPanel';
 
 function deferred<T>(): {
@@ -54,10 +55,51 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(window, 'api');
 });
 
 describe('IssuesPanel bounded query membership', () => {
+  it('shows initial loading only after 150 ms and commits a fast result directly', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<IssueRecord[]>();
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { issuesList: vi.fn(() => pending.promise) } as unknown as Window['api'],
+    });
+    render(<IssuesPanel />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(screen.queryByText('加载中…')).toBeNull();
+    expect(screen.queryByText(/暂无问题/u)).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
+    expect(screen.queryByText('加载中…')).toBeNull();
+
+    await act(async () => {
+      pending.resolve([issue({ title: 'Fast issue result' })]);
+      await pending.promise;
+    });
+    expect(screen.getByText('Fast issue result')).toBeTruthy();
+    expect(screen.queryByText('加载中…')).toBeNull();
+  });
+
+  it('reveals the stable initial loading fallback at 150 ms', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<IssueRecord[]>();
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: { issuesList: vi.fn(() => pending.promise) } as unknown as Window['api'],
+    });
+    render(<IssuesPanel />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
+    expect(screen.queryByText('加载中…')).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByText('加载中…')).toBeTruthy();
+  });
+
   it('uses the shared narrow-screen detail back action in Local mode', async () => {
     const row = issue({ title: 'Local responsive issue' });
     Object.defineProperty(window, 'api', {

@@ -3,6 +3,7 @@ import type { TaskRecord } from '@shared/types';
 import log from '@renderer/utils/logger';
 import { relativeTime } from '../session-presentation';
 import { safeErrorData } from '../activity-feed/viewers/safe-error-data';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 
 interface Props {
   sessionId: string;
@@ -81,17 +82,24 @@ export function TasksPanel({ sessionId }: Props): JSX.Element {
     };
   }, [sessionId]);
 
-  return <TaskRecordsView tasks={tasks} loaded={loaded} error={error} />;
+  return <TaskRecordsView
+    tasks={tasks}
+    loaded={loaded}
+    error={error}
+    presentationIdentity={sessionId}
+  />;
 }
 
 export function TaskRecordsView({
   tasks,
   loaded,
   error,
+  presentationIdentity = 'tasks',
 }: {
   tasks: readonly TaskRecord[];
   loaded: boolean;
   error: string | null;
+  presentationIdentity?: string;
 }): JSX.Element {
   const [activeTab, setActiveTab] = useState<TaskTab>('unfinished');
   const { unfinished, completed } = useMemo(() => {
@@ -102,12 +110,19 @@ export function TaskRecordsView({
     };
   }, [tasks]);
   const activeTasks = activeTab === 'unfinished' ? unfinished : completed;
+  const initialPending = !loaded && error === null && tasks.length === 0;
+  const showInitialLoading = useDelayedAsyncFallback(
+    initialPending,
+    `${presentationIdentity}:tasks-initial`,
+  );
 
   if (error && tasks.length === 0) {
     return <div className="px-2 py-3 text-[11px] leading-snug text-status-waiting/90">{error}</div>;
   }
-  if (!loaded && tasks.length === 0) {
-    return <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>;
+  if (initialPending) {
+    return showInitialLoading
+      ? <div className="px-2 py-3 text-[11px] text-deck-muted">加载中…</div>
+      : <div className="h-full" aria-hidden="true" />;
   }
   if (tasks.length === 0) {
     return <div className="px-2 py-3 text-[11px] text-deck-muted">本会话暂无任务</div>;

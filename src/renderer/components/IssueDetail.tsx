@@ -24,6 +24,7 @@ import {
 import { ExpandableIssueTextField } from './issue-detail/ExpandableIssueTextField';
 import { IssueAppendices, IssueLogsReference } from './issue-detail/IssueEvidence';
 import { IssueResolutionControls } from './issues/IssueResolutionControls';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 
 interface Props {
   issueId: string;
@@ -68,6 +69,11 @@ export function IssueDetail({ issueId, onClose, onOpenSession, source }: Props):
   const [loadError, setLoadError] = useState<string | null>(null);
   const [opError, setOpError] = useState<string | null>(null);
   const [fetchNonce, setFetchNonce] = useState(0);
+  const initialPending = !issue || !editing || !baseline;
+  const showInitialLoading = useDelayedAsyncFallback(
+    initialPending && loadError === null,
+    `${source?.identity ?? 'local'}:${issueId}:issue-detail-initial`,
+  );
 
   // Async fetches and store effects must rebase against values current at completion time.
   const issueRef = useRef(issue);
@@ -165,8 +171,10 @@ export function IssueDetail({ issueId, onClose, onOpenSession, source }: Props):
       </div>
     );
   }
-  if (!issue || !editing || !baseline) {
-    return <div className="px-3 py-3 text-xs text-deck-muted">加载中…</div>;
+  if (initialPending) {
+    return showInitialLoading
+      ? <div className="px-3 py-3 text-xs text-deck-muted">加载中…</div>
+      : <div className="h-full" aria-hidden="true" />;
   }
 
   const handleSave = async (): Promise<void> => {

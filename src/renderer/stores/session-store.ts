@@ -68,6 +68,7 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
   pendingAskQuestionsBySession: new Map(),
   pendingExitPlanModesBySession: new Map(),
   pendingDiffReviewsBySession: new Map(),
+  pendingInitialized: false,
   sessionRevision: 0,
   eventRevisionsBySession: new Map(),
   summaryRevisionsBySession: new Map(),
@@ -384,7 +385,9 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
     }),
 
   setPendingRequestsAll: (map) =>
-    set(() => pendingRequestMapsFromSnapshot(map)),
+    set(() => ({ ...pendingRequestMapsFromSnapshot(map), pendingInitialized: true })),
+
+  markPendingInitialized: () => set({ pendingInitialized: true }),
 
   renameSession: (fromId, toId) => {
     if (fromId === toId) return;

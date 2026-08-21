@@ -14,6 +14,8 @@ export function IssueBoard({
   keywordInput,
   listError,
   loading,
+  deferred = false,
+  refreshing = false,
   selectedIssueId,
   truncated,
   loadingMore = false,
@@ -28,6 +30,8 @@ export function IssueBoard({
   keywordInput: string;
   listError: string | null;
   loading: boolean;
+  deferred?: boolean;
+  refreshing?: boolean;
   selectedIssueId: string | null;
   truncated?: boolean;
   loadingMore?: boolean;
@@ -46,11 +50,15 @@ export function IssueBoard({
         <FilterBar
           filters={filters}
           keywordInput={keywordInput}
+          listError={issues.length > 0 ? listError : null}
+          refreshing={refreshing}
           onKeywordChange={onKeywordChange}
           onFiltersChange={onFiltersChange}
         />
         <div className="flex-1 overflow-y-auto scrollbar-deck">
-          {listError ? (
+          {deferred ? (
+            <div className="h-full" aria-hidden="true" />
+          ) : listError && issues.length === 0 ? (
             <div className="px-3 py-8 text-center text-xs text-status-waiting">
               加载失败：{listError}
             </div>
@@ -122,11 +130,15 @@ export function IssueBoard({
 function FilterBar({
   filters,
   keywordInput,
+  listError,
+  refreshing,
   onKeywordChange,
   onFiltersChange,
 }: {
   filters: IssueFilters;
   keywordInput: string;
+  listError: string | null;
+  refreshing: boolean;
   onKeywordChange(value: string): void;
   onFiltersChange(filters: IssueFilters): void;
 }): JSX.Element {
@@ -170,14 +182,29 @@ function FilterBar({
           />
         ))}
       </div>
-      <label className="flex items-center gap-1 text-[10px] text-deck-muted">
-        <input
-          type="checkbox"
-          checked={filters.showDeleted ?? false}
-          onChange={(event) => onFiltersChange({ ...filters, showDeleted: event.target.checked })}
-        />
-        显示已删除
-      </label>
+      <div className="flex items-center justify-between gap-2">
+        <label className="flex items-center gap-1 text-[10px] text-deck-muted">
+          <input
+            type="checkbox"
+            checked={filters.showDeleted ?? false}
+            onChange={(event) => onFiltersChange({ ...filters, showDeleted: event.target.checked })}
+          />
+          显示已删除
+        </label>
+        <span
+          aria-live="polite"
+          title={listError ?? undefined}
+          className={`max-w-48 truncate text-[10px] ${
+            listError
+              ? 'text-status-waiting'
+              : refreshing
+                ? 'text-deck-muted/70'
+                : 'invisible text-deck-muted/70'
+          }`}
+        >
+          {listError ? '刷新失败' : '刷新中…'}
+        </span>
+      </div>
     </div>
   );
 }

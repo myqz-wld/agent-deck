@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type JSX } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react';
 
 import type { IssueRecord } from '@shared/types';
 import type {
@@ -17,6 +17,7 @@ import {
 import { remoteMutationAuthority } from '@renderer/remote-host/remote-source-utils';
 import { IssueDetail, type IssueDetailDataSource } from '../IssueDetail';
 import { EmptyIssueDetail, IssueBoard } from './IssueBoard';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 
 const REMOTE_ISSUE_LIMIT = 100;
 const KEYWORD_DEBOUNCE_MS = 300;
@@ -49,18 +50,23 @@ function ordered(issues: readonly IssueRecord[]): IssueRecord[] {
 }
 
 export function RemoteIssuesPanel({
+  active = true,
   source,
   onOpenSession,
+  onPresentationReadyChange,
 }: {
+  active?: boolean;
   source: RemoteSessionSourceView;
   onOpenSession?(sessionId: string): void;
+  onPresentationReadyChange?(ready: boolean): void;
 }): JSX.Element {
   const [filters, setFilters] = useState<IssueFilters>(DEFAULT_FILTERS);
   const [keywordInput, setKeywordInput] = useState('');
   const [issues, setIssues] = useState<IssueRecord[]>([]);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [selectedIssue, setSelectedIssue] = useState<IssueRecord | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -104,7 +110,8 @@ export function RemoteIssuesPanel({
     setIssues([]);
     setTruncated(false);
     setListError(null);
-    setLoading(false);
+    setInitialized(false);
+    setLoading(true);
     setLoadingMore(false);
   }, [source.identity]);
 
@@ -171,6 +178,7 @@ export function RemoteIssuesPanel({
     }).finally(() => {
       if (listFlight.current === flight) listFlight.current = null;
       if (identityRef.current === expectedIdentity && listSequence.current === generation) {
+        setInitialized(true);
         setLoading(false);
         setLoadingMore(false);
       }
@@ -185,9 +193,6 @@ export function RemoteIssuesPanel({
 
   useEffect(() => {
     const generation = ++listSequence.current;
-    issuesRef.current = [];
-    setIssues([]);
-    setTruncated(false);
     requestListRef.current('replace', generation);
   }, [
     filters.kinds,
@@ -215,6 +220,18 @@ export function RemoteIssuesPanel({
     }, 750);
     return () => clearTimeout(timer);
   }, [source.identity, source.resourceRevisions.issues]);
+
+  const showInitialLoading = useDelayedAsyncFallback(
+    !initialized,
+    `${source.identity}:issues-initial`,
+  );
+  const showRefreshProgress = useDelayedAsyncFallback(
+    initialized && loading,
+    `${source.identity}:issues-refresh`,
+  );
+  useLayoutEffect(() => {
+    onPresentationReadyChange?.(initialized || showInitialLoading);
+  }, [initialized, onPresentationReadyChange, showInitialLoading]);
 
   const selectIssue = (issueId: string | null): void => {
     detailSequence.current += 1;
@@ -413,7 +430,9 @@ export function RemoteIssuesPanel({
       issues={issues}
       keywordInput={keywordInput}
       listError={listError}
-      loading={loading}
+      loading={!initialized ? showInitialLoading : showRefreshProgress && issues.length === 0}
+      deferred={!initialized && !showInitialLoading && issues.length === 0}
+      refreshing={initialized && showRefreshProgress}
       loadingMore={loadingMore}
       selectedIssueId={selectedIssueId}
       truncated={truncated}
@@ -421,7 +440,7 @@ export function RemoteIssuesPanel({
       onKeywordChange={setKeywordInput}
       onSelectIssue={selectIssue}
       onLoadMore={truncated ? () => requestListRef.current('append', listSequence.current) : undefined}
-      detail={selectedIssueId ? (
+      detail={active && selectedIssueId ? (
         <IssueDetail
           key={`${source.identity}:${selectedIssueId}`}
           issueId={selectedIssueId}

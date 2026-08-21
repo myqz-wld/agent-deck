@@ -56,6 +56,7 @@ beforeEach(() => {
     pendingAskQuestionsBySession: new Map(),
     pendingExitPlanModesBySession: new Map(),
     pendingDiffReviewsBySession: new Map(),
+    pendingInitialized: false,
     sessionRevision: 0,
     eventRevisionsBySession: new Map(),
     summaryRevisionsBySession: new Map(),
@@ -83,6 +84,7 @@ describe('pending snapshot replacement and live revisions', () => {
       'r-snap',
     ]);
     expect(state.pendingRevisionsBySession.get('sid-1')).toBe(revisionBeforeSnapshot);
+    expect(state.pendingInitialized).toBe(true);
   });
 
   it('advances event and pending revisions for a waiting event, then again on resolution', () => {

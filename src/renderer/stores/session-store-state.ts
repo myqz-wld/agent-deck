@@ -22,6 +22,7 @@ export interface SessionStoreState extends ComposerStoreFields, ComposerStoreAct
   pendingAskQuestionsBySession: Map<string, AskUserQuestionRequest[]>;
   pendingExitPlanModesBySession: Map<string, ExitPlanModeRequest[]>;
   pendingDiffReviewsBySession: Map<string, DiffReviewRequest[]>;
+  pendingInitialized: boolean;
   sessionRevision: number;
   eventRevisionsBySession: Map<string, number>;
   summaryRevisionsBySession: Map<string, number>;
@@ -57,5 +58,6 @@ export interface SessionStoreState extends ComposerStoreFields, ComposerStoreAct
       }
     >,
   ) => void;
+  markPendingInitialized: () => void;
   renameSession: (fromId: string, toId: string) => void;
 }

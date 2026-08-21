@@ -11,6 +11,7 @@ import {
   type DiagnosticContentPayload,
 } from '../../expandable-content';
 import { RefreshIcon, SaveIcon, TrashIcon } from '../../icons';
+import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
 
 type ConventionAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
 type ConventionAction = 'load' | 'reset' | 'save';
@@ -84,7 +85,7 @@ export function ConventionDocumentEditor({
 }: ConventionDocumentEditorProps): JSX.Element {
   const [loaded, setLoaded] = useState<LoadedConventionDocument | null>(null);
   const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savedHint, setSavedHint] = useState<string | null>(null);
   const loadSequenceRef = useRef(0);
@@ -119,6 +120,10 @@ export function ConventionDocumentEditor({
   }, [refresh]);
 
   const dirty = loaded !== null && draft !== loaded.content;
+  const initialPresentation = useInitialAsyncPresentation(
+    loaded === null && error === null && busy,
+    `${config.adapter}:${config.fileName}`,
+  );
 
   useEffect(() => {
     onDirtyChangeRef.current?.(dirty);
@@ -181,7 +186,9 @@ export function ConventionDocumentEditor({
 
   if (loaded === null) {
     if (!error) {
-      return <div className="text-[11px] text-deck-muted">正在读取…</div>;
+      return initialPresentation === 'fallback'
+        ? <div className="text-[11px] text-deck-muted">正在读取…</div>
+        : <div className="min-h-[1rem]" aria-hidden="true" />;
     }
     return (
       <div className="flex flex-wrap items-center gap-2 text-[10px] text-status-waiting">

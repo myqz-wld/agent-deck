@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-17 | `REVIEW_252_current-only-compatibility-sweep.md` | Current-only compatibility sweep | 0 CRITICAL / 0 HIGH / 6 MEDIUM fixed / 2 LOW fixed |
 | 2026-08-15 | `REVIEW_251_remote-profile-schema-migration.md` | Remote profile startup migration | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed |
 | 2026-08-15 | `REVIEW_250_interruptible-reconnect-and-session-readiness.md` | Interruptible reconnect and session readiness | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 1 LOW fixed |
 | 2026-08-14 | `REVIEW_249_feishu-relay-live-acceptance.md` | Feishu Relay deployment and Server CLI live acceptance | 0 CRITICAL / 3 HIGH fixed / 2 MEDIUM fixed |

@@ -17,6 +17,8 @@ import { remoteAssetSnapshots } from './assets/remote-asset-presentation';
 import { CloseIcon, LibraryIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
 import { useModalFocus } from './use-modal-focus';
+import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
+import { AssetsLibraryTabButton as TabBtn } from './AssetsLibraryTabButton';
 
 /**
  * 资产库 Dialog（CHANGELOG_57 / CHANGELOG_69 / CHANGELOG_137 / plan
@@ -80,6 +82,11 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
   const remoteCatalogRevisionRef = useRef<number | null>(null);
   remoteIdentityRef.current = remoteIdentity;
   remoteUsableRef.current = remoteUsable;
+  const assetsReady = bundled !== null && user !== null && settings !== null;
+  const initialPresentation = useInitialAsyncPresentation(
+    open && !assetsReady && loadError === null,
+    `${remoteIdentity ?? 'local'}:${open ? 'open' : 'closed'}:${remoteCatalogRefresh}:assets`,
+  );
 
   const onClaudeMdDirtyChange = useCallback((d: boolean) => {
     claudeMdDirtyRef.current = d;
@@ -101,6 +108,9 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
       ++viewerSeqRef.current;
       setViewer(null);
       setBundledAgentEditor(null);
+      setBundled(null);
+      setUser(null);
+      setSettings(null);
       return;
     }
     const seq = ++fetchSeqRef.current;
@@ -377,7 +387,13 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
         )}
 
         <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto scrollbar-deck pr-1">
-          {tab === 'skills' && (
+          {initialPresentation === 'deferred' ? (
+            <div className="min-h-[310px]" aria-hidden="true" />
+          ) : initialPresentation === 'fallback' ? (
+            <div className="min-h-[310px] py-6 text-center text-[11px] text-deck-muted">
+              正在读取资产…
+            </div>
+          ) : tab === 'skills' ? (
             <>
               <InjectionToggleBar
                 tab="skills"
@@ -397,8 +413,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
                 onView={openViewer}
               />
             </>
-          )}
-          {tab === 'agents' && (
+          ) : tab === 'agents' ? (
             <>
               <InjectionToggleBar
                 tab="agents"
@@ -419,8 +434,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
                 onConfigureBundledAgent={remoteIdentity === null ? setBundledAgentEditor : undefined}
               />
             </>
-          )}
-          {tab === 'claude-md' && (
+          ) : tab === 'claude-md' ? (
             <>
               <InjectionToggleBar
                 tab="claude-md"
@@ -441,7 +455,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
                 <ApplicationConventionTab onDirtyChange={onClaudeMdDirtyChange} />
               ) : null}
             </>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -472,27 +486,5 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
         />
       )}
     </div>
-  );
-}
-
-function TabBtn({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded px-2 py-0.5 text-[11px] transition ${
-        active ? 'bg-white/10 text-deck-text' : 'text-deck-muted hover:bg-white/5 hover:text-deck-text/85'
-      }`}
-    >
-      {children}
-    </button>
   );
 }
