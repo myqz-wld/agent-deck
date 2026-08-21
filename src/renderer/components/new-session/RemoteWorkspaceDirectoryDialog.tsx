@@ -4,6 +4,7 @@ import type { WorkspaceDirectoryListResult } from '@contracts/index';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 
 import { ArrowLeftIcon, CloseIcon, FolderOpenIcon } from '../icons';
+import { StableButtonContent } from '../StableButtonContent';
 import { useModalFocus } from '../use-modal-focus';
 
 interface Props {
@@ -165,9 +166,15 @@ export function RemoteWorkspaceDirectoryDialog({
               type="button"
               disabled={creating || !newFolderName.trim()}
               onClick={() => void createFolder()}
-              className="rounded bg-status-working/25 px-2 py-1 text-[10px] text-status-working hover:bg-status-working/35 disabled:opacity-40"
-            >
-              {creating ? '创建中…' : '创建'}
+            className="rounded bg-status-working/25 px-2 py-1 text-[10px] text-status-working hover:bg-status-working/35 disabled:opacity-40"
+          >
+              <StableButtonContent
+                activeKey={creating ? 'busy' : 'idle'}
+                variants={[
+                  { key: 'idle', content: '创建' },
+                  { key: 'busy', content: '创建中…' },
+                ]}
+              />
             </button>
           </div>
         )}

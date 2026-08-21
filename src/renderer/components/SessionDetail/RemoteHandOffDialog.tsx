@@ -7,6 +7,8 @@ import type {
 } from '@contracts/index';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { SessionModelDisclosure } from '@renderer/components/SessionModelDisclosure';
+import { StableButtonContent } from '@renderer/components/StableButtonContent';
+import { InertInteractionBoundary } from '@renderer/components/InertInteractionBoundary';
 import type { SessionThinkingChoice } from '@renderer/components/SessionModelFields';
 import { useRemoteSessionCreation } from '@renderer/components/new-session/useRemoteSessionCreation';
 import { remoteControls } from '@renderer/components/NewSessionDialog';
@@ -146,7 +148,8 @@ export function RemoteHandOffDialog({
     requestSequence.current += 1;
     onClose();
   };
-  const busy = preparing || committing || remote.loading || source.busy;
+  const busy = preparing || committing || source.busy;
+  const configurationInteractionBlocked = remote.loading;
   const presentation = useInitialAsyncPresentation(
     remote.initializing,
     `remote-handoff:${identity}:${remote.readinessIdentity}`,
@@ -155,6 +158,22 @@ export function RemoteHandOffDialog({
     presentation === 'ready' && remote.loading,
     `remote-handoff:${identity}:${remote.readinessIdentity}:configuration`,
   );
+  const primaryDisabled = busy || configurationInteractionBlocked || !prepared;
+  const prepareDisabled = busy || configurationInteractionBlocked ||
+    !remote.descriptor || !instruction.trim();
+  const settledPrimaryDisabledRef = useRef(primaryDisabled);
+  const settledPrepareDisabledRef = useRef(prepareDisabled);
+  useLayoutEffect(() => {
+    if (configurationInteractionBlocked) return;
+    settledPrimaryDisabledRef.current = primaryDisabled;
+    settledPrepareDisabledRef.current = prepareDisabled;
+  }, [configurationInteractionBlocked, prepareDisabled, primaryDisabled]);
+  const primaryVisuallyDisabled = configurationInteractionBlocked && !showConfigurationProgress
+    ? settledPrimaryDisabledRef.current
+    : primaryDisabled;
+  const prepareVisuallyDisabled = configurationInteractionBlocked && !showConfigurationProgress
+    ? settledPrepareDisabledRef.current
+    : prepareDisabled;
   useModalFocus({
     blocked: committing,
     dialogRef: modalRootRef,
@@ -176,8 +195,18 @@ export function RemoteHandOffDialog({
       statusText={preparing ? '正在整理会话上下文…' : committing ? '正在创建…' : undefined}
       busy={committing}
       onClose={close}
-      primaryLabel={committing ? '正在创建续接会话…' : '打开新会话接力'}
-      primaryDisabled={busy || !prepared}
+      primaryLabel="打开新会话接力"
+      primaryBusyLabel="正在创建续接会话…"
+      primaryDisabled={primaryDisabled}
+      primaryVisuallyDisabled={primaryVisuallyDisabled}
+      footerStatus={showConfigurationProgress ? (
+        <div
+          role="status"
+          className="truncate rounded bg-white/[0.035] px-2 py-1 text-[10px] text-deck-muted"
+        >
+          正在更新会话配置…
+        </div>
+      ) : undefined}
       onPrimary={() => { void commit(); }}
       ariaBusy={presentation === 'fallback'}
     >
@@ -192,11 +221,6 @@ export function RemoteHandOffDialog({
           <p className="text-[10px] leading-relaxed text-deck-muted">
             下方选项决定新会话使用的运行方式、模型和思考程度；工作目录继承当前会话。
           </p>
-          {showConfigurationProgress && (
-            <div role="status" className="rounded bg-white/[0.035] px-2 py-1 text-[10px] text-deck-muted">
-              正在更新会话配置…
-            </div>
-          )}
           {remote.adapters.length > 0 && (
             <label className="flex flex-col gap-1">
               <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">助手</span>
@@ -216,47 +240,59 @@ export function RemoteHandOffDialog({
           )}
           {displayDescriptor && (
             <>
-              <SessionModelDisclosure
-                adapterId={remote.presentationAdapterId}
-                provider={displayOptions.provider ?? ''}
-                model={displayOptions.model ?? ''}
-                thinking={(displayOptions.thinking ?? '') as SessionThinkingChoice}
-                disabled={busy}
-                providerOptions={displayDescriptor.create.options.provider.allowedValues?.map(
-                  (id) => ({ id }),
-                ) ?? []}
-                thinkingOptions={displayDescriptor.create.options.thinking.allowedValues?.map(
-                  (value) => ({ value: value as SessionThinkingChoice, label: value.toUpperCase() }),
-                ) ?? []}
-                disabledReasons={{
-                  provider: displayDescriptor.create.options.provider.enabled
-                    ? null : displayDescriptor.create.options.provider.disabledReason,
-                  model: displayDescriptor.create.options.model.enabled
-                    ? null : displayDescriptor.create.options.model.disabledReason,
-                  thinking: displayDescriptor.create.options.thinking.enabled
-                    ? null : displayDescriptor.create.options.thinking.disabledReason,
-                }}
-                onProviderChange={(value) => invalidate(() => remote.setOption('provider', value))}
-                onModelChange={(value) => invalidate(() => remote.setOption('model', value))}
-                onThinkingChange={(value) => invalidate(() => remote.setOption('thinking', value))}
-              />
+              <InertInteractionBoundary blocked={configurationInteractionBlocked}>
+                <SessionModelDisclosure
+                  adapterId={remote.presentationAdapterId}
+                  provider={displayOptions.provider ?? ''}
+                  model={displayOptions.model ?? ''}
+                  thinking={(displayOptions.thinking ?? '') as SessionThinkingChoice}
+                  disabled={busy}
+                  providerOptions={displayDescriptor.create.options.provider.allowedValues?.map(
+                    (id) => ({ id }),
+                  ) ?? []}
+                  thinkingOptions={displayDescriptor.create.options.thinking.allowedValues?.map(
+                    (value) => ({
+                      value: value as SessionThinkingChoice,
+                      label: value.toUpperCase(),
+                    }),
+                  ) ?? []}
+                  disabledReasons={{
+                    provider: displayDescriptor.create.options.provider.enabled
+                      ? null : displayDescriptor.create.options.provider.disabledReason,
+                    model: displayDescriptor.create.options.model.enabled
+                      ? null : displayDescriptor.create.options.model.disabledReason,
+                    thinking: displayDescriptor.create.options.thinking.enabled
+                      ? null : displayDescriptor.create.options.thinking.disabledReason,
+                  }}
+                  onProviderChange={(value) => invalidate(() => remote.setOption('provider', value))}
+                  onModelChange={(value) => invalidate(() => remote.setOption('model', value))}
+                  onThinkingChange={(value) => invalidate(() => remote.setOption('thinking', value))}
+                />
+              </InertInteractionBoundary>
               {controls.map((control) => (
-                <label key={control.label} className="flex flex-col gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">{control.label}</span>
-                  {control.disabledReason ? (
-                    <div className="break-words rounded border border-white/[0.07] bg-white/[0.03] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted [overflow-wrap:anywhere]">
-                      不可用：{control.disabledReason}
-                    </div>
-                  ) : (
-                    <DeckSelect
-                      value={control.value}
-                      options={control.options}
-                      onChange={(value) => invalidate(() => control.onChange(value))}
-                      disabled={busy}
-                      buttonClassName={SELECT_CLASS}
-                    />
-                  )}
-                </label>
+                <InertInteractionBoundary
+                  key={control.label}
+                  blocked={configurationInteractionBlocked}
+                >
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[10px] uppercase tracking-wider text-deck-muted/70">
+                      {control.label}
+                    </span>
+                    {control.disabledReason ? (
+                      <div className="break-words rounded border border-white/[0.07] bg-white/[0.03] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted [overflow-wrap:anywhere]">
+                        不可用：{control.disabledReason}
+                      </div>
+                    ) : (
+                      <DeckSelect
+                        value={control.value}
+                        options={control.options}
+                        onChange={(value) => invalidate(() => control.onChange(value))}
+                        disabled={busy}
+                        buttonClassName={SELECT_CLASS}
+                      />
+                    )}
+                  </label>
+                </InertInteractionBoundary>
               ))}
             </>
           )}
@@ -274,9 +310,25 @@ export function RemoteHandOffDialog({
               onChange={(value) => invalidate(() => setInstruction(value))}
             />
           </label>
-          <button type="button" onClick={() => void prepare()} disabled={busy || !remote.descriptor || !instruction.trim()} className="self-start rounded bg-status-working/30 px-3 py-1.5 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50">
-            {!preparing && prepared && <RefreshIcon className="mr-1 inline h-3 w-3" />}
-            {preparing ? '正在整理会话上下文…' : prepared ? '重新生成续接上下文' : '生成续接上下文'}
+          <button
+            type="button"
+            onClick={() => void prepare()}
+            disabled={prepareDisabled}
+            className={`self-start rounded bg-status-working/30 px-3 py-1.5 text-[11px] text-status-working hover:bg-status-working/40 ${
+              prepareVisuallyDisabled ? 'opacity-50' : ''
+            }`}
+          >
+            <StableButtonContent
+              activeKey={preparing ? 'busy' : prepared ? 'refresh' : 'idle'}
+              variants={[
+                { key: 'idle', content: '生成续接上下文' },
+                {
+                  key: 'refresh',
+                  content: <><RefreshIcon className="mr-1 h-3 w-3" />重新生成续接上下文</>,
+                },
+                { key: 'busy', content: '正在整理会话上下文…' },
+              ]}
+            />
           </button>
           {(error ?? remote.error) && (
             <div role="alert" className="flex items-center justify-between gap-2 rounded bg-status-waiting/10 px-3 py-2 text-[10px] text-status-waiting">

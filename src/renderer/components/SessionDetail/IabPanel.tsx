@@ -9,6 +9,7 @@ import {
   type BrowserStateSource,
   type BrowserViewBounds,
 } from '@shared/browser-view';
+import { StableButtonContent } from '../StableButtonContent';
 import { IabAnnotationCanvas } from './IabAnnotationCanvas';
 import { useIabComposerTarget } from './iab-composer-bridge';
 
@@ -350,7 +351,13 @@ export function IabPanel({
             disabled={leaseId == null || !placementReady || captureBusy || annotation != null}
             onClick={() => void beginAnnotation()}
           >
-            {captureBusy ? '截图中…' : '标注'}
+            <StableButtonContent
+              activeKey={captureBusy ? 'busy' : 'idle'}
+              variants={[
+                { key: 'idle', content: '标注' },
+                { key: 'busy', content: '截图中…' },
+              ]}
+            />
           </button>
         )}
       </div>

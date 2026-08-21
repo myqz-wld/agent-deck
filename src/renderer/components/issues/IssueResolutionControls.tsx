@@ -4,6 +4,7 @@ import type { IssueRecord } from '@shared/types';
 import type { IssueDetailDataSource } from '../IssueDetail';
 import { ResolveInNewSessionDialog } from '../ResolveInNewSessionDialog';
 import { HandOffIcon } from '../icons';
+import { StableButtonContent } from '../StableButtonContent';
 import { RemoteIssueResolutionDialog } from './RemoteIssueResolutionDialog';
 
 export function IssueResolutionControls({
@@ -32,8 +33,19 @@ export function IssueResolutionControls({
           : undefined}
         className="rounded bg-status-working/25 px-2 py-1 text-xs text-status-working hover:bg-status-working/40 disabled:opacity-50"
       >
-        <HandOffIcon className="mr-1 inline h-3 w-3" />
-        {issue.resolutionSessionId ? '更换处理会话' : '新建处理会话'}
+        <StableButtonContent
+          activeKey={issue.resolutionSessionId ? 'replace' : 'create'}
+          variants={[
+            {
+              key: 'create',
+              content: <><HandOffIcon className="mr-1 h-3 w-3" />新建处理会话</>,
+            },
+            {
+              key: 'replace',
+              content: <><HandOffIcon className="mr-1 h-3 w-3" />更换处理会话</>,
+            },
+          ]}
+        />
       </button>
       {!source && open && (
         <ResolveInNewSessionDialog

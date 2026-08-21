@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import type { UploadedAttachmentEntry } from '@renderer/hooks/useImageAttachments';
 import { PendingImageAttachments } from '../../PendingImageAttachments';
 import { CloseIcon, SendIcon } from '../../icons';
+import { StableButtonContent } from '../../StableButtonContent';
 
 interface Props {
   text: string;
@@ -166,8 +167,16 @@ export function ExpandedComposerOverlay(props: Props): JSX.Element {
             disabled={!props.canSubmit}
             className="rounded bg-status-working/30 px-4 py-1.5 text-[10px] font-medium text-status-working hover:bg-status-working/40 disabled:opacity-40"
           >
-            {!props.busy && <SendIcon className="mr-1 inline h-3 w-3" />}
-            {props.busy ? '发送中…' : props.submitLabel}
+            <StableButtonContent
+              activeKey={props.busy ? 'busy' : 'idle'}
+              variants={[
+                {
+                  key: 'idle',
+                  content: <><SendIcon className="mr-1 h-3 w-3" />{props.submitLabel}</>,
+                },
+                { key: 'busy', content: '发送中…' },
+              ]}
+            />
           </button>
         </footer>
       </div>

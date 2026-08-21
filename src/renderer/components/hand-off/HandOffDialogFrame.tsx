@@ -1,5 +1,6 @@
 import type { JSX, ReactNode, RefObject } from 'react';
 import { CloseIcon, HandOffIcon } from '../icons';
+import { StableButtonContent } from '../StableButtonContent';
 
 /** Shared modal frame and action order for Local and Remote handoff controllers. */
 export function HandOffDialogFrame({
@@ -9,8 +10,11 @@ export function HandOffDialogFrame({
   busy,
   onClose,
   children,
+  footerStatus,
   primaryLabel,
+  primaryBusyLabel,
   primaryDisabled,
+  primaryVisuallyDisabled = primaryDisabled,
   onPrimary,
   ariaBusy = false,
 }: {
@@ -20,8 +24,11 @@ export function HandOffDialogFrame({
   busy: boolean;
   onClose: () => void;
   children: ReactNode;
+  footerStatus?: ReactNode;
   primaryLabel: string;
+  primaryBusyLabel: string;
   primaryDisabled: boolean;
+  primaryVisuallyDisabled?: boolean;
   onPrimary: () => void;
   ariaBusy?: boolean;
 }): JSX.Element {
@@ -55,7 +62,8 @@ export function HandOffDialogFrame({
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4 scrollbar-deck">
           {children}
         </div>
-        <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-deck-border px-4 py-3">
+        <footer className="flex shrink-0 items-center gap-2 border-t border-deck-border px-4 py-3">
+          <div className="min-w-0 flex-1">{footerStatus}</div>
           <button
             type="button"
             onClick={onClose}
@@ -68,9 +76,20 @@ export function HandOffDialogFrame({
             type="button"
             onClick={onPrimary}
             disabled={primaryDisabled}
-            className="rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 disabled:opacity-50"
+            className={`rounded bg-status-working/30 px-3 py-1 text-[11px] text-status-working hover:bg-status-working/40 ${
+              primaryVisuallyDisabled ? 'opacity-50' : ''
+            }`}
           >
-            {!busy && <HandOffIcon className="mr-1 inline h-3 w-3" />}{primaryLabel}
+            <StableButtonContent
+              activeKey={busy ? 'busy' : 'idle'}
+              variants={[
+                {
+                  key: 'idle',
+                  content: <><HandOffIcon className="mr-1 h-3 w-3" />{primaryLabel}</>,
+                },
+                { key: 'busy', content: primaryBusyLabel },
+              ]}
+            />
           </button>
         </footer>
       </div>

@@ -2,6 +2,7 @@ import type { JSX, ReactNode } from 'react';
 
 import type { IssueRecord, IssueStatus } from '@shared/types';
 import type { IssueFilters } from '@renderer/stores/issues-store';
+import { StableButtonContent } from '../StableButtonContent';
 
 const ACTIVE_STATUSES: IssueStatus[] = ['open', 'in-progress'];
 const RESOLVED_STATUSES: IssueStatus[] = ['resolved'];
@@ -80,7 +81,13 @@ export function IssueBoard({
                       onClick={onLoadMore}
                       className="rounded border border-white/10 px-2 py-1 text-[10px] text-deck-muted hover:text-deck-text disabled:opacity-50"
                     >
-                      {loadingMore ? '加载中…' : '加载更多问题'}
+                      <StableButtonContent
+                        activeKey={loadingMore ? 'busy' : 'idle'}
+                        variants={[
+                          { key: 'idle', content: '加载更多问题' },
+                          { key: 'busy', content: '加载中…' },
+                        ]}
+                      />
                     </button>
                   ) : (
                     <span className="text-[10px] text-deck-muted">列表已达到读取上限。</span>

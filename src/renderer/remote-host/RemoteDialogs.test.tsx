@@ -135,7 +135,7 @@ describe('remote source surfaces', () => {
     render(<NewSessionDialog open remoteSource={current} onClose={vi.fn()} onCreated={vi.fn()} />);
     await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenCalled());
 
-    const choose = screen.getByText('选择…') as HTMLButtonElement;
+    const choose = screen.getByText('选择…').closest('button') as HTMLButtonElement;
     await waitFor(() => expect(choose.disabled).toBe(false));
     fireEvent.click(choose);
     await waitFor(
@@ -177,7 +177,7 @@ describe('remote source surfaces', () => {
     window.api = {} as typeof window.api;
     render(<NewSessionDialog open remoteSource={current} onClose={vi.fn()} onCreated={vi.fn()} />);
     await waitFor(() => expect(current.getSessionCapabilities).toHaveBeenCalled());
-    fireEvent.click(screen.getByText('选择…'));
+    fireEvent.click(screen.getByText('选择…').closest('button')!);
     await waitFor(() => expect(current.listWorkspaceDirectories).toHaveBeenCalledWith('.'));
     fireEvent.click(screen.getByRole('button', { name: 'repo' }));
     await waitFor(() => expect(current.listWorkspaceDirectories).toHaveBeenCalledWith('repo'));
