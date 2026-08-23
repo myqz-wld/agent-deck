@@ -9,7 +9,10 @@ import {
   type SessionCreationResolveOptions,
   type SessionCreationSettings,
 } from './session-creation-defaults-core';
-import type { SessionConfigDiagnostic } from './session-creation-config-reader';
+import type {
+  SessionConfigDiagnostic,
+  SessionConfigReadObservation,
+} from './session-creation-config-reader';
 import { desktopSessionCreationDefaultsHost } from './session-creation-defaults-host';
 
 export {
@@ -40,6 +43,8 @@ export function resolveSessionCreationDefaults(
     settings: deps.settings ?? settingsStore.getAll(),
     readCodexConfig: deps.readCodexConfig ?? readEffectiveCodexConfig,
     onDiagnostic: deps.onDiagnostic ?? emitDesktopDiagnostic,
+    onConfigReadObservation:
+      deps.onConfigReadObservation ?? emitDesktopConfigReadObservation,
   }, desktopSessionCreationDefaultsHost);
 }
 
@@ -66,6 +71,17 @@ function emitDesktopDiagnostic(diagnostic: SessionConfigDiagnostic): void {
     }
   } catch {
     // Logging cannot make default resolution fail.
+  }
+}
+
+function emitDesktopConfigReadObservation(
+  observation: SessionConfigReadObservation,
+): void {
+  if (observation.outcome !== 'success' || observation.durationMs < 150) return;
+  try {
+    logger.warn('[session-creation-defaults] config read slow', observation);
+  } catch {
+    // Timing diagnostics cannot make default resolution fail.
   }
 }
 

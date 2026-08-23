@@ -63,7 +63,12 @@ describe('desktop session creation defaults host', () => {
     );
     expect(mocks.debug).toHaveBeenCalledWith(
       '[session-creation-defaults] config fallback',
-      { resolutionSource: 'codex-config', failureCategory: 'not-found' },
+      expect.objectContaining({
+        resolutionSource: 'codex-config',
+        failureCategory: 'not-found',
+        backend: 'custom-reader',
+        stage: 'custom-reader',
+      }),
     );
   });
 });

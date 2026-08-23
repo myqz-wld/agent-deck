@@ -15,6 +15,18 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-08-15 | `CHANGELOG_613_interruptible-reconnect-and-session-readiness.md` | Make Remote reconnect interruptible and finish 150 ms session readiness |
+| 2026-08-14 | `CHANGELOG_612_feishu-server-one-click.md` | Add server-managed Feishu lifecycle for Relay and Full |
+| 2026-08-13 | `CHANGELOG_611_feishu-p0-surface-cleanup.md` | Remove dormant Team and permission product surfaces |
+| 2026-08-13 | `CHANGELOG_610_explicit-ssh-reconnect.md` | Rebuild an exhausted SSH connection on explicit Connect |
+| 2026-08-13 | `CHANGELOG_609_remote-settings-local-controls.md` | Keep local controls editable and prevent generator text clipping |
+| 2026-08-13 | `CHANGELOG_608_simplified-session-and-team-navigation.md` | Remove Permissions/Team pages and align Remote generator controls |
+| 2026-08-13 | `CHANGELOG_607_remote-ui-runtime-convergence.md` | Reuse Local UI and restore Remote summaries/checkpoints |
+| 2026-08-13 | `CHANGELOG_606_remote-settings-agent-runtime-sync.md` | Complete Remote settings and built-in Agent runtime parity |
+| 2026-08-13 | `CHANGELOG_605_remote-settings-ui-parity.md` | Align Remote Settings groups and simplify read-only copy |
+| 2026-08-13 | `CHANGELOG_604_deployment-config-home.md` | Standardize deployment config home and harden Worker restart |
+| 2026-08-13 | `CHANGELOG_603_remote-live-create-parity.md` | Align Remote Live controls, session creation, and source form |
+| 2026-08-13 | `CHANGELOG_602_remote-read-only-worker-assets.md` | Make Remote config read-only and sync Worker assets |
 | 2026-08-12 | `CHANGELOG_601_remote-provider-selector-parity.md` | Align Remote provider selectors with Local |
 | 2026-08-12 | `CHANGELOG_600_remote-history-actions-and-directory-create.md` | Align Remote session actions and Workspace creation |
 | 2026-08-12 | `CHANGELOG_599_automatic-remote-provider-catalog.md` | Derive Remote provider choices without a manual catalog |
@@ -230,12 +242,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | 2026-07-24 | `CHANGELOG_390_provider-acceptance-message-lifecycle.md` | Align message visibility with provider acceptance |
 | 2026-07-24 | `CHANGELOG_389_grok-token-usage-data-panel.md` | Collect Grok usage and show historical/live token rates |
 | 2026-07-24 | `CHANGELOG_388_grok-mid-turn-interjection.md` | Support Grok active-turn input with safe FIFO fallback |
-| 2026-07-23 | `CHANGELOG_387_runtime-provider-gateway-unification.md` | Unify Gateway/model providers and add Grok quota |
-| 2026-07-23 | `CHANGELOG_386_grok-generators-external-hooks.md` | Add Grok generators and external terminal Hook capture |
-| 2026-07-23 | `CHANGELOG_385_grok-settings-auth-assets.md` | Add Grok ACP auth, editable conventions, and xhigh support |
-| 2026-07-23 | `CHANGELOG_384_bundled-agent-runtime-overrides.md` | Configure bundled Agent runtime model, thinking, and Codex provider |
-| 2026-07-23 | `CHANGELOG_383_grok-build-adapter-profiles.md` | Add Grok Build as a first-class adapter |
-| 2026-07-23 | `CHANGELOG_382_plan-review-feedback-discard-confirmation.md` | Confirm before approval discards plan-review feedback |
-| 2026-07-22 | `CHANGELOG_381_pending-image-previews.md` | Show pending image details and full-size previews in composers |
-| 2026-07-22 | `CHANGELOG_380_node-repl-sandbox-compatibility.md` | Bridge legacy node_repl sandbox metadata and refresh agent runtimes |
-| 2026-07-21 | `CHANGELOG_379_plan-review-pending-queue-composer.md` | Isolate plan review and preserve pending input until consumption |

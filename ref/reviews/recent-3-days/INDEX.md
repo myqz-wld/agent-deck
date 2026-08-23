@@ -15,11 +15,8 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-23 | `REVIEW_261_session-config-read-latency.md` | Session config read latency | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 1 LOW fixed |
 | 2026-08-21 | `REVIEW_260_global-async-navigation-readiness.md` | Global asynchronous navigation readiness | 0 CRITICAL / 0 HIGH / 4 MEDIUM fixed / 1 LOW fixed |
 | 2026-08-20 | `REVIEW_259_global-action-layout-stability.md` | Global dynamic-action and 150 ms layout stability | 0 CRITICAL / 0 HIGH / 3 MEDIUM fixed / 1 LOW fixed |
 | 2026-08-20 | `REVIEW_258_session-create-button-stability.md` | Session create-button presentation stability | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed |
 | 2026-08-20 | `REVIEW_257_session-creation-readiness-and-stall.md` | Session creation readiness and stall diagnostics | 0 CRITICAL / 0 HIGH / 4 MEDIUM fixed |
-| 2026-08-19 | `REVIEW_256_iab-annotation-capture-race.md` | IAB annotation capture race remediation | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed |
-| 2026-08-18 | `REVIEW_255_unified-browser-boundary-review.md` | Unified Browser security and lifecycle boundaries | 0 CRITICAL / 0 HIGH / 0 MEDIUM / no open findings |
-| 2026-08-18 | `REVIEW_254_summary-settings-layout-and-timeout-policy.md` | Summary settings layout and timeout policy | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed |
-| 2026-08-18 | `REVIEW_253_current-only-gap-sweep.md` | Current-only coverage-gap sweep | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 3 LOW fixed |

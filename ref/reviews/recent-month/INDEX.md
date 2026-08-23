@@ -15,6 +15,19 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-08-15 | `REVIEW_251_remote-profile-schema-migration.md` | Remote profile startup migration | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed |
+| 2026-08-15 | `REVIEW_250_interruptible-reconnect-and-session-readiness.md` | Interruptible reconnect and session readiness | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 1 LOW fixed |
+| 2026-08-14 | `REVIEW_249_feishu-relay-live-acceptance.md` | Feishu Relay deployment and Server CLI live acceptance | 0 CRITICAL / 3 HIGH fixed / 2 MEDIUM fixed |
+| 2026-08-14 | `REVIEW_248_feishu-server-one-click-acceptance.md` | Feishu server connection and sidecar lifecycle | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed / 2 LOW fixed |
+| 2026-08-13 | `REVIEW_247_feishu-p0-surface-cleanup.md` | Dormant product surface removal | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 1 LOW fixed |
+| 2026-08-13 | `REVIEW_246_grok-active-plugin-assets.md` | Grok active Plugin asset discovery | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 1 LOW fixed |
+| 2026-08-13 | `REVIEW_245_remote-asset-relay-flow-control.md` | Remote asset Relay flow control and diagnostics | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed / 2 LOW fixed |
+| 2026-08-13 | `REVIEW_244_explicit-ssh-reconnect.md` | Explicit SSH reconnect lifecycle | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed |
+| 2026-08-13 | `REVIEW_243_remote-settings-local-controls.md` | Remote settings ownership and layout | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed |
+| 2026-08-13 | `REVIEW_242_simplified-session-and-team-navigation.md` | Session and navigation simplification | 0 CRITICAL / 0 HIGH / 3 MEDIUM fixed |
+| 2026-08-13 | `REVIEW_241_remote-ui-runtime-convergence.md` | Remote UI and runtime convergence | 0 CRITICAL / 3 HIGH fixed / 4 MEDIUM fixed / 2 LOW fixed |
+| 2026-08-13 | `REVIEW_240_macos-worker-launchagent-replacement.md` | macOS Worker LaunchAgent replacement | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed |
+| 2026-08-13 | `REVIEW_239_codex-cache-write-usage-wiring.md` | Codex cache-write usage wiring | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 INFO confirmed |
 | 2026-08-12 | `REVIEW_238_ipc-readiness-lifecycle-audit.md` | IPC readiness and lifecycle authority | 0 CRITICAL / 1 HIGH fixed / 4 MEDIUM fixed / 2 LOW fixed |
 | 2026-08-12 | `REVIEW_237_remote-provider-readiness-and-history-parity.md` | Remote provider readiness and History parity | 0 CRITICAL / 0 HIGH / 3 MEDIUM fixed / 1 LOW fixed |
 | 2026-08-12 | `REVIEW_236_remote-source-visual-refresh.md` | Remote source visual hierarchy | 0 CRITICAL / 0 HIGH / 0 MEDIUM / 1 LOW fixed |
@@ -84,8 +97,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 | 2026-07-25 | `REVIEW_172_asset-library-cross-adapter-display.md` | Cross-adapter asset discovery and card layout | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-24 | `REVIEW_171_grok-token-usage-data-panel.md` | Grok token usage, history backfill, and live rates | 0 CRITICAL / 3 HIGH fixed / 2 MEDIUM fixed |
 | 2026-07-24 | `REVIEW_170_grok-mid-turn-interjection.md` | Grok active-turn input and FIFO fallback | 0 CRITICAL / 2 HIGH fixed / 2 MEDIUM fixed |
-| 2026-07-23 | `REVIEW_169_grok-auth-asset-boundaries.md` | Grok ACP authentication and asset-edit boundaries | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed |
-| 2026-07-23 | `REVIEW_168_bundled-agent-runtime-overrides.md` | Bundled Agent runtime override boundaries | 0 CRITICAL / 1 MEDIUM fixed / 1 LOW fixed |
-| 2026-07-23 | `REVIEW_167_grok-build-adapter-boundaries.md` | Grok ACP lifecycle and adapter-profile boundaries | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed |
-| 2026-07-22 | `REVIEW_166_node-repl-sandbox-protocol.md` | Codex browser sandbox metadata compatibility | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 1 LOW fixed |
-| 2026-07-21 | `REVIEW_165_plan-review-message-consumption.md` | Review isolation and message-consumption boundaries | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed / 1 LOW fixed |

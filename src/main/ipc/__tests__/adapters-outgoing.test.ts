@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ipcMain } from 'electron';
+import { performance } from 'node:perf_hooks';
 import { IpcInvoke } from '@shared/ipc-channels';
 
 const mocks = vi.hoisted(() => ({
@@ -77,6 +78,7 @@ vi.mock('@main/utils/logger', () => ({
 
 import { registerAdaptersIpc } from '../adapters';
 import { parseAdapterCreateRuntimeControls } from '../adapters-runtime-controls';
+import { SESSION_CREATION_DEFAULTS_SLOW_MS } from '../adapters-session-creation-defaults';
 
 function handler(channel: string): (...args: unknown[]) => unknown {
   const registered = vi.mocked(ipcMain.handle).mock.calls.find(([name]) => name === channel)?.[1];
@@ -375,6 +377,31 @@ describe('adapter outgoing queue IPC', () => {
       'codex-cli',
       [],
     )).rejects.toThrow('options');
+  });
+
+  it('logs path-free latency when defaults resolution crosses the UI grace', async () => {
+    vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(10)
+      .mockReturnValueOnce(10 + SESSION_CREATION_DEFAULTS_SLOW_MS);
+
+    await expect(handler(IpcInvoke.AdapterSessionCreationDefaults)(
+      {},
+      'codex-cli',
+      { cwd: '/private/secret-repo', provider: 'private-gateway' },
+    )).resolves.toMatchObject({ model: 'gpt-5.6-sol' });
+
+    expect(mocks.loggerWarn).toHaveBeenCalledWith(
+      '[adapter-session-creation-defaults] resolution slow',
+      expect.objectContaining({
+        event: 'adapter_session_creation_defaults',
+        adapterId: 'codex-cli',
+        outcome: 'success',
+        durationMs: SESSION_CREATION_DEFAULTS_SLOW_MS,
+      }),
+    );
+    const serialized = JSON.stringify(mocks.loggerWarn.mock.calls);
+    expect(serialized).not.toContain('/private/secret-repo');
+    expect(serialized).not.toContain('private-gateway');
   });
 
   it('normalizes built-in and custom Grok profiles at the IPC trust boundary', () => {
