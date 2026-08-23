@@ -22,10 +22,18 @@ let authenticated = authIds.length === 0;
 let promptCounter = 0;
 
 function authMethod(id) {
+  if (id.startsWith('terminal:')) {
+    const methodId = id.slice('terminal:'.length);
+    return {
+      id: methodId,
+      name: methodId,
+      type: 'terminal',
+      args: ['login', '--oauth'],
+    };
+  }
   return {
     id,
     name: id,
-    ...(id === 'xai.api_key' ? { type: 'env_var', vars: [] } : {}),
   };
 }
 

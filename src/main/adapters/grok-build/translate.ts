@@ -286,6 +286,10 @@ export function translateGrokUpdate(
     case 'current_mode_update':
     case 'config_option_update':
     case 'session_info_update':
+    case 'compaction_update':
+    case 'compaction_summary_chunk':
+      // Agent Deck does not advertise ACP compaction support. Keep the new protocol variants
+      // exhaustively recognized without surfacing updates whose lifecycle the app cannot retain.
       return [];
     case 'usage_update':
       if (

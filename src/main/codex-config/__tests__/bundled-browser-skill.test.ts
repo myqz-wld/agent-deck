@@ -62,13 +62,11 @@ describe('bundled Browser skill contract', () => {
     expect(codexRuntime).toContain('`node_repl` Browser helpers');
   });
 
-  it('documents the conditional responsive IAB and annotation handoff', () => {
-    expect(readme).toContain('shows an IAB entry after');
-    expect(readme).toContain('tabs inside that IAB');
-    expect(readme).toContain('follows the');
-    expect(readme).toContain('current narrow-panel width responsively');
-    expect(readme).toContain('adds one PNG to the existing message composer without sending it');
-    expect(readme).toContain('explains the exact reason in Simplified Chinese');
-    expect(readme).toContain('legacy Browser MCP bridge');
+  it('documents the private Browser lifecycle and annotation handoff', () => {
+    expect(readme).toContain('Browser tabs are private to the session');
+    expect(readme).toContain('open in the background by default');
+    expect(readme).toContain('close with the session or handoff lifecycle');
+    expect(readme).toContain('capture an annotated PNG into the message composer');
+    expect(readme).toContain('when the active runtime accepts image input');
   });
 });

@@ -73,6 +73,24 @@ describe('GrokAcpProcess', () => {
     );
   });
 
+  it('does not send terminal authentication methods through agent/authenticate', async () => {
+    expect(
+      await rejectionMessage(
+        GrokAcpProcess.start({
+          binary: globalThis.process.execPath,
+          args: [fixture, '--auth=terminal:xai.api_key'],
+          cwd: globalThis.process.cwd(),
+          onSessionUpdate: () => undefined,
+          onPermissionRequest: vi.fn(async () => ({
+            outcome: { outcome: 'cancelled' as const },
+          })),
+        }),
+      ),
+    ).toBe(
+      'Grok Build ACP 需要交互式认证（xai.api_key）。请在终端运行 "grok login --oauth"，或通过 ~/.grok/config.toml 和导出的环境变量配置 API key，然后重启 Agent Deck。',
+    );
+  });
+
   it('uses exact Grok Build copy for ACP timeout', async () => {
     expect(
       await rejectionMessage(
