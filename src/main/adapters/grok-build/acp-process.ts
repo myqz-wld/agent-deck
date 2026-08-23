@@ -329,18 +329,11 @@ function orderedGrokAuthMethods(
   if (!authMethods?.length) return [];
   const preferredIds = ['xai.api_key', 'cached_token'];
   const ordered = preferredIds.flatMap((id) => {
-    const exact = authMethods.find((method) => method.id === id);
+    const exact = authMethods.find(
+      (method) => method.id === id && (!('type' in method) || method.type !== 'terminal'),
+    );
     return exact ? [exact] : [];
   });
-  for (const method of authMethods) {
-    if (
-      'type' in method &&
-      method.type === 'env_var' &&
-      !ordered.some((candidate) => candidate.id === method.id)
-    ) {
-      ordered.push(method);
-    }
-  }
   return ordered;
 }
 
