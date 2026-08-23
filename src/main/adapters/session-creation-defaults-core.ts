@@ -17,6 +17,7 @@ import type { ResolvedClaudeGatewayProfile } from './claude-code/sdk-bridge/sess
 import {
   readBoundedConfigText,
   type SessionConfigDiagnostic,
+  type SessionConfigReadObservation,
   type SessionConfigResolutionSource,
 } from './session-creation-config-reader';
 
@@ -50,6 +51,7 @@ export interface SessionCreationCoreDeps {
   configReadTimeoutMs?: number;
   configMaxBytes?: number;
   onDiagnostic?: (diagnostic: SessionConfigDiagnostic) => void;
+  onConfigReadObservation?: (observation: SessionConfigReadObservation) => void;
 }
 
 export interface SessionCreationDefaultsHost {
@@ -334,6 +336,7 @@ async function readConfigText(
       : {}),
     ...(deps.configMaxBytes !== undefined ? { maxBytes: deps.configMaxBytes } : {}),
     onDiagnostic: (diagnostic) => emitDiagnostic(deps, diagnostic),
+    onObservation: deps.onConfigReadObservation,
   });
   return result.ok ? result.text : null;
 }

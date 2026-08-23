@@ -181,3 +181,8 @@ Legacy records retain only authoritative metadata. Missing `reviewed_at` values 
 | 2026-07-15 | `REVIEW_162_runtime-log-signal-and-recovery.md` | Runtime log signal, checkpoint recovery, and navigation containment | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-15 | `REVIEW_163_checkpoint-patch-reduction.md` | Deterministic checkpoint patch reduction | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 1 LOW fixed |
 | 2026-07-16 | `REVIEW_164_checkpoint-partial-progress-logging.md` | Checkpoint partial-progress log classification | 0 CRITICAL / 0 HIGH / 0 MEDIUM / 1 LOW fixed |
+| 2026-07-21 | `REVIEW_165_plan-review-message-consumption.md` | Review isolation and message-consumption boundaries | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed / 1 LOW fixed |
+| 2026-07-22 | `REVIEW_166_node-repl-sandbox-protocol.md` | Codex browser sandbox metadata compatibility | 0 CRITICAL / 1 HIGH fixed / 2 MEDIUM fixed / 1 LOW fixed |
+| 2026-07-23 | `REVIEW_167_grok-build-adapter-boundaries.md` | Grok ACP lifecycle and adapter-profile boundaries | 0 CRITICAL / 1 HIGH fixed / 3 MEDIUM fixed |
+| 2026-07-23 | `REVIEW_168_bundled-agent-runtime-overrides.md` | Bundled Agent runtime override boundaries | 0 CRITICAL / 1 MEDIUM fixed / 1 LOW fixed |
+| 2026-07-23 | `REVIEW_169_grok-auth-asset-boundaries.md` | Grok ACP authentication and asset-edit boundaries | 0 CRITICAL / 1 HIGH fixed / 1 MEDIUM fixed |
