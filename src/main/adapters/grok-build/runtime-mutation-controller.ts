@@ -40,6 +40,7 @@ interface GrokRuntimeMutationContext {
   ) => void;
   persistSessionMode: (sessionId: string, mode: AdapterSessionMode) => void;
   dispose: (runtime: GrokRuntime) => Promise<void>;
+  drain?: (runtime: GrokRuntime) => Promise<void>;
   requestTimeoutMs?: number;
 }
 
@@ -391,6 +392,7 @@ export class GrokRuntimeMutationController {
       await work();
     } finally {
       runtime.runtimeMutationInProgress = false;
+      void this.context.drain?.(runtime);
     }
   }
 

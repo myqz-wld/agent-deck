@@ -38,6 +38,7 @@ export interface GrokTurnQueueOptions {
   ) => void;
   closeSession: (sessionId: string) => Promise<void>;
   recycleRuntime: (runtime: GrokRuntime) => Promise<void>;
+  beforeNextTurn?: (runtime: GrokRuntime) => Promise<void>;
   firstModelEventTimeoutMs?: number;
   providerCompletionPollMs?: number;
   providerHistoryRoot?: string;

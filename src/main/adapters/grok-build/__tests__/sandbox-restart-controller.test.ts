@@ -32,6 +32,7 @@ function runtime(): GrokRuntime {
     thinking: null,
     sessionMode: null,
     grokSandbox: 'workspace',
+    activeGrokSandbox: 'workspace',
     restartingSandbox: false,
     agentProfileName: null,
     agentProfileSource: null,
@@ -66,7 +67,7 @@ function harness(
 }
 
 describe('GrokSandboxRestartController', () => {
-  it('restarts an idle runtime and commits only after the target loads', async () => {
+  it('stages and restarts an idle runtime before the next turn', async () => {
     const active = runtime();
     const old = active.process!;
     const start = vi.fn(async (candidate: GrokRuntime) => {
@@ -85,11 +86,12 @@ describe('GrokSandboxRestartController', () => {
     expect(start).toHaveBeenCalledOnce();
     expect(active).toMatchObject({
       grokSandbox: 'strict',
+      activeGrokSandbox: 'strict',
       restartingSandbox: false,
       ready: true,
       nativeSessionId: 'native-session',
     });
-    expect(persist).toHaveBeenCalledOnce();
+    expect(persist).toHaveBeenCalledTimes(2);
     expect(drain).toHaveBeenCalledOnce();
   });
 
@@ -118,30 +120,71 @@ describe('GrokSandboxRestartController', () => {
     expect(failed.stop).toHaveBeenCalledOnce();
     expect(active.grokSandbox).toBe('workspace');
     expect(active.closed).toBe(false);
-    expect(persist).toHaveBeenCalledOnce();
+    expect(active.activeGrokSandbox).toBe('workspace');
+    expect(persist).toHaveBeenCalledTimes(2);
     expect(dispose).not.toHaveBeenCalled();
   });
 
-  it('rejects active work and disposes only after target and rollback both fail', async () => {
+  it('stages active work and restarts at the next-turn boundary', async () => {
     const active = runtime();
     active.running = true;
-    const idleStart = vi.fn(async () => true);
-    const first = harness(active, idleStart);
+    const old = active.process!;
+    const start = vi.fn(async (candidate: GrokRuntime) => {
+      candidate.process = fakeProcess('strict');
+      candidate.ready = true;
+      return true;
+    });
+    const { controller, persist } = harness(active, start);
+
     await expect(
-      first.controller.restart(active.applicationSessionId, 'strict'),
-    ).rejects.toThrow('等待会话空闲');
-    expect(idleStart).not.toHaveBeenCalled();
+      controller.restart(active.applicationSessionId, 'strict'),
+    ).resolves.toBe(active.applicationSessionId);
+    expect(old.stop).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(active).toMatchObject({
+      grokSandbox: 'strict',
+      activeGrokSandbox: 'workspace',
+    });
+    expect(persist).toHaveBeenCalledOnce();
 
     active.running = false;
+    await controller.applyBeforeNextTurn(active);
+
+    expect(old.stop).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledOnce();
+    expect(active.activeGrokSandbox).toBe('strict');
+    expect(persist).toHaveBeenCalledTimes(2);
+  });
+
+  it('cancels a staged restart when the active profile is selected again', async () => {
+    const active = runtime();
+    active.running = true;
+    const old = active.process!;
+    const start = vi.fn(async () => true);
+    const { controller, persist } = harness(active, start);
+
+    await controller.restart(active.applicationSessionId, 'strict');
+    await controller.restart(active.applicationSessionId, 'workspace');
+    active.running = false;
+    await controller.applyBeforeNextTurn(active);
+
+    expect(active.grokSandbox).toBe('workspace');
+    expect(old.stop).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(persist).toHaveBeenCalledTimes(2);
+  });
+
+  it('disposes only after target and rollback both fail', async () => {
+    const active = runtime();
     const start = vi.fn(async (candidate: GrokRuntime) => {
       candidate.process = fakeProcess('failed');
       throw new Error(candidate.grokSandbox === 'strict' ? 'target failed' : 'rollback failed');
     });
-    const second = harness(active, start);
+    const { controller, dispose } = harness(active, start);
     await expect(
-      second.controller.restart(active.applicationSessionId, 'strict'),
+      controller.restart(active.applicationSessionId, 'strict'),
     ).rejects.toThrow('旧档位恢复也失败');
-    expect(second.dispose).toHaveBeenCalledOnce();
+    expect(dispose).toHaveBeenCalledOnce();
     expect(active.closed).toBe(true);
   });
 
@@ -170,33 +213,37 @@ describe('GrokSandboxRestartController', () => {
     expect(start).toHaveBeenCalledOnce();
   });
 
-  it('rejects a pending permission without stopping the current process', async () => {
+  it('stages a pending permission without stopping the current process', async () => {
     const active = runtime();
     active.pendingPermissions.set('permission', {} as never);
     const old = active.process!;
     const start = vi.fn(async () => true);
-    const { controller } = harness(active, start);
+    const { controller, persist } = harness(active, start);
 
     await expect(
       controller.restart(active.applicationSessionId, 'strict'),
-    ).rejects.toThrow('授权请求尚未结束');
+    ).resolves.toBe(active.applicationSessionId);
     expect(old.stop).not.toHaveBeenCalled();
     expect(start).not.toHaveBeenCalled();
+    expect(active.grokSandbox).toBe('strict');
+    expect(active.activeGrokSandbox).toBe('workspace');
+    expect(persist).toHaveBeenCalledOnce();
   });
 
-  it('rejects while a model or mode transaction owns the runtime lease', async () => {
+  it('stages while a model or mode transaction owns the runtime lease', async () => {
     const active = runtime();
     active.runtimeMutationInProgress = true;
     const old = active.process!;
     const start = vi.fn(async () => true);
-    const { controller } = harness(active, start);
+    const { controller, persist } = harness(active, start);
 
     await expect(
       controller.restart(active.applicationSessionId, 'strict'),
-    ).rejects.toThrow('runtime 设置事务');
+    ).resolves.toBe(active.applicationSessionId);
 
     expect(old.stop).not.toHaveBeenCalled();
     expect(start).not.toHaveBeenCalled();
+    expect(persist).toHaveBeenCalledOnce();
   });
 
   it('disposes truthfully when the old process rejects stop', async () => {
@@ -282,9 +329,9 @@ describe('GrokSandboxRestartController', () => {
         return true;
       });
     const { controller, persist, dispose } = harness(active, start);
-    persist.mockImplementationOnce(() => {
-      throw new Error('persist failed');
-    });
+    persist
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => { throw new Error('persist failed'); });
 
     await expect(
       controller.restart(active.applicationSessionId, 'strict'),
@@ -292,7 +339,8 @@ describe('GrokSandboxRestartController', () => {
 
     expect(target.stop).toHaveBeenCalledOnce();
     expect(active.grokSandbox).toBe('workspace');
-    expect(persist).toHaveBeenCalledTimes(2);
+    expect(active.activeGrokSandbox).toBe('workspace');
+    expect(persist).toHaveBeenCalledTimes(3);
     expect(dispose).not.toHaveBeenCalled();
   });
 });

@@ -46,6 +46,10 @@ export function createGrokRuntime(
       opts.grokSandbox !== undefined
         ? opts.grokSandbox
         : existing?.grokSandbox ?? null,
+    activeGrokSandbox:
+      opts.grokSandbox !== undefined
+        ? opts.grokSandbox
+        : existing?.grokSandbox ?? null,
     restartingSandbox: false,
     runtimeMutationInProgress: false,
     agentProfileName: opts.grokAgentName ?? existing?.agentProfileName ?? null,
@@ -89,6 +93,7 @@ export function recoverGrokRuntime(
     thinkingOverride: record.thinking ?? null,
     sessionMode: record.sessionMode ?? null,
     grokSandbox: record.grokSandbox ?? null,
+    activeGrokSandbox: record.grokSandbox ?? null,
     restartingSandbox: false,
     runtimeMutationInProgress: false,
     agentProfileName: record.agentProfileName ?? null,

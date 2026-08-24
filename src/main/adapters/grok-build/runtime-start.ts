@@ -79,6 +79,7 @@ export async function startGrokRuntime(
   runtime.runtimeIdentity = null;
   runtime.nativeDefaultModel = null;
   const requestedMode = runtime.sessionMode;
+  const sandboxProfile = runtime.grokSandbox;
   let reportedMode: AdapterSessionMode | null = null;
   const clientOptions: GrokAcpClientOptions = {
     onSessionUpdate: (notification) => {
@@ -186,7 +187,7 @@ export async function startGrokRuntime(
       ...clientOptions,
       applicationSessionId: runtime.applicationSessionId,
       cwd: runtime.cwd,
-      sandboxProfile: runtime.grokSandbox,
+      sandboxProfile,
     });
     process = launched.process;
     sessionCwd = launched.sessionCwd;
@@ -204,7 +205,7 @@ export async function startGrokRuntime(
         binary,
         cwd: runtime.cwd,
         ...(browserEnvironment ? { environment: browserEnvironment } : {}),
-        sandboxProfile: runtime.grokSandbox,
+        sandboxProfile,
       });
     } catch (error) {
       runtimeHost.revokeBrowserRuntime?.(runtime.applicationSessionId);
@@ -338,6 +339,7 @@ export async function startGrokRuntime(
   // Both load and new paths are fully committed here. Leaving this branch-specific previously
   // allowed a stale suppression flag to discard every live model update while a prompt ran.
   runtime.suppressUpdates = false;
+  runtime.activeGrokSandbox = sandboxProfile;
   runtime.ready = true;
   scheduleGrokContextUsageRefresh(runtime, {
     diagnostics: runtimeHost.diagnostics,

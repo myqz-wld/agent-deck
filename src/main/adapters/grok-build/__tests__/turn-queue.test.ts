@@ -55,6 +55,7 @@ function makeRuntime(request: ReturnType<typeof vi.fn>): GrokRuntime {
     thinking: null,
     sessionMode: null,
     grokSandbox: null,
+    activeGrokSandbox: null,
     restartingSandbox: false,
     agentProfileName: null,
     agentProfileSource: null,
@@ -65,7 +66,10 @@ function makeRuntime(request: ReturnType<typeof vi.fn>): GrokRuntime {
   };
 }
 
-function makeQueue(firstModelEventTimeoutMs?: number) {
+function makeQueue(
+  firstModelEventTimeoutMs?: number,
+  beforeNextTurn?: (runtime: GrokRuntime) => Promise<void>,
+) {
   const events: Array<{ kind: string; payload: unknown }> = [];
   const emitError = vi.fn();
   const closeSession = vi.fn(async () => undefined);
@@ -79,12 +83,47 @@ function makeQueue(firstModelEventTimeoutMs?: number) {
     emitError,
     closeSession,
     recycleRuntime,
+    beforeNextTurn,
     firstModelEventTimeoutMs,
   });
   return { queue, events, emitError, closeSession, recycleRuntime };
 }
 
 describe('GrokTurnQueue active-turn delivery', () => {
+  it('applies staged runtime settings before claiming the next turn', async () => {
+    const order: string[] = [];
+    const request = vi.fn(async (method: string) => {
+      if (method === methods.agent.session.prompt) order.push('prompt');
+      return { stopReason: 'end_turn' as const, usage: undefined };
+    });
+    const runtime = makeRuntime(request);
+    runtime.grokSandbox = 'strict';
+    const boundary = deferred<void>();
+    const beforeNextTurn = vi.fn(async (candidate: GrokRuntime) => {
+      order.push('boundary');
+      await boundary.promise;
+      candidate.activeGrokSandbox = candidate.grokSandbox;
+    });
+    const { queue } = makeQueue(undefined, beforeNextTurn);
+
+    queue.enqueue(runtime, 'use the staged sandbox');
+
+    await vi.waitFor(() => expect(beforeNextTurn).toHaveBeenCalledOnce());
+    expect(request).not.toHaveBeenCalledWith(
+      methods.agent.session.prompt,
+      expect.anything(),
+      expect.anything(),
+    );
+    boundary.resolve();
+    await vi.waitFor(() => expect(request).toHaveBeenCalledWith(
+      methods.agent.session.prompt,
+      expect.anything(),
+      expect.anything(),
+    ));
+    expect(order.slice(0, 2)).toEqual(['boundary', 'prompt']);
+    expect(runtime.activeGrokSandbox).toBe('strict');
+  });
+
   it('keeps image negotiation bound to each live ACP runtime', () => {
     const disabled = makeRuntime(vi.fn());
     disabled.process!.initializeResponse.agentCapabilities = {

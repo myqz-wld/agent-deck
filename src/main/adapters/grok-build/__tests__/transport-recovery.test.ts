@@ -27,6 +27,7 @@ function makeRuntime(process: GrokAcpProcess): GrokRuntime {
     thinking: null,
     sessionMode: null,
     grokSandbox: null,
+    activeGrokSandbox: null,
     restartingSandbox: false,
     agentProfileName: null,
     agentProfileSource: null,

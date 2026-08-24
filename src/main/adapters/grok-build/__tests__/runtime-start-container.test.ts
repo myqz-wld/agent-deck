@@ -90,5 +90,6 @@ describe('Grok Provider-container runtime start', () => {
     });
     expect(JSON.stringify(request.mock.calls)).not.toContain('/host/private/plugin');
     expect(runtime.cwd).toBe('/host/workspace/repo');
+    expect(runtime.activeGrokSandbox).toBe('workspace');
   });
 });

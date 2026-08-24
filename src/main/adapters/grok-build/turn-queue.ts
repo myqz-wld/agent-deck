@@ -17,6 +17,7 @@ import { errorText } from './protocol-utils';
 import { GrokFirstModelEventTimeoutError, GrokFirstModelEventWatchdog } from './first-model-event-watchdog';
 import { applyRecoveredGrokTurn, GrokProviderCompletionRecovery } from './provider-completion-recovery';
 import type { GrokPendingMessage, GrokRuntime, GrokSubmittingMessage } from './runtime-types';
+import { grokTurnBoundaryBlocked, prepareGrokNextTurn } from './turn-boundary';
 import { finalizeGrokAcpResponse, responseFromGrokLiveOutcome } from './turn-response';
 import type {
   GrokEnqueueOptions, GrokInterjectRequest, GrokTurnQueueOptions, PreparedGrokMessage,
@@ -333,13 +334,10 @@ export class GrokTurnQueue {
   }
 
   async drain(runtime: GrokRuntime): Promise<void> {
+    if (grokTurnBoundaryBlocked(runtime)) return;
     if (
-      runtime.running ||
-      runtime.closed ||
-      runtime.restartingSandbox ||
-      !runtime.ready ||
-      runtime.submittingMessage ||
-      runtime.cwdTransitionGeneration != null
+      this.options.beforeNextTurn &&
+      !await prepareGrokNextTurn(runtime, this.options)
     ) return;
     const message = runtime.queue.shift();
     if (!message) {

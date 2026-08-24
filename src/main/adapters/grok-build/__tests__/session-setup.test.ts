@@ -30,6 +30,7 @@ function makeRuntime(overrides: Partial<GrokRuntime> = {}): GrokRuntime {
     ...overrides,
     runtimeIdentity: overrides.runtimeIdentity ?? null,
     grokSandbox: overrides.grokSandbox ?? null,
+    activeGrokSandbox: overrides.activeGrokSandbox ?? overrides.grokSandbox ?? null,
     restartingSandbox: overrides.restartingSandbox ?? false,
   };
 }

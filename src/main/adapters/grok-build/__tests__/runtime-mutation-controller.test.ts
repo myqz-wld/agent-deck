@@ -45,6 +45,7 @@ function runtime(
     translation: createGrokTranslationState(),
     ...overrides,
     runtimeIdentity: overrides.runtimeIdentity ?? null,
+    activeGrokSandbox: overrides.activeGrokSandbox ?? overrides.grokSandbox ?? null,
   };
 }
 
@@ -73,6 +74,7 @@ function harness(
     candidate.disposed = true;
     candidate.process = null;
   });
+  const drain = vi.fn(async () => undefined);
   const controller = new GrokRuntimeMutationController({
     getRuntime: (sessionId) =>
       active?.applicationSessionId === sessionId ? active : null,
@@ -87,9 +89,10 @@ function harness(
     persistModelOptions,
     persistSessionMode,
     dispose,
+    drain,
     requestTimeoutMs: overrides.timeoutMs ?? 25,
   });
-  return { controller, persistModelOptions, persistSessionMode, dispose };
+  return { controller, persistModelOptions, persistSessionMode, dispose, drain };
 }
 
 describe('GrokRuntimeMutationController', () => {
@@ -103,7 +106,7 @@ describe('GrokRuntimeMutationController', () => {
       return { modelId: 'native-model', reasoningEffort: null };
     });
     const active = runtime(request);
-    const { controller, persistModelOptions } = harness(active);
+    const { controller, persistModelOptions, drain } = harness(active);
 
     await controller.setModelOptions('app-session', {
       provider: null,
@@ -123,6 +126,7 @@ describe('GrokRuntimeMutationController', () => {
       thinking: null,
       thinkingOverride: null,
     });
+    expect(drain).toHaveBeenCalledWith(active);
   });
 
   it('rejects a clear before touching provider, memory, or DB when ACP reported no default', async () => {
