@@ -23,6 +23,7 @@ interface RootIdentity {
 }
 
 export interface ServerCoreProviderGrokContainerTransportOptions {
+  readonly projectTrusted: (cwd: string) => Promise<boolean>;
   readonly runtime: Pick<ServerCoreProviderGrokContainerRuntime, 'open'>;
   readonly workspaceRoot: string;
 }
@@ -91,8 +92,10 @@ export function createServerCoreProviderGrokContainerTransport(
       'provider.grok.workingDirectory',
     );
     const effectiveAccess = access(input.sandboxProfile);
+    const projectTrusted = await options.projectTrusted(input.cwd);
     const session = await options.runtime.open({
       effectiveAccess,
+      projectTrusted,
       sessionId: input.applicationSessionId,
       workingDirectory,
       ...(input.browserContext ? { browserContext: input.browserContext } : {}),

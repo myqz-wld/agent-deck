@@ -26,6 +26,20 @@ function sessionCreationDefaults() {
   };
 }
 
+function sessionCreationConfiguration(
+  defaults = sessionCreationDefaults(),
+) {
+  return {
+    ...defaults,
+    projectTrust: {
+      status: 'trusted' as const,
+      canGrant: false,
+      reasonCode: null,
+      revision: `sha256:${'b'.repeat(64)}` as const,
+    },
+  };
+}
+
 beforeEach(() => {
   setLastAdapter('claude-code');
   Object.defineProperty(window, 'api', {
@@ -36,7 +50,7 @@ beforeEach(() => {
         displayName: 'Claude',
         capabilities: { canCreateSession: true, canSetPermissionMode: true },
       }]),
-      getAdapterSessionCreationDefaults: vi.fn().mockResolvedValue(sessionCreationDefaults()),
+      getAdapterSessionCreationDefaults: vi.fn().mockResolvedValue(sessionCreationConfiguration()),
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
       listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
       chooseDirectory: vi.fn(),
@@ -55,7 +69,7 @@ afterEach(() => {
 describe('NewSessionDialog readiness', () => {
   it('hides fast initialization and shows an explicit loading shell after the grace period', async () => {
     vi.useFakeTimers();
-    const pending = deferred<ReturnType<typeof sessionCreationDefaults> & { model: string }>();
+    const pending = deferred<ReturnType<typeof sessionCreationConfiguration>>();
     window.api.getAdapterSessionCreationDefaults = vi.fn().mockReturnValue(pending.promise);
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
 
@@ -74,7 +88,9 @@ describe('NewSessionDialog readiness', () => {
     expect(screen.queryByText('模型配置')).toBeNull();
 
     await act(async () => {
-      pending.resolve({ ...sessionCreationDefaults(), model: 'claude-config-model' });
+      pending.resolve(sessionCreationConfiguration({
+        ...sessionCreationDefaults(), model: 'claude-config-model',
+      }));
     });
 
     expect(screen.getByText(/模型：claude-config-model/)).toBeTruthy();
@@ -108,7 +124,7 @@ describe('NewSessionDialog readiness', () => {
 
   it('presents a settled empty adapter inventory directly without a false loading label', async () => {
     vi.useFakeTimers();
-    const pendingDefaults = deferred<ReturnType<typeof sessionCreationDefaults>>();
+    const pendingDefaults = deferred<ReturnType<typeof sessionCreationConfiguration>>();
     window.api.listAdapters = vi.fn().mockResolvedValue([]);
     window.api.getAdapterSessionCreationDefaults = vi.fn(() => pendingDefaults.promise);
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
@@ -121,16 +137,16 @@ describe('NewSessionDialog readiness', () => {
     await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS));
     expect(screen.getByText('没有可用的助手')).toBeTruthy();
     expect(screen.queryByText('正在读取助手配置…')).toBeNull();
-    await act(async () => pendingDefaults.resolve(sessionCreationDefaults()));
+    await act(async () => pendingDefaults.resolve(sessionCreationConfiguration()));
   });
 
   it('starts a fresh hidden readiness cycle after close and reopen', async () => {
     vi.useFakeTimers();
-    const reopenedDefaults = deferred<ReturnType<typeof sessionCreationDefaults> & {
-      model: string;
-    }>();
+    const reopenedDefaults = deferred<ReturnType<typeof sessionCreationConfiguration>>();
     const getDefaults = vi.fn()
-      .mockResolvedValueOnce({ ...sessionCreationDefaults(), model: 'first-model' })
+      .mockResolvedValueOnce(sessionCreationConfiguration({
+        ...sessionCreationDefaults(), model: 'first-model',
+      }))
       .mockReturnValueOnce(reopenedDefaults.promise);
     window.api.getAdapterSessionCreationDefaults = getDefaults;
     const view = render(
@@ -148,19 +164,18 @@ describe('NewSessionDialog readiness', () => {
 
     await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS));
     expect(screen.getByText('正在读取会话配置…')).toBeTruthy();
-    await act(async () => reopenedDefaults.resolve({
-      ...sessionCreationDefaults(),
-      model: 'second-model',
-    }));
+    await act(async () => reopenedDefaults.resolve(sessionCreationConfiguration({
+      ...sessionCreationDefaults(), model: 'second-model',
+    })));
     expect(screen.getByText(/模型：second-model/)).toBeTruthy();
   });
 
   it('keeps the complete form mounted and delays progress during later revalidation', async () => {
     vi.useFakeTimers();
-    const refreshedDefaults = deferred<ReturnType<typeof sessionCreationDefaults>>();
+    const refreshedDefaults = deferred<ReturnType<typeof sessionCreationConfiguration>>();
     window.api.listClaudeGatewayProfiles = vi.fn().mockResolvedValue([{ id: 'gateway-a' }]);
     window.api.getAdapterSessionCreationDefaults = vi.fn()
-      .mockResolvedValueOnce(sessionCreationDefaults())
+      .mockResolvedValueOnce(sessionCreationConfiguration())
       .mockReturnValueOnce(refreshedDefaults.promise);
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
     await act(() => vi.advanceTimersByTimeAsync(0));
@@ -185,7 +200,7 @@ describe('NewSessionDialog readiness', () => {
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(screen.getByText('正在更新会话配置…')).toBeTruthy();
     expect(screen.getByRole('button', { name: '创建' }).className).toContain('opacity-50');
-    await act(async () => refreshedDefaults.resolve(sessionCreationDefaults()));
+    await act(async () => refreshedDefaults.resolve(sessionCreationConfiguration()));
     expect(screen.queryByText('正在更新会话配置…')).toBeNull();
     expect((screen.getByRole('button', { name: '创建' }) as HTMLButtonElement).disabled)
       .toBe(false);
@@ -193,7 +208,7 @@ describe('NewSessionDialog readiness', () => {
 
   it('keeps the prior adapter projection and atomically reveals a fast Codex result', async () => {
     vi.useFakeTimers();
-    const codexDefaults = deferred<ReturnType<typeof sessionCreationDefaults> & { model: string }>();
+    const codexDefaults = deferred<ReturnType<typeof sessionCreationConfiguration>>();
     window.api.listAdapters = vi.fn().mockResolvedValue([
       {
         id: 'claude-code',
@@ -207,7 +222,9 @@ describe('NewSessionDialog readiness', () => {
       },
     ]);
     window.api.getAdapterSessionCreationDefaults = vi.fn()
-      .mockResolvedValueOnce({ ...sessionCreationDefaults(), model: 'sonnet' })
+      .mockResolvedValueOnce(sessionCreationConfiguration({
+        ...sessionCreationDefaults(), model: 'sonnet',
+      }))
       .mockReturnValueOnce(codexDefaults.promise);
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
 
@@ -229,10 +246,9 @@ describe('NewSessionDialog readiness', () => {
     expect(screen.getByText(/模型：sonnet/)).toBeTruthy();
     expect(screen.getByRole('button', { name: '创建' })).toBe(createButton);
 
-    await act(async () => codexDefaults.resolve({
-      ...sessionCreationDefaults(),
-      model: 'gpt-5.6-sol',
-    }));
+    await act(async () => codexDefaults.resolve(sessionCreationConfiguration({
+      ...sessionCreationDefaults(), model: 'gpt-5.6-sol',
+    })));
     expect(screen.queryByText(/模型：sonnet/)).toBeNull();
     expect(screen.getByText(/模型：gpt-5.6-sol/)).toBeTruthy();
     expect((screen.getByLabelText('模型') as HTMLInputElement).disabled).toBe(false);
@@ -242,7 +258,7 @@ describe('NewSessionDialog readiness', () => {
 
   it('switches a slow adapter read to the target loading projection at 150 ms', async () => {
     vi.useFakeTimers();
-    const codexDefaults = deferred<ReturnType<typeof sessionCreationDefaults> & { model: string }>();
+    const codexDefaults = deferred<ReturnType<typeof sessionCreationConfiguration>>();
     window.api.listAdapters = vi.fn().mockResolvedValue([
       {
         id: 'claude-code',
@@ -256,7 +272,9 @@ describe('NewSessionDialog readiness', () => {
       },
     ]);
     window.api.getAdapterSessionCreationDefaults = vi.fn()
-      .mockResolvedValueOnce({ ...sessionCreationDefaults(), model: 'sonnet' })
+      .mockResolvedValueOnce(sessionCreationConfiguration({
+        ...sessionCreationDefaults(), model: 'sonnet',
+      }))
       .mockReturnValueOnce(codexDefaults.promise);
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
 
@@ -271,9 +289,8 @@ describe('NewSessionDialog readiness', () => {
     const progress = screen.getByText('正在更新会话配置…');
     expect(progress.closest('[data-new-session-actions]')).toBeTruthy();
     expect(screen.getByRole('button', { name: '创建' })).toBe(createButton);
-    await act(async () => codexDefaults.resolve({
-      ...sessionCreationDefaults(),
-      model: 'gpt-5.6-sol',
-    }));
+    await act(async () => codexDefaults.resolve(sessionCreationConfiguration({
+      ...sessionCreationDefaults(), model: 'gpt-5.6-sol',
+    })));
   });
 });

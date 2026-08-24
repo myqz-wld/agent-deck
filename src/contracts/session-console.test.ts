@@ -59,12 +59,14 @@ describe('cwd-free session-console contracts', () => {
       adapterId: 'codex-cli', capabilityRevision: `sha256:${'a'.repeat(64)}`,
       attachments: [],
       initialMessage: 'Inspect the repository', workingDirectory: 'repo/subdir',
+      projectTrust: { revision: `sha256:${'b'.repeat(64)}`, grant: false },
       options: sessionConsoleCreateOptionsFixture(),
     }).workingDirectory).toBe('repo/subdir');
     expect(() => parseSessionConsoleCreateParams({
       adapterId: 'codex-cli', capabilityRevision: `sha256:${'a'.repeat(64)}`,
       attachments: [],
       initialMessage: '   ', workingDirectory: '.',
+      projectTrust: { revision: `sha256:${'b'.repeat(64)}`, grant: false },
       options: sessionConsoleCreateOptionsFixture(),
     })).toThrow('Invalid session-console contract field');
   });

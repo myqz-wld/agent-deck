@@ -2,7 +2,7 @@ import type { JsonObject } from './json';
 import type { SessionConsoleSandboxAccess } from './session-console-capabilities';
 import { parseWorkspaceDirectoryRef, SessionConsoleContractError } from './session-console-common';
 
-export const PROVIDER_SESSION_CONTAINER_SCHEMA_VERSION = 1;
+export const PROVIDER_SESSION_CONTAINER_SCHEMA_VERSION = 2;
 export const PROVIDER_INFERENCE_BROKER_SCHEMA_VERSION = 1;
 export const PROVIDER_INFERENCE_MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 export const PROVIDER_INFERENCE_MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
@@ -42,6 +42,7 @@ export interface ProviderSessionLaunchSpec {
   readonly launchId: string;
   readonly processId: string;
   readonly providerId: string;
+  readonly projectTrusted: boolean;
   readonly resourceClass: 'interactive-v1';
   readonly runtimeId: ProviderSessionRuntimeId;
   readonly sessionId: string;
@@ -256,7 +257,7 @@ export function parseProviderSessionLaunchSpec(value: unknown): ProviderSessionL
   const raw = object(value, field);
   const keys = [
     'adapterId', 'brokerEndpointId', 'effectiveAccess', 'launchId', 'processId',
-    'providerId', 'resourceClass', 'runtimeId', 'schemaVersion', 'sessionId',
+    'projectTrusted', 'providerId', 'resourceClass', 'runtimeId', 'schemaVersion', 'sessionId',
     'upstreamId', 'workingDirectory',
   ];
   if (raw.browserContext !== undefined) keys.push('browserContext');
@@ -268,6 +269,7 @@ export function parseProviderSessionLaunchSpec(value: unknown): ProviderSessionL
   const parsedRuntime = runtimeId(raw.runtimeId, `${field}.runtimeId`);
   if (parsedRuntime !== expectedRuntime(parsedAdapter)) fail(`${field}.runtimeId`);
   if (raw.resourceClass !== 'interactive-v1') fail(`${field}.resourceClass`);
+  if (typeof raw.projectTrusted !== 'boolean') fail(`${field}.projectTrusted`);
   return Object.freeze({
     schemaVersion: PROVIDER_SESSION_CONTAINER_SCHEMA_VERSION,
     adapterId: parsedAdapter,
@@ -275,6 +277,7 @@ export function parseProviderSessionLaunchSpec(value: unknown): ProviderSessionL
     effectiveAccess: effectiveAccess(raw.effectiveAccess, `${field}.effectiveAccess`),
     launchId: token(raw.launchId, `${field}.launchId`),
     processId: token(raw.processId, `${field}.processId`),
+    projectTrusted: raw.projectTrusted,
     providerId: token(raw.providerId, `${field}.providerId`),
     resourceClass: 'interactive-v1',
     runtimeId: parsedRuntime,

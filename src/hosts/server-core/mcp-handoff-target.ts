@@ -202,6 +202,7 @@ export async function resolveServerCoreHandOffTarget(input: {
     capabilityRevision: descriptor.capabilityRevision,
     initialMessage: combined.prompt,
     options,
+    projectTrust: { revision: descriptor.projectTrust.revision, grant: false },
     workingDirectory: cwdRef,
   };
   const createOptions = buildRemoteCreateOptions(params, cwd, [], { awaitCanonicalId: true });

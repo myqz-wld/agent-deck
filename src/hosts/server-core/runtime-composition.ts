@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { lstatSync } from 'node:fs';
 import { join } from 'node:path';
-
 import { createProviderAdapterSet } from '@main/adapters/provider-adapter-set-core';
 import { initializeProviderRuntimeCore } from '@main/adapters/provider-runtime-core';
 import { AdapterRegistryClass } from '@main/adapters/registry-core';
@@ -18,12 +17,9 @@ import { ServerCoreCredentialFile } from './credential-file';
 import { createServerCoreClaudeHost } from './provider-claude-host';
 import { createServerCoreCodexHost } from './provider-codex-host';
 import { createServerCoreGrokHost } from './provider-grok-host';
-import {
-  createHeadlessAdapterContext,
-  createServerCoreProviderRenameBus,
-  sessionChange,
-  type ServerCoreProviderHostInput,
-} from './provider-host-common';
+import { createHeadlessAdapterContext, createServerCoreProviderRenameBus, sessionChange,
+  type ServerCoreProviderHostInput } from './provider-host-common';
+import { createServerCoreRuntimeProjectTrust } from './project-trust';
 import { ServerCoreProviderRuntimeLifecycle } from './provider-runtime-lifecycle';
 import { resolveServerCoreProjectCatalog, withServerCoreWorkspaceRootProject } from './project-catalog';
 import { ServerCoreRepositoryHost, type ServerCoreRuntimeDiagnostics } from './repository-host';
@@ -123,11 +119,20 @@ export function createServerCoreRuntimeWithOverrides(
   const { runtimeOptions, providerSettings, sessionLifecycle: sessionLifecycleSettings } =
     resolvedSettings;
   const runtimeDiagnostics = overrides.diagnostics ?? diagnostics();
+  const projectTrust = createServerCoreRuntimeProjectTrust({
+    diagnostics: runtimeDiagnostics,
+    providerHomeRoot: workspaceBoundary.providerHomeRoot,
+    settings: providerSettings,
+    workspaceBoundary,
+  });
   const grokContainer = overrides.grokContainer ?? resolveServerCoreProviderGrokContainer(
     input,
     workspaceRoot,
     runtimeDiagnostics,
-    overrides.workspaceSandbox ? { workspaceSandbox: overrides.workspaceSandbox } : {},
+    {
+      projectTrusted: (cwd) => projectTrust.isTrusted({ adapterId: 'grok-build', cwd }),
+      ...(overrides.workspaceSandbox ? { workspaceSandbox: overrides.workspaceSandbox } : {}),
+    },
   );
   let providerRuntimePrivateRoot: string | null = null;
   if (runtimeOptions.providerContainer) {
@@ -196,6 +201,7 @@ export function createServerCoreRuntimeWithOverrides(
     grokContainer: grokContainer ?? undefined,
     metadata,
     projects,
+    projectTrust,
     catalog: sessionCreateCatalog,
     registry,
     settings: providerSettings,

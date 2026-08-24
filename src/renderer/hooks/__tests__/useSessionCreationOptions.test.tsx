@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { SessionCreationDefaults } from '@shared/types';
+import type {
+  SessionCreationConfiguration,
+  SessionCreationDefaults,
+} from '@shared/types';
 import { useSessionCreationOptions } from '../useSessionCreationOptions';
 
 function deferred<T>(): {
@@ -32,10 +35,26 @@ function defaults(model: string): SessionCreationDefaults {
   };
 }
 
+function configuration(
+  model: string,
+  revisionCharacter: string,
+): SessionCreationConfiguration {
+  return {
+    ...defaults(model),
+    projectTrust: {
+      status: 'untrusted',
+      canGrant: true,
+      reasonCode: null,
+      revision: `sha256:${revisionCharacter.repeat(64)}`,
+    },
+  };
+}
+
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   Reflect.deleteProperty(window, 'api');
+  window.localStorage.clear();
 });
 
 describe('useSessionCreationOptions request fencing', () => {
@@ -143,5 +162,56 @@ describe('useSessionCreationOptions request fencing', () => {
     await act(() => vi.advanceTimersByTimeAsync(120));
     expect(hook.result.current.model).toBe('grok-4.5');
     expect(hook.result.current.configurationLoading).toBe(false);
+  });
+
+  it('keeps trust consent unchecked and binds it to the exact cwd, provider, and scope', async () => {
+    vi.useFakeTimers();
+    const getDefaults = vi.fn()
+      .mockResolvedValueOnce(configuration('first', '1'))
+      .mockResolvedValueOnce(configuration('second', '2'))
+      .mockResolvedValueOnce(configuration('provider', '3'))
+      .mockResolvedValueOnce(configuration('reopened', '4'));
+    Object.defineProperty(window, 'api', {
+      configurable: true,
+      value: {
+        getAdapterSessionCreationDefaults: getDefaults,
+        listClaudeGatewayProfiles: vi.fn().mockResolvedValue([{ id: 'team' }]),
+      } as unknown as Window['api'],
+    });
+    const hook = renderHook(
+      ({ cwd, scopeKey }) => useSessionCreationOptions({
+        adapterId: 'claude-code', cwd, scopeKey,
+      }),
+      { initialProps: { cwd: '/repo/one', scopeKey: 'open-1' } },
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(hook.result.current.projectTrustRequest).toMatchObject({ grant: false });
+    act(() => hook.result.current.setProjectTrustGrant(true));
+    expect(hook.result.current.projectTrustRequest).toMatchObject({ grant: true });
+
+    hook.rerender({ cwd: '/repo/two', scopeKey: 'open-1' });
+    expect(hook.result.current.projectTrustGrant).toBe(false);
+    expect(hook.result.current.projectTrustRequest).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(120));
+    expect(hook.result.current.projectTrustRequest).toEqual({
+      revision: `sha256:${'2'.repeat(64)}`, grant: false,
+    });
+
+    act(() => hook.result.current.setProjectTrustGrant(true));
+    act(() => hook.result.current.setProvider('team'));
+    expect(hook.result.current.projectTrustGrant).toBe(false);
+    expect(hook.result.current.projectTrustRequest).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(120));
+    expect(hook.result.current.projectTrustRequest).toEqual({
+      revision: `sha256:${'3'.repeat(64)}`, grant: false,
+    });
+
+    act(() => hook.result.current.setProjectTrustGrant(true));
+    hook.rerender({ cwd: '/repo/two', scopeKey: 'open-2' });
+    expect(hook.result.current.projectTrustGrant).toBe(false);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(hook.result.current.projectTrustRequest).toEqual({
+      revision: `sha256:${'4'.repeat(64)}`, grant: false,
+    });
   });
 });

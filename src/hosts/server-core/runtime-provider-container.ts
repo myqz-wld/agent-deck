@@ -37,6 +37,7 @@ interface ResolverDependencies {
   readonly currentUid?: () => number;
   readonly platform?: NodeJS.Platform;
   readonly workspaceSandbox?: WorkspaceSandboxSpec;
+  readonly projectTrusted?: (cwd: string) => Promise<boolean>;
 }
 
 function ensurePrivateDirectory(path: string): string {
@@ -140,6 +141,7 @@ export function resolveServerCoreProviderGrokContainer(
           ? join(dependencies.workspaceSandbox.privateRoot, 'provider-inference')
           : SERVER_CORE_PROVIDER_INFERENCE_CREDENTIAL_ROOT),
       instanceId: input.instanceId,
+      projectTrusted: dependencies.projectTrusted ?? (async () => false),
       supervisorSocketPath: paths.supervisorSocketPath,
       workspaceRoot,
     });

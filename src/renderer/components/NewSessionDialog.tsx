@@ -183,6 +183,9 @@ export function NewSessionDialog({
   const thinking = (
     remoteMode ? createOptions?.thinking ?? '' : presentedLocalOptions.thinking
   ) as SessionThinkingChoice;
+  const projectTrustDescriptor = remoteMode
+    ? remote.presentationDescriptor?.projectTrust ?? null
+    : presentedLocalOptions.projectTrust;
   const adapters: DeckSelectOption<string>[] = remoteMode
     ? remote.adapters.map((adapter) => ({
         value: adapter.adapterId,
@@ -391,6 +394,13 @@ export function NewSessionDialog({
         }}
         pickingDirectory={pickingDirectory}
         prompt={prompt}
+        projectTrust={projectTrustDescriptor ? {
+          descriptor: projectTrustDescriptor,
+          grant: remoteMode ? remote.projectTrustGrant : localOptions.projectTrustGrant,
+          onGrantChange: remoteMode
+            ? remote.setProjectTrustGrant
+            : localOptions.setProjectTrustGrant,
+        } : undefined}
         sourceLabel={remoteMode
           ? `远端 · ${remoteSource?.profile?.label ?? '远端主机'} · 工作区`
           : '本机'}

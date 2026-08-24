@@ -78,6 +78,7 @@ describe('remote issue input validation', () => {
       attachments: [],
       capabilityRevision: `sha256:${'a'.repeat(64)}`,
       initialMessage: 'Resolve the issue',
+      projectTrust: { revision: `sha256:${'b'.repeat(64)}`, grant: false },
       options: sessionConsoleCreateOptionsFixture(),
       workingDirectory: 'repo',
     };

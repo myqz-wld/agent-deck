@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   setCodexApprovalPolicy: vi.fn(),
   restartWithGrokSandbox: vi.fn(),
   resolveCreationDefaults: vi.fn(),
+  applyProjectTrust: vi.fn(),
+  persistAttachments: vi.fn(),
   respondDiffReview: vi.fn(),
   loggerInfo: vi.fn(),
   loggerWarn: vi.fn(),
@@ -55,13 +57,16 @@ vi.mock('@main/store/image-uploads', () => ({
   loadUploadedImage: mocks.loadUploaded,
 }));
 vi.mock('../adapters-attachments', () => ({
-  persistAdapterAttachments: vi.fn(async () => []),
+  persistAdapterAttachments: mocks.persistAttachments,
 }));
 vi.mock('../adapters-session-model-options', () => ({
   registerSessionModelOptionsIpc: vi.fn(),
 }));
 vi.mock('@main/adapters/session-creation-defaults', () => ({
   resolveSessionCreationDefaults: mocks.resolveCreationDefaults,
+}));
+vi.mock('@main/adapters/project-trust/desktop', () => ({
+  desktopProjectTrustService: { apply: mocks.applyProjectTrust },
 }));
 vi.mock('../adapters-message-dispatch', () => ({
   dispatchAdapterMessageWithHandOffRedirect: mocks.dispatch,
@@ -106,6 +111,11 @@ describe('adapter outgoing queue IPC', () => {
       claudeCodeSandbox: 'workspace-write',
       grokSandbox: 'workspace',
     });
+    mocks.applyProjectTrust.mockResolvedValue({
+      status: 'trusted', canGrant: false, reasonCode: null,
+      revision: `sha256:${'c'.repeat(64)}`,
+    });
+    mocks.persistAttachments.mockResolvedValue([]);
     mocks.deleteUpload.mockResolvedValue(undefined);
     mocks.loadUploaded.mockResolvedValue({
       ok: true,
@@ -331,6 +341,60 @@ describe('adapter outgoing queue IPC', () => {
     expect(mocks.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ approvalPolicy: 'never' }),
     );
+  });
+
+  it('applies an explicit current project trust request before attachments and provider startup', async () => {
+    const order: string[] = [];
+    mocks.applyProjectTrust.mockImplementationOnce(async () => {
+      order.push('trust');
+      return {
+        status: 'trusted', canGrant: false, reasonCode: null,
+        revision: `sha256:${'d'.repeat(64)}`,
+      };
+    });
+    mocks.persistAttachments.mockImplementationOnce(async () => {
+      order.push('attachments');
+      return [];
+    });
+    mocks.createSession.mockImplementationOnce(async () => {
+      order.push('provider');
+      return 'codex-created';
+    });
+    const request = { revision: `sha256:${'b'.repeat(64)}`, grant: true } as const;
+
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {}, 'codex-cli', { cwd: '/repo', projectTrust: request },
+    )).resolves.toBe('codex-created');
+    expect(order).toEqual(['trust', 'attachments', 'provider']);
+    expect(mocks.applyProjectTrust).toHaveBeenCalledWith(
+      { adapterId: 'codex-cli', cwd: '/repo' },
+      request,
+    );
+  });
+
+  it('keeps a completed trust grant when later provider startup fails', async () => {
+    const request = { revision: `sha256:${'b'.repeat(64)}`, grant: true } as const;
+    mocks.createSession.mockRejectedValueOnce(new Error('provider failed after grant'));
+
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {}, 'codex-cli', { cwd: '/repo', projectTrust: request },
+    )).rejects.toThrow('provider failed after grant');
+    expect(mocks.applyProjectTrust).toHaveBeenCalledOnce();
+    expect(mocks.applyProjectTrust).toHaveBeenCalledWith(
+      { adapterId: 'codex-cli', cwd: '/repo' },
+      request,
+    );
+  });
+
+  it('rejects malformed project trust before any native mutation', async () => {
+    await expect(handler(IpcInvoke.AdapterCreateSession)(
+      {}, 'codex-cli', {
+        cwd: '/repo', projectTrust: { revision: 'not-current', grant: true },
+      },
+    )).rejects.toThrow('opts.projectTrust');
+    expect(mocks.applyProjectTrust).not.toHaveBeenCalled();
+    expect(mocks.persistAttachments).not.toHaveBeenCalled();
+    expect(mocks.createSession).not.toHaveBeenCalled();
   });
 
   it('validates and applies a live Codex approval-policy change', async () => {

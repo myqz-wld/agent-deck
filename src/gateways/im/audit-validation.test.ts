@@ -204,6 +204,7 @@ describe('authoritative project-reference isolation', () => {
           attachments: [],
           capabilityRevision: `sha256:${'a'.repeat(64)}`,
           initialMessage: 'Inspect the repository',
+          projectTrust: { revision: `sha256:${'b'.repeat(64)}`, grant: false },
           workingDirectory: '.',
           options: sessionConsoleCreateOptionsFixture(),
         },

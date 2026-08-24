@@ -49,8 +49,13 @@ import {
 
 export const HEADLESS_CODEX_EXECUTABLE = '/opt/agent-deck/providers/codex/codex';
 
+type ServerCoreCodexClientInput = Pick<
+  ServerCoreProviderHostInput,
+  'diagnostics' | 'settings' | 'workspaceBoundary'
+> & Partial<Pick<ServerCoreProviderHostInput, 'browserRuntime'>>;
+
 function frozenWorkspacePermissionBoundary(
-  input: ServerCoreProviderHostInput,
+  input: Pick<ServerCoreProviderHostInput, 'workspaceBoundary'>,
 ): CodexWorkspacePermissionBoundary {
   return Object.freeze({
     workspaceRoot: input.workspaceBoundary.workspaceRoot,
@@ -63,7 +68,7 @@ function frozenWorkspacePermissionBoundary(
 
 export function withServerCoreCodexWorkspaceBoundary(
   mode: CodexThreadMode,
-  input: ServerCoreProviderHostInput,
+  input: Pick<ServerCoreProviderHostInput, 'workspaceBoundary'>,
 ): CodexThreadMode {
   const policy = compileServerCoreProviderSandboxPolicy(input.workspaceBoundary, {
     adapterId: 'codex-cli',
@@ -126,7 +131,7 @@ function trustedAgentDeckMcpServers(config: CodexConfigObject | null | undefined
 
 export function createServerCoreCodexClient(
   options: CodexAppServerOptions,
-  input: ServerCoreProviderHostInput,
+  input: ServerCoreCodexClientInput,
 ): CodexAppServerClient {
   const logger = providerLogger(input.diagnostics, 'codex-app-server');
   return new CodexAppServerClient(options, {
@@ -144,7 +149,7 @@ export function createServerCoreCodexClient(
         runtime,
       ),
     startProcess: ({ codexPathOverride, cwd, env }) => {
-      input.browserRuntime.refresh(env);
+      input.browserRuntime?.refresh(env);
       const executable = codexPathOverride?.trim() || HEADLESS_CODEX_EXECUTABLE;
       return spawn(
         executable,

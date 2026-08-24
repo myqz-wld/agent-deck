@@ -42,6 +42,7 @@ function launch(): ProviderSessionLaunchSpec {
     launchId: 'launch-a',
     processId: 'process-a',
     providerId: 'xai',
+    projectTrusted: false,
     resourceClass: 'interactive-v1',
     runtimeId: 'grok-build-v1',
     sessionId: 'session-a',

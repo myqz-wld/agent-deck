@@ -29,8 +29,12 @@ export interface GrokLaunchSpec {
   useLoginShell: boolean;
 }
 
-export function buildGrokAgentArgs(sandboxProfile: string | null): string[] {
+export function buildGrokAgentArgs(
+  sandboxProfile: string | null,
+  trustProject = false,
+): string[] {
   return [
+    ...(trustProject ? ['--trust'] : []),
     ...(sandboxProfile ? ['--sandbox', sandboxProfile] : []),
     'agent',
     '--no-leader',
@@ -86,6 +90,7 @@ export function spawnGrokChild(options: {
   cwd: string;
   environment?: Readonly<Record<string, string>>;
   sandboxProfile?: string | null;
+  trustProject?: boolean;
 }): {
   child: ChildProcessWithoutNullStreams;
   protocolOutput: Readable;
@@ -93,7 +98,10 @@ export function spawnGrokChild(options: {
   usedLoginShell: boolean;
 } {
   const grokArgs =
-    options.args ?? buildGrokAgentArgs(options.sandboxProfile ?? null);
+    options.args ?? buildGrokAgentArgs(
+      options.sandboxProfile ?? null,
+      options.trustProject === true,
+    );
   const spec = buildGrokLaunchSpec(options.binary, grokArgs, {
     explicitTestArgs: options.args !== undefined,
   });

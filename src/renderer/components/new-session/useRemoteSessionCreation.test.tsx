@@ -246,4 +246,49 @@ describe('useRemoteSessionCreation authority projection', () => {
     expect(hook.result.current.ready).toBe(true);
     expect(hook.result.current.error).toBeNull();
   });
+
+  it('resets trust consent when the Remote cwd, provider, adapter, or source changes', async () => {
+    vi.useFakeTimers();
+    const getSessionCapabilities = vi.fn().mockImplementation(async (request: {
+      adapterId: string | null;
+      provider: string;
+      workingDirectory: string;
+    }) => descriptor(request.provider || 'default-provider', request.workingDirectory));
+    const firstSource = source(getSessionCapabilities);
+    const hook = renderHook(
+      ({ cwd, currentSource }) => useRemoteSessionCreation({
+        active: true,
+        scopeKey: 'dialog-a',
+        source: currentSource,
+        workingDirectory: cwd,
+      }),
+      { initialProps: { cwd: '.', currentSource: firstSource } },
+    );
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    act(() => hook.result.current.setProjectTrustGrant(true));
+    expect(hook.result.current.projectTrustGrant).toBe(true);
+
+    hook.rerender({ cwd: 'repo/two', currentSource: firstSource });
+    expect(hook.result.current.projectTrustGrant).toBe(false);
+    await act(() => vi.advanceTimersByTimeAsync(120));
+    act(() => hook.result.current.setProjectTrustGrant(true));
+
+    act(() => hook.result.current.setOption('provider', 'team-provider'));
+    expect(hook.result.current.projectTrustGrant).toBe(false);
+    await act(() => vi.advanceTimersByTimeAsync(120));
+    act(() => hook.result.current.setProjectTrustGrant(true));
+
+    act(() => hook.result.current.setAdapterId('claude-code'));
+    expect(hook.result.current.projectTrustGrant).toBe(false);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    act(() => hook.result.current.setProjectTrustGrant(true));
+
+    const nextSource = {
+      ...source(getSessionCapabilities),
+      identity: 'remote-b:core-b:1',
+    };
+    hook.rerender({ cwd: 'repo/two', currentSource: nextSource });
+    expect(hook.result.current.projectTrustGrant).toBe(false);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+  });
 });

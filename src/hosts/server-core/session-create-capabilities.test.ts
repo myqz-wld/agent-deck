@@ -19,6 +19,10 @@ import {
 } from '@contracts/index';
 import type { AgentAdapter } from '@main/adapters/types';
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
+import {
+  ProjectTrustConflictError,
+  ProjectTrustGrantError,
+} from '@main/adapters/project-trust/core';
 import { projectProviderSessionFiles } from '@hosts/provider-state/provider-session-projection';
 import type { SessionAdapterId } from '@shared/types';
 import { resolveServerCoreProviderSettings } from './provider-settings';
@@ -26,6 +30,16 @@ import { ServerCoreSessionCreateCapabilities } from './session-create-capabiliti
 import { resolveServerCoreSessionCreateCatalog } from './session-create-catalog';
 
 const roots: string[] = [];
+const TRUSTED_PROJECT = Object.freeze({
+  status: 'trusted' as const,
+  canGrant: false,
+  reasonCode: null,
+  revision: `sha256:${'c'.repeat(64)}` as const,
+});
+const PROJECT_TRUST = Object.freeze({
+  describe: async () => TRUSTED_PROJECT,
+  apply: async () => TRUSTED_PROJECT,
+});
 
 interface CapabilityHarness {
   providerHome: string;
@@ -47,7 +61,8 @@ function adapter(adapterId: SessionAdapterId): AgentAdapter {
 function harness(enabled: readonly SessionAdapterId[] = [
   'claude-code', 'codex-cli', 'grok-build',
 ], grokAvailable = false, grokSandbox?: string, codexModel = 'gpt-remote',
-ready: readonly SessionAdapterId[] = enabled): CapabilityHarness {
+ready: readonly SessionAdapterId[] = enabled,
+projectTrust = PROJECT_TRUST): CapabilityHarness {
   const root = realpathSync(mkdtempSync(join(
     realpathSync(tmpdir()),
     'agent-deck-create-capabilities-',
@@ -96,6 +111,7 @@ ready: readonly SessionAdapterId[] = enabled): CapabilityHarness {
     } : {}),
     metadata: { currentRevision: () => revision },
     projects: [],
+    projectTrust,
     catalog: resolveServerCoreSessionCreateCatalog(providerHome, settings),
     registry: {
       get: (id) => adapters.get(id as SessionAdapterId),
@@ -154,6 +170,7 @@ describe('ServerCoreSessionCreateCapabilities', () => {
     const subject = new ServerCoreSessionCreateCapabilities({
       metadata: { currentRevision: () => 1 },
       projects: [],
+      projectTrust: PROJECT_TRUST,
       catalog: resolveServerCoreSessionCreateCatalog(providerHome, settings),
       registry: { get: (id) => id === 'codex-cli' ? adapter('codex-cli') : undefined },
       settings,
@@ -338,6 +355,29 @@ describe('ServerCoreSessionCreateCapabilities', () => {
     await expect(subject.describe({
       adapterId: 'codex-cli', provider: 'missing', workingDirectory: 'repo',
     })).rejects.toMatchObject({ code: 'invalid_request' });
+  });
+
+  it.each([
+    [new ProjectTrustConflictError(), 'conflict'],
+    [new ProjectTrustGrantError(), 'capability_unavailable'],
+  ])('maps native trust failure %s to a bounded Remote error', async (error, code) => {
+    const state = harness(
+      undefined,
+      false,
+      undefined,
+      'gpt-remote',
+      undefined,
+      {
+        describe: async () => TRUSTED_PROJECT,
+        apply: async () => { throw error; },
+      },
+    );
+    await expect(state.subject.applyProjectTrust(
+      'codex-cli',
+      'repo',
+      null,
+      { revision: TRUSTED_PROJECT.revision, grant: false },
+    )).rejects.toMatchObject({ code });
   });
 
   it('rejects symlink escape before reading provider defaults or validating create', async () => {

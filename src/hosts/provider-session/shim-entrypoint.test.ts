@@ -10,7 +10,12 @@ describe('provider session shim entrypoint', () => {
   it('accepts only one fixed adapter and one bounded effective access value', () => {
     expect(parseProviderSessionShimArgs([
       '--adapter', 'grok-build', '--access', 'selected-directory-read-write',
-    ])).toEqual({ adapter: 'grok-build', access: 'selected-directory-read-write' });
+      '--project-trusted', 'false',
+    ])).toEqual({
+      adapter: 'grok-build',
+      access: 'selected-directory-read-write',
+      projectTrusted: false,
+    });
     for (const argv of [
       ['--adapter', 'codex-cli', '--access', 'workspace-read-only'],
       ['--adapter', 'grok-build', '--access', 'danger-full-access'],
@@ -28,6 +33,7 @@ describe('provider session shim entrypoint', () => {
     for (const [access, profile] of expected) {
       const parsed = parseProviderSessionShimArgs([
         '--adapter', 'grok-build', '--access', access,
+        '--project-trusted', 'false',
       ]);
       const launch = providerSessionGrokLaunchSpec(
         parsed,
@@ -50,6 +56,7 @@ describe('provider session shim entrypoint', () => {
     expect(() => providerSessionGrokLaunchSpec(
       parseProviderSessionShimArgs([
         '--adapter', 'grok-build', '--access', 'workspace-read-only',
+        '--project-trusted', 'false',
       ]),
       'https://cli-chat-proxy.grok.com/v1',
       '/workspace',
@@ -64,7 +71,7 @@ describe('provider session shim entrypoint', () => {
       'workspace-read-write',
     ] as const) {
       const launch = providerSessionGrokLaunchSpec(
-        { adapter: 'grok-build', access },
+        { adapter: 'grok-build', access, projectTrusted: false },
         'http://127.0.0.1:43121/v1',
         '/workspace',
         '/opt/agent-deck/providers/grok/grok',
@@ -74,8 +81,27 @@ describe('provider session shim entrypoint', () => {
     }
   });
 
+  it('projects only a persisted Core trust verdict into native Grok argv', () => {
+    const launch = providerSessionGrokLaunchSpec(
+      {
+        adapter: 'grok-build',
+        access: 'selected-directory-read-write',
+        projectTrusted: true,
+      },
+      'http://127.0.0.1:43121/v1',
+      '/workspace/repo',
+    );
+    expect(launch.args).toEqual([
+      '--trust', '--sandbox', 'workspace', 'agent', '--no-leader', 'stdio',
+    ]);
+  });
+
   it('prepends only the fixed Browser shim directory to the Grok child PATH', () => {
-    const args = { adapter: 'grok-build' as const, access: 'workspace-read-only' as const };
+    const args = {
+      adapter: 'grok-build' as const,
+      access: 'workspace-read-only' as const,
+      projectTrusted: false,
+    };
     const browserEnvironment = {
       PATH: '/state/home/.agent-deck/browser/bin:/opt/agent-deck/providers/grok:/usr/bin:/bin',
     };

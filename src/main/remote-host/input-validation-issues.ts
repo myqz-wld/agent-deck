@@ -128,6 +128,7 @@ export function parseRemoteHostIssueResolveSession(
   exactKeys(raw, [
     'adapterId', 'attachments', 'capabilityRevision', 'expectedRevision', 'initialMessage',
     'expectedAuthority', 'intentId', 'issueId', 'issueUpdatedAt', 'options', 'profileId',
+    'projectTrust',
     'workingDirectory',
   ], 'issueResolution');
   try {
@@ -140,6 +141,7 @@ export function parseRemoteHostIssueResolveSession(
       initialMessage: raw.initialMessage,
       intentId: raw.intentId,
       options: raw.options,
+      projectTrust: raw.projectTrust,
       workingDirectory: raw.workingDirectory,
     });
     const parsed = parseIssueResolveInNewSessionParams({
@@ -150,6 +152,7 @@ export function parseRemoteHostIssueResolveSession(
         attachments: create.attachments,
         capabilityRevision: create.capabilityRevision,
         initialMessage: create.initialMessage,
+        projectTrust: create.projectTrust,
         options: create.options,
         workingDirectory: create.workingDirectory,
       },

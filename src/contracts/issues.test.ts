@@ -81,6 +81,7 @@ describe('Remote issue contract', () => {
       capabilityRevision: `sha256:${'a'.repeat(64)}`,
       initialMessage: 'Resolve the issue',
       options: sessionConsoleCreateOptionsFixture(),
+      projectTrust: { revision: `sha256:${'b'.repeat(64)}`, grant: false },
       workingDirectory: 'repo/subdir',
     };
     expect(parseIssueResolveInNewSessionParams({

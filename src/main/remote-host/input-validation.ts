@@ -5,6 +5,7 @@ import {
   parseSessionConsoleCapabilitiesParams,
   parseSessionConsoleCreateOptions,
   parseSessionConsoleInitialMessage,
+  parseProjectTrustRequest,
   parseMcpPresentationFeedback,
   parseWorkspaceDirectoryListParams,
   parseWorkspaceDirectoryRef,
@@ -376,7 +377,7 @@ export function parseRemoteHostCreateSession(value: unknown): RemoteHostCreateSe
   const raw = object(value, 'create');
   exactKeys(raw, [
     'adapterId', 'attachments', 'capabilityRevision', 'initialMessage', 'intentId',
-    'expectedAuthority', 'options', 'profileId', 'workingDirectory',
+    'expectedAuthority', 'options', 'profileId', 'projectTrust', 'workingDirectory',
   ], 'create');
   let workingDirectory: string;
   try {
@@ -394,6 +395,9 @@ export function parseRemoteHostCreateSession(value: unknown): RemoteHostCreateSe
     initialMessage: contractValue(
       () => parseSessionConsoleInitialMessage(raw.initialMessage, 'initialMessage'),
       'initialMessage', 'invalid or too long'),
+    projectTrust: contractValue(
+      () => parseProjectTrustRequest(raw.projectTrust, 'projectTrust'),
+      'projectTrust', 'invalid project trust request'),
     workingDirectory,
     options: contractValue(
       () => parseSessionConsoleCreateOptions(raw.options),

@@ -50,6 +50,7 @@ export interface ServerCoreProviderGrokContainerReadiness {
 export interface ServerCoreProviderGrokContainerOpenInput {
   readonly browserContext?: ProviderSessionBrowserContext;
   readonly effectiveAccess: SessionConsoleSandboxAccess;
+  readonly projectTrusted: boolean;
   readonly sessionId: string;
   /** `.` or one normalized directory relative to the selected Workspace. */
   readonly workingDirectory: string;
@@ -196,6 +197,7 @@ export class ServerCoreProviderGrokContainerRuntime {
       launchId,
       processId,
       providerId: PROVIDER_ID,
+      projectTrusted: input.projectTrusted,
       resourceClass: 'interactive-v1',
       runtimeId: RUNTIME_ID,
       sessionId: input.sessionId,

@@ -30,6 +30,7 @@ const GROK_UPSTREAM_PATHS = Object.freeze(['/v1/chat/completions', '/v1/response
 export interface ProviderSessionShimArgs {
   readonly access: SessionConsoleSandboxAccess;
   readonly adapter: 'grok-build';
+  readonly projectTrusted: boolean;
 }
 
 export interface ProviderSessionShimLaunchSpec {
@@ -64,13 +65,15 @@ function sandbox(access: SessionConsoleSandboxAccess, nativeSandbox: boolean): s
 }
 
 export function parseProviderSessionShimArgs(argv: readonly string[]): ProviderSessionShimArgs {
-  if (argv.length !== 4 || argv[0] !== '--adapter' || argv[1] !== 'grok-build' ||
-      argv[2] !== '--access' || !ACCESS.has(argv[3] as SessionConsoleSandboxAccess)) {
+  if (argv.length !== 6 || argv[0] !== '--adapter' || argv[1] !== 'grok-build' ||
+      argv[2] !== '--access' || !ACCESS.has(argv[3] as SessionConsoleSandboxAccess) ||
+      argv[4] !== '--project-trusted' || !['true', 'false'].includes(argv[5] ?? '')) {
     throw new Error('provider session shim argv is invalid');
   }
   return Object.freeze({
     access: argv[3] as SessionConsoleSandboxAccess,
     adapter: 'grok-build',
+    projectTrusted: argv[5] === 'true',
   });
 }
 
@@ -218,6 +221,7 @@ export function providerSessionGrokLaunchSpec(
   }
   return Object.freeze({
     args: Object.freeze([
+      ...(args.projectTrusted ? ['--trust'] : []),
       '--sandbox', sandbox(args.access, nativeSandbox), 'agent', '--no-leader', 'stdio',
     ]),
     binary,

@@ -1,4 +1,7 @@
-import type { SessionAdapterId, SessionCreationDefaults } from '@shared/types';
+import type {
+  SessionAdapterId,
+  SessionCreationConfiguration,
+} from '@shared/types';
 import { settingsStore } from '@main/store/settings-store';
 import log from '@main/utils/logger';
 import { getCodexInstance } from './codex-cli/codex-instance-pool';
@@ -14,6 +17,10 @@ import type {
   SessionConfigReadObservation,
 } from './session-creation-config-reader';
 import { desktopSessionCreationDefaultsHost } from './session-creation-defaults-host';
+import {
+  desktopProjectTrustService,
+} from './project-trust/desktop';
+import type { ProjectTrustService } from './project-trust/core';
 
 export {
   CODEX_CREATION_DEFAULTS_TIMEOUT_MS,
@@ -28,24 +35,39 @@ export type SessionCreationResolveDeps = Omit<
 > & {
   readCodexConfig?: SessionCreationCoreDeps['readCodexConfig'];
   settings?: SessionCreationSettings;
+  projectTrustService?: Pick<ProjectTrustService, 'describe'>;
 };
 
 const logger = log.scope('session-creation-defaults');
 
 /** Desktop composition for the host-neutral session creation defaults resolver. */
-export function resolveSessionCreationDefaults(
+export async function resolveSessionCreationDefaults(
   adapterId: SessionAdapterId,
   options: SessionCreationResolveOptions,
   deps: SessionCreationResolveDeps = {},
-): Promise<SessionCreationDefaults> {
-  return resolveSessionCreationDefaultsCore(adapterId, options, {
+): Promise<SessionCreationConfiguration> {
+  const coreDeps = {
     ...deps,
     settings: deps.settings ?? settingsStore.getAll(),
     readCodexConfig: deps.readCodexConfig ?? readEffectiveCodexConfig,
     onDiagnostic: deps.onDiagnostic ?? emitDesktopDiagnostic,
     onConfigReadObservation:
       deps.onConfigReadObservation ?? emitDesktopConfigReadObservation,
-  }, desktopSessionCreationDefaultsHost);
+  };
+  const [defaults, projectTrust] = await Promise.all([
+    resolveSessionCreationDefaultsCore(
+      adapterId,
+      options,
+      coreDeps,
+      desktopSessionCreationDefaultsHost,
+    ),
+    (deps.projectTrustService ?? desktopProjectTrustService).describe({
+      adapterId,
+      cwd: options.cwd,
+      ...(options.provider ? { provider: options.provider } : {}),
+    }),
+  ]);
+  return { ...defaults, projectTrust };
 }
 
 async function readEffectiveCodexConfig(

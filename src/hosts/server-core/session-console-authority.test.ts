@@ -123,9 +123,22 @@ function harness() {
   const settings = resolveServerCoreProviderSettings({});
   const providerHome = join(paths.root, '..', 'provider-home');
   mkdirSync(providerHome, { mode: 0o700 });
+  const projectTrustApply = vi.fn(async () => ({
+    status: 'trusted' as const,
+    canGrant: false,
+    reasonCode: null,
+    revision: `sha256:${'c'.repeat(64)}` as const,
+  }));
   const createCapabilities = new ServerCoreSessionCreateCapabilities({
     metadata,
     projects: [project],
+    projectTrust: {
+      describe: async () => ({
+        status: 'trusted', canGrant: false, reasonCode: null,
+        revision: `sha256:${'c'.repeat(64)}`,
+      }),
+      apply: projectTrustApply,
+    },
     catalog: resolveServerCoreSessionCreateCatalog(realpathSync(providerHome), settings),
     registry,
     settings,
@@ -163,6 +176,7 @@ function harness() {
     removeAttachments,
     releaseMutationClaim,
     rollbackCreatedSession,
+    projectTrustApply,
     metadata,
     setClaim: (value: typeof claim) => { claim = value; },
     workspaceRoot: paths.root,
@@ -189,6 +203,7 @@ async function createParams(
     capabilityRevision: capabilities.capabilityRevision,
     initialMessage,
     options,
+    projectTrust: { revision: capabilities.projectTrust.revision, grant: false },
     workingDirectory,
   };
 }
@@ -320,7 +335,35 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     expect(failed.removeAttachments).toHaveBeenCalledWith([failed.attachmentRef]);
     expect(failed.releaseMutationClaim).toHaveBeenCalledTimes(1);
   });
-
+  it('applies project trust before attachments and retains it after provider failure', async () => {
+    const current = harness();
+    const order: string[] = [];
+    current.projectTrustApply.mockImplementationOnce(async () => {
+      order.push('trust');
+      return {
+        status: 'trusted', canGrant: false, reasonCode: null,
+        revision: `sha256:${'d'.repeat(64)}`,
+      };
+    });
+    current.persistAttachments.mockImplementationOnce(async () => {
+      order.push('attachments');
+      return [current.attachmentRef];
+    });
+    current.createSession.mockImplementationOnce(async () => {
+      order.push('provider');
+      throw new Error('provider failed after trust');
+    });
+    const input = { kind: 'image' as const, base64: Buffer.from('png').toString('base64'),
+      mime: 'image/png' as const, bytes: 3 };
+    const params = await createParams(current.authority);
+    await expect(current.authority.createSession({
+      ...params, attachments: [input],
+      projectTrust: { ...params.projectTrust, grant: true },
+    }, context())).rejects.toThrow('provider failed after trust');
+    expect(order).toEqual(['trust', 'attachments', 'provider']);
+    expect(current.projectTrustApply).toHaveBeenCalledOnce();
+    expect(current.removeAttachments).toHaveBeenCalledWith([current.attachmentRef]);
+  });
   it('rolls back a provider session when atomic metadata commit fails', async () => {
     const current = harness();
     current.commitSessionCreate.mockImplementationOnce(() => {

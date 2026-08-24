@@ -30,3 +30,4 @@ export * from './types/token-usage';
 export * from './types/events';
 export * from './types/provider-usage';
 export * from './types/context-window';
+export * from './types/project-trust';

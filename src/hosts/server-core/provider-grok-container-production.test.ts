@@ -77,7 +77,7 @@ describe('production Server Core Provider Grok container composition', () => {
       },
     }), { mode: 0o600 });
     const launch = vi.fn<ProviderSessionSupervisorControlPort['launch']>(async (spec) => ({
-      schemaVersion: 1,
+      schemaVersion: 2,
       launchId: spec.launchId,
       processId: spec.processId,
       runtimeHandle: 'a'.repeat(64),
@@ -85,7 +85,7 @@ describe('production Server Core Provider Grok container composition', () => {
     }));
     const supervisor: ProviderSessionSupervisorControlPort = {
       capabilities: async () => ({
-        schemaVersion: 1,
+        schemaVersion: 2,
         adapterIds: ['grok-build'],
         available: true,
         disabledReason: null,
@@ -115,6 +115,7 @@ describe('production Server Core Provider Grok container composition', () => {
       })),
       inferenceTransport: 'unix-http-v1',
       instanceId: 'instance-a',
+      projectTrusted: async () => true,
       supervisorSocketPath: socketPath,
       workspaceRoot,
     });

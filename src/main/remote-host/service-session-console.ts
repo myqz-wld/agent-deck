@@ -78,6 +78,7 @@ export async function requestRemoteSessionCreate(
     attachments: request.attachments,
     capabilityRevision: request.capabilityRevision,
     initialMessage: request.initialMessage,
+    projectTrust: request.projectTrust,
     workingDirectory: request.workingDirectory,
     options: request.options,
   }, { deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS, idempotencyKey });

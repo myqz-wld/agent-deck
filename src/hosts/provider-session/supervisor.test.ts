@@ -23,13 +23,14 @@ const IMAGES: ProviderSessionImageCatalog = Object.freeze({
 
 function spec(overrides: Partial<ProviderSessionLaunchSpec> = {}): ProviderSessionLaunchSpec {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     adapterId: 'grok-build',
     brokerEndpointId: 'broker-a',
     effectiveAccess: 'selected-directory-read-write',
     launchId: 'launch-a',
     processId: 'process-a',
     providerId: 'xai',
+    projectTrusted: false,
     resourceClass: 'interactive-v1',
     runtimeId: 'grok-build-v1',
     sessionId: 'session-a',
@@ -192,7 +193,7 @@ describe('ProviderSessionContainerSupervisor', () => {
     expect(oci.actions).toEqual(['create', 'start']);
 
     await expect(supervisor.stop({
-      schemaVersion: 1,
+      schemaVersion: 2,
       processId: launched.processId,
       runtimeHandle: launched.runtimeHandle,
       sessionId: launched.sessionId,
@@ -206,7 +207,7 @@ describe('ProviderSessionContainerSupervisor', () => {
     const { mounts, oci, supervisor } = harness();
     const launched = await supervisor.launch(spec());
     const channel = await supervisor.attach({
-      schemaVersion: 1,
+      schemaVersion: 2,
       processId: launched.processId,
       runtimeHandle: launched.runtimeHandle,
       sessionId: launched.sessionId,
@@ -214,14 +215,14 @@ describe('ProviderSessionContainerSupervisor', () => {
     expect(channel.stream).toBeInstanceOf(PassThrough);
     expect(mounts.revalidate).toHaveBeenCalledTimes(4);
     await expect(supervisor.attach({
-      schemaVersion: 1,
+      schemaVersion: 2,
       processId: launched.processId,
       runtimeHandle: launched.runtimeHandle,
       sessionId: launched.sessionId,
     })).rejects.toMatchObject({ code: 'conflict' });
 
     await supervisor.stop({
-      schemaVersion: 1,
+      schemaVersion: 2,
       processId: launched.processId,
       runtimeHandle: launched.runtimeHandle,
       sessionId: launched.sessionId,
@@ -304,7 +305,7 @@ describe('ProviderSessionContainerSupervisor', () => {
     const launched = await supervisor.launch(spec());
     oci.inspection = { ...oci.inspection!, image: `replaced@sha256:${'c'.repeat(64)}` };
     await expect(supervisor.stop({
-      schemaVersion: 1,
+      schemaVersion: 2,
       processId: launched.processId,
       runtimeHandle: launched.runtimeHandle,
       sessionId: launched.sessionId,

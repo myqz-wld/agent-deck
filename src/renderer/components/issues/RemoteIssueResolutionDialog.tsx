@@ -171,6 +171,11 @@ export function RemoteIssueResolutionDialog({
         ) : undefined}
         pickingDirectory={false}
         prompt={prompt}
+        projectTrust={descriptor ? {
+          descriptor: descriptor.projectTrust,
+          grant: remote.projectTrustGrant,
+          onGrantChange: remote.setProjectTrustGrant,
+        } : undefined}
         sourceLabel={`远端 · ${source.profile?.label ?? '远端主机'} · 工作区`}
         title="新建处理会话"
         workingDirectory={workingDirectory}

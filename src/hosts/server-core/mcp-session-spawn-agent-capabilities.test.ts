@@ -72,6 +72,16 @@ function realCapabilities(): ServerCoreSessionCreateCapabilities {
   return new ServerCoreSessionCreateCapabilities({
     metadata: { currentRevision: () => 1 },
     projects: [],
+    projectTrust: {
+      describe: async () => ({
+        status: 'trusted', canGrant: false, reasonCode: null,
+        revision: `sha256:${'c'.repeat(64)}`,
+      }),
+      apply: async () => ({
+        status: 'trusted', canGrant: false, reasonCode: null,
+        revision: `sha256:${'c'.repeat(64)}`,
+      }),
+    },
     catalog: resolveServerCoreSessionCreateCatalog(providerHome, settings),
     registry: {
       get: (adapterId) => adapters.get(adapterId as SessionAdapterId),

@@ -21,6 +21,7 @@ import {
   parseGrokSandboxProfile,
 } from './_helpers';
 import type { IssueRecord } from '@shared/types';
+import { parseProjectTrustRequest } from '@contracts/index';
 import { createIssueResolutionSession } from './issue-resolution-session';
 
 export { createIssueResolutionSession } from './issue-resolution-session';
@@ -133,6 +134,7 @@ export const RESOLVE_IN_NEW_SESSION_SCHEMA = z.object({
   provider: z.string().max(128).optional(),
   model: z.string().max(256).optional(),
   thinking: z.string().optional(), // resolveCreateSessionModelOptions 内按 adapter 白名单校验
+  projectTrust: z.unknown().optional(),
 }).strict();
 
 // Concurrent clicks for one issue share the same in-flight creation.
@@ -226,6 +228,17 @@ export async function issuesResolveInNewSessionHandler(
     throw new IpcInputError('args', parseRes.error.issues[0]?.message ?? 'invalid');
   }
   const args = parseRes.data;
+  const projectTrust = args.projectTrust === undefined
+    ? null
+    : (() => {
+        try {
+          return parseProjectTrustRequest(args.projectTrust, 'projectTrust');
+        } catch {
+          throw new IpcInputError(
+            'projectTrust', 'must be a current project trust request',
+          );
+        }
+      })();
 
   const blocked = incompleteRollbackByIssue.get(args.issueId);
   if (blocked) {
@@ -294,6 +307,7 @@ export async function issuesResolveInNewSessionHandler(
       provider: args.provider,
       model: args.model,
       thinking: args.thinking,
+      projectTrust,
     });
     logger.info('[IssuesResolveInNewSession] spawned resolution session', {
       issueId: args.issueId,

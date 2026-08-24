@@ -213,6 +213,10 @@ export class FeishuCommandExecutor {
           attachments: [],
           capabilityRevision: capabilities.capabilityRevision,
           initialMessage: command.initialMessage,
+          projectTrust: {
+            revision: capabilities.projectTrust.revision,
+            grant: false,
+          },
           workingDirectory: command.workingDirectory,
           options: createOptions,
         },

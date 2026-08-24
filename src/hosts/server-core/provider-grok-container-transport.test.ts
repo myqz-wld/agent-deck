@@ -81,6 +81,7 @@ describe('Server Core Provider Grok container ACP transport', () => {
     mkdirSync(cwd);
     const opens: ServerCoreProviderGrokContainerOpenInput[] = [];
     const factory = createServerCoreProviderGrokContainerTransport({
+      projectTrusted: async () => true,
       runtime: {
         open: async (input) => {
           opens.push(input);
@@ -106,6 +107,7 @@ describe('Server Core Provider Grok container ACP transport', () => {
       await launched.process.stop();
       expect(opens.at(-1)).toEqual({
         effectiveAccess,
+        projectTrusted: true,
         sessionId: `session-${profile}`,
         workingDirectory: 'repo',
       });
@@ -119,6 +121,7 @@ describe('Server Core Provider Grok container ACP transport', () => {
     roots.push(workspaceRoot, outside);
     const open = vi.fn(async (input: ServerCoreProviderGrokContainerOpenInput) => channel(input));
     const factory = createServerCoreProviderGrokContainerTransport({
+      projectTrusted: async () => false,
       runtime: { open },
       workspaceRoot,
     });
@@ -135,6 +138,7 @@ describe('Server Core Provider Grok container ACP transport', () => {
     roots.push(workspaceRoot);
     const open = vi.fn(async (input: ServerCoreProviderGrokContainerOpenInput) => channel(input));
     const factory = createServerCoreProviderGrokContainerTransport({
+      projectTrusted: async () => true,
       runtime: { open }, workspaceRoot,
     });
     const browserContext = {
@@ -152,6 +156,7 @@ describe('Server Core Provider Grok container ACP transport', () => {
 
     expect(open).toHaveBeenCalledWith({
       effectiveAccess: 'selected-directory-read-write',
+      projectTrusted: true,
       sessionId: 'session-browser',
       workingDirectory: '.',
       browserContext,
