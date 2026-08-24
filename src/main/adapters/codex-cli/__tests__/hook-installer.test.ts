@@ -46,7 +46,10 @@ describe('CodexHookInstaller', () => {
     const path = join(home, '.codex', 'hooks.json');
     const text = readFileSync(path, 'utf8');
     const data = JSON.parse(text) as {
-      hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>>;
+      hooks: Record<string, Array<{
+        matcher?: string;
+        hooks: Array<{ command: string; timeout: number }>;
+      }>>;
     };
     const command = data.hooks.SessionStart[0].hooks[0].command;
     const relayPath = join(relayRoot, 'codex-cli-sessionstart.curlrc');
@@ -60,6 +63,8 @@ describe('CodexHookInstaller', () => {
     });
     expect(data.hooks.PreToolUse[0].matcher).toBe('.*');
     expect(data.hooks.Stop[0].matcher).toBeUndefined();
+    expect(data.hooks.SessionStart[0].hooks[0].timeout).toBe(5);
+    expect(data.hooks.SessionEnd[0].hooks[0].timeout).toBe(3);
     expect(command).toContain(`--config '${relayPath}'`);
     expect(command).toContain('X-Agent-Deck-Parent-Pid: ${PPID:-}');
     expect(command).toContain('> /dev/null');
@@ -318,5 +323,23 @@ describe('CodexHookInstaller', () => {
     const status = installer.status({ scope: 'user' });
     expect(status.installed).toBe(false);
     expect(status.installedHooks).toEqual(['SessionStart']);
+  });
+
+  it('reports a legacy five-second SessionEnd hook as needing repair', async () => {
+    const { CodexHookInstaller, CODEX_HOOK_EVENTS } = await import('../hook-installer');
+    const installer = new CodexHookInstaller(47_821, TOKEN, relayRoot);
+    installer.install({ scope: 'user' });
+    const hooksPath = join(home, '.codex', 'hooks.json');
+    const data = JSON.parse(readFileSync(hooksPath, 'utf8')) as {
+      hooks: Record<string, Array<{ hooks: Array<{ timeout: number }> }>>;
+    };
+    data.hooks.SessionEnd[0].hooks[0].timeout = 5;
+    writeFileSync(hooksPath, JSON.stringify(data), 'utf8');
+
+    const status = installer.status({ scope: 'user' });
+    expect(status.installed).toBe(false);
+    expect(status.installedHooks).toEqual(
+      CODEX_HOOK_EVENTS.filter((event) => event !== 'SessionEnd'),
+    );
   });
 });

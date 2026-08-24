@@ -54,9 +54,9 @@ afterEach(() => {
 
 describe('NewSessionDialog project trust', () => {
   it.each([
-    ['claude-code', 'Claude', '保存 Claude 的原生项目 trust'],
-    ['codex-cli', 'Codex', '不会批准工具调用或 hook hash'],
-    ['grok-build', 'Grok Build', '加载 MCP、LSP、hooks 和其他项目代码'],
+    ['claude-code', 'Claude', '让 Claude 记住你信任这个项目'],
+    ['codex-cli', 'Codex', '新增或修改过的 hooks 仍需单独授权'],
+    ['grok-build', 'Grok Build', '加载项目中的 MCP、LSP、hooks 和其他代码'],
   ])('shows unchecked provider-specific consent for %s', async (
     adapterId, displayName, expectedHelp,
   ) => {
@@ -136,7 +136,7 @@ describe('NewSessionDialog project trust', () => {
     }));
     render(<NewSessionDialog open onClose={vi.fn()} onCreated={vi.fn()} />);
     expect(await screen.findByText(
-      '无法检测项目 trust；不会代替你授权，将按 provider 原生策略继续创建。',
+      '无法确认此项目是否已受信任。Agent Deck 不会替你授权，将使用助手自身的安全设置创建会话。',
     )).toBeTruthy();
     expect(screen.queryByRole('checkbox', { name: '信任此项目' })).toBeNull();
     fireEvent.change(screen.getByLabelText('第一条消息'), {

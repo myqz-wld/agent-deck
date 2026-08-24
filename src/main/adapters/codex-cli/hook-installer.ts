@@ -68,6 +68,10 @@ function matcherFor(event: CodexHookEvent): string | undefined {
     : undefined;
 }
 
+function timeoutFor(event: CodexHookEvent): number {
+  return event === 'SessionEnd' ? 3 : 5;
+}
+
 function updateModes(scope: 'user' | 'project'): {
   modeForNew: number;
   directoryMode: number;
@@ -130,7 +134,7 @@ export class CodexHookInstaller {
               {
                 type: 'command',
                 command,
-                timeout: 5,
+                timeout: timeoutFor(event),
                 statusMessage: 'Reporting to Agent Deck',
               },
             ],
@@ -209,7 +213,8 @@ export class CodexHookInstaller {
       for (const event of CODEX_HOOK_EVENTS) {
         const command = this.currentCommand(event, false);
         const groups = strictHookGroups(document, hooks, event);
-        if (groups.some((group) => group.hooks.some((entry) => entry.command === command))) {
+        if (groups.some((group) => group.hooks.some((entry) =>
+          entry.command === command && entry.timeout === timeoutFor(event)))) {
           installed.push(event);
         }
       }
