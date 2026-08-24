@@ -182,6 +182,10 @@ function mutationIdentity(
     capabilityRevision: params.capabilityRevision,
     initialMessage: params.initialMessage,
     options: params.options,
+    projectTrust: {
+      grant: params.projectTrust.grant,
+      revision: params.projectTrust.revision,
+    },
     workingDirectory: params.workingDirectory,
   })).digest('hex');
   return {
@@ -364,6 +368,12 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
         'Adapter cannot accept Remote image attachments',
       );
     }
+    await this.options.createCapabilities.applyProjectTrust(
+      params.adapterId as 'claude-code' | 'codex-cli' | 'grok-build',
+      params.workingDirectory,
+      params.options.provider,
+      params.projectTrust,
+    );
     return { adapter: adapter as PreparedSessionCreate['adapter'], project };
   }
 

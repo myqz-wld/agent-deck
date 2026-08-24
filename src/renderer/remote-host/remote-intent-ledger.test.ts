@@ -119,6 +119,7 @@ describe('RemoteUserIntentLedger', () => {
       attachments: [{ kind: 'image' as const, base64, mime: 'image/png' as const, bytes: 150_000 }],
       capabilityRevision: `sha256:${'a'.repeat(64)}`,
       initialMessage: '',
+      projectTrust: { revision: `sha256:${'b'.repeat(64)}` as const, grant: false },
       options: {
         approvalPolicy: 'on-request', claudeCodeSandbox: null,
         codexSandbox: 'workspace-write', grokSandbox: null, model: '', permissionMode: null,

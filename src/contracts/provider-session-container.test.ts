@@ -14,13 +14,14 @@ import {
 
 function launch() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     adapterId: 'grok-build',
     brokerEndpointId: 'broker-a',
     effectiveAccess: 'selected-directory-read-write',
     launchId: 'launch-a',
     processId: 'process-a',
     providerId: 'xai',
+    projectTrusted: false,
     resourceClass: 'interactive-v1',
     runtimeId: 'grok-build-v1',
     sessionId: 'session-a',
@@ -33,14 +34,14 @@ describe('provider session container contract', () => {
   it('round-trips a topology-free launch and lifecycle result', () => {
     expect(parseProviderSessionLaunchSpec(launch())).toEqual(launch());
     expect(parseProviderSessionStopResult({
-      schemaVersion: 1,
+      schemaVersion: 2,
       processId: 'process-a',
       runtimeHandle: 'runtime-a',
       sessionId: 'session-a',
       stopped: true,
     })).toMatchObject({ runtimeHandle: 'runtime-a', stopped: true });
     const attach = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       processId: 'process-a',
       runtimeHandle: 'runtime-a',
       sessionId: 'session-a',
@@ -90,21 +91,21 @@ describe('provider session container contract', () => {
 
   it('publishes only exact available or fail-closed capability states', () => {
     expect(parseProviderSessionSupervisorCapabilities({
-      schemaVersion: 1,
+      schemaVersion: 2,
       adapterIds: ['grok-build'],
       available: true,
       disabledReason: null,
       generation: 4,
     }).adapterIds).toEqual(['grok-build']);
     expect(parseProviderSessionSupervisorCapabilities({
-      schemaVersion: 1,
+      schemaVersion: 2,
       adapterIds: [],
       available: false,
       disabledReason: 'Provider session runtime is unavailable.',
       generation: 5,
     }).available).toBe(false);
     expect(() => parseProviderSessionSupervisorCapabilities({
-      schemaVersion: 1,
+      schemaVersion: 2,
       adapterIds: ['grok-build'],
       available: false,
       disabledReason: 'unavailable',

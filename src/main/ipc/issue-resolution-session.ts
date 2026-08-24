@@ -12,6 +12,8 @@ import { sessionManager } from '@main/session/manager';
 import { deleteUploadIfExists } from '@main/store/image-uploads';
 import log from '@main/utils/logger';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
+import type { ProjectTrustRequest } from '@shared/types';
+import { desktopProjectTrustService } from '@main/adapters/project-trust/desktop';
 import { persistAdapterAttachments } from './adapters-attachments';
 import {
   IpcInputError,
@@ -40,6 +42,7 @@ interface CreateIssueResolutionSessionInput {
   provider?: unknown;
   model?: unknown;
   thinking?: unknown;
+  projectTrust?: ProjectTrustRequest | null;
 }
 
 /** Create one Local Issue resolution session through the normal bounded adapter boundary. */
@@ -115,6 +118,17 @@ export async function createIssueResolutionSession(
     throw new IpcInputError(
       'attachments', `adapter "${validAdapterId}" does not support attachments`,
     );
+  }
+  if (input.projectTrust) {
+    await desktopProjectTrustService.apply({
+      adapterId: validAdapterId as AgentId,
+      cwd: input.cwd,
+      ...('gateway' in modelOptions && modelOptions.gateway
+        ? { provider: modelOptions.gateway }
+        : 'provider' in modelOptions && modelOptions.provider
+          ? { provider: modelOptions.provider }
+          : {}),
+    }, input.projectTrust);
   }
   const attachments = await persistAdapterAttachments(input.attachments, 'attachments');
   const createOptions = buildCreateSessionOptions(validAdapterId, {

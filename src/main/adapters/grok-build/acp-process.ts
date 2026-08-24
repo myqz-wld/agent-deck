@@ -54,6 +54,8 @@ export interface GrokAcpProcessOptions extends GrokAcpClientOptions {
   cwd: string;
   environment?: Readonly<Record<string, string>>;
   sandboxProfile?: string | null;
+  /** Persist native folder trust before project-scoped resources are resolved. */
+  trustProject?: boolean;
 }
 
 export interface GrokAcpSession {

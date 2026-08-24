@@ -138,6 +138,7 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
           ? { provider: options.provider.trim() } : {}),
         ...(options.model.trim() ? { model: options.model.trim() } : {}),
         ...(options.thinking ? { thinking: options.thinking } : {}),
+        ...(options.projectTrustRequest ? { projectTrust: options.projectTrustRequest } : {}),
       });
       if (!mountedRef.current || sequence !== sequenceRef.current) return;
       images.clear();
@@ -206,6 +207,11 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       ) : undefined}
       pickingDirectory={pickingDirectory}
       prompt={prompt}
+      projectTrust={{
+        descriptor: presentation.options.projectTrust,
+        grant: options.projectTrustGrant,
+        onGrantChange: options.setProjectTrustGrant,
+      }}
       sourceLabel="本机"
       title="新建处理会话"
       workingDirectory={workingDirectory}

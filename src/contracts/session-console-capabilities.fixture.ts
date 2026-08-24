@@ -155,8 +155,14 @@ export function sessionConsoleCapabilitiesFixture(
       selectedDirectory: workingDirectory,
       symlinkPolicy: 'resolve-beneath-workspace',
     },
+    projectTrust: {
+      status: 'untrusted',
+      canGrant: true,
+      reasonCode: null,
+      revision: `sha256:${'b'.repeat(64)}`,
+    },
     revision: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     selectedAdapterId: adapterId,
   };
 }

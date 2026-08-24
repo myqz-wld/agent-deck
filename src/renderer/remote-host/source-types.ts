@@ -41,6 +41,7 @@ export interface RemoteSessionCreateInput {
   capabilityRevision: string;
   initialMessage: string;
   options: SessionConsoleCreateOptions;
+  projectTrust: import('@shared/types').ProjectTrustRequest;
   workingDirectory: string;
 }
 

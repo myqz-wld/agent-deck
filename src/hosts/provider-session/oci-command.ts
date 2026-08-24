@@ -297,6 +297,8 @@ export function buildProviderSessionOciPlan(
     ...RUNTIME_ENTRYPOINT[spec.adapterId],
     '--access',
     spec.effectiveAccess,
+    '--project-trusted',
+    String(spec.projectTrusted),
   );
   return Object.freeze({
     commands: Object.freeze({

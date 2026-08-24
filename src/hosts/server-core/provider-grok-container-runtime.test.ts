@@ -58,7 +58,7 @@ class FakeSupervisor implements ProviderSessionSupervisorControlPort {
   async capabilities() {
     this.calls.push('supervisor.capabilities');
     return {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       adapterIds: this.available ? ['grok-build' as const] : [],
       available: this.available,
       disabledReason: this.available ? null : 'runtime unavailable',
@@ -71,7 +71,7 @@ class FakeSupervisor implements ProviderSessionSupervisorControlPort {
     this.launchSpecs.push(spec);
     await this.launchGate;
     return {
-      schemaVersion: 1 as const,
+      schemaVersion: 2 as const,
       launchId: spec.launchId,
       processId: spec.processId,
       runtimeHandle: 'a'.repeat(64),
@@ -167,6 +167,7 @@ function harness() {
 
 const OPEN_INPUT = Object.freeze({
   effectiveAccess: 'workspace-read-write' as const,
+  projectTrusted: true,
   sessionId: 'session-a',
   workingDirectory: 'repo',
 });
@@ -217,13 +218,14 @@ describe('Server Core Provider Grok container runtime', () => {
       'supervisor.attach',
     ]);
     expect(supervisor.launchSpecs[0]).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       adapterId: 'grok-build',
       brokerEndpointId: 'endpoint-a',
       effectiveAccess: 'workspace-read-write',
       launchId: 'launch-a',
       processId: 'process-a',
       providerId: 'xai',
+      projectTrusted: true,
       resourceClass: 'interactive-v1',
       runtimeId: 'grok-build-v1',
       sessionId: 'session-a',

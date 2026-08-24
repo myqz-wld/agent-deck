@@ -22,6 +22,18 @@ function sessionCreationDefaults(
   };
 }
 
+function sessionCreationConfiguration() {
+  return {
+    ...sessionCreationDefaults('untrusted'),
+    projectTrust: {
+      status: 'untrusted' as const,
+      canGrant: true,
+      reasonCode: null,
+      revision: `sha256:${'b'.repeat(64)}` as const,
+    },
+  };
+}
+
 function makeIssue(): IssueRecord {
   const now = Date.now();
   return {
@@ -73,6 +85,30 @@ afterEach(() => {
 });
 
 describe('ResolveInNewSessionDialog model options', () => {
+  it('offers and forwards the same explicit project trust consent', async () => {
+    window.api.getAdapterSessionCreationDefaults = vi.fn().mockResolvedValue(
+      sessionCreationConfiguration(),
+    );
+    const issue = makeIssue();
+    issuesResolveInNewSession.mockResolvedValue({
+      sessionId: 'resolution-session',
+      issue: { ...issue, resolutionSessionId: 'resolution-session' },
+    });
+    render(
+      <ResolveInNewSessionDialog issue={issue} onClose={vi.fn()} onResolved={vi.fn()} />,
+    );
+    const trust = await screen.findByRole('checkbox', { name: '信任此项目' });
+    expect((trust as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(trust);
+    fireEvent.click(screen.getByRole('button', { name: '新建会话' }));
+
+    await waitFor(() => expect(issuesResolveInNewSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectTrust: { revision: `sha256:${'b'.repeat(64)}`, grant: true },
+      }),
+    ));
+  });
+
   it('把问题解决会话选择的 Codex provider、模型与思考程度透传给 IPC', async () => {
     const issue = makeIssue();
     const updated = { ...issue, resolutionSessionId: 'resolution-session' };

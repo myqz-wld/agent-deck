@@ -174,6 +174,7 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
         capabilityRevision: descriptor.capabilityRevision,
         initialMessage: originalPrompt,
         options,
+        projectTrust: { revision: descriptor.projectTrust.revision, grant: false },
         workingDirectory: cwd,
       }, absoluteCwd, [], {
         awaitCanonicalId: true,
@@ -257,6 +258,7 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
             attachments: [],
             capabilityRevision: descriptor.capabilityRevision,
             initialMessage: prompt,
+            projectTrust: { revision: descriptor.projectTrust.revision, grant: false },
             workingDirectory: cwd,
             options,
           },

@@ -32,7 +32,7 @@ import type {
   SessionPresentationKind,
   SessionPresentationSummaryDto,
 } from '@contracts/index';
-import type { LoadImageBlobResult } from '@shared/types';
+import type { LoadImageBlobResult, ProjectTrustRequest } from '@shared/types';
 import type {
   RemoteHostMutationIntentDto,
   RemoteHostSessionTargetDto,
@@ -211,6 +211,7 @@ export interface RemoteHostCreateSessionDto extends RemoteHostMutationIntentDto 
   attachments: SessionConsoleAttachmentInput[];
   capabilityRevision: string;
   initialMessage: string;
+  projectTrust: ProjectTrustRequest;
   workingDirectory: string;
   options: SessionConsoleCreateOptions;
 }

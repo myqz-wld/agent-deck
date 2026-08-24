@@ -101,6 +101,7 @@ export class RemoteHostIssueController {
             attachments: request.attachments,
             capabilityRevision: request.capabilityRevision,
             initialMessage: request.initialMessage,
+            projectTrust: request.projectTrust,
             options: request.options,
             workingDirectory: request.workingDirectory,
           },

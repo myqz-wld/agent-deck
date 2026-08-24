@@ -24,13 +24,14 @@ function spec(
     'selected-directory-read-write',
 ): ProviderSessionLaunchSpec {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     adapterId: 'grok-build',
     brokerEndpointId: 'broker-a',
     effectiveAccess,
     launchId: 'launch-a',
     processId: 'process-a',
     providerId: 'xai',
+    projectTrusted: false,
     resourceClass: 'interactive-v1',
     runtimeId: 'grok-build-v1',
     sessionId: 'session-a',
@@ -110,6 +111,8 @@ describe('provider session OCI command builder', () => {
       'grok-build',
       '--access',
       'selected-directory-read-write',
+      '--project-trusted',
+      'false',
     ]));
     expect(mounts(create.args)).toEqual([
       'type=bind,source=/srv/agent-deck-provider/state-a,target=/state',

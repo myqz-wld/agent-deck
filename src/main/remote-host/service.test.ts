@@ -124,6 +124,7 @@ describe('RemoteHostService', () => {
       attachments: [],
       capabilityRevision: `sha256:${'a'.repeat(64)}`,
       initialMessage: 'Inspect the repository',
+      projectTrust: { revision: `sha256:${'b'.repeat(64)}`, grant: false },
       workingDirectory: projects.projects[0]!.projectRef,
       options: sessionConsoleCreateOptionsFixture('codex-cli'),
       expectedAuthority: expectedAuthority(remote.id),

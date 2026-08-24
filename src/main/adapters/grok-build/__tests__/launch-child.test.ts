@@ -19,6 +19,14 @@ describe('Grok login-shell launch', () => {
       '--no-leader',
       'stdio',
     ]);
+    expect(buildGrokAgentArgs('workspace', true)).toEqual([
+      '--trust',
+      '--sandbox',
+      'workspace',
+      'agent',
+      '--no-leader',
+      'stdio',
+    ]);
   });
 
   it('passes the binary and args positionally and reserves fd 3 for ACP output', () => {

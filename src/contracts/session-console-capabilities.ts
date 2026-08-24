@@ -1,4 +1,7 @@
 import { isJsonObject, type JsonObject } from './json';
+import type { ProjectTrustDescriptor } from '@shared/types';
+import { parseProjectTrustDescriptor } from './project-trust';
+export { parseProjectTrustDescriptor, parseProjectTrustRequest, parseProjectTrustRevision } from './project-trust';
 import {
   SESSION_CONSOLE_MAX_ALIAS_BYTES,
   SESSION_CONSOLE_MAX_WORKING_DIRECTORY_BYTES,
@@ -6,7 +9,7 @@ import {
   parseWorkspaceDirectoryRef,
 } from './session-console-common';
 
-export const SESSION_CONSOLE_CAPABILITY_SCHEMA_VERSION = 1;
+export const SESSION_CONSOLE_CAPABILITY_SCHEMA_VERSION = 2;
 export const SESSION_CONSOLE_MAX_ADAPTERS = 16;
 export const SESSION_CONSOLE_MAX_OPTION_VALUES = 64;
 export const SESSION_CONSOLE_MAX_ATTACHMENT_COUNT = 20;
@@ -115,6 +118,7 @@ export interface SessionConsoleCapabilitiesResult {
   capabilityRevision: string;
   create: SessionConsoleAdapterCreateDescriptor;
   directoryPolicy: SessionConsoleDirectoryPolicyDescriptor;
+  projectTrust: ProjectTrustDescriptor;
   revision: number;
   schemaVersion: typeof SESSION_CONSOLE_CAPABILITY_SCHEMA_VERSION;
   selectedAdapterId: string;
@@ -426,7 +430,7 @@ export function parseSessionConsoleCapabilitiesResult(
   if (!isJsonObject(value)) fail(field);
   exactKeys(value, [
     'adapters', 'capabilityRevision', 'create', 'directoryPolicy',
-    'revision', 'schemaVersion', 'selectedAdapterId',
+    'projectTrust', 'revision', 'schemaVersion', 'selectedAdapterId',
   ], field);
   if (value.schemaVersion !== SESSION_CONSOLE_CAPABILITY_SCHEMA_VERSION) fail(`${field}.schemaVersion`);
   if (!Array.isArray(value.adapters) || value.adapters.length === 0 ||
@@ -482,6 +486,10 @@ export function parseSessionConsoleCapabilitiesResult(
       selectedDirectory,
       symlinkPolicy: 'resolve-beneath-workspace',
     },
+    projectTrust: parseProjectTrustDescriptor(
+      value.projectTrust,
+      `${field}.projectTrust`,
+    ),
     revision: nonNegative(value.revision, `${field}.revision`),
     schemaVersion: SESSION_CONSOLE_CAPABILITY_SCHEMA_VERSION,
     selectedAdapterId,

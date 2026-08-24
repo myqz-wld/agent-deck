@@ -128,6 +128,7 @@ describe('RemoteHostIssueController', () => {
       expectedAuthority: EXPECTED_AUTHORITY, expectedRevision: 7,
       intentId: 'intent-resolve-a', adapterId: 'codex-cli',
       attachments: [], capabilityRevision: `sha256:${'a'.repeat(64)}`,
+      projectTrust: { revision: `sha256:${'b'.repeat(64)}`, grant: false },
       initialMessage: 'Resolve', options, workingDirectory: 'repo',
     })).rejects.toThrow();
   });
@@ -149,6 +150,7 @@ describe('RemoteHostIssueController', () => {
       adapterId: 'codex-cli',
       attachments: [],
       capabilityRevision: `sha256:${'a'.repeat(64)}`,
+      projectTrust: { revision: `sha256:${'b'.repeat(64)}`, grant: false },
       initialMessage: 'Resolve the issue',
       options,
       workingDirectory: 'repo',
@@ -170,6 +172,7 @@ describe('RemoteHostIssueController', () => {
           attachments: [],
           capabilityRevision: `sha256:${'a'.repeat(64)}`,
           initialMessage: 'Resolve the issue',
+          projectTrust: { revision: `sha256:${'b'.repeat(64)}`, grant: false },
           options,
           workingDirectory: 'repo',
         },

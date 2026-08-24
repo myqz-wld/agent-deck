@@ -289,6 +289,7 @@ describe.skipIf(!LIVE)('live Colima Provider Grok acceptance', () => {
         fetch: fetchFn,
         instanceId,
         onInferenceFailure: (failure) => brokerFailures.push(failure),
+        projectTrusted: async () => true,
         supervisorSocketPath: join(root, 'private', 'transport', 's.sock'),
         workspaceRoot: workspace,
       });

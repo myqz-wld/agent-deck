@@ -15,6 +15,7 @@ import { InertInteractionBoundary } from '../InertInteractionBoundary';
 import { StableButtonContent } from '../StableButtonContent';
 import { FirstMessageAuthoring } from './FirstMessageAuthoring';
 import { useModalFocus } from '../use-modal-focus';
+import type { ProjectTrustDescriptor } from '@shared/types';
 
 export interface NewSessionSelectControl {
   label: string;
@@ -71,6 +72,11 @@ interface Props {
   model: NewSessionModelControl;
   pickingDirectory: boolean;
   prompt: string;
+  projectTrust?: {
+    descriptor: ProjectTrustDescriptor;
+    grant: boolean;
+    onGrantChange(value: boolean): void;
+  };
   workingDirectory: string;
   onAdapterChange(value: string): void;
   onBrowseDirectory?: () => void;
@@ -272,6 +278,15 @@ export function NewSessionForm(props: Props): JSX.Element | null {
                 </InertInteractionBoundary>
               </Field>
             ))}
+            {props.projectTrust && (
+              <ProjectTrustControl
+                adapterId={props.adapterId}
+                descriptor={props.projectTrust.descriptor}
+                grant={props.projectTrust.grant}
+                disabled={disabled || configurationInteractionBlocked}
+                onGrantChange={props.projectTrust.onGrantChange}
+              />
+            )}
             {props.error && (
               <FormError error={props.error} onRetry={props.onRetryConfiguration} />
             )}
@@ -316,6 +331,56 @@ export function NewSessionForm(props: Props): JSX.Element | null {
           </div>
         )}
       </div>}
+    </div>
+  );
+}
+
+function ProjectTrustControl({
+  adapterId,
+  descriptor,
+  grant,
+  disabled,
+  onGrantChange,
+}: {
+  adapterId: string;
+  descriptor: ProjectTrustDescriptor;
+  grant: boolean;
+  disabled: boolean;
+  onGrantChange(value: boolean): void;
+}): JSX.Element | null {
+  if (descriptor.status === 'trusted') return null;
+  const help = adapterId === 'claude-code'
+    ? '保存 Claude 的原生项目 trust；当前 Agent Deck 非交互模式仍可能加载项目配置。'
+    : adapterId === 'codex-cli'
+      ? '允许加载项目 .codex 配置、hooks 和 rules；不会批准工具调用或 hook hash。'
+      : '允许 Grok 为此项目加载 MCP、LSP、hooks 和其他项目代码。';
+
+  if (descriptor.status === 'untrusted' && descriptor.canGrant) {
+    return (
+      <div className="rounded border border-deck-border bg-white/[0.025] px-2.5 py-2">
+        <label className="flex items-center gap-2 text-[11px] text-deck-text">
+          <input
+            type="checkbox"
+            checked={grant}
+            disabled={disabled}
+            onChange={(event) => onGrantChange(event.target.checked)}
+            className="h-3.5 w-3.5 accent-status-working"
+          />
+          <span>信任此项目</span>
+        </label>
+        <div className="mt-1 text-[10px] leading-relaxed text-deck-muted/75">{help}</div>
+      </div>
+    );
+  }
+
+  const note = descriptor.reasonCode === 'policy-disabled'
+    ? '当前 provider 已禁用项目 trust 门禁，将按其原生策略继续创建。'
+    : descriptor.reasonCode === 'unsafe-project-root'
+      ? '当前目录不能保存安全的项目 trust，将按 provider 原生策略继续创建。'
+      : '无法检测项目 trust；不会代替你授权，将按 provider 原生策略继续创建。';
+  return (
+    <div role="note" className="rounded border border-white/[0.07] bg-white/[0.03] px-2.5 py-2 text-[10px] leading-relaxed text-deck-muted">
+      {note}
     </div>
   );
 }

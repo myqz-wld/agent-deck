@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type {
   AdapterSessionMode,
+  ProjectTrustDescriptor,
+  ProjectTrustRequest,
   SessionCreationDefaults,
 } from '@shared/types';
 import type { SessionThinkingChoice } from '@renderer/components/SessionModelFields';
@@ -39,6 +41,9 @@ export interface SessionCreationOptionsState {
   provider: string;
   model: string;
   thinking: SessionThinkingChoice;
+  projectTrust: ProjectTrustDescriptor;
+  projectTrustGrant: boolean;
+  projectTrustRequest: ProjectTrustRequest | null;
   setPermissionMode: (value: PermissionModeChoice) => void;
   setSessionMode: (value: AdapterSessionMode) => void;
   setApprovalPolicy: (value: CodexApprovalPolicyChoice) => void;
@@ -48,6 +53,7 @@ export interface SessionCreationOptionsState {
   setProvider: (value: string) => void;
   setModel: (value: string) => void;
   setThinking: (value: SessionThinkingChoice) => void;
+  setProjectTrustGrant: (value: boolean) => void;
 }
 
 const SAFE_FALLBACK: SessionCreationDefaults = {
@@ -65,6 +71,20 @@ const SAFE_FALLBACK: SessionCreationDefaults = {
 interface SelectionState {
   identity: string;
   value: SessionCreationDefaults;
+  projectTrust: ProjectTrustDescriptor;
+  trustAuthoritative: boolean;
+}
+
+const UNAVAILABLE_PROJECT_TRUST: ProjectTrustDescriptor = Object.freeze({
+  status: 'unknown',
+  canGrant: false,
+  reasonCode: 'provider-unavailable',
+  revision: `sha256:${'0'.repeat(64)}`,
+});
+
+interface TrustSelection {
+  requestKey: string;
+  grant: boolean;
 }
 
 interface ProviderCatalogState {
@@ -84,6 +104,12 @@ export function useSessionCreationOptions({
   const [selection, setSelection] = useState<SelectionState>({
     identity: selectionIdentity,
     value: initial,
+    projectTrust: UNAVAILABLE_PROJECT_TRUST,
+    trustAuthoritative: false,
+  });
+  const [trustSelection, setTrustSelection] = useState<TrustSelection>({
+    requestKey: '',
+    grant: false,
   });
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [resolvedRequestKey, setResolvedRequestKey] = useState<string | null>(null);
@@ -120,7 +146,10 @@ export function useSessionCreationOptions({
             setSelection({
               identity: selectionIdentity,
               value: mergeRemembered(adapterId, resolved),
+              projectTrust: resolved.projectTrust ?? UNAVAILABLE_PROJECT_TRUST,
+              trustAuthoritative: resolved.projectTrust !== undefined,
             });
+            setTrustSelection({ requestKey, grant: false });
             resolvedSelectionIdentity.current = selectionIdentity;
             setResolvedRequestKey(requestKey);
           }
@@ -133,7 +162,10 @@ export function useSessionCreationOptions({
             setSelection({
               identity: selectionIdentity,
               value: mergeRemembered(adapterId, fallbackForAdapter(adapterId)),
+              projectTrust: UNAVAILABLE_PROJECT_TRUST,
+              trustAuthoritative: false,
             });
+            setTrustSelection({ requestKey, grant: false });
             resolvedSelectionIdentity.current = selectionIdentity;
             setResolvedRequestKey(requestKey);
           }
@@ -184,6 +216,10 @@ export function useSessionCreationOptions({
   const providerOptions = supportsProviderCatalog && providerCatalog.key === providerCatalogKey
     ? providerCatalog.options
     : [];
+  const projectTrust = selection.identity === selectionIdentity && resolvedRequestKey === requestKey
+    ? selection.projectTrust
+    : UNAVAILABLE_PROJECT_TRUST;
+  const projectTrustGrant = trustSelection.requestKey === requestKey && trustSelection.grant;
 
   const patchSelection = (patch: Partial<SessionCreationDefaults>): void => {
     setSelection((previous) => ({
@@ -192,6 +228,10 @@ export function useSessionCreationOptions({
         ...(previous.identity === selectionIdentity ? previous.value : initial),
         ...patch,
       },
+      projectTrust: previous.identity === selectionIdentity
+        ? previous.projectTrust
+        : UNAVAILABLE_PROJECT_TRUST,
+      trustAuthoritative: previous.identity === selectionIdentity && previous.trustAuthoritative,
     }));
   };
 
@@ -208,6 +248,11 @@ export function useSessionCreationOptions({
     provider: current.provider,
     model: current.model,
     thinking: current.thinking as SessionThinkingChoice,
+    projectTrust,
+    projectTrustGrant,
+    projectTrustRequest: selection.trustAuthoritative && resolvedRequestKey === requestKey
+      ? { revision: projectTrust.revision, grant: projectTrustGrant }
+      : null,
     setPermissionMode: (value) => {
       patchSelection({ permissionMode: value });
       setLastDefaults(adapterId, { permissionMode: value });
@@ -236,6 +281,7 @@ export function useSessionCreationOptions({
       patchSelection({ provider: value, model: '' });
       setLastDefaults(adapterId, { provider: value, model: '' });
       setSelectionRevision((current) => current + 1);
+      setTrustSelection({ requestKey: '', grant: false });
     },
     setModel: (value) => {
       patchSelection({ model: value });
@@ -245,6 +291,10 @@ export function useSessionCreationOptions({
       if (!value) return;
       patchSelection({ thinking: value });
       setLastDefaults(adapterId, { thinking: value });
+    },
+    setProjectTrustGrant: (value) => {
+      if (!projectTrust.canGrant) return;
+      setTrustSelection({ requestKey, grant: value });
     },
   };
 }

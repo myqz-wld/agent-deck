@@ -15,6 +15,8 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
-| 2026-08-14 | `PLAN_38_feishu-one-click-server.md` | Relay accepted; Full/real Feishu external pending | Add server-managed Feishu for Relay and Full | CHANGELOG_612 / REVIEW_248 / REVIEW_249 |
-| 2026-08-12 | `PLAN_37_ipc-fast-read-readiness.md` | completed | Make fast IPC presentation complete and identity-safe | CHANGELOG_598 / REVIEW_238 |
-| 2026-08-12 | `PLAN_36_remote-full-ui-parity.md` | delivery complete; installed acceptance pending | Complete source-authoritative Remote UI parity | CHANGELOG_592 / REVIEW_233 |
+| 2026-08-18 | `PLAN_43_unified-browser-skill-cli-iab.md` | completed with Remote live gate retained | Unify Browser skill, CLI, responsive IAB, and annotation | CHANGELOG_618 / REVIEW_255 |
+| 2026-08-18 | `PLAN_42_summary-settings-layout-and-timeout-policy.md` | completed | Align generator settings order and internalize summary timeout | REVIEW_254 |
+| 2026-08-18 | `PLAN_41_current-only-gap-sweep.md` | completed | Close remaining utility, root-config, prompt, and settings-copy gaps | REVIEW_253 |
+| 2026-08-17 | `PLAN_40_current-only-compatibility-sweep.md` | completed | Remove unsupported compatibility code by functional boundary | REVIEW_252 |
+| 2026-08-17 | `PLAN_39_codex-gateway-toml-cutover.md` | completed | Cut Codex selection over to complete Gateway TOML files | CHANGELOG_616 |

@@ -38,6 +38,8 @@ import {
 } from './adapters-runtime-controls';
 import log from '@main/utils/logger';
 import { safeDiagnostic, safeErrorSummary } from '@main/utils/safe-diagnostic';
+import { parseProjectTrustRequest } from '@contracts/index';
+import { desktopProjectTrustService } from '@main/adapters/project-trust/desktop';
 
 const logger = log.scope('ipc-adapters');
 type PendingRequestList = Array<{ requestId: string }>;
@@ -144,6 +146,27 @@ export function registerAdaptersIpc(): void {
         'opts.attachments',
         `adapter "${agentId}" does not support attachments`,
       );
+    }
+    const projectTrustRequest = raw.projectTrust === undefined
+      ? null
+      : (() => {
+          try {
+            return parseProjectTrustRequest(raw.projectTrust, 'opts.projectTrust');
+          } catch {
+            throw new IpcInputError('opts.projectTrust', 'must be a current project trust request');
+          }
+        })();
+    if (projectTrustRequest) {
+      phase = 'project-trust';
+      await desktopProjectTrustService.apply({
+        adapterId: validAgentId,
+        cwd,
+        ...('gateway' in sessionModelOptions && sessionModelOptions.gateway
+          ? { provider: sessionModelOptions.gateway }
+          : 'provider' in sessionModelOptions && sessionModelOptions.provider
+            ? { provider: sessionModelOptions.provider }
+            : {}),
+      }, projectTrustRequest);
     }
     // attachments 写盘：失败 throw 已回滚兄弟附件。createSession throw 时本 handler 同款回滚。
     phase = 'attachments';

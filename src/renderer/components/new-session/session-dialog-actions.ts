@@ -162,6 +162,10 @@ export function buildRemoteSessionCreateInput(
     capabilityRevision: remote.descriptor.capabilityRevision,
     initialMessage: prompt.trim(),
     options: remote.options,
+    projectTrust: {
+      revision: remote.descriptor.projectTrust.revision,
+      grant: remote.projectTrustGrant,
+    },
     workingDirectory: workingDirectory.trim() || '.',
   };
 }
@@ -188,6 +192,7 @@ export async function submitLocalSession(
       ? { provider: options.provider.trim() } : {}),
     ...(options.model.trim() ? { model: options.model.trim() } : {}),
     ...(options.thinking ? { thinking: options.thinking } : {}),
+    ...(options.projectTrustRequest ? { projectTrust: options.projectTrustRequest } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
   });
 }

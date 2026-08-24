@@ -69,10 +69,17 @@ export interface RemoteSessionCreationState {
   /** Includes the debounce window and the in-flight capability read. */
   loading: boolean;
   options: SessionConsoleCreateOptions;
+  projectTrustGrant: boolean;
   ready: boolean;
   retry(): void;
   setAdapterId(value: string): void;
   setOption(key: SessionConsoleCreateOptionKey, value: string): void;
+  setProjectTrustGrant(value: boolean): void;
+}
+
+interface TrustSelection {
+  requestKey: string;
+  grant: boolean;
 }
 
 function descriptorDefaults(
@@ -152,6 +159,10 @@ export function useRemoteSessionCreation({
   const [snapshot, setSnapshot] = useState<CapabilitySnapshot | null>(null);
   const [failure, setFailure] = useState<RequestFailure | null>(null);
   const [requestRevision, setRequestRevision] = useState(0);
+  const [trustSelection, setTrustSelection] = useState<TrustSelection>({
+    requestKey: '',
+    grant: false,
+  });
   const generation = useRef(0);
   const settledAdapterIdentity = useRef<string | null>(null);
   const authoring = authoringState.scopeKey === scopeKey
@@ -237,6 +248,7 @@ export function useRemoteSessionCreation({
           options: committedOptions,
           descriptor: result,
         });
+        setTrustSelection({ requestKey: resolvedKey, grant: false });
         settledAdapterIdentity.current = `${scopeKey}\u0000${result.selectedAdapterId}`;
         setFailure(null);
       }).catch((reason: unknown) => {
@@ -280,6 +292,7 @@ export function useRemoteSessionCreation({
     initializing: loading && presentationDescriptor === null,
     loading,
     options: authoring.options,
+    projectTrustGrant: trustSelection.requestKey === requestKey && trustSelection.grant,
     ready: descriptor !== null,
     retry: () => {
       if (!active || !source || !canRead) return;
@@ -321,6 +334,10 @@ export function useRemoteSessionCreation({
         setFailure(null);
         setRequestRevision((current) => current + 1);
       }
+    },
+    setProjectTrustGrant: (value) => {
+      if (!descriptor?.projectTrust.canGrant) return;
+      setTrustSelection({ requestKey, grant: value });
     },
   };
 }

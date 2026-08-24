@@ -15,6 +15,7 @@ import type {
   AdapterSessionMode,
   CodexApprovalPolicy,
   IssueRecord,
+  ProjectTrustRequest,
   UploadedAttachmentInput,
 } from '@shared/types';
 import type { SessionThinkingLevel } from '@shared/session-metadata';
@@ -63,6 +64,8 @@ export interface IssuesResolveInNewSessionArgs {
   model?: string;
   /** optional — adapter-aware 档位；空值不传，使用目标 Gateway / adapter 默认值。 */
   thinking?: SessionThinkingLevel;
+  /** Authoritative provider-native project trust evidence for this exact create target. */
+  projectTrust?: ProjectTrustRequest;
 }
 
 export interface IssuesResolveInNewSessionResult {

@@ -18,6 +18,12 @@ import {
   type SessionConsoleCreateOptionSchema,
   type SessionConsoleCreateOptions,
 } from '@contracts/index';
+import type { ProjectTrustRequest } from '@shared/types';
+import {
+  ProjectTrustConflictError,
+  ProjectTrustGrantError,
+  type ProjectTrustService,
+} from '@main/adapters/project-trust/core';
 import { DaemonRequestError } from '@hosts/daemon';
 import {
   getAdapterRuntimeProfile,
@@ -65,6 +71,7 @@ export interface ServerCoreSessionCreateCapabilityOptions {
   };
   metadata: ServerCoreSessionCreateCapabilityMetadata;
   projects: readonly ServerCoreProject[];
+  projectTrust: Pick<ProjectTrustService, 'apply' | 'describe'>;
   catalog: ServerCoreSessionCreateCatalog;
   registry: ServerCoreSessionCreateCapabilityRegistry;
   settings: ServerCoreProviderSettings;
@@ -270,7 +277,7 @@ export class ServerCoreSessionCreateCapabilities {
         'Grok does not accept a provider override',
       );
     }
-    this.resolveWorkspace(params.workingDirectory);
+    const cwd = this.resolveWorkspace(params.workingDirectory);
     const catalog = this.options.catalog.get(requested, params.provider);
     const providers = catalog.providers;
     assertCatalogBounded(providers, requested);
@@ -284,6 +291,11 @@ export class ServerCoreSessionCreateCapabilities {
       ? { ...catalog.defaults, provider: params.provider }
       : catalog.defaults;
     const summary = summaries.find((item) => item.adapterId === requested)!;
+    const projectTrust = await this.options.projectTrust.describe({
+      adapterId: requested,
+      cwd,
+      ...(params.provider ? { provider: params.provider } : {}),
+    });
     const attachmentEnabled =
       this.options.registry.get(requested)?.capabilities.canAcceptAttachments === true;
     const create: SessionConsoleAdapterCreateDescriptor = Object.freeze({
@@ -322,6 +334,7 @@ export class ServerCoreSessionCreateCapabilities {
     return Object.freeze({
       ...stable,
       capabilityRevision: `sha256:${createHash('sha256').update(canonical(stable)).digest('hex')}`,
+      projectTrust,
       revision: this.options.metadata.currentRevision(),
     });
   }
@@ -353,6 +366,36 @@ export class ServerCoreSessionCreateCapabilities {
       assertOptionValue(key, options[key], descriptor.create.options[key]);
     }
     return descriptor;
+  }
+
+  async applyProjectTrust(
+    adapterId: SessionAdapterId,
+    workingDirectory: string,
+    provider: string | null,
+    request: ProjectTrustRequest,
+  ) {
+    const cwd = this.resolveWorkspace(workingDirectory);
+    try {
+      return await this.options.projectTrust.apply({
+        adapterId,
+        cwd,
+        ...(provider ? { provider } : {}),
+      }, request);
+    } catch (error) {
+      if (error instanceof ProjectTrustConflictError) {
+        throw new DaemonRequestError(
+          AgentDeckClientErrorCode.Conflict,
+          error.message,
+        );
+      }
+      if (error instanceof ProjectTrustGrantError) {
+        throw new DaemonRequestError(
+          AgentDeckClientErrorCode.CapabilityUnavailable,
+          error.message,
+        );
+      }
+      throw error;
+    }
   }
 
   private resolveWorkspace(reference: string): string {

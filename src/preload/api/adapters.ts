@@ -16,7 +16,7 @@ import type {
   PendingOutgoingAttachmentLoadResult,
   AdapterSessionMode,
   CodexApprovalPolicy,
-  SessionCreationDefaults,
+  SessionCreationConfiguration,
   SelectablePermissionMode,
 } from '@shared/types';
 
@@ -33,7 +33,7 @@ export const adaptersApi = {
   getAdapterSessionCreationDefaults: (
     agentId: string,
     options: { cwd?: string; provider?: string } = {},
-  ): Promise<SessionCreationDefaults> =>
+  ): Promise<SessionCreationConfiguration> =>
     ipcRenderer.invoke(IpcInvoke.AdapterSessionCreationDefaults, agentId, options),
   interruptAdapterSession: (agentId: string, sessionId: string): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.AdapterInterrupt, agentId, sessionId),

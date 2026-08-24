@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
   buildCreateSessionOptions: vi.fn((agentId: string, opts: Record<string, unknown>) => ({ agentId, ...opts })),
   persistAdapterAttachments: vi.fn(async (): Promise<Array<Record<string, unknown>>> => []),
   deleteUploadIfExists: vi.fn(async () => undefined),
+  applyProjectTrust: vi.fn(),
 }));
 
 vi.mock('@main/store/issue-repo', () => ({ issueRepo: mocks.issueRepo }));
@@ -56,6 +57,9 @@ vi.mock('../adapters-attachments', () => ({
 }));
 vi.mock('@main/store/image-uploads', () => ({
   deleteUploadIfExists: mocks.deleteUploadIfExists,
+}));
+vi.mock('@main/adapters/project-trust/desktop', () => ({
+  desktopProjectTrustService: { apply: mocks.applyProjectTrust },
 }));
 
 import {
@@ -98,6 +102,10 @@ beforeEach(() => {
   mocks.buildCreateSessionOptions.mockClear();
   mocks.persistAdapterAttachments.mockReset().mockResolvedValue([]);
   mocks.deleteUploadIfExists.mockReset().mockResolvedValue(undefined);
+  mocks.applyProjectTrust.mockReset().mockResolvedValue({
+    status: 'trusted', canGrant: false, reasonCode: null,
+    revision: `sha256:${'c'.repeat(64)}`,
+  });
   _resetInFlightResolveForTesting();
 });
 
@@ -105,6 +113,36 @@ beforeEach(() => {
 // IssuesUpdate — zod enum reject (D7 9 case 第 9) + partial patch idempotent (D15 边角)
 // ═══════════════════════════════════════════════════════════════════════════
 describe('createIssueResolutionSession helper — 11 项边界硬化 (§D14 + Step 3.5.1)', () => {
+  it('applies explicit project trust before attachments and provider startup', async () => {
+    const order: string[] = [];
+    const createSession = vi.fn(async () => {
+      order.push('provider');
+      return 'new-sid-123';
+    });
+    mockAdapterRegistry.get.mockReturnValue(makeAdapter({ createSession }));
+    mocks.applyProjectTrust.mockImplementationOnce(async () => {
+      order.push('trust');
+      return {
+        status: 'trusted', canGrant: false, reasonCode: null,
+        revision: `sha256:${'c'.repeat(64)}`,
+      };
+    });
+    mocks.persistAdapterAttachments.mockImplementationOnce(async () => {
+      order.push('attachments');
+      return [];
+    });
+    const request = { revision: `sha256:${'b'.repeat(64)}`, grant: true } as const;
+
+    await expect(createIssueResolutionSession({
+      adapter: 'claude-code', cwd: '/repo', prompt: 'p', permissionMode: null,
+      codexSandbox: null, claudeCodeSandbox: null, projectTrust: request,
+    })).resolves.toBe('new-sid-123');
+    expect(order).toEqual(['trust', 'attachments', 'provider']);
+    expect(mocks.applyProjectTrust).toHaveBeenCalledWith(
+      { adapterId: 'claude-code', cwd: '/repo' }, request,
+    );
+  });
+
   it('§1+§2 adapter 不存在 throw (不 optional chain 吞错)', async () => {
     mockAdapterRegistry.get.mockReturnValue(null);
     await expect(

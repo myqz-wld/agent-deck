@@ -22,6 +22,7 @@ export interface ProductionServerCoreProviderGrokContainerOptions
   readonly inferenceTransport?: ProviderSessionInferenceTransport;
   readonly instanceId: string;
   readonly onInferenceFailure?: ServerCoreProviderGrokContainerRuntimeOptions['onInferenceFailure'];
+  readonly projectTrusted: (cwd: string) => Promise<boolean>;
   readonly supervisorSocketPath: string;
 }
 
@@ -149,6 +150,7 @@ export function createProductionServerCoreProviderGrokContainer(
     supervisor,
   });
   const processFactory = createServerCoreProviderGrokContainerTransport({
+    projectTrusted: options.projectTrusted,
     runtime,
     workspaceRoot: options.workspaceRoot,
   });

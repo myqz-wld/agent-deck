@@ -2,8 +2,10 @@ import { isJsonObject } from './json';
 import {
   parseSessionConsoleCapabilityRevision,
   parseSessionConsoleCreateOptions,
+  parseProjectTrustRequest,
   type SessionConsoleCreateOptions,
 } from './session-console-capabilities';
+import type { ProjectTrustRequest } from '@shared/types';
 import {
   parseSessionConsoleAttachments,
   type SessionConsoleAttachmentInput,
@@ -82,6 +84,7 @@ export interface SessionConsoleCreateParams {
   attachments: SessionConsoleAttachmentInput[];
   capabilityRevision: string;
   initialMessage: string;
+  projectTrust: ProjectTrustRequest;
   workingDirectory: string;
   options: SessionConsoleCreateOptions;
 }
@@ -308,7 +311,7 @@ export function parseSessionConsoleCreateParams(value: unknown): SessionConsoleC
     value,
     [
       'adapterId', 'attachments', 'capabilityRevision', 'initialMessage',
-      'options', 'workingDirectory',
+      'options', 'projectTrust', 'workingDirectory',
     ],
     'session.console.create.params',
   );
@@ -322,6 +325,10 @@ export function parseSessionConsoleCreateParams(value: unknown): SessionConsoleC
     initialMessage: parseSessionConsoleInitialMessage(
       value.initialMessage,
       'session.console.create.initialMessage',
+    ),
+    projectTrust: parseProjectTrustRequest(
+      value.projectTrust,
+      'session.console.create.projectTrust',
     ),
     workingDirectory: parseWorkspaceDirectoryRef(
       value.workingDirectory,
