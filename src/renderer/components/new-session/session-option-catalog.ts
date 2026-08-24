@@ -18,9 +18,9 @@ export const SESSION_OPTION_CATALOG: readonly SessionOptionPresentation[] = Obje
   { key: 'permissionMode', label: '权限模式' },
   { key: 'sessionMode', label: '工作模式' },
   { key: 'approvalPolicy', label: '审批策略' },
-  { key: 'claudeCodeSandbox', label: '系统沙盒' },
+  { key: 'claudeCodeSandbox', label: '沙盒' },
   { key: 'codexSandbox', label: '沙盒' },
-  { key: 'grokSandbox', label: 'Grok Build 沙盒（请求档位）' },
+  { key: 'grokSandbox', label: '沙盒' },
 ]);
 
 const SANDBOX_KEYS = new Set<SessionConsoleCreateOptionKey>([

@@ -8,6 +8,14 @@ import {
 } from './session-option-catalog';
 
 describe('Local and Remote new-session option parity', () => {
+  it('uses one sandbox field label for every adapter', () => {
+    expect([
+      sessionOptionLabel('claudeCodeSandbox'),
+      sessionOptionLabel('codexSandbox'),
+      sessionOptionLabel('grokSandbox'),
+    ]).toEqual(['沙盒', '沙盒', '沙盒']);
+  });
+
   it.each([
     ['claude-code', true, false, false],
     ['codex-cli', false, false, false],

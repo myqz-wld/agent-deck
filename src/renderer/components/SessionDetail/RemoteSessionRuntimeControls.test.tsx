@@ -82,6 +82,28 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
     expect(screen.getByLabelText('审批').textContent).toContain('按需询问');
   });
 
+  it('keeps Grok sandbox editable during an active turn', async () => {
+    const onApply = vi.fn().mockResolvedValue(undefined);
+    render(
+      <RemoteSessionRuntimeControls
+        adapterId="grok-build"
+        busy={false}
+        canWrite
+        identity="remote-a:core-a:session-a"
+        turnActive
+        values={{ grokSandbox: 'workspace', sessionMode: 'default' }}
+        onApply={onApply}
+      />,
+    );
+
+    expect((screen.getByLabelText('沙盒') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByLabelText('沙盒'));
+    fireEvent.click(screen.getByRole('option', { name: '广泛只读' }));
+    await waitFor(() => expect(onApply).toHaveBeenCalledWith({
+      grokSandbox: 'read-only',
+    }));
+  });
+
   it.each([
     {
       name: 'session switch',

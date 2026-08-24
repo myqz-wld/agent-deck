@@ -37,14 +37,47 @@ export class GrokSandboxRestartController {
     }
 
     const runtime = this.context.getRuntime(sessionId);
-    if (!runtime?.process || !runtime.ready || runtime.closed) {
+    if (!runtime?.process || !runtime.ready || runtime.closed || runtime.disposed) {
       return Promise.reject(new Error(`Grok session ${sessionId} is not active.`));
     }
-    if (runtime.grokSandbox === target) return Promise.resolve(sessionId);
+    const previousSelection = runtime.grokSandbox;
+    if (previousSelection !== target) {
+      runtime.grokSandbox = target;
+      try {
+        this.context.persist(runtime);
+      } catch (error) {
+        runtime.grokSandbox = previousSelection;
+        return Promise.reject(error);
+      }
+    }
+    if (runtime.activeGrokSandbox === target) return Promise.resolve(sessionId);
+    if (this.mustWaitForTurnBoundary(runtime)) return Promise.resolve(sessionId);
 
+    return this.beginRestart(runtime, target, true);
+  }
+
+  async applyBeforeNextTurn(runtime: GrokRuntime): Promise<void> {
+    if (runtime.grokSandbox === runtime.activeGrokSandbox) return;
+    await this.beginRestart(runtime, runtime.grokSandbox, false);
+  }
+
+  private beginRestart(
+    runtime: GrokRuntime,
+    target: string | null,
+    drainAfter: boolean,
+  ): Promise<string> {
+    const sessionId = runtime.applicationSessionId;
+    const current = this.inFlight.get(sessionId);
+    if (current) {
+      if (current.target === target) return current.promise;
+      return Promise.reject(
+        new Error('Grok 沙盒正在切换中，请等待当前切换完成后再选择其他档位。'),
+      );
+    }
     const promise = this.restartRuntime(runtime, target).finally(() => {
       const active = this.inFlight.get(sessionId);
       if (active?.promise === promise) this.inFlight.delete(sessionId);
+      if (drainAfter) void this.context.drain(runtime);
     });
     this.inFlight.set(sessionId, { target, promise });
     return promise;
@@ -55,7 +88,7 @@ export class GrokSandboxRestartController {
     target: string | null,
   ): Promise<string> {
     this.assertIdle(runtime);
-    const oldProfile = runtime.grokSandbox;
+    const oldProfile = runtime.activeGrokSandbox;
     runtime.restartingSandbox = true;
     runtime.ready = false;
     runtime.suppressUpdates = true;
@@ -69,11 +102,12 @@ export class GrokSandboxRestartController {
       await oldProcess.stop();
       if (runtime.process === oldProcess) runtime.process = null;
     } catch (stopError) {
+      const persistError = this.restoreSelection(runtime, oldProfile);
       await this.disposeAfterUnprovenStop(runtime);
       throw new Error(
         `旧 Grok ACP 进程停止失败，无法安全切换沙盒；会话已释放：${errorText(
           stopError,
-        )}`,
+        )}${persistError ? `；旧档位持久化失败：${errorText(persistError)}` : ''}`,
         { cause: stopError },
       );
     }
@@ -84,19 +118,21 @@ export class GrokSandboxRestartController {
       if (!(await this.context.start(runtime))) {
         throw new Error('Grok session closed before sandbox restart completed.');
       }
+      runtime.activeGrokSandbox = target;
       this.context.persist(runtime);
       runtime.restartingSandbox = false;
-      void this.context.drain(runtime);
       return runtime.applicationSessionId;
     } catch (error) {
       targetError = error;
       try {
         await this.stopCurrentProcess(runtime);
       } catch (stopError) {
+        const persistError = this.restoreSelection(runtime, oldProfile);
         await this.disposeAfterUnprovenStop(runtime);
         throw new Error(
           `目标 Grok ACP 进程停止失败，无法安全启动旧档位；会话已释放。` +
-            `切换错误：${errorText(targetError)}；停止错误：${errorText(stopError)}`,
+            `切换错误：${errorText(targetError)}；停止错误：${errorText(stopError)}` +
+            `${persistError ? `；旧档位持久化失败：${errorText(persistError)}` : ''}`,
           { cause: targetError },
         );
       }
@@ -107,9 +143,9 @@ export class GrokSandboxRestartController {
       if (!(await this.context.start(runtime))) {
         throw new Error('Grok session closed before sandbox rollback completed.');
       }
+      runtime.activeGrokSandbox = oldProfile;
       this.context.persist(runtime);
       runtime.restartingSandbox = false;
-      void this.context.drain(runtime);
       throw new GrokSandboxSwitchRolledBackError(target, targetError);
     } catch (rollbackError) {
       if (rollbackError instanceof GrokSandboxSwitchRolledBackError) {
@@ -118,24 +154,38 @@ export class GrokSandboxRestartController {
       try {
         await this.stopCurrentProcess(runtime);
       } catch (stopError) {
+        const persistError = this.restoreSelection(runtime, oldProfile);
         await this.disposeAfterUnprovenStop(runtime);
         throw new Error(
           `回滚 Grok ACP 进程停止失败，运行状态无法确认；会话已释放。` +
             `切换错误：${errorText(targetError)}；恢复错误：${errorText(
               rollbackError,
-            )}；停止错误：${errorText(stopError)}`,
+            )}；停止错误：${errorText(stopError)}` +
+            `${persistError ? `；旧档位持久化失败：${errorText(persistError)}` : ''}`,
           { cause: targetError },
         );
       }
+      const persistError = this.restoreSelection(runtime, oldProfile);
       runtime.restartingSandbox = false;
       await this.context.dispose(runtime);
       throw new Error(
         `Grok 沙盒切换失败，旧档位恢复也失败。切换错误：${errorText(
           targetError,
-        )}；恢复错误：${errorText(rollbackError)}`,
+        )}；恢复错误：${errorText(rollbackError)}` +
+          `${persistError ? `；旧档位持久化失败：${errorText(persistError)}` : ''}`,
         { cause: targetError },
       );
     }
+  }
+
+  private mustWaitForTurnBoundary(runtime: GrokRuntime): boolean {
+    return (
+      runtime.running ||
+      runtime.submittingMessage != null ||
+      runtime.pendingPermissions.size > 0 ||
+      runtime.runtimeMutationInProgress === true ||
+      runtime.cwdTransitionGeneration != null
+    );
   }
 
   private assertIdle(runtime: GrokRuntime): void {
@@ -157,6 +207,16 @@ export class GrokSandboxRestartController {
     const process = runtime.process;
     if (process) await process.stop();
     if (runtime.process === process) runtime.process = null;
+  }
+
+  private restoreSelection(runtime: GrokRuntime, profile: string | null): unknown {
+    runtime.grokSandbox = profile;
+    try {
+      this.context.persist(runtime);
+      return null;
+    } catch (error) {
+      return error;
+    }
   }
 
   private async disposeAfterUnprovenStop(runtime: GrokRuntime): Promise<void> {

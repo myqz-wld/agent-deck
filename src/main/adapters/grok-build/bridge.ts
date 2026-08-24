@@ -69,6 +69,7 @@ export class GrokBuildBridge {
       emitEvent: (sessionId, kind, payload) => this.emit(sessionId, kind, payload),
       emitError: (sessionId, text, failureReason) => this.emitError(sessionId, text, failureReason),
       closeSession: (sessionId) => this.closeSession(sessionId),
+      beforeNextTurn: (runtime) => this.sandboxRestartController.applyBeforeNextTurn(runtime),
       recycleRuntime: (runtime) => recycleGrokTransport(runtime, {
         diagnostics: options.runtimeHost.diagnostics,
         isCurrent: (candidate) => this.isCurrentRuntime(candidate),
@@ -124,6 +125,7 @@ export class GrokBuildBridge {
       persistSessionMode: (sessionId, mode) =>
         persistGrokSessionMode(sessionId, mode, options.runtimeHost),
       dispose: (runtime) => this.disposeRuntime(runtime),
+      drain: (runtime) => this.turnQueue.drain(runtime),
     });
     this.sandboxRestartController = new GrokSandboxRestartController({
       getRuntime: (sessionId) => this.runtimes.get(sessionId) ?? null,

@@ -36,6 +36,7 @@ function runtime(stop: () => Promise<void>): GrokRuntime {
     thinking: null,
     sessionMode: null,
     grokSandbox: null,
+    activeGrokSandbox: null,
     restartingSandbox: false,
     agentProfileName: null,
     agentProfileSource: null,

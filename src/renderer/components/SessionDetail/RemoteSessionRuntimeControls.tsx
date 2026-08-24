@@ -64,7 +64,6 @@ export function RemoteSessionRuntimeControls({
   busy,
   canWrite,
   identity,
-  turnActive = false,
   values,
   optionSchema = null,
   onApply,
@@ -370,7 +369,7 @@ export function RemoteSessionRuntimeControls({
           />
           <RemoteGrokSandbox
             value={stringValue(values, 'grokSandbox')}
-            disabled={disabled || turnActive}
+            disabled={disabled}
             onApply={(next) => apply({ grokSandbox: next || null })}
           />
         </>
@@ -439,6 +438,7 @@ function RemoteGrokSandbox({
         <span>沙盒</span>
         <DeckSelect
           value={customActive ? CUSTOM_GROK_PROFILE : value}
+          ariaLabel="沙盒"
           onChange={(next) => {
             if (next === CUSTOM_GROK_PROFILE) { setCustomActive(true); return; }
             setCustomActive(false);

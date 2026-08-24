@@ -32,6 +32,7 @@ function makeRuntime(request: ReturnType<typeof vi.fn>): GrokRuntime {
     thinking: null,
     sessionMode: 'default',
     grokSandbox: null,
+    activeGrokSandbox: null,
     restartingSandbox: false,
     agentProfileName: null,
     agentProfileSource: null,

@@ -242,7 +242,7 @@ describe('Grok Build live sandbox control', () => {
     expect(screen.queryByRole('option', { name: '开发机宽松' })).toBeNull();
   });
 
-  it('confirms an off request and disables switching while the turn is busy', async () => {
+  it('confirms an off request and keeps next-turn switching available while busy', async () => {
     const view = render(
       <SessionSandboxControls session={session()} turnBusy={false} />,
     );
@@ -252,10 +252,10 @@ describe('Grok Build live sandbox control', () => {
     await waitFor(() => {
       expect(confirmDialog).toHaveBeenCalledWith({
         title: '关闭 Grok Build 系统沙盒',
-        message: '需要重启当前 Grok Build 会话',
+        message: '将从 Grok Build 的下一轮对话起生效',
         detail:
-          '重启后，Grok Build 不再受系统沙盒约束，但工具授权规则仍然生效。仅空闲会话可以切换；失败时会自动恢复当前档位。\n\n继续？',
-        okLabel: '重启并关闭沙盒',
+          '关闭后，Grok Build 不再受系统沙盒约束，但工具授权规则仍然生效。当前正在运行的轮次不会中断；当前轮结束后会重启 Grok Build，再处理后续消息。失败时会自动恢复当前档位。\n\n继续？',
+        okLabel: '关闭沙盒',
         cancelLabel: '取消',
         destructive: true,
       });
@@ -271,6 +271,16 @@ describe('Grok Build live sandbox control', () => {
       (screen.getByLabelText(
         '沙盒',
       ) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    ).toBe(false);
+
+    fireEvent.click(screen.getByLabelText('沙盒'));
+    fireEvent.click(screen.getByRole('option', { name: '广泛只读' }));
+    await waitFor(() => {
+      expect(restartWithGrokSandbox).toHaveBeenLastCalledWith(
+        'grok-build',
+        'grok-session',
+        'read-only',
+      );
+    });
   });
 });
