@@ -60,7 +60,7 @@ export function HookSection({
                 type="button"
                 disabled={busy || !hookStatus.writeAllowed}
                 onClick={() => void uninstallHook()}
-                className="rounded bg-status-waiting/20 px-2 py-1 text-[11px] text-status-waiting hover:bg-status-waiting/30 disabled:cursor-not-allowed disabled:opacity-40"
+                className="w-full rounded bg-status-waiting/20 px-2 py-1 text-[11px] text-status-waiting hover:bg-status-waiting/30 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <StableButtonContent
                   activeKey="uninstall"
@@ -76,7 +76,7 @@ export function HookSection({
                 type="button"
                 disabled={busy || !hookStatus.writeAllowed}
                 onClick={() => void installHook()}
-                className="rounded bg-status-working/20 px-2 py-1 text-[11px] text-status-working hover:bg-status-working/30 disabled:cursor-not-allowed disabled:opacity-40"
+                className="w-full rounded bg-status-working/20 px-2 py-1 text-[11px] text-status-working hover:bg-status-working/30 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <StableButtonContent
                   activeKey={partial ? 'repair' : 'install'}

@@ -350,10 +350,10 @@ function ProjectTrustControl({
 }): JSX.Element | null {
   if (descriptor.status === 'trusted') return null;
   const help = adapterId === 'claude-code'
-    ? '保存 Claude 的原生项目 trust；当前 Agent Deck 非交互模式仍可能加载项目配置。'
+    ? '让 Claude 记住你信任这个项目，以后打开时不再询问。即使不勾选，当前会话也可能使用项目中的设置。'
     : adapterId === 'codex-cli'
-      ? '允许加载项目 .codex 配置、hooks 和 rules；不会批准工具调用或 hook hash。'
-      : '允许 Grok 为此项目加载 MCP、LSP、hooks 和其他项目代码。';
+      ? '允许 Codex 加载项目中的 .codex 配置、hooks 和 rules；工具调用以及新增或修改过的 hooks 仍需单独授权。'
+      : '允许 Grok 加载项目中的 MCP、LSP、hooks 和其他代码。请只信任来源可靠的项目。';
 
   if (descriptor.status === 'untrusted' && descriptor.canGrant) {
     return (
@@ -374,10 +374,10 @@ function ProjectTrustControl({
   }
 
   const note = descriptor.reasonCode === 'policy-disabled'
-    ? '当前 provider 已禁用项目 trust 门禁，将按其原生策略继续创建。'
+    ? '当前助手不支持在这里设置项目是否可信，将使用其默认安全设置创建会话。'
     : descriptor.reasonCode === 'unsafe-project-root'
-      ? '当前目录不能保存安全的项目 trust，将按 provider 原生策略继续创建。'
-      : '无法检测项目 trust；不会代替你授权，将按 provider 原生策略继续创建。';
+      ? '无法安全地记住对此目录的信任选择，将使用助手自身的安全设置创建会话。'
+      : '无法确认此项目是否已受信任。Agent Deck 不会替你授权，将使用助手自身的安全设置创建会话。';
   return (
     <div role="note" className="rounded border border-white/[0.07] bg-white/[0.03] px-2.5 py-2 text-[10px] leading-relaxed text-deck-muted">
       {note}
