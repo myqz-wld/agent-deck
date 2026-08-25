@@ -291,6 +291,26 @@ describe('remote source surfaces', () => {
     expect(current.refresh).toHaveBeenCalledOnce();
   });
 
+  it('offers capability-gated reactivation for an unarchived closed Remote history row', async () => {
+    const current = source();
+    current.capabilities = new Set(['sessions.reactivate']);
+    const row = {
+      ...presentation('session-a', 'Remote history reactivation', 'closed', 'finished'),
+      archived: false,
+    };
+    current.historySessions = [row];
+    render(<HistoryPanel remoteSource={current} onSelect={vi.fn()} />);
+
+    fireEvent.contextMenu(screen.getByText('Remote history reactivation'), {
+      clientX: 140,
+      clientY: 90,
+    });
+    expect(screen.queryByRole('menuitem', { name: '归档' })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: '重新激活' }));
+    await waitFor(() => expect(current.reactivateSession).toHaveBeenCalledWith(row));
+    expect(current.refresh).toHaveBeenCalledOnce();
+  });
+
   it('offers cancel-archive and confirmed delete for archived Remote rows', async () => {
     const current = source();
     current.capabilities = new Set(['sessions.history.write']);

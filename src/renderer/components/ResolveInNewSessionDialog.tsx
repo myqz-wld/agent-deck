@@ -207,11 +207,12 @@ export function ResolveInNewSessionDialog({ issue, onClose, onResolved }: Props)
       ) : undefined}
       pickingDirectory={pickingDirectory}
       prompt={prompt}
-      projectTrust={{
-        descriptor: presentation.options.projectTrust,
+      projectTrust={presentation.options.projectTrustPresentation ? {
+        descriptor: presentation.options.projectTrustPresentation,
         grant: options.projectTrustGrant,
+        pending: options.defaultsLoading,
         onGrantChange: options.setProjectTrustGrant,
-      }}
+      } : undefined}
       sourceLabel="本机"
       title="新建处理会话"
       workingDirectory={workingDirectory}

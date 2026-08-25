@@ -13,12 +13,14 @@ export function LocalHistorySummaryCard({
   session,
   onArchive,
   onDelete,
+  onReactivate,
   onSelect,
   onUnarchive,
 }: {
   session: SessionRecord;
   onArchive(): Promise<void>;
   onDelete(): Promise<void>;
+  onReactivate?: () => Promise<void>;
   onSelect(): void;
   onUnarchive(): Promise<void>;
 }): JSX.Element {
@@ -88,6 +90,7 @@ export function LocalHistorySummaryCard({
           onClose={() => setMenuPosition(null)}
           onArchive={onArchive}
           onDelete={onDelete}
+          onReactivate={onReactivate}
           onUnarchive={onUnarchive}
         />
       )}

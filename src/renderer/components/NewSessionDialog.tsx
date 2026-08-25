@@ -185,7 +185,7 @@ export function NewSessionDialog({
   ) as SessionThinkingChoice;
   const projectTrustDescriptor = remoteMode
     ? remote.presentationDescriptor?.projectTrust ?? null
-    : presentedLocalOptions.projectTrust;
+    : presentedLocalOptions.projectTrustPresentation;
   const adapters: DeckSelectOption<string>[] = remoteMode
     ? remote.adapters.map((adapter) => ({
         value: adapter.adapterId,
@@ -397,6 +397,7 @@ export function NewSessionDialog({
         projectTrust={projectTrustDescriptor ? {
           descriptor: projectTrustDescriptor,
           grant: remoteMode ? remote.projectTrustGrant : localOptions.projectTrustGrant,
+          pending: remoteMode ? remote.loading : localOptions.defaultsLoading,
           onGrantChange: remoteMode
             ? remote.setProjectTrustGrant
             : localOptions.setProjectTrustGrant,

@@ -174,6 +174,7 @@ export function RemoteIssueResolutionDialog({
         projectTrust={descriptor ? {
           descriptor: descriptor.projectTrust,
           grant: remote.projectTrustGrant,
+          pending: remote.loading,
           onGrantChange: remote.setProjectTrustGrant,
         } : undefined}
         sourceLabel={`远端 · ${source.profile?.label ?? '远端主机'} · 工作区`}

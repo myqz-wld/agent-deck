@@ -56,4 +56,41 @@ describe('ComposerInput pending image attachments', () => {
     fireEvent.click(within(expanded).getByRole('button', { name: '移除附件' }));
     expect(onRemoveAttachment).toHaveBeenCalledWith('attachment-1');
   });
+
+  it('adds images from the expanded editor through the shared attachment queue', () => {
+    const onAdd = vi.fn();
+    render(
+      <ComposerInput
+        text=""
+        placeholder="编辑消息"
+        submitLabel="发送"
+        busy={false}
+        canSubmit={false}
+        attachments={[]}
+        getAttachmentPreviewDataUrl={() => null}
+        onRemoveAttachment={vi.fn()}
+        onTextChange={vi.fn()}
+        onSubmit={vi.fn().mockResolvedValue(false)}
+        attachmentPicker={{
+          accept: 'image/png,image/jpeg',
+          onAdd,
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '放大输入框' }));
+    const expanded = screen.getByRole('dialog', { name: '放大消息输入框' });
+    expect(expanded.className).toContain('no-drag');
+    expect(within(expanded).getByRole('button', { name: '上传图片' })).toBeTruthy();
+    const file = new File([new Uint8Array([1, 2, 3])], 'expanded.png', {
+      type: 'image/png',
+    });
+    fireEvent.change(within(expanded).getByLabelText('添加图片文件'), {
+      target: { files: [file] },
+    });
+    expect(onAdd).toHaveBeenCalledWith([file]);
+
+    fireEvent.click(within(expanded).getByRole('button', { name: /关闭/ }));
+    expect(screen.queryByRole('dialog', { name: '放大消息输入框' })).toBeNull();
+  });
 });

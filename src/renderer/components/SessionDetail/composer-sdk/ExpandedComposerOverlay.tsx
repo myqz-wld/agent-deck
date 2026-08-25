@@ -3,7 +3,7 @@ import { useEffect, useRef, type DragEventHandler, type ClipboardEventHandler,
 import { createPortal } from 'react-dom';
 import type { UploadedAttachmentEntry } from '@renderer/hooks/useImageAttachments';
 import { PendingImageAttachments } from '../../PendingImageAttachments';
-import { CloseIcon, SendIcon } from '../../icons';
+import { CloseIcon, ImageIcon, SendIcon } from '../../icons';
 import { StableButtonContent } from '../../StableButtonContent';
 
 interface Props {
@@ -18,6 +18,11 @@ interface Props {
   onTextChange: (value: string) => void;
   onSubmit: () => Promise<boolean>;
   onClose: () => void;
+  attachmentPicker?: {
+    accept: string;
+    title?: string;
+    onAdd: (files: FileList | null) => void;
+  };
   onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
   onDrop?: DragEventHandler<HTMLTextAreaElement>;
   onDragOver?: DragEventHandler<HTMLTextAreaElement>;
@@ -32,6 +37,7 @@ function shouldSubmit(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
 
 export function ExpandedComposerOverlay(props: Props): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef(props.busy);
   const onCloseRef = useRef(props.onClose);
@@ -106,7 +112,7 @@ export function ExpandedComposerOverlay(props: Props): JSX.Element {
     <div
       ref={dialogRef}
       tabIndex={-1}
-      className="absolute inset-0 z-50 flex flex-col bg-black/40 backdrop-blur-sm"
+      className="no-drag absolute inset-0 z-50 flex flex-col bg-black/40 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="放大消息输入框"
@@ -160,7 +166,36 @@ export function ExpandedComposerOverlay(props: Props): JSX.Element {
           />
         </main>
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-deck-border px-4 py-2">
-          <span className="text-[9px] text-deck-muted">Enter 发送 · Shift+Enter 换行 · Esc 关闭</span>
+          <div className="flex min-w-0 items-center gap-2">
+            {props.attachmentPicker && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={props.attachmentPicker.accept}
+                  multiple
+                  aria-label="添加图片文件"
+                  className="hidden"
+                  onChange={(event) => {
+                    props.attachmentPicker?.onAdd(event.target.files);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex h-7 shrink-0 items-center justify-center rounded px-2 text-[10px] text-deck-muted hover:bg-white/10 hover:text-deck-text"
+                  title={props.attachmentPicker.title ?? '上传图片（也可粘贴或拖放）'}
+                  aria-label="上传图片"
+                >
+                  <ImageIcon className="mr-1 h-4 w-4" />添加图片
+                </button>
+              </>
+            )}
+            <span className="truncate text-[9px] text-deck-muted">
+              Enter 发送 · Shift+Enter 换行 · Esc 关闭
+            </span>
+          </div>
           <button
             type="button"
             onClick={() => void submit()}

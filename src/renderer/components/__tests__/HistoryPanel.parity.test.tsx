@@ -67,10 +67,12 @@ describe('Local and Remote History presentation parity', () => {
 
   it('opens history actions by right click at the pointer position', () => {
     const archive = vi.fn(async () => undefined);
+    const reactivate = vi.fn(async () => undefined);
     render(<LocalHistorySummaryCard
       session={localSession}
       onSelect={vi.fn()}
       onArchive={archive}
+      onReactivate={reactivate}
       onUnarchive={vi.fn(async () => undefined)}
       onDelete={vi.fn(async () => undefined)}
     />);
@@ -82,5 +84,9 @@ describe('Local and Remote History presentation parity', () => {
     expect(menu.style.top).toBe('80px');
     fireEvent.click(screen.getByRole('menuitem', { name: '归档' }));
     expect(archive).toHaveBeenCalledOnce();
+
+    fireEvent.contextMenu(screen.getByText('History row'), { clientX: 120, clientY: 80 });
+    fireEvent.click(screen.getByRole('menuitem', { name: '重新激活' }));
+    expect(reactivate).toHaveBeenCalledOnce();
   });
 });

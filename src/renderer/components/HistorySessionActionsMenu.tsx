@@ -17,28 +17,29 @@ export function HistorySessionActionsMenu({
 }: {
   archived: boolean;
   onClose(): void;
-  onArchive(): Promise<void>;
-  onDelete(): Promise<void>;
+  onArchive?: () => Promise<void>;
+  onDelete?: () => Promise<void>;
   onReactivate?: () => Promise<void>;
-  onUnarchive(): Promise<void>;
+  onUnarchive?: () => Promise<void>;
   position: SessionContextMenuPosition;
 }): JSX.Element {
+  const archiveAction = archived
+    ? onUnarchive ? {
+        icon: <RefreshIcon className="mr-1 inline h-3 w-3" />,
+        label: '取消归档',
+        run: onUnarchive,
+      } : null
+    : onArchive ? {
+        icon: <ArchiveIcon className="mr-1 inline h-3 w-3" />,
+        label: '归档',
+        run: onArchive,
+      } : null;
   return (
     <SessionActionsContextMenu
       position={position}
       onClose={onClose}
       actions={[
-        archived
-          ? {
-              icon: <RefreshIcon className="mr-1 inline h-3 w-3" />,
-              label: '取消归档',
-              run: onUnarchive,
-            }
-          : {
-              icon: <ArchiveIcon className="mr-1 inline h-3 w-3" />,
-              label: '归档',
-              run: onArchive,
-            },
+        ...(archiveAction ? [archiveAction] : []),
         ...(onReactivate
           ? [{
               icon: <RefreshIcon className="mr-1 inline h-3 w-3" />,
@@ -46,12 +47,12 @@ export function HistorySessionActionsMenu({
               run: onReactivate,
             }]
           : []),
-        {
+        ...(onDelete ? [{
           danger: true,
           icon: <TrashIcon className="mr-1 inline h-3 w-3" />,
           label: '删除',
           run: onDelete,
-        },
+        }] : []),
       ]}
     />
   );

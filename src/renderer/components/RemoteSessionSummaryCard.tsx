@@ -46,8 +46,13 @@ export function RemoteSessionSummaryCard({
     ? `所在团队（${teamCount}）：\n${session.teams.map((team) =>
         `· ${team.teamName}［${team.role === 'lead' ? '负责人' : '协作者'}］`).join('\n')}`
     : '';
-  const historyActions = onArchive && onDelete && onUnarchive
-    ? { onArchive, onDelete, ...(onReactivate ? { onReactivate } : {}), onUnarchive }
+  const historyActions = onArchive || onDelete || onReactivate || onUnarchive
+    ? {
+        ...(onArchive ? { onArchive } : {}),
+        ...(onDelete ? { onDelete } : {}),
+        ...(onReactivate ? { onReactivate } : {}),
+        ...(onUnarchive ? { onUnarchive } : {}),
+      }
     : null;
   const summaryPresentation = sessionSummaryHeadline(
     history ? null : session.summary,

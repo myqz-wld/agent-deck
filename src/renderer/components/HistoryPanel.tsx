@@ -170,6 +170,15 @@ function LocalHistoryPanel({
       setError(`取消归档失败：${errorMessage(err)}`);
     }
   };
+  const reactivate = async (id: string): Promise<void> => {
+    setError(null);
+    try {
+      await window.api.reactivateSession(id);
+      await reload();
+    } catch (err) {
+      setError(`重新激活失败：${errorMessage(err)}`);
+    }
+  };
   const remove = async (id: string): Promise<void> => {
     setError(null);
     try {
@@ -252,6 +261,9 @@ function LocalHistoryPanel({
                     onSelect={() => onSelect(s.id)}
                     onArchive={() => archive(s.id)}
                     onUnarchive={() => unarchive(s.id)}
+                    {...(s.lifecycle === 'closed' && s.archivedAt === null ? {
+                      onReactivate: () => reactivate(s.id),
+                    } : {})}
                     onDelete={() => remove(s.id)}
                   />
                 </li>
@@ -276,6 +288,7 @@ function RemoteHistoryPanel({
   const [keyword, setKeyword] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const canMutate = source.usable && source.capabilities.has('sessions.history.write');
+  const canReactivate = source.usable && source.capabilities.has('sessions.reactivate');
   const showInitialLoading = useDelayedAsyncFallback(
     !source.historyInitialized,
     `${source.identity}:history-initial`,
@@ -402,6 +415,14 @@ function RemoteHistoryPanel({
                         () => source.unarchiveHistorySession(session),
                       ),
                       onDelete: () => remove(session),
+                    } : {})}
+                    {...(canReactivate && !session.archived && (
+                      session.lifecycle === 'closed' || session.lifecycle === 'dormant'
+                    ) ? {
+                      onReactivate: () => run(
+                        '重新激活',
+                        () => source.reactivateSession(session),
+                      ),
                     } : {})}
                   />
                 </li>
