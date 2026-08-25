@@ -57,7 +57,14 @@ export function SessionComposerView({
       {controls}
       {feedback}
       {queue}
-      <ComposerInput {...input} />
+      <ComposerInput
+        {...input}
+        attachmentPicker={attachment.enabled ? {
+          accept: attachment.accept,
+          title: attachment.title,
+          onAdd: attachment.onAdd,
+        } : undefined}
+      />
       <div className="mt-1.5 flex items-center gap-1.5">
         {attachment.enabled && (
           <>

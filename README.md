@@ -5,6 +5,8 @@ Agent Deck is a desktop workspace for coordinating Claude Code, Codex CLI, and G
 ## Highlights
 
 - Follow live sessions, messages, results, Git branches, and context usage.
+- Reactivate closed sessions from History, and attach images from either composer size when the
+  selected runtime supports them.
 - Start teammates, form teams, assign tasks, and hand work to another session.
 - Review plans and diffs before important changes continue.
 - Track tasks and issues alongside the sessions doing the work.

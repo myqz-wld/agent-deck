@@ -40,6 +40,18 @@ function sessionCreationConfiguration(
   };
 }
 
+function untrustedSessionCreationConfiguration() {
+  return {
+    ...sessionCreationConfiguration(),
+    projectTrust: {
+      status: 'untrusted' as const,
+      canGrant: true,
+      reasonCode: null,
+      revision: `sha256:${'a'.repeat(64)}` as const,
+    },
+  };
+}
+
 beforeEach(() => {
   setLastAdapter('claude-code');
   Object.defineProperty(window, 'api', {
@@ -206,6 +218,36 @@ describe('NewSessionDialog readiness', () => {
       .toBe(false);
   });
 
+  it('keeps settled trust presentation through the grace without flashing an unresolved diagnosis', async () => {
+    vi.useFakeTimers();
+    const refreshedDefaults = deferred<ReturnType<typeof sessionCreationConfiguration>>();
+    window.api.getAdapterSessionCreationDefaults = vi.fn()
+      .mockResolvedValueOnce(untrustedSessionCreationConfiguration())
+      .mockReturnValueOnce(refreshedDefaults.promise);
+    render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    const trust = screen.getByRole('checkbox', { name: '信任此项目' }) as HTMLInputElement;
+    expect(trust.disabled).toBe(false);
+    fireEvent.change(screen.getByPlaceholderText('留空则使用主目录（~）'), {
+      target: { value: '/repo/next' },
+    });
+
+    expect(screen.getByRole('checkbox', { name: '信任此项目' })).toBe(trust);
+    expect(trust.disabled).toBe(true);
+    expect(screen.queryByText(/无法确认此项目是否已受信任/)).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(FAST_ASYNC_FALLBACK_GRACE_MS - 1));
+    expect(screen.queryByText('正在更新会话配置…')).toBeNull();
+    expect(screen.queryByText(/无法确认此项目是否已受信任/)).toBeNull();
+
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByText('正在更新会话配置…')).toBeTruthy();
+    expect(screen.queryByText(/无法确认此项目是否已受信任/)).toBeNull();
+    await act(async () => refreshedDefaults.resolve(sessionCreationConfiguration()));
+    expect(screen.queryByRole('checkbox', { name: '信任此项目' })).toBeNull();
+    expect(screen.queryByText(/无法确认此项目是否已受信任/)).toBeNull();
+  });
+
   it('keeps the prior adapter projection and atomically reveals a fast Codex result', async () => {
     vi.useFakeTimers();
     const codexDefaults = deferred<ReturnType<typeof sessionCreationConfiguration>>();
@@ -286,11 +328,13 @@ describe('NewSessionDialog readiness', () => {
 
     expect(screen.queryByText(/模型：sonnet/)).toBeNull();
     expect(screen.getByText(/模型：配置文件/)).toBeTruthy();
+    expect(screen.queryByText(/无法确认此项目是否已受信任/)).toBeNull();
     const progress = screen.getByText('正在更新会话配置…');
     expect(progress.closest('[data-new-session-actions]')).toBeTruthy();
     expect(screen.getByRole('button', { name: '创建' })).toBe(createButton);
     await act(async () => codexDefaults.resolve(sessionCreationConfiguration({
       ...sessionCreationDefaults(), model: 'gpt-5.6-sol',
     })));
+    expect(screen.queryByText(/无法确认此项目是否已受信任/)).toBeNull();
   });
 });

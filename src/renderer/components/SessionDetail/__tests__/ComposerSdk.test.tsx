@@ -287,6 +287,16 @@ describe('ComposerSdk unified input routing', () => {
     expect(input.value).toBe('edited in expanded view');
   });
 
+  it('shows the Codex image picker inside the expanded editor', async () => {
+    render(<ComposerSdk session={makeSession()} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: '上传图片' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: '放大输入框' }));
+
+    const dialog = screen.getByRole('dialog', { name: '放大消息输入框' });
+    expect(within(dialog).getByRole('button', { name: '上传图片' })).toBeTruthy();
+    expect(dialog.className).toContain('no-drag');
+  });
+
   it('isolates the expanded editor and traps keyboard focus until it closes', async () => {
     const { container } = render(<ComposerSdk session={makeSession()} />);
     const expand = screen.getByRole('button', { name: '放大输入框' });

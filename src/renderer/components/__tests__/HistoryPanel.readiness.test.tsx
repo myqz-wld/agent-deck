@@ -130,6 +130,25 @@ describe('HistoryPanel 150 ms presentation readiness', () => {
     expect(screen.getByText('没有匹配结果')).toBeTruthy();
   });
 
+  it('reactivates an unarchived closed Local history row from its action menu', async () => {
+    const list = vi.fn().mockResolvedValue([localSession]);
+    const reactivateSession = vi.fn(async () => undefined);
+    installLocalApi(list);
+    window.api.reactivateSession = reactivateSession;
+    render(<HistoryPanel onSelect={vi.fn()} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    fireEvent.contextMenu(screen.getByText('Local history result'), {
+      clientX: 120,
+      clientY: 80,
+    });
+    fireEvent.click(screen.getByRole('menuitem', { name: '重新激活' }));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(reactivateSession).toHaveBeenCalledWith('local-history');
+    expect(list).toHaveBeenCalledTimes(2);
+  });
+
   it('uses the same initial boundary for an unresolved Remote History page', async () => {
     const initial = {
       ...remoteSource(),

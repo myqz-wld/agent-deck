@@ -15,6 +15,11 @@ interface Props {
   onRemoveAttachment: (id: string) => void;
   onTextChange: (value: string) => void;
   onSubmit: () => Promise<boolean>;
+  attachmentPicker?: {
+    accept: string;
+    title?: string;
+    onAdd: (files: FileList | null) => void;
+  };
   onPaste?: ClipboardEventHandler<HTMLTextAreaElement>;
   onDrop?: DragEventHandler<HTMLTextAreaElement>;
   onDragOver?: DragEventHandler<HTMLTextAreaElement>;

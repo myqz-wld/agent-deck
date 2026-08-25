@@ -75,6 +75,7 @@ interface Props {
   projectTrust?: {
     descriptor: ProjectTrustDescriptor;
     grant: boolean;
+    pending?: boolean;
     onGrantChange(value: boolean): void;
   };
   workingDirectory: string;
@@ -283,7 +284,9 @@ export function NewSessionForm(props: Props): JSX.Element | null {
                 adapterId={props.adapterId}
                 descriptor={props.projectTrust.descriptor}
                 grant={props.projectTrust.grant}
-                disabled={disabled || configurationInteractionBlocked}
+                disabled={
+                  disabled || configurationInteractionBlocked || props.projectTrust.pending === true
+                }
                 onGrantChange={props.projectTrust.onGrantChange}
               />
             )}

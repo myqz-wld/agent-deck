@@ -42,6 +42,12 @@ export interface SessionCreationOptionsState {
   model: string;
   thinking: SessionThinkingChoice;
   projectTrust: ProjectTrustDescriptor;
+  /**
+   * Last settled trust descriptor that is safe to present while a same-adapter refresh is pending.
+   * A new adapter has no placeholder descriptor, so unresolved trust is never rendered as a
+   * terminal "provider unavailable" diagnosis during the shared 150 ms readiness transition.
+   */
+  projectTrustPresentation: ProjectTrustDescriptor | null;
   projectTrustGrant: boolean;
   projectTrustRequest: ProjectTrustRequest | null;
   setPermissionMode: (value: PermissionModeChoice) => void;
@@ -219,6 +225,11 @@ export function useSessionCreationOptions({
   const projectTrust = selection.identity === selectionIdentity && resolvedRequestKey === requestKey
     ? selection.projectTrust
     : UNAVAILABLE_PROJECT_TRUST;
+  const projectTrustPresentation = resolvedRequestKey === requestKey
+    ? projectTrust
+    : selection.identity === selectionIdentity && selection.trustAuthoritative
+      ? selection.projectTrust
+      : null;
   const projectTrustGrant = trustSelection.requestKey === requestKey && trustSelection.grant;
 
   const patchSelection = (patch: Partial<SessionCreationDefaults>): void => {
@@ -249,6 +260,7 @@ export function useSessionCreationOptions({
     model: current.model,
     thinking: current.thinking as SessionThinkingChoice,
     projectTrust,
+    projectTrustPresentation,
     projectTrustGrant,
     projectTrustRequest: selection.trustAuthoritative && resolvedRequestKey === requestKey
       ? { revision: projectTrust.revision, grant: projectTrustGrant }
