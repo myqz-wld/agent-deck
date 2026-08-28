@@ -52,7 +52,40 @@ describe('Codex session command controller', () => {
     expect(internal.threadId).toBe('native-new');
     expect(internal.thread).toBe(fresh);
     expect(updateCliSessionId).toHaveBeenCalledWith('app-session', 'native-new');
-    expect(events.map((event) => event.kind)).toEqual(['context-usage', 'message']);
+    expect(events.map((event) => event.kind)).toEqual([
+      'context-usage',
+      'message',
+    ]);
+    expect(events[1]?.payload).toMatchObject({
+      role: 'system',
+      text: 'Codex 已清空上下文并开始新对话；此前记录仍保留在 Agent Deck 时间线中。',
+      sessionCommandStatus: { command: 'clear', status: 'completed' },
+    });
+  });
+
+  it('closes /clear activity as failed when the native thread cannot start', async () => {
+    const internal = session({
+      createFreshThread: () => ({
+        ensureReady: vi.fn(async () => {
+          throw new Error('native start failed');
+        }),
+      }),
+    });
+    const { controller, events } = harness(internal);
+
+    await expect(controller.execute('app-session', 'clear')).rejects.toThrow(
+      'native start failed',
+    );
+
+    expect(events.map((event) => event.kind)).toEqual(['message']);
+    expect(events[0]?.payload).toMatchObject({
+      role: 'system',
+      text: 'Codex 清理上下文失败：native start failed',
+      error: true,
+      sessionCommandStatus: { command: 'clear', status: 'failed' },
+    });
+    expect(internal.activeControlCommand).toBeNull();
+    expect(internal.turnLoopRunning).toBe(false);
   });
 
   it('runs /compact as a non-steerable background control turn then drains queued input', async () => {
@@ -86,10 +119,54 @@ describe('Codex session command controller', () => {
     internal.pendingMessages.push('follow-up');
     await vi.waitFor(() => expect(internal.activeControlCommand).toBeNull());
 
-    expect(events.map((event) => event.kind)).toEqual([
-      'context-compaction-start',
-      'finished',
-    ]);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      kind: 'message',
+      payload: {
+        role: 'system',
+        text: 'Codex 上下文压缩完成。',
+        sessionCommandStatus: { command: 'compact', status: 'completed' },
+      },
+    });
     expect(runTurnLoop).toHaveBeenCalledWith(internal, 'app-session');
+  });
+
+  it('reports a failed /compact turn as one final system message', async () => {
+    const internal = session({
+      compactStreamed: vi.fn(async () => ({
+        events: (async function* () {
+          yield {
+            type: 'server.notification' as const,
+            notification: {
+              method: 'turn/completed',
+              params: {
+                threadId: 'native-old',
+                turn: {
+                  id: 'turn-a',
+                  status: 'failed',
+                  error: { message: 'summary failed' },
+                },
+              },
+            },
+            runtimeIdentity: null,
+          };
+        })(),
+      })),
+    });
+    const { controller, events } = harness(internal);
+
+    await controller.execute('app-session', 'compact');
+    await vi.waitFor(() => expect(internal.activeControlCommand).toBeNull());
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      kind: 'message',
+      payload: {
+        role: 'system',
+        text: 'Codex 上下文压缩失败：summary failed',
+        error: true,
+        sessionCommandStatus: { command: 'compact', status: 'failed' },
+      },
+    });
   });
 });

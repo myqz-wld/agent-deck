@@ -41,5 +41,10 @@ describe('Claude conversation reset', () => {
     expect(internal.seenUsageMessageIds.size).toBe(0);
     expect(internal.claudeResultUsageByModel?.size).toBe(0);
     expect(events.map((event) => event.kind)).toEqual(['context-usage', 'message']);
+    expect(events[1]?.payload).toEqual({
+      text: 'Claude 已清空上下文并开始新对话；此前记录仍保留在 Agent Deck 时间线中。',
+      role: 'system',
+      sessionCommandStatus: { command: 'clear', status: 'completed' },
+    });
   });
 });

@@ -81,6 +81,20 @@ export function exactSessionCommand(
     command.aliases.some((alias) => alias.toLocaleLowerCase() === name)) ?? null;
 }
 
+/** Resolve the canonical command for a submitted slash invocation, including inline arguments. */
+export function sessionCommandInvocation(
+  commands: readonly SessionCommandDescriptor[],
+  text: string,
+): SessionCommandDescriptor | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('/') || trimmed.includes('\n')) return null;
+  const name = trimmed.slice(1).split(/\s/, 1)[0]?.toLocaleLowerCase() ?? '';
+  if (!name) return null;
+  return commands.find((command) =>
+    command.name.toLocaleLowerCase() === name ||
+    command.aliases.some((alias) => alias.toLocaleLowerCase() === name)) ?? null;
+}
+
 function normalizeCommandName(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const name = value.trim().replace(/^\/+/, '');

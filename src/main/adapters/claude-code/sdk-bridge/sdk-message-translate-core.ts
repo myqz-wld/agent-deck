@@ -306,7 +306,8 @@ export function translateSdkMessageCore(
         postTokens: metadata?.post_tokens,
         durationMs: metadata?.duration_ms,
       }),
-      role: 'assistant',
+      role: 'system',
+      sessionCommandStatus: { command: 'compact', status: 'completed' },
     });
   } else if (
     msg.type === 'system' &&
@@ -340,12 +341,26 @@ export function translateSdkMessageCore(
     const compactFailure = claudeCompactFailureTextCore(
       msg as { compact_result?: unknown; compact_error?: unknown },
     );
-    if (compactFailure) e('message', { text: compactFailure, error: true });
+    if (compactFailure) {
+      e('message', {
+        text: compactFailure,
+        role: 'system',
+        error: true,
+        sessionCommandStatus: { command: 'compact', status: 'failed' },
+      });
+    }
   } else if (msg.type === 'system' && msg.subtype === 'status') {
     const compactFailure = claudeCompactFailureTextCore(
       msg as { compact_result?: unknown; compact_error?: unknown },
     );
-    if (compactFailure) e('message', { text: compactFailure, error: true });
+    if (compactFailure) {
+      e('message', {
+        text: compactFailure,
+        role: 'system',
+        error: true,
+        sessionCommandStatus: { command: 'compact', status: 'failed' },
+      });
+    }
   } else if (msg.type === 'stream_event') {
     handleClaudeStreamEventForLiveRateCore(
       internal,

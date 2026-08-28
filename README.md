@@ -49,7 +49,8 @@ adapter. Click a suggestion or press Tab to complete it, then press Enter to exe
 Claude Code and Grok Build publish their available commands from their live runtimes. Codex CLI
 currently exposes `/clear` and `/compact`: clearing starts a fresh native conversation while keeping
 the Agent Deck activity timeline, and compacting uses Codex's native app-server compaction flow.
-Unknown slash-prefixed text remains an ordinary message.
+Native commands that do not produce a model reply report their final outcome as one compact system
+status. Unknown slash-prefixed text remains an ordinary message.
 
 ### Gateway Profiles
 

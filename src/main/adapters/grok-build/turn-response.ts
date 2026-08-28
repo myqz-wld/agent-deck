@@ -1,4 +1,5 @@
 import type { Usage } from '@agentclientprotocol/sdk';
+import type { SessionCommandDescriptor } from '@shared/types';
 
 import type {
   GrokExtensionNotification,
@@ -14,6 +15,10 @@ import {
 } from './native-error';
 import { persistGrokUsageWatermark } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
+import {
+  emitSilentGrokSessionCommandOutcome,
+  isSilentGrokSessionCommand,
+} from './session-command-feedback';
 import type { GrokTurnQueueOptions } from './turn-queue-types';
 import {
   completeGrokTurnLiveRate,
@@ -27,15 +32,21 @@ import {
 export function responseFromGrokLiveOutcome(
   runtime: GrokRuntime,
   outcome: GrokLivePromptOutcome,
-  options: Pick<GrokTurnQueueOptions, 'emitEvent'>,
+  options: Pick<GrokTurnQueueOptions, 'emitEvent'> & {
+    sessionCommand?: SessionCommandDescriptor | null;
+  },
 ): {
   stopReason: string;
   usage?: Usage | null;
   _meta?: Record<string, unknown> | null;
   contextWindowRejectionCode?: GrokContextWindowRejectionCode;
+  commandFailureDetail?: string;
 } {
   if (outcome.kind === 'response') return outcome.response;
-  if (!runtime.translation.assistantObservedForCurrentTurn) {
+  if (
+    !runtime.translation.assistantObservedForCurrentTurn &&
+    !options.sessionCommand
+  ) {
     const error = outcome.notification.agentResult?.trim()
       ? outcome.notification.agentResult
       : outcome.notification.stopReason === 'rate_limit'
@@ -56,7 +67,10 @@ export function responseFromGrokLiveOutcome(
       ? {
           contextWindowRejectionCode:
             outcome.notification.contextWindowRejectionCode,
-        }
+      }
+      : {}),
+    ...(outcome.notification.agentResult?.trim()
+      ? { commandFailureDetail: outcome.notification.agentResult.trim() }
       : {}),
   };
 }
@@ -68,8 +82,11 @@ export async function finalizeGrokAcpResponse(
     usage?: Usage | null;
     _meta?: Record<string, unknown> | null;
     contextWindowRejectionCode?: GrokContextWindowRejectionCode;
+    commandFailureDetail?: string;
   },
-  options: Pick<GrokTurnQueueOptions, 'runtimeHost' | 'emit' | 'emitEvent'>,
+  options: Pick<GrokTurnQueueOptions, 'runtimeHost' | 'emit' | 'emitEvent'> & {
+    sessionCommand?: SessionCommandDescriptor | null;
+  },
 ): Promise<void> {
   for (const event of flushGrokTextUpdates(
     runtime.applicationSessionId,
@@ -116,11 +133,27 @@ export async function finalizeGrokAcpResponse(
       grokContextWindowRejectionCode(response.stopReason) ??
       structuredGrokContextWindowRejectionCode(response._meta);
     const failureReason = grokContextWindowFailureReason(rejectionCode);
+    const silentCommand = isSilentGrokSessionCommand(
+      runtime,
+      options.sessionCommand ?? null,
+    );
     options.emitEvent(runtime.applicationSessionId, 'finished', {
       ok: response.stopReason === 'end_turn',
       subtype: response.stopReason,
       ...(failureReason ? { failureReason } : {}),
+      ...(silentCommand ? { suppressTimeline: true } : {}),
     });
+    emitSilentGrokSessionCommandOutcome(
+      runtime,
+      options.sessionCommand ?? null,
+      response.stopReason === 'end_turn'
+        ? { status: 'completed' }
+        : {
+            status: 'failed',
+            detail: response.commandFailureDetail ?? response.stopReason,
+          },
+      options,
+    );
     if (runtime.ready) {
       scheduleGrokContextUsageRefresh(runtime, {
         diagnostics: options.runtimeHost?.diagnostics,

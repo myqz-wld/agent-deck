@@ -109,4 +109,30 @@ describe('ActivityRecordsView source boundaries', () => {
     expect(screen.getByText('共用的远端授权卡片')).toBeTruthy();
     expect(renderPendingEvent).toHaveBeenCalledWith(event);
   });
+
+  it('hides a silent-command terminal behind its final system message', () => {
+    const events: AgentEvent[] = [{
+      sessionId: 'remote-session',
+      agentId: 'grok-build',
+      kind: 'finished',
+      payload: { ok: true, subtype: 'end_turn', suppressTimeline: true },
+      ts: 1,
+    }, {
+      sessionId: 'remote-session',
+      agentId: 'grok-build',
+      kind: 'message',
+      payload: {
+        role: 'system',
+        text: 'Grok Build /clear 命令完成。',
+        sessionCommandStatus: { command: 'clear', status: 'completed' },
+      },
+      ts: 2,
+    }];
+
+    render(<ActivityRecordsView events={events} loaded loadError={null}
+      sessionId="remote-session" agentId="grok-build" isSdk />);
+
+    expect(screen.queryByText('✅ 一轮完成')).toBeNull();
+    expect(screen.getByText('Grok Build /clear 命令完成。')).toBeTruthy();
+  });
 });
