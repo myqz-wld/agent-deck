@@ -64,7 +64,7 @@ export class ServerCoreWorktreeRecovery {
       this.options.warn('Server Core worktree recovery retained state fail-closed');
       this.options.publishStatus(
         record.sessionId,
-        '工作目录恢复未完成；lease 与目录已安全保留',
+        '工作目录恢复失败，lease 与目录已保留',
         true,
         record.generation,
       );
@@ -110,7 +110,7 @@ export class ServerCoreWorktreeRecovery {
       kind: 'phase', expected: 'switching_to_worktree', next: 'active',
     }, 'input');
     this.releaseOwnership(adapter, record, toolUseId);
-    this.status(record, '已恢复 Workspace 内的 worktree，正在继续当前任务', false);
+    this.status(record, '已恢复 Workspace 内的 worktree，继续当前任务', false);
   }
 
   private async restoreExit(record: WorktreeTransitionRecord): Promise<void> {
@@ -174,7 +174,7 @@ export class ServerCoreWorktreeRecovery {
     this.status(
       record,
       cleanupFailure
-        ? '已恢复原目录；worktree 清理仍需重试'
+        ? '已恢复原目录，worktree 清理待重试'
         : '已恢复原目录并完成 worktree 清理',
       cleanupFailure !== null,
     );

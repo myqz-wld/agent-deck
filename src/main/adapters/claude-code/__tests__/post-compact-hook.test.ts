@@ -23,7 +23,7 @@ describe('Claude PostCompact hook support', () => {
       summary: 'Kept the current bug, files, and validation plan.',
     });
     const text = (event.payload as { text: string }).text;
-    expect(text).toContain('上下文已压缩');
+    expect(text).toContain('Claude /compact 已完成');
     expect(text).toContain('触发：手动');
     expect(text).toContain('Kept the current bug, files, and validation plan.');
   });

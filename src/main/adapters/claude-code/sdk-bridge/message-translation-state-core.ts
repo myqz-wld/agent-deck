@@ -3,6 +3,7 @@ import {
   normalizeStoredPermissionMode,
   type PermissionMode,
 } from '@shared/types';
+import { failedSessionCommandText } from '@core/system-status-copy';
 
 export interface ClaudeMessageTranslationStateOwner {
   applicationSid: string;
@@ -68,5 +69,5 @@ export function claudeCompactFailureTextCore(message: {
     typeof message.compact_error === 'string' && message.compact_error.trim()
       ? message.compact_error.trim()
       : 'unknown error';
-  return `⚠ 上下文压缩失败：${detail}`;
+  return failedSessionCommandText('Claude', 'compact', detail);
 }

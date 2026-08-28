@@ -342,6 +342,58 @@ describe('SessionManager.ingest 时序', () => {
     });
   });
 
+  it('SDK 首个 session-start 原子投影运行配置，hook 不能伪造', () => {
+    sessionManager.claimAsSdk('runtime-ready-child');
+    sessionManager.ingest(makeEvent({
+      sessionId: 'runtime-ready-child',
+      source: 'sdk',
+      kind: 'session-start',
+      payload: {
+        cwd: '/tmp',
+        initialRuntime: {
+          permissionMode: 'bypassPermissions',
+          runtimeProvider: 'gateway-a',
+          claudeCodeSandbox: 'strict',
+          model: 'claude-opus-4-8',
+          thinking: 'xhigh',
+        },
+      },
+    }));
+
+    expect(mockSessions.get('runtime-ready-child')).toMatchObject({
+      permissionMode: 'bypassPermissions',
+      runtimeProvider: 'gateway-a',
+      claudeCodeSandbox: 'strict',
+      model: 'claude-opus-4-8',
+      thinking: 'xhigh',
+    });
+    expect(mockEmits.find(
+      (entry) => entry.name === 'session-upserted' &&
+        (entry.payload as SessionRecord).id === 'runtime-ready-child',
+    )?.payload).toMatchObject({
+      permissionMode: 'bypassPermissions',
+      runtimeProvider: 'gateway-a',
+      model: 'claude-opus-4-8',
+    });
+
+    sessionManager.ingest(makeEvent({
+      sessionId: 'forged-runtime-child',
+      source: 'hook',
+      kind: 'session-start',
+      payload: {
+        cwd: '/tmp',
+        initialRuntime: {
+          permissionMode: 'bypassPermissions',
+          runtimeProvider: 'forged-gateway',
+        },
+      },
+    }));
+    expect(mockSessions.get('forged-runtime-child')).not.toMatchObject({
+      permissionMode: 'bypassPermissions',
+      runtimeProvider: 'forged-gateway',
+    });
+  });
+
   it('only trusted SDK registration can hide a review child from History', () => {
     sessionManager.claimAsSdk('hidden-review-child');
     sessionManager.ingest(makeEvent({

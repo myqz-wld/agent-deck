@@ -15,6 +15,10 @@ import {
 import type { CodexBridgeOptions, InternalSession } from './types';
 import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 import type { CodexHostSessionCommand } from '../session-commands';
+import {
+  completedSessionCommandText,
+  failedSessionCommandText,
+} from '@core/system-status-copy';
 
 export interface CodexSessionCommandContext {
   sessions: ReadonlyMap<string, InternalSession>;
@@ -36,19 +40,10 @@ export class CodexSessionCommandController {
     }
     try {
       await this.clear(session);
-      this.emit(session, 'message', {
-        role: 'system',
-        text: 'Codex 已清空上下文并开始新对话；此前记录仍保留在 Agent Deck 时间线中。',
-        sessionCommandStatus: { command: 'clear', status: 'completed' },
-      });
+      this.emitCommandOutcome(session, 'clear', { status: 'completed' });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.emit(session, 'message', {
-        role: 'system',
-        text: `Codex 清理上下文失败：${message}`,
-        error: true,
-        sessionCommandStatus: { command: 'clear', status: 'failed' },
-      });
+      this.emitCommandOutcome(session, 'clear', { status: 'failed', detail: message });
       throw error;
     } finally {
       this.release(session);
@@ -156,18 +151,13 @@ export class CodexSessionCommandController {
         );
       }
       if (terminalFailure) {
-        this.emit(session, 'message', {
-          role: 'system',
-          text: `Codex 上下文压缩失败：${terminalFailure}`,
-          error: true,
-          sessionCommandStatus: { command: 'compact', status: 'failed' },
-        });
+        this.emitCommandOutcome(
+          session,
+          'compact',
+          { status: 'failed', detail: terminalFailure },
+        );
       } else {
-        this.emit(session, 'message', {
-          role: 'system',
-          text: 'Codex 上下文压缩完成。',
-          sessionCommandStatus: { command: 'compact', status: 'completed' },
-        });
+        this.emitCommandOutcome(session, 'compact', { status: 'completed' });
       }
     } catch (error) {
       clearCodexLiveTokenEstimateCore(
@@ -177,21 +167,16 @@ export class CodexSessionCommandController {
         this.context.runtimeHost.liveRate,
       );
       if (controller.signal.aborted) {
-        this.emit(session, 'message', {
-          role: 'system',
-          text: 'Codex 上下文压缩失败：操作已中断。',
-          error: true,
-          sessionCommandStatus: { command: 'compact', status: 'failed' },
-        });
+        this.emitCommandOutcome(
+          session,
+          'compact',
+          { status: 'failed', detail: '操作已中断' },
+          'interrupted',
+        );
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
-      this.emit(session, 'message', {
-        role: 'system',
-        text: `Codex 上下文压缩失败：${message}`,
-        error: true,
-        sessionCommandStatus: { command: 'compact', status: 'failed' },
-      });
+      this.emitCommandOutcome(session, 'compact', { status: 'failed', detail: message });
     } finally {
       session.currentTurn = null;
       session.currentTurnId = null;
@@ -208,6 +193,31 @@ export class CodexSessionCommandController {
     ) {
       void this.context.runTurnLoop(session, session.applicationSid);
     }
+  }
+
+  private emitCommandOutcome(
+    session: InternalSession,
+    command: CodexHostSessionCommand,
+    outcome: { status: 'completed' } | { status: 'failed'; detail: string },
+    failedSubtype: 'error' | 'interrupted' = 'error',
+  ): void {
+    const failed = outcome.status === 'failed';
+    this.emit(session, 'message', {
+      role: 'system',
+      text: failed
+        ? failedSessionCommandText('Codex', command, outcome.detail)
+        : completedSessionCommandText(
+            'Codex',
+            command,
+            command === 'clear' ? '已开始新对话，原时间线保留' : undefined,
+          ),
+      ...(failed ? { error: true } : {}),
+      sessionCommandStatus: { command, status: outcome.status },
+    });
+    this.emit(session, 'finished', {
+      ok: !failed,
+      subtype: failed ? failedSubtype : 'end_turn',
+    });
   }
 
   private emit(session: InternalSession, kind: AgentEventKind, payload: unknown): void {

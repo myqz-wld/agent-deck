@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@shared/types';
 import type { InternalSession } from './types';
+import { completedSessionCommandText } from '@core/system-status-copy';
 
 export interface ClaudeConversationResetHost {
   updateCliSessionId(applicationSessionId: string, cliSessionId: string): void;
@@ -43,7 +44,11 @@ export function applyClaudeConversationResetCore(
     agentId: 'claude-code',
     kind: 'message',
     payload: {
-      text: 'Claude 已清空上下文并开始新对话；此前记录仍保留在 Agent Deck 时间线中。',
+      text: completedSessionCommandText(
+        'Claude',
+        'clear',
+        '已开始新对话，原时间线保留',
+      ),
       role: 'system',
       sessionCommandStatus: { command: 'clear', status: 'completed' },
     },

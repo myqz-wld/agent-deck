@@ -384,7 +384,7 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
       kind: 'message',
       payload: {
         role: 'system',
-        text: 'Codex 已清空上下文并开始新对话。',
+        text: 'Codex /clear 已完成，已开始新对话，原时间线保留',
         sessionCommandStatus: { command: 'clear', status: 'completed' },
       },
     }));

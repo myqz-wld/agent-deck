@@ -333,7 +333,7 @@ export class ServerCoreWorktreeCoordinator implements Pick<
         kind: 'phase', expected: 'switching_to_worktree', next: 'active',
       });
       this.releaseOwnership(adapter, record, toolUseId);
-      this.status(record, '已切换到 Workspace 内的 worktree，正在继续当前任务', false);
+      this.status(record, '已切换到 Workspace 内的 worktree，继续当前任务', false);
     } catch (error) {
       if (switched && !persisted) await compensateTransitionRuntime(adapter, transition);
       throw error;
@@ -382,8 +382,8 @@ export class ServerCoreWorktreeCoordinator implements Pick<
       this.status(
         record,
         cleanupFailure
-          ? '已恢复原目录；worktree 清理仍需重试'
-          : '已恢复原目录并安全移除 worktree，正在继续当前任务',
+          ? '已恢复原目录，worktree 清理待重试'
+          : '已恢复原目录并安全移除 worktree，继续当前任务',
         cleanupFailure !== null,
       );
     } catch (error) {

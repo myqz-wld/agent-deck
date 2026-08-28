@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { AdapterSessionMode } from '@shared/types';
 
 interface AdapterRuntimeInfo {
+  adapterId: string;
   canAcceptAttachments: boolean;
   canSetPermissionMode: boolean;
   canSetSessionMode: boolean;
@@ -9,20 +10,24 @@ interface AdapterRuntimeInfo {
   loading: boolean;
 }
 
-const unavailable: AdapterRuntimeInfo = {
-  canAcceptAttachments: false,
-  canSetPermissionMode: false,
-  canSetSessionMode: false,
-  sessionModes: [],
-  loading: true,
-};
+function unavailable(agentId: string, loading: boolean): AdapterRuntimeInfo {
+  return {
+    adapterId: agentId,
+    canAcceptAttachments: false,
+    canSetPermissionMode: false,
+    canSetSessionMode: false,
+    sessionModes: [],
+    loading,
+  };
+}
 
 export function useAdapterRuntimeInfo(agentId: string): AdapterRuntimeInfo {
-  const [info, setInfo] = useState<AdapterRuntimeInfo>(unavailable);
+  const [info, setInfo] = useState<AdapterRuntimeInfo>(() => unavailable(agentId, true));
+  const current = info.adapterId === agentId ? info : unavailable(agentId, true);
 
   useEffect(() => {
     let cancelled = false;
-    setInfo(unavailable);
+    setInfo(unavailable(agentId, true));
     void window.api
       .listAdapters()
       .then((adapters) => {
@@ -31,6 +36,7 @@ export function useAdapterRuntimeInfo(agentId: string): AdapterRuntimeInfo {
         setInfo(
           adapter
             ? {
+                adapterId: agentId,
                 canAcceptAttachments:
                   adapter.capabilities.canAcceptAttachments === true,
                 canSetPermissionMode:
@@ -40,16 +46,16 @@ export function useAdapterRuntimeInfo(agentId: string): AdapterRuntimeInfo {
                 sessionModes: adapter.sessionModes ?? [],
                 loading: false,
               }
-            : { ...unavailable, loading: false },
+            : unavailable(agentId, false),
         );
       })
       .catch(() => {
-        if (!cancelled) setInfo({ ...unavailable, loading: false });
+        if (!cancelled) setInfo(unavailable(agentId, false));
       });
     return () => {
       cancelled = true;
     };
   }, [agentId]);
 
-  return info;
+  return current;
 }

@@ -7,6 +7,10 @@ import { errorText } from './protocol-utils';
 import type { GrokRuntime, GrokSubmittingMessage } from './runtime-types';
 import type { GrokTurnQueueOptions } from './turn-queue-types';
 import { isCancelled } from './turn-queue-helpers';
+import {
+  completedSessionCommandText,
+  failedSessionCommandText,
+} from '@core/system-status-copy';
 
 export function resolveGrokSessionCommand(
   runtime: GrokRuntime,
@@ -26,8 +30,8 @@ export function emitSilentGrokSessionCommandOutcome(
   options.emitEvent(runtime.applicationSessionId, 'message', {
     role: 'system',
     text: failed
-      ? `Grok Build /${command.name} 命令失败：${outcome.detail}`
-      : `Grok Build /${command.name} 命令完成。`,
+      ? failedSessionCommandText('Grok Build', command.name, outcome.detail)
+      : completedSessionCommandText('Grok Build', command.name),
     ...(failed ? { error: true } : {}),
     sessionCommandStatus: { command: command.name, status: outcome.status },
   });
@@ -55,18 +59,16 @@ export async function handleGrokTurnFailure(input: {
   if (runtime.closed) return;
   if (runtime.interruptRequested) {
     input.flushText();
-    const silent = isSilentGrokSessionCommand(runtime, sessionCommand);
-    options.emitEvent(runtime.applicationSessionId, 'finished', {
-      ok: false,
-      subtype: 'interrupted',
-      ...(silent ? { suppressTimeline: true } : {}),
-    });
     emitSilentGrokSessionCommandOutcome(
       runtime,
       sessionCommand,
       { status: 'failed', detail: '操作已中断' },
       options,
     );
+    options.emitEvent(runtime.applicationSessionId, 'finished', {
+      ok: false,
+      subtype: 'interrupted',
+    });
     return;
   }
   if (isCancelled(submitting)) return;
@@ -74,18 +76,17 @@ export async function handleGrokTurnFailure(input: {
   const detail = errorText(error);
   const failureReason = grokTurnFailureReasonFromRequestError(error);
   if (isSilentGrokSessionCommand(runtime, sessionCommand)) {
-    options.emitEvent(runtime.applicationSessionId, 'finished', {
-      ok: false,
-      subtype: 'error',
-      ...(failureReason ? { failureReason } : {}),
-      suppressTimeline: true,
-    });
     emitSilentGrokSessionCommandOutcome(
       runtime,
       sessionCommand,
       { status: 'failed', detail },
       options,
     );
+    options.emitEvent(runtime.applicationSessionId, 'finished', {
+      ok: false,
+      subtype: 'error',
+      ...(failureReason ? { failureReason } : {}),
+    });
   } else {
     const text = `Grok Build 轮次失败：${detail}`;
     if (failureReason) options.emitError(runtime.applicationSessionId, text, failureReason);

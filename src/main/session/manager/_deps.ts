@@ -25,7 +25,12 @@
  * rename (renameSdkSession / updateCliSessionId) free function 需 mutate,通过本 interface 拿 ref。
  */
 
-import type { SessionSource } from '@shared/types';
+import type { SessionRecord, SessionSource } from '@shared/types';
+
+export type InitialSessionRuntime = Partial<Pick<
+  SessionRecord,
+  'runtimeProvider' | 'permissionMode' | 'claudeCodeSandbox' | 'model' | 'thinking'
+>>;
 
 /**
  * SessionManager 不直接 import adapterRegistry(避免反向依赖 + 单职责),
@@ -65,6 +70,8 @@ export interface UpsertOptions {
   spawnDepth?: number;
   /** Trusted internal-session registration; once true, History visibility cannot be restored. */
   hiddenFromHistory?: boolean;
+  /** Trusted SDK runtime values written into the first visible row as one atomic projection. */
+  initialRuntime?: InitialSessionRuntime;
 }
 
 /**

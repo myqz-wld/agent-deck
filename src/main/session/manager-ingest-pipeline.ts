@@ -3,6 +3,7 @@ import type {
   LifecycleState,
   SessionRecord,
 } from '@shared/types';
+import { isPermissionMode } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
@@ -12,7 +13,7 @@ import { extractCwd, nextActivityState } from './manager-helpers';
 import { buildFileChangeSnapshots } from './file-change-snapshots';
 import { captureFileChangePath } from './file-change-path-authority';
 import { withStoredFileChangePathAuthority } from '@shared/file-change-path-authority';
-import type { UpsertOptions } from './manager/_deps';
+import type { InitialSessionRuntime, UpsertOptions } from './manager/_deps';
 import log from '@main/utils/logger';
 
 const logger = log.scope('session-ingest');
@@ -173,6 +174,36 @@ function shouldReviveClosedSession(event: AgentEvent): boolean {
   return payload?.role === 'user';
 }
 
+function trustedInitialRuntime(event: AgentEvent): InitialSessionRuntime | undefined {
+  if (event.source !== 'sdk' || event.kind !== 'session-start') return undefined;
+  const candidate = (
+    event.payload as { initialRuntime?: unknown } | null | undefined
+  )?.initialRuntime;
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return undefined;
+  const value = candidate as Record<string, unknown>;
+  const runtime: InitialSessionRuntime = {};
+  if (isPermissionMode(value.permissionMode) && value.permissionMode !== 'default') {
+    runtime.permissionMode = value.permissionMode;
+  }
+  if (typeof value.runtimeProvider === 'string' && value.runtimeProvider.trim()) {
+    runtime.runtimeProvider = value.runtimeProvider.trim();
+  }
+  if (
+    value.claudeCodeSandbox === 'off' ||
+    value.claudeCodeSandbox === 'workspace-write' ||
+    value.claudeCodeSandbox === 'strict'
+  ) {
+    runtime.claudeCodeSandbox = value.claudeCodeSandbox;
+  }
+  if (typeof value.model === 'string' && value.model.trim()) {
+    runtime.model = value.model.trim();
+  }
+  if (typeof value.thinking === 'string' && value.thinking.trim()) {
+    runtime.thinking = value.thinking.trim();
+  }
+  return Object.keys(runtime).length > 0 ? runtime : undefined;
+}
+
 /** 第 2 段：取/建 SessionRecord。closed→active 复活由 ensure 内部处理(仅 SDK user message
  * 用户 resume 才复活;SDK/hook 迟到尾包不复活 closed)。 */
 export function ensureRecord(ctx: IngestContext, event: AgentEvent): SessionRecord {
@@ -205,6 +236,7 @@ export function ensureRecord(ctx: IngestContext, event: AgentEvent): SessionReco
     spawnedBy: validRegistration?.parentSessionId,
     spawnDepth: validRegistration?.depth,
     hiddenFromHistory,
+    initialRuntime: trustedInitialRuntime(event),
   });
 }
 

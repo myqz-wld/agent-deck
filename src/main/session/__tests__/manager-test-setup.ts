@@ -73,6 +73,8 @@ const COMMON_SESSION_IDS = [
   'hidden-review-child',
   'forged-hidden-child',
   'late-hidden-child',
+  'runtime-ready-child',
+  'forged-runtime-child',
   'sess-existing',
   'OLD_ID',
   'NEW_ID',

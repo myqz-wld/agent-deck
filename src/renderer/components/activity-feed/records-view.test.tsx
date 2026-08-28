@@ -110,12 +110,12 @@ describe('ActivityRecordsView source boundaries', () => {
     expect(renderPendingEvent).toHaveBeenCalledWith(event);
   });
 
-  it('hides a silent-command terminal behind its final system message', () => {
+  it('shows both the final system message and terminal for a silent command', () => {
     const events: AgentEvent[] = [{
       sessionId: 'remote-session',
       agentId: 'grok-build',
       kind: 'finished',
-      payload: { ok: true, subtype: 'end_turn', suppressTimeline: true },
+      payload: { ok: true, subtype: 'end_turn' },
       ts: 1,
     }, {
       sessionId: 'remote-session',
@@ -123,7 +123,7 @@ describe('ActivityRecordsView source boundaries', () => {
       kind: 'message',
       payload: {
         role: 'system',
-        text: 'Grok Build /clear 命令完成。',
+        text: 'Grok Build /clear 已完成',
         sessionCommandStatus: { command: 'clear', status: 'completed' },
       },
       ts: 2,
@@ -132,7 +132,7 @@ describe('ActivityRecordsView source boundaries', () => {
     render(<ActivityRecordsView events={events} loaded loadError={null}
       sessionId="remote-session" agentId="grok-build" isSdk />);
 
-    expect(screen.queryByText('✅ 一轮完成')).toBeNull();
-    expect(screen.getByText('Grok Build /clear 命令完成。')).toBeTruthy();
+    expect(screen.getByText('✅ 一轮完成')).toBeTruthy();
+    expect(screen.getByText('Grok Build /clear 已完成')).toBeTruthy();
   });
 });
