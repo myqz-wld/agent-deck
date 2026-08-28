@@ -168,6 +168,7 @@ describe('useRemoteSessionSource source fencing', () => {
             mimeTypes: ['image/png'],
           },
         },
+        commands: [],
         revision: 1,
       })),
       listRemoteHostSummaries: vi.fn(async () => ({ summaries: [], revision: 1 })),

@@ -12,7 +12,7 @@ import {
 describe('protocol message envelope', () => {
   it('accepts only the exact current ClientHello fields', () => {
     const hello = {
-      protocolVersion: { major: 2, minor: 7 },
+      protocolVersion: { major: 2, minor: 8 },
       appVersion: '0.1.0',
       clientId: 'desktop-a',
       requestedTopology: 'full',

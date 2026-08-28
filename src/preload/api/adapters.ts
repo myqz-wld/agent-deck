@@ -17,6 +17,7 @@ import type {
   AdapterSessionMode,
   CodexApprovalPolicy,
   SessionCreationConfiguration,
+  SessionCommandDescriptor,
   SelectablePermissionMode,
 } from '@shared/types';
 
@@ -43,6 +44,11 @@ export const adaptersApi = {
     payload: string | { text: string; attachments?: UploadedAttachmentInput[] },
   ): Promise<{ messageId: string; sessionId: string }> =>
     ipcRenderer.invoke(IpcInvoke.AdapterSendMessage, agentId, sessionId, payload),
+  listAdapterSessionCommands: (
+    agentId: string,
+    sessionId: string,
+  ): Promise<SessionCommandDescriptor[]> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterListSessionCommands, agentId, sessionId),
   listPendingOutgoingMessages: (
     agentId: string,
     sessionId: string,

@@ -1,6 +1,6 @@
 import type { ProtocolVersion } from '@contracts/capabilities';
 
-export const CURRENT_PROTOCOL_VERSION = Object.freeze({ major: 2, minor: 7 });
+export const CURRENT_PROTOCOL_VERSION = Object.freeze({ major: 2, minor: 8 });
 
 export class ProtocolCompatibilityError extends Error {
   readonly code = 'incompatible_protocol' as const;

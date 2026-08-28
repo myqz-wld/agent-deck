@@ -13,6 +13,8 @@ Agent Deck is a desktop workspace for coordinating Claude Code, Codex CLI, and G
 - Isolate changes in Git worktrees when parallel work should stay separate.
 - Browse installed Agents, Skills, and plugins from the Assets Library.
 - Use a private, session-scoped Browser with an in-app view and screenshot annotation.
+- Discover and run the slash commands supported by the active adapter from either Local or Remote
+  message composers.
 
 ## Quick Start
 
@@ -38,6 +40,16 @@ Bundled runtimes are selected by default. Configure an external runtime only whe
 Each session keeps its agent's own model, permission, approval, and sandbox settings. Coordination never widens the access granted to that runtime.
 
 ## Runtime Configuration
+
+### Slash Commands
+
+Type `/` in a Local or Remote message composer to discover commands supported by the active
+adapter. Click a suggestion or press Tab to complete it, then press Enter to execute it.
+
+Claude Code and Grok Build publish their available commands from their live runtimes. Codex CLI
+currently exposes `/clear` and `/compact`: clearing starts a fresh native conversation while keeping
+the Agent Deck activity timeline, and compacting uses Codex's native app-server compaction flow.
+Unknown slash-prefixed text remains an ordinary message.
 
 ### Gateway Profiles
 

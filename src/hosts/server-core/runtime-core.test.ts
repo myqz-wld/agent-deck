@@ -143,6 +143,9 @@ describe('ServerCoreDaemonRuntime', () => {
       }),
       adapter: {
         capabilities: { canAcceptAttachments: true } as never,
+        listSessionCommands: vi.fn(async () => [{
+          name: 'compact', description: '压缩上下文', argumentHint: '', aliases: [],
+        }]),
         steerTurn,
       },
       attachmentStore: {
@@ -162,6 +165,7 @@ describe('ServerCoreDaemonRuntime', () => {
       result: {
         adapterId: 'claude-code',
         activeTurn: { mode: 'queue', attachments: { enabled: true } },
+        commands: [{ name: 'compact' }],
       },
     });
     await runtime.execute(input('session.steer', {

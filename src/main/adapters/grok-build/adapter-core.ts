@@ -12,6 +12,7 @@ import type {
   StoredAgentEvent,
   PermissionResponse,
   ProviderUsageSnapshot,
+  SessionCommandDescriptor,
   UploadedAttachmentRef,
 } from '@shared/types';
 import { unavailableUsageSnapshot } from '../provider-usage';
@@ -202,6 +203,11 @@ export class GrokBuildAdapter implements AgentAdapter {
   ): Promise<void> {
     if (!this.bridge) throw new Error('Grok Build adapter is not initialized.');
     await this.bridge.sendMessage(sessionId, text, attachments, options);
+  }
+
+  async listSessionCommands(sessionId: string): Promise<SessionCommandDescriptor[]> {
+    if (!this.bridge) throw new Error('Grok Build adapter is not initialized.');
+    return this.bridge.listSessionCommands(sessionId);
   }
 
   canAcceptSessionAttachments(sessionId: string): boolean | null {

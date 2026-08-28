@@ -21,6 +21,7 @@ import {
   makeClaudeUserMessageCore,
   type ClaudeUserMessageStreamHost,
 } from './user-message-stream-core';
+import { applyClaudeConversationResetCore } from './conversation-reset-core';
 
 export interface ClaudeStreamProcessorContext {
   readonly sessions: Map<string, InternalSession>;
@@ -117,6 +118,18 @@ export class ClaudeStreamProcessorCore {
         }
 
         const sessionId = internal.applicationSid;
+        if (frame.type === 'conversation_reset') {
+          applyClaudeConversationResetCore(
+            internal,
+            { new_conversation_id: frame.new_conversation_id },
+            this.ctx.emit,
+            {
+              updateCliSessionId: this.host.identity.updateCliSessionId,
+              now: this.host.now,
+            },
+          );
+          continue;
+        }
         translateSdkMessageCore(
           this.ctx.emit,
           sessionId,

@@ -7,11 +7,11 @@ import {
 } from './version';
 
 describe('protocol version negotiation', () => {
-  it('advertises canonical Server access claims as protocol 2.7', () => {
-    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 7 });
+  it('advertises adapter session commands as protocol 2.8', () => {
+    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 8 });
   });
   it('accepts only one exact protocol contract', () => {
-    expect(negotiateProtocolVersion({ major: 2, minor: 7 })).toEqual({ major: 2, minor: 7 });
+    expect(negotiateProtocolVersion({ major: 2, minor: 8 })).toEqual({ major: 2, minor: 8 });
   });
 
   it('rejects a major mismatch before ordinary calls', () => {
@@ -26,7 +26,7 @@ describe('protocol version negotiation', () => {
 
   it('rejects minor skew before ordinary calls', () => {
     expect(() =>
-      negotiateProtocolVersion({ major: 2, minor: 6 }, { major: 2, minor: 7 }),
+      negotiateProtocolVersion({ major: 2, minor: 6 }, { major: 2, minor: 8 }),
     ).toThrowError('Protocol version mismatch');
   });
 });

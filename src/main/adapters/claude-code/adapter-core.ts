@@ -20,6 +20,7 @@ import type {
   PermissionResponse,
   ProviderUsageSnapshot,
   RuntimeSelection,
+  SessionCommandDescriptor,
   UploadedAttachmentRef,
 } from '@shared/types';
 import type { ClaudeSdkBridge } from './sdk-bridge';
@@ -228,6 +229,11 @@ export class ClaudeCodeAdapter implements AgentAdapter {
   ): Promise<void> {
     if (!this.bridge) throw new Error('adapter not initialized');
     await this.bridge.sendMessage(sessionId, text, attachments, options);
+  }
+
+  async listSessionCommands(sessionId: string): Promise<SessionCommandDescriptor[]> {
+    if (!this.bridge) throw new Error('adapter not initialized');
+    return this.bridge.listSessionCommands(sessionId);
   }
 
   async enqueueMessage(

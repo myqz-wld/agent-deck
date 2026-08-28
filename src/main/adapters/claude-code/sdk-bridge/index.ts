@@ -50,6 +50,7 @@ import {
 import { sendClaudeMessageCore } from './message-controller-core';
 import { listClaudePendingOutgoingMessagesCore, removeClaudePendingOutgoingMessageCore, snapshotClaudeQueuedMessagesForHandOffCore } from './pending-outgoing-core';
 import { withResolvedClaudeGatewayCore } from './session-defaults-core';
+import { listClaudeSessionCommands } from '../session-commands';
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
 /**
@@ -255,6 +256,9 @@ export class ClaudeSdkBridge {
     }, this.opts.messageControllerHost);
   }
 
+  listSessionCommands(sessionId: string) {
+    return listClaudeSessionCommands(this.sessions.get(sessionId)?.query ?? null);
+  }
   async enqueueMessage(
     sessionId: string,
     text: string,

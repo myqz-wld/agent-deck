@@ -39,6 +39,7 @@ export const IpcInvoke = {
   AdapterSessionCreationDefaults: 'adapter:session-creation-defaults',
   AdapterInterrupt: 'adapter:interrupt',
   AdapterSendMessage: 'adapter:send-message',
+  AdapterListSessionCommands: 'adapter:list-session-commands',
   AdapterListPendingOutgoing: 'adapter:list-pending-outgoing',
   AdapterLoadPendingOutgoingAttachment: 'adapter:load-pending-outgoing-attachment',
   AdapterDeletePendingOutgoing: 'adapter:delete-pending-outgoing',

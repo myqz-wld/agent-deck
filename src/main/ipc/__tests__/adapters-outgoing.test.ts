@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   deleteUpload: vi.fn(),
   loadUploaded: vi.fn(),
   listPending: vi.fn(),
+  listCommands: vi.fn(),
   removePending: vi.fn(),
   createSession: vi.fn(),
   setCodexApprovalPolicy: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock('@main/adapters/registry', () => ({
       createSession: mocks.createSession,
       sendMessage: vi.fn(),
       listPendingOutgoingMessages: mocks.listPending,
+      listSessionCommands: mocks.listCommands,
       removePendingOutgoingMessage: mocks.removePending,
       setCodexApprovalPolicy: mocks.setCodexApprovalPolicy,
       restartWithGrokSandbox: mocks.restartWithGrokSandbox,
@@ -96,6 +98,7 @@ describe('adapter outgoing queue IPC', () => {
     vi.clearAllMocks();
     mocks.dispatch.mockResolvedValue('successor');
     mocks.listPending.mockReturnValue([]);
+    mocks.listCommands.mockResolvedValue([]);
     mocks.removePending.mockReturnValue(null);
     mocks.createSession.mockResolvedValue('codex-created');
     mocks.setCodexApprovalPolicy.mockResolvedValue(undefined);
@@ -125,6 +128,19 @@ describe('adapter outgoing queue IPC', () => {
     });
     mocks.respondDiffReview.mockResolvedValue(true);
     registerAdaptersIpc();
+  });
+
+  it('lists the selected adapter session commands', async () => {
+    mocks.listCommands.mockResolvedValueOnce([{
+      name: 'compact', description: '压缩上下文', argumentHint: '', aliases: [],
+    }]);
+
+    await expect(handler(IpcInvoke.AdapterListSessionCommands)(
+      {}, 'codex-cli', 'source',
+    )).resolves.toEqual([{
+      name: 'compact', description: '压缩上下文', argumentHint: '', aliases: [],
+    }]);
+    expect(mocks.listCommands).toHaveBeenCalledWith('source');
   });
 
   it('correlates an ordinary send with provider consumption and returns the actual owner', async () => {

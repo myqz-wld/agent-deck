@@ -25,9 +25,6 @@ import {
   defaultCodexResumeJsonlExists,
   defaultCwdExists,
 } from './recoverer/jsonl-discovery';
-// Phase 4 Step 4.3: createSession 主体抽到 create-session/ 子目录(facade pattern + 3 子段)。
-// facade.createSession 改为 thin delegate 调 createSessionImpl orchestrator → validate / resume / new
-// 3 子段 fn(详 create-session/_deps.ts 顶部 jsdoc 拆分说明)。
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
 import { createCodexForkedSession } from './fork-session/create-forked-session';
@@ -43,7 +40,8 @@ import { CodexPermissionHost } from './permission-host';
 import { CodexSessionLifecycleCoordinator } from './session-lifecycle-coordinator';
 import { CodexCwdTransitionController } from './cwd-transition-controller';
 import { resolveCodexForkTargetRuntime } from './fork-session/target-runtime';
-
+import { CodexSessionCommandController } from './session-command-controller';
+import type { CodexHostSessionCommand } from '../session-commands';
 export type { CodexSessionHandle, CodexBridgeOptions } from './types';
 /**
  * Codex SDK 通道实现。与 claude-code/sdk-bridge.ts 同形态但显著简化：
@@ -85,11 +83,6 @@ export class CodexSdkBridge {
    * patch 交错。
    */
   private recovering = new Map<string, Promise<unknown>>();
-  /**
-   * CHANGELOG_52 Step 4b：ThreadLoop sub-class 持 startNewThreadAndAwaitId + runTurnLoop。
-   * sessions Map / emit 通过 ThreadLoopCtx 注入；class 上 createSession / sendMessage 内的
-   * 调用走 this.threadLoop.xxx 委托。
-   */
   private threadLoop: ThreadLoop;
   /** Applies next-turn Codex sandbox changes without replacing the app-server thread. */
   private restartController: RestartController;
@@ -98,7 +91,7 @@ export class CodexSdkBridge {
   private permissionHost: CodexPermissionHost;
   private sessionLifecycle: CodexSessionLifecycleCoordinator;
   private cwdTransitionController: CodexCwdTransitionController;
-
+  private sessionCommandController: CodexSessionCommandController;
   /**
    * symmetry-plan P2 HIGH-B：SessionRecoverer 持 recoverAndSend 主体。
    *
@@ -107,7 +100,6 @@ export class CodexSdkBridge {
    * 通过 facade extend override 让单测不依赖真 fs / 真 LLM）。与 claude SessionRecoverer 同模式。
    */
   private recoverer: SessionRecoverer;
-
   constructor(private opts: CodexBridgeOptions) {
     this.permissionHost = new CodexPermissionHost({
       sessions: this.sessions,
@@ -234,8 +226,13 @@ export class CodexSdkBridge {
         this.recoverer.recoverAndSend(sessionId, text, attachments, options),
       runTurnLoop: (session, sessionId) => this.threadLoop.runTurnLoop(session, sessionId),
     });
+    this.sessionCommandController = new CodexSessionCommandController({
+      sessions: this.sessions,
+      emit: opts.emit,
+      runtimeHost: opts.runtimeHost,
+      runTurnLoop: (session, sessionId) => this.threadLoop.runTurnLoop(session, sessionId),
+    });
   }
-
   setCodexCliPath(_path: string | null): void {
     this.opts.runtimeHost.clientRegistry.invalidateForPathChange(
       this.codexBySession,
@@ -324,6 +321,13 @@ export class CodexSdkBridge {
     options?: AgentEnqueueOptions,
   ): Promise<void> {
     await this.messageController.sendMessage(sessionId, text, attachments, options);
+  }
+
+  executeSessionCommand(
+    sessionId: string,
+    command: CodexHostSessionCommand,
+  ): Promise<void> {
+    return this.sessionCommandController.execute(sessionId, command);
   }
 
   async enqueueMessage(

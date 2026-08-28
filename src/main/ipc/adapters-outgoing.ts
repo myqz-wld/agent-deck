@@ -25,6 +25,12 @@ function pendingAttachmentNotFound(): PendingOutgoingAttachmentLoadResult {
 }
 
 export function registerAdapterOutgoingIpc(): void {
+  on(IpcInvoke.AdapterListSessionCommands, async (_e, agentId, sessionId) => {
+    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
+    if (!adapter) throw new Error('adapter not found');
+    return adapter.listSessionCommands?.(parseStringId('sessionId', sessionId)) ?? [];
+  });
+
   on(IpcInvoke.AdapterSendMessage, async (_e, agentId, sessionId, payload) => {
     const parsedAgentId = parseStringId('agentId', agentId, 64);
     const adapter = adapterRegistry.get(parsedAgentId);

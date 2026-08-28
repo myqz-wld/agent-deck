@@ -11,6 +11,7 @@ import type {
   ContextRuntimeIdentityEvidence,
   HandOffMetadata,
   PermissionRequest,
+  SessionCommandDescriptor,
   UploadedAttachmentRef,
 } from '@shared/types';
 
@@ -92,4 +93,6 @@ export interface GrokRuntime {
   pendingPermissions: Map<string, GrokPendingPermission>;
   acceptedEnqueueFingerprints: Map<string, string>;
   translation: GrokTranslationState;
+  /** Latest replace-all ACP `available_commands_update` catalog. */
+  availableCommands?: SessionCommandDescriptor[];
 }

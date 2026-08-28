@@ -2,9 +2,12 @@ import { useEffect, useRef, type DragEventHandler, type ClipboardEventHandler,
   type JSX, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { UploadedAttachmentEntry } from '@renderer/hooks/useImageAttachments';
+import type { SessionCommandDescriptor } from '@shared/types';
 import { PendingImageAttachments } from '../../PendingImageAttachments';
 import { CloseIcon, ImageIcon, SendIcon } from '../../icons';
 import { StableButtonContent } from '../../StableButtonContent';
+import { commandCompletion, SlashCommandMenu } from './SlashCommandMenu';
+import { matchingSessionCommands } from '@shared/session-commands';
 
 interface Props {
   text: string;
@@ -17,6 +20,7 @@ interface Props {
   onRemoveAttachment: (id: string) => void;
   onTextChange: (value: string) => void;
   onSubmit: () => Promise<boolean>;
+  commands?: readonly SessionCommandDescriptor[];
   onClose: () => void;
   attachmentPicker?: {
     accept: string;
@@ -41,6 +45,7 @@ export function ExpandedComposerOverlay(props: Props): JSX.Element {
   const dialogRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef(props.busy);
   const onCloseRef = useRef(props.onClose);
+  const firstCommand = matchingSessionCommands(props.commands ?? [], props.text, 1)[0];
   busyRef.current = props.busy;
   onCloseRef.current = props.onClose;
 
@@ -149,21 +154,34 @@ export function ExpandedComposerOverlay(props: Props): JSX.Element {
               />
             </section>
           )}
-          <textarea
-            ref={textareaRef}
-            value={props.text}
-            onChange={(event) => props.onTextChange(event.target.value)}
-            onPaste={props.onPaste}
-            onDrop={props.onDrop}
-            onDragOver={props.onDragOver}
-            onKeyDown={(event) => {
-              if (!shouldSubmit(event)) return;
-              event.preventDefault();
-              void submit();
-            }}
-            placeholder={props.placeholder}
-            className="min-h-0 flex-1 resize-none rounded-lg border border-deck-border bg-black/30 p-4 text-[13px] leading-relaxed text-deck-text outline-none placeholder:text-deck-muted/60 focus:border-white/25"
-          />
+          <div className="relative min-h-0 flex-1">
+            <textarea
+              ref={textareaRef}
+              value={props.text}
+              onChange={(event) => props.onTextChange(event.target.value)}
+              onPaste={props.onPaste}
+              onDrop={props.onDrop}
+              onDragOver={props.onDragOver}
+              onKeyDown={(event) => {
+                if (event.key === 'Tab' && firstCommand) {
+                  event.preventDefault();
+                  props.onTextChange(commandCompletion(firstCommand));
+                  return;
+                }
+                if (!shouldSubmit(event)) return;
+                event.preventDefault();
+                void submit();
+              }}
+              placeholder={props.placeholder}
+              className="h-full w-full resize-none rounded-lg border border-deck-border bg-black/30 p-4 text-[13px] leading-relaxed text-deck-text outline-none placeholder:text-deck-muted/60 focus:border-white/25"
+            />
+            <SlashCommandMenu
+              commands={props.commands ?? []}
+              text={props.text}
+              onChoose={props.onTextChange}
+              placement="inset"
+            />
+          </div>
         </main>
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-deck-border px-4 py-2">
           <div className="flex min-w-0 items-center gap-2">

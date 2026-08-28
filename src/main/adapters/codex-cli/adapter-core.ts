@@ -15,6 +15,7 @@ import type {
   ProviderUsageSnapshot,
   PermissionResponse,
   RuntimeSelection,
+  SessionCommandDescriptor,
   UploadedAttachmentRef,
 } from '@shared/types';
 import type { CodexSdkBridge } from './sdk-bridge';
@@ -30,6 +31,10 @@ import {
   createCodexAdapterBridgeWithHost,
   type CodexAdapterInitHost,
 } from './adapter-init-core';
+import {
+  listCodexSessionCommands,
+  parseCodexHostSessionCommand,
+} from './session-commands';
 
 const ADAPTER_ID = 'codex-cli';
 
@@ -268,7 +273,17 @@ export class CodexCliAdapter implements AgentAdapter {
     options?: AgentEnqueueOptions,
   ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    const command = parseCodexHostSessionCommand(text);
+    if (command) {
+      if (attachments?.length) throw new Error('Codex 命令不能携带图片附件。');
+      await this.bridge.executeSessionCommand(sessionId, command);
+      return;
+    }
     await this.bridge.sendMessage(sessionId, text, attachments, options);
+  }
+
+  listSessionCommands(_sessionId: string): Promise<SessionCommandDescriptor[]> {
+    return Promise.resolve(listCodexSessionCommands());
   }
 
   async enqueueMessage(
@@ -278,6 +293,9 @@ export class CodexCliAdapter implements AgentAdapter {
     options?: AgentEnqueueOptions,
   ): Promise<void> {
     if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    if (!attachments?.length && parseCodexHostSessionCommand(text)) {
+      throw new Error('Codex 命令不能在 handoff 或 worktree 切换期间排队，请在目标会话空闲后重试。');
+    }
     await this.bridge.enqueueMessage(sessionId, text, attachments, options);
   }
 

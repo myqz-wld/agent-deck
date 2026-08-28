@@ -17,6 +17,10 @@ Legacy topic-and-date plan names and nonterminal snapshots remain stable. Missin
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-07-27 | `PLAN_22_grok-native-sandbox-controls.md` | completed | Control Grok Build's native process sandbox across session paths | CHANGELOG_406 |
+| 2026-07-27 | `PLAN_21_browser-p0-p1-hardening.md` | completed | Harden browser readiness, DOM coverage, and screenshot retention | CHANGELOG_403 / REVIEW_182 |
+| 2026-07-27 | `PLAN_20_provider-usage-runtime-control-fidelity.md` | completed | Preserve provider usage and adapter-owned runtime controls | CHANGELOG_402 |
+| 2026-07-27 | `PLAN_19_cross-adapter-browser-engine.md` | implemented, real-session validation pending | Open and harden the cross-adapter in-app browser | CHANGELOG_400 / CHANGELOG_403 |
 | 2026-05-15 | `adapter-architecture-design-20260515.md` | completed | adapter-architecture-design-20260515 — adapter 架构层 design RFC(P4 BaseAdapter + … | None |
 | 2026-05-20 | `add-claude-cli-path-override-and-bump-sdks-20260520.md` | completed | 加 `claudeCliPath` 设置项(对齐 codex)+ bump 应用内置 SDK 版本 | CHANGELOG_133 |
 | 2026-05-15 | `archive-failure-ux-upthrow-20260515.md` | completed | archive-failure-ux-upthrow-20260515 — archive caller 失败 UX 上抛 follow-up | None |

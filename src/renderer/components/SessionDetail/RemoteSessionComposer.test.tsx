@@ -134,6 +134,7 @@ describe('RemoteSessionComposer parity and authority', () => {
       inputCapabilities: {
         adapterId: 'codex-cli',
         activeTurn: { mode: 'steer', attachments: ACTIVE_IMAGE_POLICY },
+        commands: [],
         revision: 6,
       },
     });
@@ -181,6 +182,7 @@ describe('RemoteSessionComposer parity and authority', () => {
       inputCapabilities: {
         adapterId: 'claude-code',
         activeTurn: { mode: 'queue', attachments: ACTIVE_IMAGE_POLICY },
+        commands: [],
         revision: 6,
       },
     });
