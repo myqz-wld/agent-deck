@@ -61,6 +61,7 @@ export function createGrokRuntime(
       lastUsage: existing?.grokUsageWatermark ?? null,
       liveRateObserver,
     }),
+    availableCommands: [],
   };
 }
 
@@ -105,6 +106,7 @@ export function recoverGrokRuntime(
       lastUsage: record.grokUsageWatermark ?? null,
       liveRateObserver,
     }),
+    availableCommands: [],
   };
 }
 

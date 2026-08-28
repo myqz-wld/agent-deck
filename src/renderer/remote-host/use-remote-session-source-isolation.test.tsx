@@ -61,6 +61,7 @@ beforeEach(() => {
           mimeTypes: ['image/png'],
         },
       },
+      commands: [],
       revision: 1,
     })),
     listRemoteHostSummaries: vi.fn(async () => ({ summaries: [], revision: 1 })),
@@ -187,6 +188,7 @@ describe('useRemoteSessionSource isolated reads and intent identity', () => {
                 mimeTypes: ['image/png'],
               },
             },
+            commands: [],
             revision: 3,
           }));
     const remoteA = hosts('remote-a', 1);
@@ -227,6 +229,7 @@ describe('useRemoteSessionSource isolated reads and intent identity', () => {
           mimeTypes: ['image/png'],
         },
       },
+      commands: [],
       revision: 2,
     });
     await act(async () => { await Promise.all([oldContext.promise, oldInput.promise]); });

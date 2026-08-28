@@ -58,7 +58,7 @@ export class ServerCoreSessionExtras {
   execute(input: DaemonRequestInput): Promise<DaemonRequestResult> | null {
     switch (input.method) {
       case 'session.context.get': return Promise.resolve(this.contextUsage(input));
-      case 'session.input.capabilities': return Promise.resolve(this.inputCapabilities(input));
+      case 'session.input.capabilities': return this.inputCapabilities(input);
       case 'session.outgoing.list': return Promise.resolve(this.outgoing(input));
       case 'session.outgoing.remove': return this.removeOutgoing(input);
       case 'session.handoff.preview': return this.handOffPreview(input);
@@ -87,10 +87,11 @@ export class ServerCoreSessionExtras {
     };
   }
 
-  private inputCapabilities(input: DaemonRequestInput): DaemonRequestResult {
+  private async inputCapabilities(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     const { sessionId } = parseSessionTargetParams(input.params);
     const { adapter, record } = this.requireProviderSession(sessionId);
     const enabled = canAcceptServerCoreSessionAttachments(adapter, sessionId);
+    const commands = await (adapter.listSessionCommands?.(sessionId) ?? Promise.resolve([]));
     const revision = this.options.metadata.currentRevision();
     return {
       result: {
@@ -108,6 +109,12 @@ export class ServerCoreSessionExtras {
             mimeTypes: [...SESSION_CONSOLE_REMOTE_ATTACHMENT_MIME_TYPES],
           },
         },
+        commands: commands.map((command) => ({
+          name: command.name,
+          description: command.description,
+          argumentHint: command.argumentHint,
+          aliases: [...command.aliases],
+        })) as JsonObject[],
         revision,
       },
       revision,

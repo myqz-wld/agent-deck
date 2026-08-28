@@ -17,6 +17,12 @@ describe('session active input contract', () => {
           mimeTypes: ['image/png'],
         },
       },
+      commands: [{
+        name: 'compact',
+        description: '压缩上下文',
+        argumentHint: '',
+        aliases: [],
+      }],
       revision: 9,
     };
     expect(parseSessionInputCapabilitiesResult(value)).toEqual(value);
@@ -24,7 +30,8 @@ describe('session active input contract', () => {
 
   it('rejects unknown active modes and incomplete policies', () => {
     expect(() => parseSessionInputCapabilitiesResult({
-      adapterId: 'grok-build', activeTurn: { mode: 'stream', attachments: {} }, revision: 1,
+      adapterId: 'grok-build', activeTurn: { mode: 'stream', attachments: {} },
+      commands: [], revision: 1,
     })).toThrow('active turn');
   });
 });

@@ -116,6 +116,8 @@ export interface InternalSession {
   currentTurnId: string | null;
   /** turn loop 是否在跑（避免 sendMessage 重复启动） */
   turnLoopRunning: boolean;
+  /** Non-steerable adapter command currently owns the provider input boundary. */
+  activeControlCommand?: 'clear' | 'compact' | null;
   /** Generation-scoped worktree transition gate for dequeue and active-turn steering. */
   cwdTransitionGeneration?: number | null;
   /** Successful handoff sealed this source; finish only the active turn, then dispose runtime. */

@@ -32,6 +32,7 @@ import {
   translateGrokTurnUsage,
   translateGrokUpdate,
 } from './translate';
+import { commandsFromGrokUpdate } from './session-commands';
 import type { GrokSessionManagerPort } from './bridge-options';
 import {
   NOOP_GROK_BRIDGE_RUNTIME_HOST,
@@ -93,6 +94,8 @@ export async function startGrokRuntime(
       if (notification.update.sessionUpdate === 'user_message_chunk') {
         context.confirmPromptAccepted(runtime);
       }
+      const commands = commandsFromGrokUpdate(notification.update);
+      if (commands) runtime.availableCommands = commands;
       for (const event of translateGrokUpdate(
         runtime.applicationSessionId,
         runtime.cwd,

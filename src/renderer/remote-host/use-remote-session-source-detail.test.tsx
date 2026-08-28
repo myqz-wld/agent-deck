@@ -141,6 +141,7 @@ describe('useRemoteSessionSource detail and mutation fencing', () => {
             mimeTypes: ['image/png'],
           },
         },
+        commands: [],
         revision: 1,
       })),
       listRemoteHostSummaries: vi.fn(async () => ({ summaries: [], revision: 1 })),

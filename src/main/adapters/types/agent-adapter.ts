@@ -19,6 +19,7 @@ import type {
   PermissionResponse,
   ProviderUsageSnapshot,
   RuntimeSelection,
+  SessionCommandDescriptor,
   AdapterSessionMode,
   UploadedAttachmentRef,
 } from '@shared/types';
@@ -142,6 +143,8 @@ export interface AgentAdapter {
     attachments?: UploadedAttachmentRef[],
     options?: AgentEnqueueOptions,
   ): Promise<void>;
+  /** Commands currently executable by this live provider session. */
+  listSessionCommands?(sessionId: string): Promise<SessionCommandDescriptor[]>;
   /** Session-runtime attachment negotiation; null means no live runtime overrides the adapter. */
   canAcceptSessionAttachments?(sessionId: string): boolean | null;
   /**

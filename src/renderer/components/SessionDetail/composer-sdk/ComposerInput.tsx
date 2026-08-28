@@ -1,8 +1,11 @@
 import { useState, type ClipboardEventHandler, type DragEventHandler, type JSX,
   type KeyboardEvent } from 'react';
 import type { UploadedAttachmentEntry } from '@renderer/hooks/useImageAttachments';
+import type { SessionCommandDescriptor } from '@shared/types';
 import { ExpandIcon } from '../../icons';
 import { ExpandedComposerOverlay } from './ExpandedComposerOverlay';
+import { commandCompletion, SlashCommandMenu } from './SlashCommandMenu';
+import { matchingSessionCommands } from '@shared/session-commands';
 
 interface Props {
   text: string;
@@ -15,6 +18,7 @@ interface Props {
   onRemoveAttachment: (id: string) => void;
   onTextChange: (value: string) => void;
   onSubmit: () => Promise<boolean>;
+  commands?: readonly SessionCommandDescriptor[];
   attachmentPicker?: {
     accept: string;
     title?: string;
@@ -34,6 +38,7 @@ function shouldSubmit(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
 
 export function ComposerInput(props: Props): JSX.Element {
   const [expanded, setExpanded] = useState(false);
+  const firstCommand = matchingSessionCommands(props.commands ?? [], props.text, 1)[0];
   return (
     <>
       <div className="relative">
@@ -44,6 +49,11 @@ export function ComposerInput(props: Props): JSX.Element {
           onDrop={props.onDrop}
           onDragOver={props.onDragOver}
           onKeyDown={(event) => {
+            if (event.key === 'Tab' && firstCommand) {
+              event.preventDefault();
+              props.onTextChange(commandCompletion(firstCommand));
+              return;
+            }
             if (!shouldSubmit(event)) return;
             event.preventDefault();
             if (props.canSubmit) void props.onSubmit();
@@ -51,6 +61,11 @@ export function ComposerInput(props: Props): JSX.Element {
           placeholder={props.placeholder}
           rows={2}
           className="block w-full resize-none rounded border border-deck-border bg-white/[0.04] py-1 pl-2 pr-8 text-[11px] outline-none focus:border-white/20"
+        />
+        <SlashCommandMenu
+          commands={props.commands ?? []}
+          text={props.text}
+          onChoose={props.onTextChange}
         />
         <button
           type="button"

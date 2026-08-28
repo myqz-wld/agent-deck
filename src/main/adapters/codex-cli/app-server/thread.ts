@@ -43,6 +43,7 @@ import {
   ensureCodexThreadReady,
   stageCodexThreadConfiguration,
 } from './thread-readiness';
+import { streamCodexThreadControlTurn } from './thread-control-turn';
 const MAX_PRE_ACCEPTANCE_TURNS = 8;
 type Unsubscribe = () => void;
 type QueuedNotification = Extract<
@@ -148,6 +149,26 @@ export class CodexAppServerThread {
     const threadId = await this.ensureThread(signal);
     this.started = true;
     return threadId;
+  }
+
+  /** Create a detached fresh-thread wrapper with the current effective runtime options. */
+  createFreshThread(): CodexAppServerThread {
+    return this.client.startThread(this.mode.options);
+  }
+
+  async compactStreamed(): Promise<{ events: AsyncIterable<CodexAppServerStreamEvent> }> {
+    const threadId = await this.ensureThread();
+    return {
+      events: streamCodexThreadControlTurn({
+        client: this.client,
+        method: 'thread/compact/start',
+        threadId,
+        runtimeIdentity: this.runtimeIdentity,
+        setActiveTurnId: (turnId) => {
+          this.activeTurnId = turnId;
+        },
+      }),
+    };
   }
 
   async steer(input: CodexAppServerUserInput[], expectedTurnId: string, signal?: AbortSignal): Promise<void> {

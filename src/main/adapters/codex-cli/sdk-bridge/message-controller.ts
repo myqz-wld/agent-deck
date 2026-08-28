@@ -180,6 +180,7 @@ export class MessageController {
 
     if (
       !forceQueue &&
+      session.activeControlCommand == null &&
       session.cwdTransitionGeneration == null &&
       session.currentTurn &&
       session.currentTurnId &&

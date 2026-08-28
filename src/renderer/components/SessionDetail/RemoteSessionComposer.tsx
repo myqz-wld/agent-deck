@@ -234,6 +234,7 @@ export function RemoteSessionComposer({
         getAttachmentPreviewDataUrl: imgs.getPreviewDataUrl,
         onRemoveAttachment: imgs.remove,
         onSubmit: send,
+        commands: source.inputCapabilities?.commands ?? [],
         onPaste: canUseAttachments ? imgs.onPaste : undefined,
         onDrop: canUseAttachments ? imgs.onDrop : undefined,
         onDragOver: canUseAttachments ? imgs.onDragOver : undefined,

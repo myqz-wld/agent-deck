@@ -24,6 +24,7 @@ import {
   useRegisterIabComposerTarget,
   type IabComposerTarget,
 } from './iab-composer-bridge';
+import { useAdapterSessionCommands } from './composer-sdk/useAdapterSessionCommands';
 
 /** SDK 会话输入区及其按逻辑会话隔离的异步操作。 */
 export function ComposerSdk({
@@ -58,6 +59,11 @@ export function ComposerSdk({
   const sendError = composer.sendError;
   const [interrupting, setInterrupting] = useState(false);
   const imgs = useImageAttachments(sessionId);
+  const commands = useAdapterSessionCommands(
+    agentId,
+    sessionId,
+    text.startsWith('/') && imgs.attachments.length === 0,
+  );
   const adapterRuntime = useAdapterRuntimeInfo(agentId);
   const canAcceptAttachments = adapterRuntime.canAcceptAttachments;
   useEffect(() => ensureComposerSession(sessionId), [ensureComposerSession, sessionId]);
@@ -358,6 +364,7 @@ export function ComposerSdk({
         getAttachmentPreviewDataUrl: imgs.getPreviewDataUrl,
         onRemoveAttachment: imgs.remove,
         onSubmit: send,
+        commands,
         onPaste: canUseAttachments ? imgs.onPaste : undefined,
         onDrop: canUseAttachments ? imgs.onDrop : undefined,
         onDragOver: canUseAttachments ? imgs.onDragOver : undefined,

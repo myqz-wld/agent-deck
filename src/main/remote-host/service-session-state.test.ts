@@ -58,6 +58,7 @@ describe('RemoteHostSessionStateController', () => {
           mimeTypes: ['image/png'],
         },
       },
+      commands: [],
       revision: 10,
     }));
     const scope = scoped(clientRequest);

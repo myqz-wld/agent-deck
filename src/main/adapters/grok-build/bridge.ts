@@ -45,6 +45,7 @@ import { observeGrokTrustedContinuationFinished } from './trusted-continuation-o
 import { cleanupFailedGrokStartupRegistration } from './startup-registration-cleanup';
 import type { GrokBuildBridgeOptions } from './bridge-options';
 import { resolveGrokInitialTurn } from './initial-turn';
+import { copyGrokSessionCommands } from './session-commands';
 const AGENT_ID = 'grok-build';
 export type { GrokBuildBridgeOptions } from './bridge-options';
 export class GrokBuildBridge {
@@ -261,6 +262,9 @@ export class GrokBuildBridge {
       attachments,
       enqueueOptions,
     );
+  }
+  listSessionCommands(sessionId: string) {
+    return Promise.resolve(copyGrokSessionCommands(this.runtimes.get(sessionId)?.availableCommands));
   }
   async enqueueMessage(
     sessionId: string,
@@ -482,7 +486,6 @@ export class GrokBuildBridge {
   private async disposeRuntime(runtime: GrokRuntime): Promise<void> {
     await this.lifecycle.disposeOrdinary(runtime);
   }
-
   private isCurrentRuntime(runtime: GrokRuntime): boolean {
     return this.lifecycle.isCurrent(runtime);
   }
