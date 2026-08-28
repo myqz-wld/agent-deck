@@ -121,9 +121,9 @@ describe('Claude message translation state Core', () => {
         compact_result: 'failed',
         compact_error: '  provider stopped  ',
       }),
-    ).toBe('⚠ 上下文压缩失败：provider stopped');
+    ).toBe('Claude /compact 失败：provider stopped');
     expect(claudeCompactFailureTextCore({ compact_result: 'failed' })).toBe(
-      '⚠ 上下文压缩失败：unknown error',
+      'Claude /compact 失败：unknown error',
     );
   });
 });

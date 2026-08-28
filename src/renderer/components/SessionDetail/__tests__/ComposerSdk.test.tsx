@@ -93,6 +93,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -494,6 +495,61 @@ describe('ComposerSdk unified input routing', () => {
       expect(input.value).toBe('do not continue that path');
       expect(screen.getByText(/Codex CLI 当前没有可修正的活动轮次/)).toBeTruthy();
     });
+  });
+
+  it('commits Claude permission and Gateway controls together after capability refresh', async () => {
+    type AdapterRows = Awaited<ReturnType<Window['api']['listAdapters']>>;
+    let resolveAdapters: (rows: AdapterRows) => void = () => undefined;
+    window.api.listAdapters = vi.fn(() => new Promise<AdapterRows>((resolve) => {
+      resolveAdapters = resolve;
+    }));
+
+    render(<ComposerSdk session={makeSession({
+      agentId: 'claude-code',
+      title: 'Claude',
+      permissionMode: 'bypassPermissions',
+      runtimeProvider: 'gateway-a',
+      model: 'claude-opus-4-8',
+      thinking: 'xhigh',
+    })} />);
+
+    expect(screen.queryByLabelText('权限')).toBeNull();
+    expect(screen.queryByText('模型网关、模型与思考程度')).toBeNull();
+
+    await act(async () => resolveAdapters([{
+      id: 'claude-code',
+      displayName: 'Claude Code',
+      capabilities: {
+        canAcceptAttachments: true,
+        canSetPermissionMode: true,
+      },
+      sessionModes: [],
+    }]));
+
+    expect(await screen.findByLabelText('权限')).toBeTruthy();
+    fireEvent.click(screen.getByText('模型网关、模型与思考程度'));
+    expect((screen.getByLabelText('模型网关') as HTMLInputElement).value).toBe('gateway-a');
+    expect((screen.getByLabelText('模型') as HTMLInputElement).value).toBe('claude-opus-4-8');
+  });
+
+  it('shows Claude runtime configuration progress only after the shared 150 ms grace', () => {
+    vi.useFakeTimers();
+    type AdapterRows = Awaited<ReturnType<Window['api']['listAdapters']>>;
+    window.api.listAdapters = vi.fn(() => new Promise<AdapterRows>(() => undefined));
+
+    render(<ComposerSdk session={makeSession({
+      agentId: 'claude-code',
+      title: 'Claude',
+      permissionMode: 'bypassPermissions',
+      runtimeProvider: 'gateway-a',
+    })} />);
+
+    expect(screen.queryByText('正在读取会话运行配置…')).toBeNull();
+    act(() => vi.advanceTimersByTime(149));
+    expect(screen.queryByText('正在读取会话运行配置…')).toBeNull();
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.getByText('正在读取会话运行配置…')).toBeTruthy();
+    expect(screen.queryByLabelText('权限')).toBeNull();
   });
 
   it('automatically applies a free-form model and dropdown thinking level to the next round', async () => {

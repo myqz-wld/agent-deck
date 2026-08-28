@@ -50,7 +50,9 @@ Claude Code and Grok Build publish their available commands from their live runt
 currently exposes `/clear` and `/compact`: clearing starts a fresh native conversation while keeping
 the Agent Deck activity timeline, and compacting uses Codex's native app-server compaction flow.
 Native commands that do not produce a model reply report their final outcome as one compact system
-status. Unknown slash-prefixed text remains an ordinary message.
+status using the same `<adapter> /<command> completed-or-failed` copy pattern, without decorative
+icons or terminal punctuation. They also retain the ordinary finished-turn event. Unknown
+slash-prefixed text remains an ordinary message.
 
 ### Gateway Profiles
 

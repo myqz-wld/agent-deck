@@ -83,15 +83,16 @@ describe('Grok session command feedback', () => {
     queue.enqueue(active, '/reset now');
     await vi.waitFor(() => expect(active.running).toBe(false));
 
+    expect(events.slice(-2).map((event) => event.kind)).toEqual(['message', 'finished']);
     expect(events).toContainEqual({
       kind: 'finished',
-      payload: { ok: true, subtype: 'end_turn', suppressTimeline: true },
+      payload: { ok: true, subtype: 'end_turn' },
     });
     expect(events).toContainEqual({
       kind: 'message',
       payload: {
         role: 'system',
-        text: 'Grok Build /clear 命令完成。',
+        text: 'Grok Build /clear 已完成',
         sessionCommandStatus: { command: 'clear', status: 'completed' },
       },
     });
@@ -121,6 +122,7 @@ describe('Grok session command feedback', () => {
     prompt.resolve({ stopReason: 'end_turn', usage: undefined });
     await vi.waitFor(() => expect(active.running).toBe(false));
 
+    expect(events.slice(-2).map((event) => event.kind)).toEqual(['message', 'finished']);
     expect(events).toContainEqual({
       kind: 'message',
       payload: { text: 'Review complete', role: 'assistant' },
@@ -144,10 +146,14 @@ describe('Grok session command feedback', () => {
       kind: 'message',
       payload: {
         role: 'system',
-        text: 'Grok Build /clear 命令失败：native command failed',
+        text: 'Grok Build /clear 失败：native command failed',
         error: true,
         sessionCommandStatus: { command: 'clear', status: 'failed' },
       },
+    });
+    expect(events).toContainEqual({
+      kind: 'finished',
+      payload: { ok: false, subtype: 'error' },
     });
     expect(emitError).not.toHaveBeenCalled();
   });

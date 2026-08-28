@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-08-27 | `CHANGELOG_634_system-status-session-readiness.md` | Align system status rows and stabilize Claude startup controls |
 | 2026-08-27 | `CHANGELOG_633_codex-clear-stable-id-feedback.md` | Preserve Codex clear completion on same-id native rotation |
 | 2026-08-27 | `CHANGELOG_632_session-command-system-feedback.md` | Show one final system status for silent native commands |
 | 2026-08-27 | `CHANGELOG_631_adapter-session-commands.md` | Add native adapter slash commands to Local and Remote composers |

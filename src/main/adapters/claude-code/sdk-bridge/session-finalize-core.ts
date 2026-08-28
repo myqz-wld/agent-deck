@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   HandOffMetadata,
+  PermissionMode,
   UploadedAttachmentRef,
 } from '@shared/types';
 import type { ClaudeThinkingLevel } from '@shared/session-metadata';
@@ -32,6 +33,7 @@ export interface FinalizeClaudeSessionStartArgs {
   cliSessionId?: string;
   cwd: string;
   prompt?: string;
+  permissionMode?: PermissionMode;
   claudeSandboxMode: 'off' | 'workspace-write' | 'strict';
   runtimeProvider?: string;
   claudeAgentName?: string;
@@ -73,6 +75,7 @@ export function finalizeClaudeSessionStartCore(
     cliSessionId,
     cwd,
     prompt,
+    permissionMode,
     claudeSandboxMode,
     runtimeProvider,
     claudeAgentName,
@@ -103,6 +106,13 @@ export function finalizeClaudeSessionStartCore(
         ...(initialSessionRegistration?.hiddenFromHistory
           ? { initialHiddenFromHistory: true }
           : {}),
+        initialRuntime: {
+          ...(permissionMode && permissionMode !== 'default' ? { permissionMode } : {}),
+          claudeCodeSandbox: claudeSandboxMode,
+          ...(runtimeProvider ? { runtimeProvider } : {}),
+          ...(claudeModel ? { model: claudeModel } : {}),
+          ...(claudeCodeEffortLevel ? { thinking: claudeCodeEffortLevel } : {}),
+        },
       },
       ts: host.now(),
       source: 'sdk',

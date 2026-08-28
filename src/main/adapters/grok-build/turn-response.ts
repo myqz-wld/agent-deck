@@ -17,7 +17,6 @@ import { persistGrokUsageWatermark } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
 import {
   emitSilentGrokSessionCommandOutcome,
-  isSilentGrokSessionCommand,
 } from './session-command-feedback';
 import type { GrokTurnQueueOptions } from './turn-queue-types';
 import {
@@ -133,16 +132,6 @@ export async function finalizeGrokAcpResponse(
       grokContextWindowRejectionCode(response.stopReason) ??
       structuredGrokContextWindowRejectionCode(response._meta);
     const failureReason = grokContextWindowFailureReason(rejectionCode);
-    const silentCommand = isSilentGrokSessionCommand(
-      runtime,
-      options.sessionCommand ?? null,
-    );
-    options.emitEvent(runtime.applicationSessionId, 'finished', {
-      ok: response.stopReason === 'end_turn',
-      subtype: response.stopReason,
-      ...(failureReason ? { failureReason } : {}),
-      ...(silentCommand ? { suppressTimeline: true } : {}),
-    });
     emitSilentGrokSessionCommandOutcome(
       runtime,
       options.sessionCommand ?? null,
@@ -154,6 +143,11 @@ export async function finalizeGrokAcpResponse(
           },
       options,
     );
+    options.emitEvent(runtime.applicationSessionId, 'finished', {
+      ok: response.stopReason === 'end_turn',
+      subtype: response.stopReason,
+      ...(failureReason ? { failureReason } : {}),
+    });
     if (runtime.ready) {
       scheduleGrokContextUsageRefresh(runtime, {
         diagnostics: options.runtimeHost?.diagnostics,

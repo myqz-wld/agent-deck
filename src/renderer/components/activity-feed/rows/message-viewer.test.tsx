@@ -79,7 +79,7 @@ describe('MessageBubble original inline presentation', () => {
       kind: 'message',
       payload: {
         role: 'system',
-        text: '已切换到 worktree 工作目录，正在继续当前任务',
+        text: '已切换到 worktree，继续当前任务',
         worktreeTransitionStatus: { generation: 2 },
       },
       ts: 11,
@@ -96,7 +96,7 @@ describe('MessageBubble original inline presentation', () => {
 
     expect(screen.getByText('系统')).toBeTruthy();
     expect(
-      screen.getByText('已切换到 worktree 工作目录，正在继续当前任务'),
+      screen.getByText('已切换到 worktree，继续当前任务'),
     ).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'TXT' })).toBeNull();
     expect(document.querySelector('li')?.className).toContain('justify-center');
@@ -109,7 +109,7 @@ describe('MessageBubble original inline presentation', () => {
       kind: 'message',
       payload: {
         role: 'system',
-        text: 'Codex 已清空上下文并开始新对话',
+        text: 'Codex /clear 已完成，已开始新对话，原时间线保留',
         sessionCommandStatus: { command: 'clear', status: 'completed' },
       },
       ts: 12,
@@ -118,7 +118,7 @@ describe('MessageBubble original inline presentation', () => {
     render(<MessageBubble event={event} agentId="codex-cli" />);
 
     expect(screen.getByText('系统')).toBeTruthy();
-    expect(screen.getByText('Codex 已清空上下文并开始新对话')).toBeTruthy();
+    expect(screen.getByText('Codex /clear 已完成，已开始新对话，原时间线保留')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'TXT' })).toBeNull();
     expect(document.querySelector('li')?.className).toContain('justify-center');
   });

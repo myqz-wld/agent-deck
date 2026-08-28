@@ -55,12 +55,14 @@ describe('Codex session command controller', () => {
     expect(events.map((event) => event.kind)).toEqual([
       'context-usage',
       'message',
+      'finished',
     ]);
     expect(events[1]?.payload).toMatchObject({
       role: 'system',
-      text: 'Codex 已清空上下文并开始新对话；此前记录仍保留在 Agent Deck 时间线中。',
+      text: 'Codex /clear 已完成，已开始新对话，原时间线保留',
       sessionCommandStatus: { command: 'clear', status: 'completed' },
     });
+    expect(events[2]?.payload).toEqual({ ok: true, subtype: 'end_turn' });
   });
 
   it('closes /clear activity as failed when the native thread cannot start', async () => {
@@ -77,13 +79,14 @@ describe('Codex session command controller', () => {
       'native start failed',
     );
 
-    expect(events.map((event) => event.kind)).toEqual(['message']);
+    expect(events.map((event) => event.kind)).toEqual(['message', 'finished']);
     expect(events[0]?.payload).toMatchObject({
       role: 'system',
-      text: 'Codex 清理上下文失败：native start failed',
+      text: 'Codex /clear 失败：native start failed',
       error: true,
       sessionCommandStatus: { command: 'clear', status: 'failed' },
     });
+    expect(events[1]?.payload).toEqual({ ok: false, subtype: 'error' });
     expect(internal.activeControlCommand).toBeNull();
     expect(internal.turnLoopRunning).toBe(false);
   });
@@ -119,14 +122,18 @@ describe('Codex session command controller', () => {
     internal.pendingMessages.push('follow-up');
     await vi.waitFor(() => expect(internal.activeControlCommand).toBeNull());
 
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({
       kind: 'message',
       payload: {
         role: 'system',
-        text: 'Codex 上下文压缩完成。',
+        text: 'Codex /compact 已完成',
         sessionCommandStatus: { command: 'compact', status: 'completed' },
       },
+    });
+    expect(events[1]).toMatchObject({
+      kind: 'finished',
+      payload: { ok: true, subtype: 'end_turn' },
     });
     expect(runTurnLoop).toHaveBeenCalledWith(internal, 'app-session');
   });
@@ -158,15 +165,19 @@ describe('Codex session command controller', () => {
     await controller.execute('app-session', 'compact');
     await vi.waitFor(() => expect(internal.activeControlCommand).toBeNull());
 
-    expect(events).toHaveLength(1);
+    expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({
       kind: 'message',
       payload: {
         role: 'system',
-        text: 'Codex 上下文压缩失败：summary failed',
+        text: 'Codex /compact 失败：summary failed',
         error: true,
         sessionCommandStatus: { command: 'compact', status: 'failed' },
       },
+    });
+    expect(events[1]).toMatchObject({
+      kind: 'finished',
+      payload: { ok: false, subtype: 'error' },
     });
   });
 });

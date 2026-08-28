@@ -24,6 +24,7 @@ export function buildInitialSessionRecord(
     hiddenFromHistory: opts.hiddenFromHistory === true,
     spawnedBy: opts.spawnedBy ?? null,
     spawnDepth: opts.spawnDepth ?? 0,
+    ...(opts.initialRuntime ?? {}),
   };
 }
 

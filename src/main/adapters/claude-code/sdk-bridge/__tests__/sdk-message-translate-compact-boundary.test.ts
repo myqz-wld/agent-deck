@@ -63,7 +63,7 @@ describe('translateSdkMessage — Claude compact_boundary display', () => {
       sessionCommandStatus: { command: 'compact', status: 'completed' },
     });
     const text = (events[1].payload as { text: string }).text;
-    expect(text).toContain('上下文已压缩');
+    expect(text).toContain('Claude /compact 已完成');
     expect(text).toContain('触发：自动');
     expect(text).toContain('Token：123,456 → 34,567');
     expect(text).toContain('耗时：1,500ms');
@@ -93,7 +93,7 @@ describe('translateSdkMessage — Claude compact_boundary display', () => {
     expect(events).toHaveLength(1);
     expect(events[0].kind).toBe('message');
     expect((events[0].payload as { text: string; error?: boolean }).text).toBe(
-      '⚠ 上下文压缩失败：summary model failed',
+      'Claude /compact 失败：summary model failed',
     );
     expect((events[0].payload as { error?: boolean }).error).toBe(true);
     expect(events[0].payload).toMatchObject({

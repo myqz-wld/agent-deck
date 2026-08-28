@@ -42,6 +42,7 @@ import {
   worktreeErrorText,
 } from './coordinator-helpers';
 import { worktreeTransitionDiagnostics } from './diagnostics';
+import { normalizeSystemStatusDetail } from '@core/system-status-copy';
 
 /**
  * Owns provider observation, expected interruption, runtime/DB compensation and delivery order.
@@ -150,7 +151,7 @@ export class WorktreeTransitionCoordinator {
           void recoverWorktreeTransition(record.sessionId).catch((error) => {
             emitWorktreeTransitionStatus(
               record.sessionId,
-              `⚠ 工作目录切换撤销未完成：${worktreeErrorText(error)}`,
+              `工作目录切换撤销失败：${normalizeSystemStatusDetail(worktreeErrorText(error))}`,
               true,
               record.generation,
             );
@@ -254,7 +255,7 @@ export class WorktreeTransitionCoordinator {
         }
         emitWorktreeTransitionStatus(
           sessionId,
-          `⚠ 工作目录自动切换未完成：${worktreeErrorText(error)}`,
+          `工作目录自动切换失败：${normalizeSystemStatusDetail(worktreeErrorText(error))}`,
           true,
           generation,
         );
@@ -323,7 +324,7 @@ export class WorktreeTransitionCoordinator {
       this.releaseTransitionOwnership(adapter, record, toolUseId);
       emitWorktreeTransitionStatus(
         record.sessionId,
-        '已切换到 worktree，正在继续当前任务',
+        '已切换到 worktree，继续当前任务',
         false,
         record.generation,
       );
@@ -423,7 +424,7 @@ export class WorktreeTransitionCoordinator {
       if (cleanupFailed) {
         emitWorktreeTransitionStatus(
           record.sessionId,
-          `已恢复原工作目录；worktree 清理待重试：${worktreeErrorText(cleanupError)}`,
+          `已恢复原工作目录，worktree 清理待重试：${normalizeSystemStatusDetail(worktreeErrorText(cleanupError))}`,
           true,
           record.generation,
         );
@@ -432,7 +433,7 @@ export class WorktreeTransitionCoordinator {
       emitWorktreeSessionUpsert(record.sessionId);
       emitWorktreeTransitionStatus(
         record.sessionId,
-        '已恢复原工作目录并安全移除 worktree，正在继续当前任务',
+        '已恢复原工作目录并安全移除 worktree，继续当前任务',
         false,
         record.generation,
       );

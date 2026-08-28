@@ -25,6 +25,7 @@ import {
   type IabComposerTarget,
 } from './iab-composer-bridge';
 import { useAdapterSessionCommands } from './composer-sdk/useAdapterSessionCommands';
+import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
 
 /** SDK 会话输入区及其按逻辑会话隔离的异步操作。 */
 export function ComposerSdk({
@@ -65,6 +66,10 @@ export function ComposerSdk({
     text.startsWith('/') && imgs.attachments.length === 0,
   );
   const adapterRuntime = useAdapterRuntimeInfo(agentId);
+  const runtimeControlsPresentation = useInitialAsyncPresentation(
+    agentId === 'claude-code' && adapterRuntime.loading,
+    `session-runtime:${agentId}:${sessionId}`,
+  );
   const canAcceptAttachments = adapterRuntime.canAcceptAttachments;
   useEffect(() => ensureComposerSession(sessionId), [ensureComposerSession, sessionId]);
   useEffect(() => {
@@ -310,28 +315,36 @@ export function ComposerSdk({
 
   return (
     <SessionComposerView
-      controls={<>
-        <SessionRuntimeControls session={session} />
-        {supportsPermissionMode && (
-          <SelectRow
-            label="权限"
-            value={permissionMode}
-            options={permissionModeOptions}
-            disabled={pmBusy}
-            onChange={(next) => void changeMode(next)}
-          />
-        )}
-        {supportsSessionMode && (
-          <SelectRow
-            label="模式"
-            value={sessionMode}
-            options={adapterSessionModeOptions(adapterRuntime.sessionModes)}
-            disabled={sessionModeBusy}
-            onChange={(next) => void changeSessionMode(next)}
-          />
-        )}
-        <SessionSandboxControls session={session} turnBusy={turnBusy} />
-      </>}
+      controls={runtimeControlsPresentation === 'deferred' ? null :
+        runtimeControlsPresentation === 'fallback' ? (
+          <div
+            role="status"
+            className="mb-2 rounded border border-deck-border/80 bg-white/[0.02] px-2 py-2 text-[10px] text-deck-muted"
+          >
+            正在读取会话运行配置…
+          </div>
+        ) : <>
+          <SessionRuntimeControls session={session} />
+          {supportsPermissionMode && (
+            <SelectRow
+              label="权限"
+              value={permissionMode}
+              options={permissionModeOptions}
+              disabled={pmBusy}
+              onChange={(next) => void changeMode(next)}
+            />
+          )}
+          {supportsSessionMode && (
+            <SelectRow
+              label="模式"
+              value={sessionMode}
+              options={adapterSessionModeOptions(adapterRuntime.sessionModes)}
+              disabled={sessionModeBusy}
+              onChange={(next) => void changeSessionMode(next)}
+            />
+          )}
+          <SessionSandboxControls session={session} turnBusy={turnBusy} />
+        </>}
       feedback={<>
         <ErrorBanner
           message={pmError}

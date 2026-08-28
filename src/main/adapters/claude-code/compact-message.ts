@@ -1,3 +1,7 @@
+import {
+  completedSessionCommandText,
+} from '@core/system-status-copy';
+
 export interface ClaudeCompactMessageInput {
   trigger?: unknown;
   preTokens?: unknown;
@@ -38,5 +42,9 @@ export function buildClaudeCompactMessageText(input: ClaudeCompactMessageInput):
   }
   if (durationMs !== null) details.push(`耗时：${formatNumber(durationMs)}ms`);
 
-  return ['🧭 上下文已压缩', details.join('\n'), summary].filter(Boolean).join('\n\n');
+  return [
+    completedSessionCommandText('Claude', 'compact'),
+    details.join(' · '),
+    summary,
+  ].filter(Boolean).join('\n');
 }

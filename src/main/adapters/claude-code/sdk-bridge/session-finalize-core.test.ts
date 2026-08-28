@@ -32,6 +32,7 @@ describe('Claude session finalize Core', () => {
       cliSessionId: 'native',
       cwd: '/repo',
       prompt: 'continue',
+      permissionMode: 'bypassPermissions',
       claudeSandboxMode: 'workspace-write',
       runtimeProvider: 'gateway-a',
       claudeAgentName: 'reviewer-claude',
@@ -68,6 +69,13 @@ describe('Claude session finalize Core', () => {
       cwd: '/repo',
       initialSpawnLink: { parentSessionId: 'lead', depth: 1 },
       initialHiddenFromHistory: true,
+      initialRuntime: {
+        permissionMode: 'bypassPermissions',
+        claudeCodeSandbox: 'workspace-write',
+        runtimeProvider: 'gateway-a',
+        model: 'claude-model',
+        thinking: 'xhigh',
+      },
     });
     expect(events[1].payload).toMatchObject({
       text: 'continue',

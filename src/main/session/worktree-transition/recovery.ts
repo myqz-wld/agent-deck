@@ -9,6 +9,7 @@ import {
 import type { SessionAdapterId } from '@shared/types';
 import log from '@main/utils/logger';
 import { WORKTREE_TRANSITION_CONTINUATION } from './constants';
+import { normalizeSystemStatusDetail } from '@core/system-status-copy';
 import {
   cleanupStructuredWorktree,
   rollbackUnacknowledgedEnter,
@@ -163,7 +164,7 @@ export async function completeAcknowledgedEnter(
   emitWorktreeSessionUpsert(record.sessionId);
   emitWorktreeTransitionStatus(
     record.sessionId,
-    '应用重启后已恢复 worktree 工作目录，正在继续当前任务',
+    '应用重启后已恢复 worktree 工作目录，继续当前任务',
     false,
     record.generation,
   );
@@ -269,7 +270,7 @@ export async function completeAcknowledgedExit(
     adapter.releaseCwdTransition?.(record.sessionId, record.generation);
     emitWorktreeTransitionStatus(
       record.sessionId,
-      `已恢复原工作目录；worktree 清理待重试：${errorText(cleanupError)}`,
+      `已恢复原工作目录，worktree 清理待重试：${normalizeSystemStatusDetail(errorText(cleanupError))}`,
       true,
       record.generation,
     );
@@ -372,7 +373,7 @@ export function recoverWorktreeTransition(
         }
         emitWorktreeTransitionStatus(
           record.sessionId,
-          `⚠ 工作目录恢复未完成：${errorText(error)}`,
+          `工作目录恢复失败：${normalizeSystemStatusDetail(errorText(error))}`,
           true,
           record.generation,
         );
