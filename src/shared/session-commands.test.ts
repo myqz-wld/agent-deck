@@ -3,6 +3,7 @@ import {
   exactSessionCommand,
   matchingSessionCommands,
   normalizeSessionCommands,
+  sessionCommandInvocation,
 } from './session-commands';
 
 describe('session commands', () => {
@@ -26,5 +27,7 @@ describe('session commands', () => {
     expect(matchingSessionCommands(commands, '/shr')).toEqual(commands);
     expect(exactSessionCommand(commands, ' /shrink ')).toEqual(commands[0]);
     expect(exactSessionCommand(commands, '/compact now')).toBeNull();
+    expect(sessionCommandInvocation(commands, '/shrink now')).toEqual(commands[0]);
+    expect(sessionCommandInvocation(commands, '/unknown now')).toBeNull();
   });
 });

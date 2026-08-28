@@ -33,7 +33,7 @@ describe('translateSdkMessage — Claude compact_boundary display', () => {
     vi.mocked(sessionRepo.setPermissionMode).mockReset();
   });
 
-  it('renders SDK compact_boundary as a visible timeline message', () => {
+  it('renders SDK compact_boundary as a final system message', () => {
     const { events, emit, internal } = setup();
 
     translateSdkMessage(
@@ -58,7 +58,10 @@ describe('translateSdkMessage — Claude compact_boundary display', () => {
       payload: { usedTokens: 34567 },
     });
     expect(events[1].kind).toBe('message');
-    expect(events[1].payload).toMatchObject({ role: 'assistant' });
+    expect(events[1].payload).toMatchObject({
+      role: 'system',
+      sessionCommandStatus: { command: 'compact', status: 'completed' },
+    });
     const text = (events[1].payload as { text: string }).text;
     expect(text).toContain('上下文已压缩');
     expect(text).toContain('触发：自动');
@@ -93,5 +96,9 @@ describe('translateSdkMessage — Claude compact_boundary display', () => {
       '⚠ 上下文压缩失败：summary model failed',
     );
     expect((events[0].payload as { error?: boolean }).error).toBe(true);
+    expect(events[0].payload).toMatchObject({
+      role: 'system',
+      sessionCommandStatus: { command: 'compact', status: 'failed' },
+    });
   });
 });

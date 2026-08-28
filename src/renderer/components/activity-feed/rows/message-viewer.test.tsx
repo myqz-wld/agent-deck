@@ -101,4 +101,25 @@ describe('MessageBubble original inline presentation', () => {
     expect(screen.queryByRole('button', { name: 'TXT' })).toBeNull();
     expect(document.querySelector('li')?.className).toContain('justify-center');
   });
+
+  it('renders a completed session command as the same compact system row', () => {
+    const event: AgentEvent = {
+      sessionId: 'session-1',
+      agentId: 'codex-cli',
+      kind: 'message',
+      payload: {
+        role: 'system',
+        text: 'Codex 已清空上下文并开始新对话',
+        sessionCommandStatus: { command: 'clear', status: 'completed' },
+      },
+      ts: 12,
+    };
+
+    render(<MessageBubble event={event} agentId="codex-cli" />);
+
+    expect(screen.getByText('系统')).toBeTruthy();
+    expect(screen.getByText('Codex 已清空上下文并开始新对话')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'TXT' })).toBeNull();
+    expect(document.querySelector('li')?.className).toContain('justify-center');
+  });
 });

@@ -12,11 +12,14 @@ import type { UploadedAttachmentRef } from '@shared/types';
 
 import type { GrokExtensionNotification, GrokPromptCompleteNotification } from './extension';
 import { GrokLivePromptCompletion } from './live-prompt-completion';
-import { grokTurnFailureReasonFromRequestError } from './native-error';
 import { errorText } from './protocol-utils';
-import { GrokFirstModelEventTimeoutError, GrokFirstModelEventWatchdog } from './first-model-event-watchdog';
+import { GrokFirstModelEventWatchdog } from './first-model-event-watchdog';
 import { applyRecoveredGrokTurn, GrokProviderCompletionRecovery } from './provider-completion-recovery';
 import type { GrokPendingMessage, GrokRuntime, GrokSubmittingMessage } from './runtime-types';
+import {
+  handleGrokTurnFailure,
+  resolveGrokSessionCommand,
+} from './session-command-feedback';
 import { grokTurnBoundaryBlocked, prepareGrokNextTurn } from './turn-boundary';
 import { finalizeGrokAcpResponse, responseFromGrokLiveOutcome } from './turn-response';
 import type {
@@ -346,6 +349,7 @@ export class GrokTurnQueue {
     }
     runtime.running = true;
     runtime.interruptRequested = false;
+    const sessionCommand = resolveGrokSessionCommand(runtime, message.text);
     const currentTurnController = new AbortController();
     runtime.currentTurnController = currentTurnController;
     let recycleTransport = false;
@@ -406,7 +410,7 @@ export class GrokTurnQueue {
       const response = responseFromGrokLiveOutcome(
         runtime,
         outcome.value,
-        this.options,
+        { ...this.options, sessionCommand },
       );
       if (outcome.value.kind === 'prompt-complete') {
         runtime.ready = false;
@@ -417,27 +421,19 @@ export class GrokTurnQueue {
       await finalizeGrokAcpResponse(
         runtime,
         response,
-        this.options,
+        { ...this.options, sessionCommand },
       );
       clearGrokTurnLiveRate(runtime.translation);
     } catch (error) {
       clearGrokTurnLiveRate(runtime.translation);
-      if (!runtime.closed && runtime.interruptRequested) {
-        this.flushText(runtime);
-        this.options.emitEvent(runtime.applicationSessionId, 'finished', {
-          ok: false,
-          subtype: 'interrupted',
-        });
-      } else if (!runtime.closed && !isCancelled(submitting)) {
-        this.flushText(runtime);
-        const text = `Grok Build 轮次失败：${errorText(error)}`;
-        const failureReason = grokTurnFailureReasonFromRequestError(error);
-        if (failureReason) this.options.emitError(runtime.applicationSessionId, text, failureReason);
-        else this.options.emitError(runtime.applicationSessionId, text);
-        if (error instanceof GrokFirstModelEventTimeoutError) {
-          await this.options.closeSession(runtime.applicationSessionId);
-        }
-      }
+      await handleGrokTurnFailure({
+        runtime,
+        error,
+        submitting,
+        sessionCommand,
+        options: this.options,
+        flushText: () => this.flushText(runtime),
+      });
     } finally {
       if (runtime.currentTurnController === currentTurnController) {
         runtime.currentTurnController = null;

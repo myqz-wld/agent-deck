@@ -43,8 +43,9 @@ export function applyClaudeConversationResetCore(
     agentId: 'claude-code',
     kind: 'message',
     payload: {
-      text: '🧹 Claude 已开始新对话；此前记录仍保留在 Agent Deck 时间线中。',
-      role: 'assistant',
+      text: 'Claude 已清空上下文并开始新对话；此前记录仍保留在 Agent Deck 时间线中。',
+      role: 'system',
+      sessionCommandStatus: { command: 'clear', status: 'completed' },
     },
     ts,
     source: 'sdk',

@@ -158,6 +158,10 @@ export const ActivityRow = memo(function ActivityRow({
   resolveDiffReview,
   renderPendingEvent,
 }: RowProps): JSX.Element | null {
+  if (
+    event.kind === 'finished' &&
+    (event.payload as { suppressTimeline?: unknown } | null)?.suppressTimeline === true
+  ) return null;
   if (event.kind === 'message') {
     return <MessageBubble event={event} agentId={agentId} showAttachments={allowLocalAssets} />;
   }

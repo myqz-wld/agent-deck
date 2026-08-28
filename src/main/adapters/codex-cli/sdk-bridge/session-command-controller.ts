@@ -3,7 +3,10 @@ import {
   createCodexAppServerTranslateState,
   translateCodexAppServerNotification,
 } from '../app-server/translate';
-import { getNotificationTurnId } from '../app-server/notification-helpers';
+import {
+  getNotificationTurnId,
+  readTerminalError,
+} from '../app-server/notification-helpers';
 import {
   clearCodexLiveTokenEstimateCore,
   handleCodexNotificationForLiveRateCore,
@@ -33,6 +36,20 @@ export class CodexSessionCommandController {
     }
     try {
       await this.clear(session);
+      this.emit(session, 'message', {
+        role: 'system',
+        text: 'Codex 已清空上下文并开始新对话；此前记录仍保留在 Agent Deck 时间线中。',
+        sessionCommandStatus: { command: 'clear', status: 'completed' },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emit(session, 'message', {
+        role: 'system',
+        text: `Codex 清理上下文失败：${message}`,
+        error: true,
+        sessionCommandStatus: { command: 'clear', status: 'failed' },
+      });
+      throw error;
     } finally {
       this.release(session);
     }
@@ -87,21 +104,20 @@ export class CodexSessionCommandController {
       ts: Date.now(),
       source: 'sdk',
     });
-    this.emit(session, 'message', {
-      text: '🧹 Codex 已开始新对话；此前记录仍保留在 Agent Deck 时间线中。',
-      role: 'assistant',
-    });
   }
 
   private async compact(session: InternalSession): Promise<void> {
     const controller = new AbortController();
     session.currentTurn = controller;
     const translateState = createCodexAppServerTranslateState();
+    let terminalFailure: string | null = null;
     try {
       const { events } = await session.thread.compactStreamed();
       for await (const event of events) {
         if (event.type !== 'server.notification') continue;
         session.runtimeIdentity = event.runtimeIdentity;
+        terminalFailure =
+          readTerminalError(event.notification)?.message ?? terminalFailure;
         const turnId = getNotificationTurnId(event.notification);
         if (event.notification.method === 'turn/started' && turnId) {
           session.currentTurnId = turnId;
@@ -120,7 +136,11 @@ export class CodexSessionCommandController {
         );
         translateCodexAppServerNotification(
           event.notification,
-          (kind, payload) => this.emit(session, kind, payload),
+          (kind, payload) => {
+            if (kind === 'context-usage' || kind === 'token-usage') {
+              this.emit(session, kind, payload);
+            }
+          },
           {
             model:
               event.runtimeIdentity?.model ??
@@ -135,6 +155,20 @@ export class CodexSessionCommandController {
           },
         );
       }
+      if (terminalFailure) {
+        this.emit(session, 'message', {
+          role: 'system',
+          text: `Codex 上下文压缩失败：${terminalFailure}`,
+          error: true,
+          sessionCommandStatus: { command: 'compact', status: 'failed' },
+        });
+      } else {
+        this.emit(session, 'message', {
+          role: 'system',
+          text: 'Codex 上下文压缩完成。',
+          sessionCommandStatus: { command: 'compact', status: 'completed' },
+        });
+      }
     } catch (error) {
       clearCodexLiveTokenEstimateCore(
         session,
@@ -143,12 +177,21 @@ export class CodexSessionCommandController {
         this.context.runtimeHost.liveRate,
       );
       if (controller.signal.aborted) {
-        this.emit(session, 'finished', { ok: false, subtype: 'interrupted' });
+        this.emit(session, 'message', {
+          role: 'system',
+          text: 'Codex 上下文压缩失败：操作已中断。',
+          error: true,
+          sessionCommandStatus: { command: 'compact', status: 'failed' },
+        });
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
-      this.emit(session, 'message', { text: `⚠ Codex 命令失败：${message}`, error: true });
-      this.emit(session, 'finished', { ok: false, subtype: 'error' });
+      this.emit(session, 'message', {
+        role: 'system',
+        text: `Codex 上下文压缩失败：${message}`,
+        error: true,
+        sessionCommandStatus: { command: 'compact', status: 'failed' },
+      });
     } finally {
       session.currentTurn = null;
       session.currentTurnId = null;
