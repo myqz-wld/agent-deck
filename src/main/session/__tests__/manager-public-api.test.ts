@@ -361,4 +361,57 @@ describe('SessionManager 公共 API 主路径（REVIEW_4 L8）', () => {
 
     sessionManager.releaseSdkClaim(applicationId);
   });
+
+  it('Codex /clear 轮换与 application id 相同的 native id 后仍接收系统完成消息', () => {
+    const applicationId = 'codex-app-stable';
+    sessionManager.claimAsSdk(applicationId);
+    sessionManager.ingest(makeEvent({
+      sessionId: applicationId,
+      agentId: 'codex-cli',
+      source: 'sdk',
+      kind: 'session-start',
+      payload: { cwd: '/tmp/codex' },
+    }));
+
+    // Codex commonly starts with the stable application id as its native thread id. Clearing the
+    // context rotates only the native id; the stable id remains the address for subsequent events.
+    sessionManager.updateCliSessionId(applicationId, applicationId);
+    sessionManager.updateCliSessionId(applicationId, 'codex-native-after-clear');
+    sessionManager.ingest(makeEvent({
+      sessionId: applicationId,
+      agentId: 'codex-cli',
+      source: 'sdk',
+      kind: 'message',
+      payload: {
+        role: 'system',
+        text: 'Codex 已清空上下文并开始新对话。',
+        sessionCommandStatus: { command: 'clear', status: 'completed' },
+      },
+    }));
+
+    expect(mockEvents.at(-1)).toMatchObject({
+      sessionId: applicationId,
+      kind: 'message',
+      payload: {
+        role: 'system',
+        sessionCommandStatus: { command: 'clear', status: 'completed' },
+      },
+    });
+    expect(mockSessions.get(applicationId)?.cliSessionId)
+      .toBe('codex-native-after-clear');
+
+    // The old native identity equals the stable id here, so its hook tails are still rejected by
+    // the SDK ownership claim without fencing application-id SDK events.
+    const eventCount = mockEvents.length;
+    sessionManager.ingest(makeEvent({
+      sessionId: applicationId,
+      agentId: 'codex-cli',
+      source: 'hook',
+      kind: 'message',
+      payload: { role: 'assistant', text: 'retired native tail' },
+    }));
+    expect(mockEvents).toHaveLength(eventCount);
+
+    sessionManager.releaseSdkClaim(applicationId);
+  });
 });

@@ -125,9 +125,12 @@ export function renameSdkSessionImpl(
  * **黑名单链** (R5 HIGH-R5-1 + R6 MED-R6-1 修订):
  * - 只读取真实存在的 oldCliSid = sessionRepo.get(applicationSid)?.cliSessionId ?? null
  * - 调 sessionRepo.updateCliSessionId(applicationSid, newCliSid) 单列 UPDATE
- * - oldCliSid 非空且确实被替换时，调 recentlyDeleted.set(oldCliSid, Date.now())
- *   加 OLD_CLI 黑名单 60s
+ * - oldCliSid 非空、确实被替换且不等于 applicationSid 时，调
+ *   recentlyDeleted.set(oldCliSid, Date.now()) 加 OLD_CLI 黑名单 60s
  *   防迟到 hook event 携带 OLD_CLI 时撞 D7 3b miss 复活幽灵 record
+ * - oldCliSid === applicationSid 时不能加入黑名单：adapter 后续 SDK event 仍使用稳定的
+ *   applicationSid；迟到 hook event 则由 sdkOwned claim 去重。否则 Codex `/clear` 在换新
+ *   native thread 后会吞掉紧随其后的系统完成消息。
  * - 首次绑定 native id 时 oldCliSid=null，绝不能拿 applicationSid 代替。applicationSid 是
  *   adapter 后续所有 SDK event 的稳定身份；把它写进删除黑名单会吞掉首轮 assistant /
  *   finished，令 UI 永久卡在 working（Grok fresh session 的 application/native id 天生不同）。
@@ -161,7 +164,11 @@ export function updateCliSessionIdImpl(
   const oldCliSid = rec?.cliSessionId ?? null;
   sessionRepo.updateCliSessionId(applicationSid, newCliSessionId);
   // OLD_CLI 进黑名单 60s — 防迟到 hook event 携带 OLD_CLI 复活幽灵 record (D7 3b ingest drop)
-  if (oldCliSid && oldCliSid !== newCliSessionId) {
+  if (
+    oldCliSid &&
+    oldCliSid !== applicationSid &&
+    oldCliSid !== newCliSessionId
+  ) {
     state.recentlyDeleted.set(oldCliSid, Date.now());
   }
   // 不 emit session-renamed (D6 反向 rename 不 emit)
