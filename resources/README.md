@@ -1,11 +1,8 @@
 # resources/
 
 Source directory for app runtime resources. `package.json` copies the adapter roots through
-`build.extraResources`; Desktop main and the Server Core node asset catalog load the same packaged
-conventions, Agents, and Skills into provider sessions. The runtime window icon is the only resource
-stored inside `app.asar`.
-
-This document records only resource paths, loading behavior, and paired-boundary rules for locating runtime resources during packaging and injection.
+`build.extraResources`, so Desktop main and the Server Core node asset catalog load the same
+packaged conventions, Agents, and Skills. Only the runtime window icon is stored inside `app.asar`.
 
 ## Packaging Paths
 
@@ -17,90 +14,70 @@ This document records only resource paths, loading behavior, and paired-boundary
 | `resources/grok-config` | `.app/Contents/Resources/grok-config` | Grok Build ACP baseline, plugin agents, and skills |
 | `resources/sounds` | `.app/Contents/Resources/sounds` | App notification sounds |
 
-Path routing: dev (`pnpm dev`) reads the `<repo>/resources/*` source directories directly; prod reads the `.app/Contents/Resources/*` copies. `icon.png` is also included at `app.asar/resources/icon.png` for window and dialog runtime icons; `icon.ico` is a Windows builder input only.
+Dev (`pnpm dev`) reads `<repo>/resources/*` directly; production reads the
+`.app/Contents/Resources/*` copies. `icon.png` is also included at
+`app.asar/resources/icon.png`; `icon.ico` is a Windows builder input only.
 
 ## Immutable assets and runtime overrides
 
-Packaged app conventions, Agents, and Skills are immutable runtime resources. The Assets Library
-may attach an app-owned runtime delta to a bundled Agent without editing this directory:
+Packaged app conventions, Agents, and Skills are immutable. The Assets Library, Remote asset
+catalog, and Remote Agent selection use only bundled assets. Agent Deck may attach an app-owned
+runtime delta without editing this directory:
 
 - Claude, Codex, and Grok bundled Agents may override model and thinking.
 - Claude and Codex bundled Agents may additionally select their adapter's Gateway profile.
 - Reset removes the whole app-owned delta and exposes the packaged Agent defaults again.
-- Bundled Skills have no runtime override. Direct and Plugin Agents/Skills remain owned by their
-  native adapter directories and are not listed or managed in the Assets Library. Agent Deck
-  provides no create, edit, delete, install, or enable operation for them.
+- Bundled Skills have no runtime override.
 
-The Remote asset catalog and Remote Agent selection are bundled-only and do not enumerate native
-user or Plugin assets. Provider runtimes may still load assets from their isolated native homes;
-Desktop-local Agent selection retains its native user and Plugin resolution paths.
+Native user and Plugin assets remain provider-owned and available to native loading and
+Desktop-local spawn resolution; Agent Deck does not list or manage them.
 
-Provider endpoints, credentials, and alias definitions stay in each adapter's native configuration.
-The resource layer stores only adapter-native Gateway ids; it neither stores credentials nor writes
-user-level Claude, Codex, or Grok configuration.
+Provider endpoints, credentials, and aliases stay in native configuration. The resource layer
+stores only adapter-native Gateway ids and does not write user-level provider configuration.
 
 ## claude-config/
 
-The Claude Code adapter uses this resource root. Gateway-backed sessions reuse the same agents,
-skills, and `CLAUDE.md`; their `gateway` id resolves independently to
-`~/.claude/gateways/<gateway>.json` and is passed to the SDK child through `options.settings`.
+Gateway-backed Claude sessions reuse this root; their `gateway` id resolves to
+`~/.claude/gateways/<gateway>.json` and is passed through `options.settings`.
 
 - `CLAUDE.md`: Appended to the end of the Claude Code preset system prompt through SDK `systemPrompt.append`. User / project / local `CLAUDE.md` files are loaded separately by Claude Code as project context. The user copy saved by the settings panel is written to `<userData>/agent-deck-claude.md`; when present, it overrides the bundled file.
-- `agent-deck-plugin/`: Local plugin source used by the Claude SDK `plugins` field. At runtime it is mirrored to `<userData>/agent-deck-plugin/` and resource placeholders are replaced; the mirror is pruned by `injectAgentDeckClaudeSkills` / `injectAgentDeckClaudeAgents` for the `skills/` / `agents/` subdirectories before being handed to the SDK scanner.
-- `agent-deck-plugin/agents/reviewer-claude.md`: Claude Code reviewer teammate body.
-- `agent-deck-plugin/skills/*/SKILL.md`: Claude Code-side `agent-deck:*` skills.
+- `agent-deck-plugin/`: Contains `agents/reviewer-claude.md` and `skills/*/SKILL.md`. Runtime mirrors it to `<userData>/agent-deck-plugin/`, replaces resource placeholders, and prunes `agents/` or `skills/` according to their injection switches before SDK scanning.
 - `spawn_session(agentName=...)` resolves bundled Agents, project `.claude/agents`, user `${CLAUDE_CONFIG_DIR:-~/.claude}/agents`, and native Claude Plugin Agents. Plugin selectors use `<plugin>:<agent>` and the selected Plugin root is passed to the Claude SDK through `plugins` for that session.
-- The Assets Library lists only Agent Deck's bundled Claude Agents/Skills. User-root and native
-  Plugin assets remain available through Claude Code's native loading and Desktop-local spawn
-  resolution, but are not shown there.
 
 ## codex-config/
 
-The Codex adapter uses this resource root. Codex app-server has no Claude SDK `plugins[]` field, so its injection path differs from the Claude side.
+Codex conventions, Agents, and Skills use separate app-server injection paths.
 
-- `CODEX_AGENTS.md`: After resource placeholder replacement, injected into in-app Codex sessions through the app-server `developerInstructions` field, independently of Codex's native `AGENTS.md` instruction chain. The user copy saved by the settings panel is written to `<userData>/agent-deck-codex-agents.md`; when present, it overrides the bundled file. If the bundled file is missing, loading fails explicitly and does not fall back to the claude-config side.
-- `agent-deck-plugin/agents/reviewer-codex.toml`: Official Codex custom-agent TOML. The bundled-assets / spawn loader scans it for `spawn_session(agentName)` routing. When `injectAgentDeckCodexAgents=false`, the spawn loader skips the bundled root, but project / user Codex agents remain available.
-- `agent-deck-plugin/skills/*/SKILL.md`: After resource placeholder replacement, mirrored into the Codex skills extraRoot under app userData and injected into in-app Codex sessions through app-server `skills/extraRoots/set`; it is not written to the user-level `~/.codex/skills/agent-deck/`.
-- Native Codex Plugins contribute Skills. Agent Deck additionally recognizes Plugin `agents/*.toml` as an Agent Deck extension and maps the same supported custom-agent fields into the existing Codex app-server session configuration; this is not a native Codex Plugin Agent component.
-- `spawn_session(agentName=...)` resolves bundled Agents, project `.codex/agents`, user `${CODEX_HOME:-~/.codex}/agents`, and the Plugin TOML extension. Plugin selectors use `<plugin>:<agent>`.
-- The public `provider` field is retained as the Codex API field name, but its value is a Gateway id
-  discovered only from `${CODEX_HOME:-~/.codex}/gateways/*.toml`. The filename stem is the id and
-  display name; file contents are not consulted during enumeration.
+- `CODEX_AGENTS.md`: After resource placeholder replacement, injected through app-server `developerInstructions`, independently of Codex's native `AGENTS.md` chain. The settings-panel copy at `<userData>/agent-deck-codex-agents.md` overrides the bundled file.
+- `agent-deck-plugin/`: Contains `agents/reviewer-codex.toml` and `skills/*/SKILL.md`. The Agent loader scans the TOML for bundled routing; Skills are mirrored under app userData and injected through `skills/extraRoots/set`. Their respective switches skip only the bundled roots.
+- Native Codex Plugins contribute Skills; Agent Deck also recognizes Plugin `agents/*.toml` as an extension and maps supported fields into the existing session configuration. `spawn_session(agentName=...)` resolves bundled, project `.codex/agents`, user `${CODEX_HOME:-~/.codex}/agents`, and Plugin TOML Agents; Plugin selectors use `<plugin>:<agent>`.
+- The public `provider` field contains a Gateway id discovered from `${CODEX_HOME:-~/.codex}/gateways/*.toml`. The filename stem is its id and display name; enumeration does not read file contents.
 - Each Codex Gateway file is a complete ordinary native Codex TOML config. `model_provider`,
-  `model_providers`, `model`, and other native keys are optional. Agent Deck applies the full config
-  to new, resumed, forked, and internal Codex threads; when present, top-level `model_provider` is
-  also sent through app-server `modelProvider` and is independent of the filename stem. Remote
-  provider homes receive the same validated TOML file. Agent Deck-owned MCP and runtime safety
-  boundaries remain authoritative.
-- An empty Codex Gateway selection delegates to `${CODEX_HOME:-~/.codex}/config.toml`. A non-empty
-  selection resolves to the same-named `.toml`.
-- The Assets Library lists only Agent Deck's bundled Codex Agents/Skills. User-root assets, native
-  Plugin Skills, and Plugin TOML Agent extensions remain available through Codex CLI's native
-  loading and Desktop-local Agent Deck spawn resolution, but are not shown there.
+  `model_providers`, `model`, and other keys are optional. Agent Deck applies the full config to new,
+  resumed, forked, and internal threads; top-level `model_provider`, when present, is also sent as
+  app-server `modelProvider`. Remote provider homes receive the same validated file. An empty
+  Gateway selection delegates to `${CODEX_HOME:-~/.codex}/config.toml`; otherwise the same-named
+  Gateway TOML is used. Agent Deck-owned MCP and runtime safety boundaries remain authoritative.
 - Agent Deck reads native Codex configuration and Gateway profiles but does not write
   `${CODEX_HOME:-~/.codex}/config.toml`, `${CODEX_HOME:-~/.codex}/gateways/`,
   `~/.codex/AGENTS.md`, or `~/.codex/skills/agent-deck/`.
 
 ## grok-config/
 
-The Grok Build adapter uses this resource root through the official ACP v1 `session/new` / `session/load` metadata surface.
+Grok Build uses this root through the ACP v1 `session/new` / `session/load` metadata surface.
 
 - `GROK_AGENTS.md`: Passed through ACP `_meta.rules` when the Grok app-conventions switch is enabled. Grok Build consumes the rules while constructing a new native session; loading an existing native session retains its persisted system prompt. Asset Library edits are stored separately at `<userData>/agent-deck-grok-agents.md`; that app-owned copy wins until **Restore default** deletes it. `_meta.rules` remains independent of `_meta.agentProfile`, so the convention also applies when a bundled Grok Agent is selected.
-- `agent-deck-plugin/`: App-bundled Grok plugin containing `reviewer-grok` and the Agent Deck review skills.
-- Grok accepts a whole plugin directory, while Agent Deck exposes independent Skills and Agents switches. At runtime the selected subdirectories are copied to an app-owned mirror under `<userData>/grok-plugin-profiles/`, and that mirror is passed through ACP `_meta.pluginDirs`.
+- `agent-deck-plugin/`: Contains `reviewer-grok` and the review Skills. Because Grok accepts a whole Plugin directory, the independent Agent and Skill switches select subdirectories for an app-owned mirror under `<userData>/grok-plugin-profiles/`; ACP receives that mirror through `_meta.pluginDirs`.
 - `spawn_session(agentName=...)` resolves Grok's bundled, project (`.grok/agents`), user (`~/.grok/agents`), and native Plugin Agents. Plugin selectors use `<plugin>:<agent>`; the selected native profile and Plugin root are passed through ACP `_meta.agentProfile` / `_meta.pluginDirs`.
-- The Assets Library lists only Agent Deck's bundled Grok Agents/Skills. User-root and discoverable
-  Plugin assets remain available through Grok's native loading and Desktop-local spawn resolution,
-  but are not shown there.
 - The mirror and editable application-convention copy contain only Agent Deck-owned resources. Agent Deck does not write `~/.grok/config.toml`, `~/.grok/AGENTS.md`, or user plugins.
 - The Grok binary is not part of `extraResources`; Settings may point to an installed binary, otherwise the adapter resolves `grok` from the user shell `PATH`.
 
 ## Paired Boundaries
 
-- App environment conventions: protocol semantics in `resources/claude-config/CLAUDE.md`, `resources/codex-config/CODEX_AGENTS.md`, and `resources/grok-config/GROK_AGENTS.md` must stay aligned; adapter tool differences should be written according to each adapter's execution model.
-- Shared conventions may run against Desktop-local or Server Core tool registrations. Defer
-  argument domains and optional fields to the live schema, and state only behavior common to both
-  environments unless the instruction explicitly routes by environment.
+- App conventions must align protocol semantics across `resources/claude-config/CLAUDE.md`,
+  `resources/codex-config/CODEX_AGENTS.md`, and `resources/grok-config/GROK_AGENTS.md`, while keeping
+  adapter-specific execution details. Shared rules must work with Desktop-local and Server Core;
+  the live schema remains authoritative for arguments and optional fields.
 - Reviewer bodies: `reviewer-claude.md`, `reviewer-codex.toml`, and `reviewer-grok.md` must align on role, input contract, output format, and failure handling; do not copy another side's tool instructions merely for mirrored synchronization.
 - Skills: Claude, Codex, and Grok skills live under their adapter resource roots. Same-name skills must align on triggers and target behavior, while execution steps should follow each adapter's actual tool capabilities.
 - Packaged resources must be self-contained: app conventions, reviewer agents, and skills must remain fully usable when no user-customized agents / skills exist.
