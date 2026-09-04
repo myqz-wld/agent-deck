@@ -45,7 +45,7 @@ The Claude Code adapter uses this resource root. Gateway-backed sessions reuse t
 skills, and `CLAUDE.md`; their `gateway` id resolves independently to
 `~/.claude/gateways/<gateway>.json` and is passed to the SDK child through `options.settings`.
 
-- `CLAUDE.md`: Appended to the end of the preset system prompt through Claude SDK `systemPrompt.append`, after user / project / local `CLAUDE.md`. The user copy saved by the settings panel is written to `<userData>/agent-deck-claude.md`; when present, it overrides the bundled file.
+- `CLAUDE.md`: Appended to the end of the Claude Code preset system prompt through SDK `systemPrompt.append`. User / project / local `CLAUDE.md` files are loaded separately by Claude Code as project context. The user copy saved by the settings panel is written to `<userData>/agent-deck-claude.md`; when present, it overrides the bundled file.
 - `agent-deck-plugin/`: Local plugin source used by the Claude SDK `plugins` field. At runtime it is mirrored to `<userData>/agent-deck-plugin/` and resource placeholders are replaced; the mirror is pruned by `injectAgentDeckClaudeSkills` / `injectAgentDeckClaudeAgents` for the `skills/` / `agents/` subdirectories before being handed to the SDK scanner.
 - `agent-deck-plugin/agents/reviewer-claude.md`: Claude Code reviewer teammate body.
 - `agent-deck-plugin/skills/*/SKILL.md`: Claude Code-side `agent-deck:*` skills.
@@ -58,7 +58,7 @@ skills, and `CLAUDE.md`; their `gateway` id resolves independently to
 
 The Codex adapter uses this resource root. Codex app-server has no Claude SDK `plugins[]` field, so its injection path differs from the Claude side.
 
-- `CODEX_AGENTS.md`: After resource placeholder replacement, injected into in-app Codex sessions through app-server `developerInstructions`. The user copy saved by the settings panel is written to `<userData>/agent-deck-codex-agents.md`; when present, it overrides the bundled file. If the bundled file is missing, loading fails explicitly and does not fall back to the claude-config side.
+- `CODEX_AGENTS.md`: After resource placeholder replacement, injected into in-app Codex sessions through the app-server `developerInstructions` field, independently of Codex's native `AGENTS.md` instruction chain. The user copy saved by the settings panel is written to `<userData>/agent-deck-codex-agents.md`; when present, it overrides the bundled file. If the bundled file is missing, loading fails explicitly and does not fall back to the claude-config side.
 - `agent-deck-plugin/agents/reviewer-codex.toml`: Official Codex custom-agent TOML. The bundled-assets / spawn loader scans it for `spawn_session(agentName)` routing. When `injectAgentDeckCodexAgents=false`, the spawn loader skips the bundled root, but project / user Codex agents remain available.
 - `agent-deck-plugin/skills/*/SKILL.md`: After resource placeholder replacement, mirrored into the Codex skills extraRoot under app userData and injected into in-app Codex sessions through app-server `skills/extraRoots/set`; it is not written to the user-level `~/.codex/skills/agent-deck/`.
 - Native Codex Plugins contribute Skills. Agent Deck additionally recognizes Plugin `agents/*.toml` as an Agent Deck extension and maps the same supported custom-agent fields into the existing Codex app-server session configuration; this is not a native Codex Plugin Agent component.
@@ -85,7 +85,7 @@ The Codex adapter uses this resource root. Codex app-server has no Claude SDK `p
 
 The Grok Build adapter uses this resource root through the official ACP v1 `session/new` / `session/load` metadata surface.
 
-- `GROK_AGENTS.md`: Packaged default appended through ACP `_meta.rules` when the Grok app-conventions switch is enabled. Asset Library edits are stored separately at `<userData>/agent-deck-grok-agents.md`; that app-owned copy wins until **Restore default** deletes it. `_meta.rules` remains independent of `_meta.agentProfile`, so the convention also applies when a bundled Grok Agent is selected.
+- `GROK_AGENTS.md`: Passed through ACP `_meta.rules` when the Grok app-conventions switch is enabled. Grok Build consumes the rules while constructing a new native session; loading an existing native session retains its persisted system prompt. Asset Library edits are stored separately at `<userData>/agent-deck-grok-agents.md`; that app-owned copy wins until **Restore default** deletes it. `_meta.rules` remains independent of `_meta.agentProfile`, so the convention also applies when a bundled Grok Agent is selected.
 - `agent-deck-plugin/`: App-bundled Grok plugin containing `reviewer-grok` and the Agent Deck review skills.
 - Grok accepts a whole plugin directory, while Agent Deck exposes independent Skills and Agents switches. At runtime the selected subdirectories are copied to an app-owned mirror under `<userData>/grok-plugin-profiles/`, and that mirror is passed through ACP `_meta.pluginDirs`.
 - `spawn_session(agentName=...)` resolves Grok's bundled, project (`.grok/agents`), user (`~/.grok/agents`), and native Plugin Agents. Plugin selectors use `<plugin>:<agent>`; the selected native profile and Plugin root are passed through ACP `_meta.agentProfile` / `_meta.pluginDirs`.

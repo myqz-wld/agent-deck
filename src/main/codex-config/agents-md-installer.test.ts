@@ -51,8 +51,8 @@ afterEach(() => {
 
 describe('Codex agents markdown desktop facade', () => {
   it('applies the session setting and resource substitution outside the store', () => {
-    expect(getAgentDeckCodexDeveloperInstructions()).toContain(
-      `Use ${fixture.resourcesRoot}.`,
+    expect(getAgentDeckCodexDeveloperInstructions()).toBe(
+      `--- Agent Deck application conventions ---\n\nUse ${fixture.resourcesRoot}.`,
     );
 
     fixture.enabled = false;

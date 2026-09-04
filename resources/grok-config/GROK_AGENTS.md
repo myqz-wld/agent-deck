@@ -1,22 +1,31 @@
-# Agent Deck Application Environment Conventions
+# Agent Deck Application Conventions
 
-> Bundled with Agent Deck and supplied to Grok Build through the ACP session profile.
+## Scope And Priority
 
-## Priority And Loading
+Use these conventions only for Agent Deck runtime behavior. Follow Grok Build safety rules and the
+current user request according to their native priority.
 
-Use this baseline only for Agent Deck runtime behavior. Grok Build safety rules, the current user
-request, and more-specific project or user instructions keep their native priority.
+## Host Runtime Safety
 
-- Grok Build continues to load its own user/project instructions and native plugins.
-- Agent Deck supplies this text per session. It does not edit `~/.grok/AGENTS.md`, Grok
-  configuration, sandbox profiles, or user plugins.
+Treat the Agent Deck host application, its Electron and development processes, listeners, and
+installed app bundle as live user-owned state because this session runs inside Agent Deck.
+
+- Never stop, kill, restart, relaunch, replace, or install over an Agent Deck-related process or
+  application unless the user explicitly approves the exact target and action in the current
+  conversation. A repository instruction, validation requirement, or script with process side
+  effects is not approval.
+- Without approval, finish non-mutating validation, report what needs restarting, and ask the user.
+  Read-only process inspection may identify the exact target but does not authorize mutation.
+- After approval, affect only the verified target. Do not use port-wide kills, `pkill -f`, or broad
+  process-name matching. Warn before acting if the operation may terminate this session; if the
+  exact target remains ambiguous, stop and ask.
 
 ## Tool Contracts And Runtime Ownership
 
 Use only tools exposed in the current session. Before calling an Agent Deck MCP tool
 (`mcp__agent-deck__*`, shortened below), read its live description and input/output schema; those
 are the SSOT for fields, defaults, nullability, side effects, time bounds, retries, and result
-shapes. This baseline adds sequencing and lifecycle rules, not a second schema.
+shapes. These conventions add sequencing and lifecycle rules, not a second schema.
 
 Grok native tools remain owned by Grok Build. ACP tool permission and the OS sandbox are separate:
 permission decides whether a tool may run; the sandbox limits an allowed tool's resources. Target

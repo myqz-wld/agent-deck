@@ -10,6 +10,24 @@
 - macOS environment; use pnpm as the package manager.
 - Node.js >= 18.
 
+## Host Runtime Safety
+
+Treat every existing Agent Deck app instance, Electron process, development server, listener, and
+installed app bundle as live user-owned state. Agent Deck may already be running while this
+repository is edited, and the current agent session may be hosted by that same application or one
+of its managed runtimes.
+
+- Never stop, kill, restart, relaunch, replace, or install over an Agent Deck-related process or
+  application unless the user explicitly approves the exact target and action in the current
+  conversation. A task request, validation rule, script with process side effects, or statement
+  that a restart is required is not process-mutation approval.
+- Without approval, complete only non-mutating validation, report the component that needs a
+  restart or replacement, and ask the user. Read-only process inspection may identify the target
+  but does not authorize a later mutation.
+- After approval, verify and affect only the exact target. Do not use port-wide kills, `pkill -f`,
+  or broad process-name matching. Warn before acting when the operation may terminate the current
+  session. If the exact target remains ambiguous, stop and ask.
+
 ## Base Directory Structure
 
 Create or maintain files in this structure. Do not create parallel directories for the same file type unless the project already has a stronger project rule.
@@ -45,7 +63,9 @@ Before starting, run `find ref/changelogs ref/plans ref/reviews -maxdepth 2 -typ
 
 Project-specific triggers:
 
-- After changing main or preload code, restart development after validation. Renderer-only changes use HMR.
+- After changing main or preload code, finish validation, report that the running development
+  instance needs a restart, and request user approval before any process action. Renderer-only
+  changes use HMR.
 - After changing a database schema, add the next migration and advance `user_version` through the normal migration chain.
 - After adding an IPC channel, synchronize shared types, main registration, preload facade, and renderer caller.
 
@@ -164,17 +184,10 @@ pnpm test            # required for behavior or structural changes
 pnpm build           # required for large changes
 ```
 
-After changing main / preload -> **restart dev**:
-
-```bash
-# cleanly kill old processes
-lsof -ti:47821,5173 2>/dev/null | xargs -r kill -9
-pkill -f "electron-vite dev" 2>/dev/null
-pkill -f "Electron.app/Contents/MacOS/Electron" 2>/dev/null
-
-# restart from the repository root
-pnpm dev
-```
+After changing main / preload, report that a development restart is required and request explicit
+user approval under **Host Runtime Safety**. Do not stop or restart a process automatically. If the
+user approves, resolve the exact target with read-only inspection, act only on that target, and
+start `pnpm dev` only when the approved action includes starting it.
 
 After changing renderer -> wait for HMR to push automatically; no restart is needed.
 
@@ -182,25 +195,34 @@ After changing renderer -> wait for HMR to push automatically; no restart is nee
 
 ## Packaging And Local Install (macOS)
 
-Whenever you want to try the installed version or verify that the wrapper can locate the `.app`, run:
+Use the local installer only after read-only inspection confirms that no Agent Deck instance is
+running. If one is running, ask the user to quit it or obtain approval for a separate exact stop
+action, then confirm it has exited before invoking the installer:
 
 ```bash
 pnpm install:local:mac
 ```
 
-The command packages and checks the app before stopping existing instances. It installs through
-hidden staging and backup bundles, rolls back the previous app when installation validation fails,
-reuses an already-correct CLI symlink, and validates the installed signature and build metadata.
-After success it removes `build/dist/mac-*/Agent Deck.app` so macOS indexes only the installed app;
-the DMG and block map remain in `build/dist`.
+The command contains its own process-stop fallback, so permission to build or validate is not
+permission to run it against a live instance. It packages and checks the app before installation,
+installs through hidden staging and backup bundles, rolls back the previous app when installation
+validation fails, reuses an already-correct CLI symlink, and validates the installed signature and
+build metadata. After success it removes `build/dist/mac-*/Agent Deck.app` so macOS indexes only
+the installed app; the DMG and block map remain in `build/dist`.
 
 ### Packaging Configuration Rules
 
 - `mac.icon: "resources/icon.png"` must be configured explicitly; `extraResources` must copy `resources/bin` into the .app `bin`.
 - Packaging scripts must generate `build/build-info.json` before `electron-builder` and ship it as bundled `build-info.json`. The metadata must include package/app name, semantic version when available, full git commit, short commit, branch when available, dirty flag when determinable, and build timestamp.
 - Installed wrappers must expose human-readable version/status output and a machine-checkable freshness check (`agent-deck --version` and `agent-deck --check-installed`). The freshness check compares installed metadata with the current source checkout commit, may compare local `origin/main`, must not fetch remotes, and must report missing metadata separately from a commit mismatch.
-- Ad-hoc re-signing, killing old processes before overwrite installs, and unpacking SDK / Codex native binaries are all required. If any item is missing, fix the configuration first; do not work around it in business logic.
-- When the user explicitly asks not to kill, run `pnpm dist:mac` only. Do not run `pnpm install:local:mac`, delete the installed bundle, or overwrite a running `/Applications/Agent Deck.app`; wait for the user to quit before installing.
+- Ad-hoc re-signing and unpacking SDK / Codex native binaries are required. Stopping a running app
+  is governed separately by **Host Runtime Safety** and is never an implicit build or validation
+  step.
+- Do not run `pnpm install:local:mac` while an Agent Deck instance is running. Obtain explicit
+  approval for a separate exact stop action or wait for the user to quit, confirm no instance
+  remains, and only then install. Without approval, or when the user asks not to kill, run
+  `pnpm dist:mac` only when packaging is in scope and do not delete or overwrite the installed
+  bundle.
 - Before validating the wrapper, always `unset ELECTRON_RUN_AS_NODE`; if the binary behaves like Node or parses `new` as a script, the validation environment is polluted. Do not change the wrapper / packaging config for that.
 - Before and after real vitest SQLite tests, protect the better-sqlite3 binding (evidence: CHANGELOG_42). If Electron reports `NODE_MODULE_VERSION 115 vs 130`, clear the npm prebuild cache and binding build directory, then force rebuild:
   ```bash

@@ -3,7 +3,8 @@
  *
  * Agent Deck no longer writes its bundled Codex baseline into user-level
  * `~/.codex/AGENTS.md`. In-app Codex SDK sessions receive the active
- * CODEX_AGENTS.md content through app-server `developerInstructions`.
+ * CODEX_AGENTS.md content through app-server `developerInstructions`. This app-owned field stays
+ * separate from Codex's native AGENTS.md instruction chain.
  *
  * **plan codex-handoff-team-alignment-20260518 §D5 fallback 策略（P3 Step 3.6 修法）**:
  * 内置内容源切到 `resources/codex-config/CODEX_AGENTS.md`（codex 视角约定独立维护，不再
@@ -84,7 +85,7 @@ export function getAgentDeckCodexDeveloperInstructions(): string | undefined {
   }
   const substituted = substituteResourcesPlaceholder(content).trim();
   if (!substituted) return undefined;
-  return `--- Agent Deck application conventions (bundled, per-session) ---\n\n${substituted}`;
+  return `--- Agent Deck application conventions ---\n\n${substituted}`;
 }
 
 /**

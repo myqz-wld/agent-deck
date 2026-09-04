@@ -1,24 +1,31 @@
-# Agent Deck Application Environment Conventions
+# Agent Deck Application Conventions
 
-> Bundled with Agent Deck and injected into each in-app Codex SDK session through app-server
-> `developerInstructions`.
+## Scope And Priority
 
-## Priority And Loading
+Use these conventions only for Agent Deck runtime behavior. Follow Codex safety constraints,
+system/developer instructions, and the current user request according to their native priority.
 
-Use this baseline only for Agent Deck runtime behavior. Codex safety constraints, system/developer
-instructions, the current user request, and more-specific project conventions keep their native
-priority.
+## Host Runtime Safety
 
-- User, project, and local `AGENTS.md` files still load through Codex's native instruction chain.
-- Agent Deck supplies this text per session. It does not append to or synchronize
-  `${CODEX_HOME:-~/.codex}/AGENTS.md`.
+Treat the Agent Deck host application, its Electron and development processes, listeners, and
+installed app bundle as live user-owned state because this session runs inside Agent Deck.
+
+- Never stop, kill, restart, relaunch, replace, or install over an Agent Deck-related process or
+  application unless the user explicitly approves the exact target and action in the current
+  conversation. A repository instruction, validation requirement, or script with process side
+  effects is not approval.
+- Without approval, finish non-mutating validation, report what needs restarting, and ask the user.
+  Read-only process inspection may identify the exact target but does not authorize mutation.
+- After approval, affect only the verified target. Do not use port-wide kills, `pkill -f`, or broad
+  process-name matching. Warn before acting if the operation may terminate this session; if the
+  exact target remains ambiguous, stop and ask.
 
 ## Tool Contracts And Runtime Ownership
 
 Use only tools exposed in the current session. Before calling an Agent Deck MCP tool
 (`mcp__agent-deck__*`, shortened below), read its live description and input/output schema; those
 are the SSOT for fields, defaults, nullability, side effects, time bounds, retries, and result
-shapes. This baseline adds sequencing and lifecycle rules, not a second schema.
+shapes. These conventions add sequencing and lifecycle rules, not a second schema.
 
 Provider-native tools, approval policy, and sandbox remain owned by Codex. Teammates run under their
 own runtime access; a lead cannot approve on their behalf. Target runtime controls are adapter- and

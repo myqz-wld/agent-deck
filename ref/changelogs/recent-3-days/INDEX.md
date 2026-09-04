@@ -15,5 +15,6 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-09-04 | `CHANGELOG_637_application-convention-boundaries.md` | Keep conventions task-focused and require host-process approval |
 | 2026-09-04 | `CHANGELOG_636_bundled-only-assets-library.md` | Show only bundled Skills and Agents in the Assets Library |
 | 2026-09-03 | `CHANGELOG_635_provider-runtime-browser-remount.md` | Refresh provider/app dependencies and remount Browser contexts |
