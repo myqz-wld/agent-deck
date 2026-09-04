@@ -8,7 +8,7 @@ afterEach(cleanup);
 describe('AdapterConfigHelp', () => {
   it.each([
     ['claude', 'Claude Code', '~/.claude/settings.json'],
-    ['codex', 'Codex CLI', '$CODEX_HOME/config.toml'],
+    ['codex', 'Codex CLI', '~/.codex/config.toml'],
     ['grok', 'Grok Build', '~/.grok/config.toml'],
   ] as const)('uses the shared help template for %s', (adapter, name, configPath) => {
     const { container } = render(<AdapterConfigHelp adapter={adapter} />);
@@ -18,10 +18,10 @@ describe('AdapterConfigHelp', () => {
     expect(screen.getByText('应用内功能：')).toBeTruthy();
     expect(screen.getAllByText(new RegExp(`${name} 的`)).length).toBeGreaterThan(0);
     expect(screen.getAllByText(configPath).length).toBeGreaterThan(0);
-    if (adapter === 'grok') {
-      expect(container.textContent).toContain(
-        'Grok Build 原生配置与登录状态仍由 Grok Build CLI 管理。',
-      );
-    }
+    expect(container.textContent).toContain(`外部终端中的 ${name} 会话会通过`);
+    expect(container.textContent).toContain(`Agent Deck 内的 ${name} 会话会加载`);
+    expect(container.textContent).toContain('应用约定、内置 Skills、Agents 和 MCP 工具');
+    expect(container.textContent).not.toContain('$CODEX_HOME');
+    expect(container.textContent).not.toContain('Grok Build CLI');
   });
 });
