@@ -126,6 +126,8 @@ describe('Server Core Browser runtime', () => {
     expect(context).not.toHaveProperty('applicationSessionId');
     expect(context).not.toHaveProperty('endpoint');
     expect(runtime.diagnostics().leases).toBe(1);
+    expect(runtime.refreshSession('container-session-a')).toBe(true);
+    expect(runtime.diagnostics().leases).toBe(1);
     expect(runtime.projectArtifactPath(
       context!.sourceIdentity,
       join(root, 'repo', 'capture.png'),

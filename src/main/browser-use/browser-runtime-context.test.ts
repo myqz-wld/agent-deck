@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, rmSync, statSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -80,6 +80,49 @@ describe('session-scoped Browser CLI runtime context', () => {
       runtimeGeneration: second.runtimeGeneration,
       sourceIdentity: secondContext.sourceIdentity,
     })).toMatchObject({ applicationSessionId: 'session-a' });
+  });
+
+  it('remounts the same private PATH after temp cleanup and renews an expired session lease', async () => {
+    let now = 1_000;
+    const root = await mkdtemp(join(tmpdir(), 'agent-deck-browser-runtime-remount-'));
+    tempDirs.push(root);
+    const registry = new BrowserLeaseRegistryCore({ now: () => now });
+    const manager = new BrowserRuntimeContextManager({
+      rootDir: join(root, 'contexts'),
+      brokerEndpoint: join(root, 'broker.sock'),
+      executablePath: process.execPath,
+      cliPath: join(root, 'resources', 'agent-deck-browser.cjs'),
+      registry,
+    });
+    const first = manager.prepare({
+      applicationSessionId: 'session-remount',
+      adapterId: 'codex-cli',
+      environment: { PATH: '/usr/bin' },
+    });
+    const firstContext = JSON.parse(readFileSync(first.contextPath, 'utf8'));
+    rmSync(join(root, 'contexts'), { recursive: true, force: true });
+    now += 24 * 60 * 60_000 + 1;
+
+    const renewed = manager.refreshSession('session-remount');
+    const renewedContext = JSON.parse(readFileSync(first.contextPath, 'utf8'));
+
+    expect(renewed).toMatchObject({
+      runtimeDir: first.runtimeDir,
+      binDir: first.binDir,
+      commandPath: first.commandPath,
+      runtimeGeneration: 2,
+    });
+    expect(statSync(first.commandPath).isFile()).toBe(true);
+    expect(() => registry.resolve(firstContext.lease, {
+      adapterId: firstContext.adapterId,
+      runtimeGeneration: firstContext.runtimeGeneration,
+      sourceIdentity: firstContext.sourceIdentity,
+    })).toThrow(BrowserLeaseResolutionError);
+    expect(registry.resolve(renewedContext.lease, {
+      adapterId: renewedContext.adapterId,
+      runtimeGeneration: renewedContext.runtimeGeneration,
+      sourceIdentity: renewedContext.sourceIdentity,
+    })).toMatchObject({ applicationSessionId: 'session-remount' });
   });
 
   it('renames and revokes the application owner without changing the command context', async () => {

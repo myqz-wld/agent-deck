@@ -5,6 +5,7 @@ import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-inject
 import { getApplicationHostPaths } from '@main/runtime-host/application-paths';
 import { getApplicationResourcesRoot } from '@main/runtime-host/application-resources';
 import { settingsStore } from '@main/store/settings-store';
+import log from '@main/utils/logger';
 
 import { getBrowserLeaseRegistry } from './browser-lease-registry';
 import {
@@ -17,6 +18,7 @@ import { setBrowserRuntimeLifecyclePort } from './browser-runtime-lifecycle';
 
 let manager: BrowserRuntimeContextManager | null = null;
 let brokerEndpoint: string | null = null;
+const logger = log.scope('browser-runtime');
 
 export function initializeBrowserRuntimeContextHost(endpoint: string): void {
   manager?.shutdown();
@@ -76,6 +78,17 @@ export function refreshBrowserRuntimeFromEnvironment(
   const runtimeKey = environment[BROWSER_RUNTIME_KEY_ENV];
   if (runtimeKey == null || manager == null) return null;
   return manager.refresh(runtimeKey);
+}
+
+/** Best-effort turn-boundary renewal; provider work remains usable if Browser repair fails. */
+export function refreshBrowserRuntimeSession(applicationSessionId: string): boolean {
+  if (manager == null) return false;
+  try {
+    return manager.refreshSession(applicationSessionId) != null;
+  } catch (error) {
+    logger.warn('[browser-runtime] failed to refresh session context', error);
+    return false;
+  }
 }
 
 export function renameBrowserRuntimeSession(fromId: string, toId: string): number {

@@ -106,6 +106,27 @@ describe('Browser-only lease registry core', () => {
     })).toThrow(BrowserLeaseResolutionError);
   });
 
+  it('renews an exact host-owned portable lease after idle expiry without changing its capability', () => {
+    let now = 1_000;
+    const registry = new BrowserLeaseRegistryCore({
+      now: () => now,
+      generateLease: leaseGenerator('portable-lease'),
+    });
+    const issued = registry.issue(RUNTIME_A, 500);
+
+    now = 1_500;
+    expect(() => registry.resolve(issued.lease, PROOF_A)).toThrow(BrowserLeaseResolutionError);
+    expect(registry.renewOwned(issued.lease, RUNTIME_A, 5_000)).toEqual({
+      lease: 'portable-lease',
+      expiresAt: 6_500,
+    });
+    expect(registry.resolve(issued.lease, PROOF_A)).toMatchObject(RUNTIME_A);
+    expect(() => registry.renewOwned(issued.lease, {
+      ...RUNTIME_A,
+      sourceIdentity: 'different-runtime',
+    }, 5_000)).toThrow(BrowserLeaseResolutionError);
+  });
+
   it('reports only aggregate diagnostics and never raw capabilities', () => {
     const registry = new BrowserLeaseRegistryCore({
       now: () => 1_000,

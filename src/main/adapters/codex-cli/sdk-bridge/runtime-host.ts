@@ -1,6 +1,7 @@
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { desktopSessionModelControllerHost } from '@main/adapters/session-model-controller-host';
 import { disposeSessionBrowser } from '@main/browser-use/session-browser';
+import { refreshBrowserRuntimeSession } from '@main/browser-use/browser-runtime-context-host';
 import { getAgentDeckCodexDeveloperInstructions } from '@main/codex-config/agents-md-installer';
 import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
 import {
@@ -76,4 +77,5 @@ export const desktopCodexBridgeRuntimeHost: CodexBridgeRuntimeHost = {
     worktreeToolInvocationRegistry.hasPendingTransition(sessionId),
   deleteUploadIfExists,
   disposeSessionBrowser,
+  refreshSessionBrowser: refreshBrowserRuntimeSession,
 };

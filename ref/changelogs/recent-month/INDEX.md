@@ -15,6 +15,17 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-08-24 | `CHANGELOG_630_session-authoring-interaction-stability.md` | Stabilize trust, History reactivation, and expanded composer actions |
+| 2026-08-24 | `CHANGELOG_629_session-settings-clarity.md` | Clarify project trust, Hook actions, and Codex SessionEnd timeout |
+| 2026-08-24 | `CHANGELOG_628_native-project-trust.md` | Add native project trust to Local and Remote session creation |
+| 2026-08-23 | `CHANGELOG_627_grok-sandbox-next-turn.md` | Apply active-turn Grok sandbox choices before the next turn |
+| 2026-08-23 | `CHANGELOG_626_new-session-sandbox-label.md` | Align sandbox field labels across new-session adapters |
+| 2026-08-23 | `CHANGELOG_625_provider-runtime-app-sync.md` | Refresh embedded provider runtimes and install the macOS app |
+| 2026-08-23 | `CHANGELOG_624_session-config-read-latency.md` | Keep adapter-default reads inside the 150 ms UI grace |
+| 2026-08-21 | `CHANGELOG_623_global-async-navigation-readiness.md` | Apply the 150 ms rule across asynchronous navigation |
+| 2026-08-20 | `CHANGELOG_622_global-stable-action-presentation.md` | Stabilize dynamic actions and 150 ms configuration visuals globally |
+| 2026-08-20 | `CHANGELOG_621_stable-session-create-action.md` | Keep the create action visually and geometrically stable |
+| 2026-08-20 | `CHANGELOG_620_atomic-session-configuration-readiness.md` | Keep adapter configuration switches visually atomic for 150 ms |
 | 2026-08-19 | `CHANGELOG_619_provider-runtime-release-sync.md` | Sync embedded provider runtimes and local CLIs to stable releases |
 | 2026-08-18 | `CHANGELOG_618_unified-browser-skill-cli-iab.md` | Unify Browser skill, CLI, responsive IAB, and annotation |
 | 2026-08-17 | `CHANGELOG_617_next-turn-gateway-switching.md` | Apply choice-only Gateway changes from the next Codex turn |
@@ -204,25 +215,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | 2026-08-04 | `CHANGELOG_434_remote-core-p1-foundations.md` | Establish the three-topology remote Core P1 foundations |
 | 2026-08-04 | `CHANGELOG_433_review-responsibility-and-depth.md` | Unify review roles and keep follow-up severity-driven |
 | 2026-08-04 | `CHANGELOG_432_diff-history-and-runtime-diagnostics.md` | Keep diffs current and make runtime delays diagnosable |
-| 2026-08-03 | `CHANGELOG_431_concise-session-empty-state.md` | Simplify the session-list empty-state guidance |
-| 2026-08-03 | `CHANGELOG_430_context-window-observation-unification.md` | Unify observed context capacity across continuations |
-| 2026-08-03 | `CHANGELOG_429_hook-ownership-and-provider-dependencies.md` | Keep hooks idempotent and refresh provider dependencies |
-| 2026-08-03 | `CHANGELOG_428_provider-token-accounting-and-rate-repair.md` | Repair provider token totals and tok/s calibration |
-| 2026-07-31 | `CHANGELOG_427_compatibility-and-defect-remediation.md` | Clean compatibility seams and close all REVIEW_208 defects |
-| 2026-07-31 | `CHANGELOG_426_exit-worktree-output-schema-compatibility.md` | Publish a callable exit_worktree result schema |
-| 2026-07-31 | `CHANGELOG_425_codex-provider-hook-runtime-hardening.md` | Restore Codex providers and harden Hook/runtime boundaries |
-| 2026-07-31 | `CHANGELOG_424_plan-review-expandable-inputs.md` | Replace deep-review field resizing with expand actions |
-| 2026-07-31 | `CHANGELOG_423_adapter_native_gateway_profile_selectors.md` | Use Claude Gateway and native Codex profile selectors |
-| 2026-07-31 | `CHANGELOG_422_retired_codex_user_config_ownership.md` | Stop owning or cleaning native Codex user configuration |
-| 2026-07-31 | `CHANGELOG_421_spawn-session-model-suggestions.md` | Remove stale GPT and Deepseek spawn model suggestions |
-| 2026-07-31 | `CHANGELOG_420_archive-plan-dead-code-removal.md` | Remove retired archive plan MCP code and orphaned cleanup paths |
-| 2026-07-30 | `CHANGELOG_419_branch-independent-worktree-lifecycle.md` | Isolate worktree lifecycle from branches and refs |
-| 2026-07-30 | `CHANGELOG_418_automatic-worktree-cwd-transition.md` | Move sessions across worktrees at an automatic safe turn boundary |
-| 2026-07-30 | `CHANGELOG_417_session-list-runtime-metadata.md` | Show branch and context occupancy on live session cards |
-| 2026-07-30 | `CHANGELOG_416_handoff-context-usage.md` | Fix hand-off fields and show live context occupancy |
-| 2026-07-30 | `CHANGELOG_415_hook-event-lifecycle-completeness.md` | Capture lifecycle hooks and close incomplete Codex tool activity |
-| 2026-07-29 | `CHANGELOG_414_post-acceptance-delivery-durability.md` | Prevent uncertain message redelivery after adapter acceptance |
-| 2026-07-29 | `CHANGELOG_413_session-ui-scope-alignment.md` | Restore scoped expand controls and align session runtime labels |
-| 2026-07-29 | `CHANGELOG_412_maintenance-timeout-terminal-policy.md` | Disable storage maintenance until restart after a worker timeout |
-| 2026-07-29 | `CHANGELOG_411_whole-project-quality-refresh.md` | Harden runtime, storage, UI, logging, dependencies, and packaging |
-| 2026-07-28 | `CHANGELOG_410_codex-live-approval-review-runtime.md` | Expose live Codex approvals and make review runtime prompt-owned |

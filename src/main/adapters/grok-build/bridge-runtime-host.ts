@@ -9,6 +9,7 @@ import type { GrokBridgeRuntimeHost } from './bridge-runtime-core';
 import { desktopGrokLiveRateObserver } from './live-token-rate-host';
 import {
   prepareBrowserRuntimeEnvironment,
+  refreshBrowserRuntimeSession,
   revokeBrowserRuntimeSession,
 } from '@main/browser-use/browser-runtime-context-host';
 
@@ -51,6 +52,7 @@ export const desktopGrokBridgeRuntimeHost: GrokBridgeRuntimeHost = {
       environment,
     })?.environment ?? null;
   },
+  refreshBrowserRuntime: refreshBrowserRuntimeSession,
   revokeBrowserRuntime: (applicationSessionId) => {
     revokeBrowserRuntimeSession(applicationSessionId);
   },

@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GrokAcpProcess } from '../acp-process';
 import { GROK_SESSION_INFO_METHOD } from '../context-usage';
 import { GrokTurnQueue } from '../turn-queue';
+import { NOOP_GROK_BRIDGE_RUNTIME_HOST, type GrokBridgeRuntimeHost } from '../bridge-runtime-core';
 import {
   negotiatedGrokSessionImageCapability,
   requireNativeSession,
@@ -69,6 +70,7 @@ function makeRuntime(request: ReturnType<typeof vi.fn>): GrokRuntime {
 function makeQueue(
   firstModelEventTimeoutMs?: number,
   beforeNextTurn?: (runtime: GrokRuntime) => Promise<void>,
+  runtimeHost?: GrokBridgeRuntimeHost,
 ) {
   const events: Array<{ kind: string; payload: unknown }> = [];
   const emitError = vi.fn();
@@ -84,6 +86,7 @@ function makeQueue(
     closeSession,
     recycleRuntime,
     beforeNextTurn,
+    runtimeHost,
     firstModelEventTimeoutMs,
   });
   return { queue, events, emitError, closeSession, recycleRuntime };
@@ -122,6 +125,24 @@ describe('GrokTurnQueue active-turn delivery', () => {
     ));
     expect(order.slice(0, 2)).toEqual(['boundary', 'prompt']);
     expect(runtime.activeGrokSandbox).toBe('strict');
+  });
+
+  it('refreshes the Browser context at the actual provider turn boundary', async () => {
+    const request = vi.fn(async () => ({ stopReason: 'end_turn' as const, usage: undefined }));
+    const runtime = makeRuntime(request);
+    const refreshBrowserRuntime = vi.fn();
+    const { queue } = makeQueue(undefined, undefined, {
+      ...NOOP_GROK_BRIDGE_RUNTIME_HOST,
+      refreshBrowserRuntime,
+    });
+
+    queue.enqueue(runtime, 'resume after an idle day');
+
+    await vi.waitFor(() => expect(request).toHaveBeenCalled());
+    expect(refreshBrowserRuntime).toHaveBeenCalledWith('app-session');
+    expect(refreshBrowserRuntime.mock.invocationCallOrder[0]).toBeLessThan(
+      request.mock.invocationCallOrder[0],
+    );
   });
 
   it('keeps image negotiation bound to each live ACP runtime', () => {

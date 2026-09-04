@@ -56,6 +56,11 @@ export function createServerCoreClaudeStreamHost(
     userMessages: {
       readAttachmentBase64: async (path) => (await readFile(path)).toString('base64'),
       createProviderMessageId: randomUUID,
+      refreshBrowserRuntime: (sessionId) => {
+        try { input.browserRuntime.refreshSession(sessionId); } catch (error) {
+          logger.warn('Browser runtime refresh failed', error);
+        }
+      },
       now: Date.now,
     },
     translation: translation(input),

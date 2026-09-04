@@ -44,6 +44,7 @@ export interface GrokBridgeRuntimeHost {
   guardHandOffSourceIngress(args: GrokHandOffIngressArgs): boolean;
   hasPendingWorktreeTransition(sessionId: string): boolean;
   prepareBrowserRuntimeEnvironment?(applicationSessionId: string): Record<string, string> | null;
+  refreshBrowserRuntime?(applicationSessionId: string): void;
   revokeBrowserRuntime?(applicationSessionId: string): void;
 }
 
