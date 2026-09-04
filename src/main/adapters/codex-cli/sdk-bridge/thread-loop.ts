@@ -294,6 +294,7 @@ export class ThreadLoop {
           });
         };
         const translateState = createCodexAppServerTranslateState();
+        this.ctx.runtimeHost.refreshSessionBrowser?.(internal.applicationSid);
         try {
           const { events } = await internal.thread.runStreamed(toCodexAppServerInput(input), {
             signal: controller.signal,

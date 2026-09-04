@@ -108,15 +108,17 @@ describe('Codex handoff source runtime retirement', () => {
       turnCorrelationId: 'turn-1',
     }];
     const emit = vi.fn();
+    const runtimeHost = { ...codexBridgeTestRuntimeHost, refreshSessionBrowser: vi.fn() };
     const bridge = new CodexSdkBridge({
       recoveryContinuationHost: {} as never,
-      runtimeHost: codexBridgeTestRuntimeHost,
+      runtimeHost,
       emit,
     });
 
     await bridgeInternals(bridge).threadLoop.runTurnLoop(internal, sessionId);
 
     expect(thread.runStreamed).toHaveBeenCalledTimes(1);
+    expect(runtimeHost.refreshSessionBrowser).toHaveBeenCalledWith(sessionId);
     expect(emit).toHaveBeenCalledWith(expect.objectContaining({
       sessionId,
       kind: 'message',

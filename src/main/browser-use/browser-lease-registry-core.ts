@@ -125,6 +125,42 @@ export class BrowserLeaseRegistryCore {
     return { lease, expiresAt };
   }
 
+  /** Rebind a host-owned portable lease without exposing a replacement capability to the child. */
+  renewOwned(
+    lease: string,
+    identity: BrowserRuntimeIdentity,
+    ttlMs = BROWSER_LEASE_DEFAULT_TTL_MS,
+  ): IssuedBrowserLease {
+    assertIdentity(identity);
+    if (
+      lease.length === 0 ||
+      Buffer.byteLength(lease) > 1_024 ||
+      !Number.isSafeInteger(ttlMs) ||
+      ttlMs <= 0 ||
+      ttlMs > BROWSER_LEASE_MAX_TTL_MS
+    ) {
+      throw new Error('Invalid Browser lease renewal.');
+    }
+    const key = runtimeKey(identity);
+    const existing = this.records.get(lease);
+    if (existing != null && existing.runtimeKey !== key) {
+      throw new BrowserLeaseResolutionError('identity-mismatch');
+    }
+    const conflicting = this.leaseByRuntime.get(key);
+    if (conflicting != null && conflicting !== lease) this.remove(conflicting);
+
+    const expiresAt = this.now() + ttlMs;
+    this.records.set(lease, {
+      binding: Object.freeze({ ...identity, expiresAt }),
+      runtimeKey: key,
+    });
+    this.leaseByRuntime.set(key, lease);
+    const sessionLeases = this.leasesBySession.get(identity.applicationSessionId) ?? new Set();
+    sessionLeases.add(lease);
+    this.leasesBySession.set(identity.applicationSessionId, sessionLeases);
+    return { lease, expiresAt };
+  }
+
   resolve(lease: string, proof: BrowserLeaseProof): BrowserLeaseBinding {
     const record = this.records.get(lease);
     if (record == null) throw new BrowserLeaseResolutionError('missing');

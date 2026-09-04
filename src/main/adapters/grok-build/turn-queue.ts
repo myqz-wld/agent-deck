@@ -347,6 +347,7 @@ export class GrokTurnQueue {
       if (runtime.sealed) await this.options.closeSession(runtime.applicationSessionId);
       return;
     }
+    this.options.runtimeHost?.refreshBrowserRuntime?.(runtime.applicationSessionId);
     runtime.running = true;
     runtime.interruptRequested = false;
     const sessionCommand = resolveGrokSessionCommand(runtime, message.text);

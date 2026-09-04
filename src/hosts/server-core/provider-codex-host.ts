@@ -332,6 +332,11 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
           input.worktrees.hasPendingTransition(sessionId),
         deleteUploadIfExists: async () => undefined,
         disposeSessionBrowser: async () => undefined,
+        refreshSessionBrowser: (sessionId) => {
+          try { input.browserRuntime.refreshSession(sessionId); } catch (error) {
+            logger.warn('Browser runtime refresh failed', error);
+          }
+        },
       },
       createBridge: (options) => new CodexSdkBridge(options),
       readCodexCliPath: () => input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,

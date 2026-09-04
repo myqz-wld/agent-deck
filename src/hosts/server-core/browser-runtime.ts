@@ -45,6 +45,7 @@ export type ServerCoreProviderBrowserRuntimePort = Pick<
   | 'prepare'
   | 'preparePortable'
   | 'refresh'
+  | 'refreshSession'
   | 'relay'
   | 'renameSession'
   | 'revokeSession'
@@ -173,6 +174,22 @@ export class ServerCoreBrowserRuntime {
     if (this.state !== 'running') return null;
     const runtimeKey = environment[BROWSER_RUNTIME_KEY_ENV];
     return runtimeKey == null ? null : this.manager.refresh(runtimeKey);
+  }
+
+  /** Renew or remount the exact context owned by a session before its next provider turn. */
+  refreshSession(sessionId: string): boolean {
+    if (this.state !== 'running') return false;
+    if (this.manager.refreshSession(sessionId) != null) return true;
+    const portable = this.portableBySession.get(sessionId);
+    if (portable == null) return false;
+    const context = portable.context;
+    this.registry.renewOwned(context.lease, {
+      applicationSessionId: sessionId,
+      adapterId: context.adapterId,
+      runtimeGeneration: context.runtimeGeneration,
+      sourceIdentity: context.sourceIdentity,
+    }, BROWSER_LEASE_MAX_TTL_MS);
+    return true;
   }
 
   async relay(request: Buffer, signal?: AbortSignal): Promise<Buffer> {

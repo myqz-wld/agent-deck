@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   },
   transaction: vi.fn((operation: () => unknown) => operation),
   prepareBrowser: vi.fn(() => ({ environment: { PATH: '/browser-bin:/usr/bin' } })),
+  refreshBrowser: vi.fn(),
   revokeBrowser: vi.fn(),
 }));
 
@@ -42,6 +43,7 @@ vi.mock('./live-token-rate-host', () => ({
 }));
 vi.mock('@main/browser-use/browser-runtime-context-host', () => ({
   prepareBrowserRuntimeEnvironment: mocks.prepareBrowser,
+  refreshBrowserRuntimeSession: mocks.refreshBrowser,
   revokeBrowserRuntimeSession: mocks.revokeBrowser,
 }));
 
@@ -84,6 +86,8 @@ describe('desktop Grok bridge runtime host', () => {
       applicationSessionId: 'session-a',
       adapterId: 'grok-build',
     }));
+    host.refreshBrowserRuntime?.('session-a');
+    expect(mocks.refreshBrowser).toHaveBeenCalledWith('session-a');
     host.revokeBrowserRuntime?.('session-a');
     expect(mocks.revokeBrowser).toHaveBeenCalledWith('session-a');
   });

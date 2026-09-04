@@ -96,7 +96,7 @@ if grep -Eq '\$\{?AGENT_DECK_(HEADLESS_ROOT|NODE)|command -v' "$wrapper"; then
 fi
 node -e '
   const packageJson = require(process.argv[1]);
-  if (packageJson.dependencies?.["@larksuiteoapi/node-sdk"] !== "1.70.0") process.exit(1);
+  if (packageJson.dependencies?.["@larksuiteoapi/node-sdk"] !== "1.73.3") process.exit(1);
   if (packageJson.dependencies?.["better-sqlite3"] !== "11.10.0") process.exit(1);
   if (packageJson.scripts?.["verify:linux-headless"] !==
     "pnpm build:linux-headless && pnpm build:feishu-runtime && pnpm check:linux-headless && pnpm check:deployment") process.exit(1);

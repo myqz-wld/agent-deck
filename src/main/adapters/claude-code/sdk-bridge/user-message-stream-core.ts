@@ -10,6 +10,8 @@ export interface ClaudeUserMessageStreamContext {
 export interface ClaudeUserMessageStreamHost {
   readAttachmentBase64(path: string): Promise<string>;
   createProviderMessageId(): string;
+  /** Must be best-effort: Browser renewal cannot reject an otherwise valid provider turn. */
+  refreshBrowserRuntime?(applicationSessionId: string): void;
   now(): number;
 }
 
@@ -108,6 +110,7 @@ export async function* createClaudeUserMessageStreamCore(
         continue;
       }
       if (internal.pendingUserMessages[0] !== thunk) continue;
+      host.refreshBrowserRuntime?.(internal.applicationSid);
       internal.pendingUserMessages.shift();
       if (internal.retireBoundaryReached) return;
       if (internal.retireRequested) continue;

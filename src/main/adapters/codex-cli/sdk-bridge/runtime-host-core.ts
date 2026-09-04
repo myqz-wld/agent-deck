@@ -108,4 +108,6 @@ export interface CodexBridgeRuntimeHost {
   hasPendingWorktreeTransition(sessionId: string): boolean;
   deleteUploadIfExists(path: string): Promise<void>;
   disposeSessionBrowser(sessionId: string): Promise<void>;
+  /** Best-effort renewal immediately before a queued provider turn starts. */
+  refreshSessionBrowser?(sessionId: string): void;
 }

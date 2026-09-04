@@ -66,7 +66,7 @@ describe('Claude user message stream Core', () => {
   });
 
   it('owns dequeue identity and submitting state', async () => {
-    const host = makeHost();
+    const host = { ...makeHost(), refreshBrowserRuntime: vi.fn() };
     const internal = makeInternal();
     const pending = makeClaudeUserMessageCore('session-core', 'queued', undefined, host);
     pending.deferredUserEvent = { text: 'queued' };
@@ -88,6 +88,7 @@ describe('Claude user message stream Core', () => {
       providerMessageId: 'provider-message-1',
       status: 'submitting',
     });
+    expect(host.refreshBrowserRuntime).toHaveBeenCalledWith('session-core');
     await stream.return?.();
   });
 

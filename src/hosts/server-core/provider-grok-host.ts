@@ -54,6 +54,11 @@ export function createServerCoreGrokHost(input: ServerCoreProviderHostInput) {
           adapterId: 'grok-build',
           environment: providerProcessEnvironment(input),
         })?.environment ?? null,
+      refreshBrowserRuntime: (applicationSessionId) => {
+        try { input.browserRuntime.refreshSession(applicationSessionId); } catch (error) {
+          logger.warn('Browser runtime refresh failed', error);
+        }
+      },
       revokeBrowserRuntime: (applicationSessionId) => {
         input.browserRuntime.revokeSession(applicationSessionId);
       },

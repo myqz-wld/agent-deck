@@ -180,6 +180,7 @@ export class BrowserRuntimeContextManager {
   refresh(runtimeKey: string): PreparedBrowserRuntimeContext {
     const record = this.recordsByKey.get(runtimeKey);
     if (record == null) throw new Error('Browser runtime context is unavailable.');
+    this.restoreRuntimeLayout(record);
     const runtimeGeneration = record.runtimeGeneration + 1;
     const sourceIdentity = randomUUID();
     this.options.registry.revoke(record.lease);
@@ -206,6 +207,12 @@ export class BrowserRuntimeContextManager {
     record.sourceIdentity = sourceIdentity;
     record.lease = issued.lease;
     return this.publicRecord(record);
+  }
+
+  /** Renew a live session before its next provider turn, repairing a purged temp shim in place. */
+  refreshSession(applicationSessionId: string): PreparedBrowserRuntimeContext | null {
+    const runtimeKey = this.keyBySession.get(applicationSessionId);
+    return runtimeKey == null ? null : this.refresh(runtimeKey);
   }
 
   renameSession(fromApplicationSessionId: string, toApplicationSessionId: string): number {
@@ -307,6 +314,35 @@ export class BrowserRuntimeContextManager {
         ].join('\n');
     writeFileSync(commandPath, content, { flag: 'wx', mode: 0o700 });
     chmodSync(commandPath, 0o700);
+  }
+
+  private restoreRuntimeLayout(record: RuntimeRecord): void {
+    this.ensurePrivateDirectory(this.rootDir, true);
+    this.ensurePrivateDirectory(record.runtimeDir, false);
+    this.ensurePrivateDirectory(record.binDir, false);
+    if (!existsSync(record.commandPath)) this.writeCommand(record.commandPath, record.contextPath);
+    const commandStat = lstatSync(record.commandPath);
+    if (
+      !commandStat.isFile() ||
+      commandStat.isSymbolicLink() ||
+      (typeof process.getuid === 'function' && commandStat.uid !== process.getuid())
+    ) {
+      throw new Error('Browser runtime command is unavailable.');
+    }
+    chmodSync(record.commandPath, 0o700);
+  }
+
+  private ensurePrivateDirectory(path: string, recursive: boolean): void {
+    if (!existsSync(path)) mkdirSync(path, { recursive, mode: 0o700 });
+    const stat = lstatSync(path);
+    if (
+      !stat.isDirectory() ||
+      stat.isSymbolicLink() ||
+      (typeof process.getuid === 'function' && stat.uid !== process.getuid())
+    ) {
+      throw new Error('Browser runtime directory is unavailable.');
+    }
+    chmodSync(path, 0o700);
   }
 
   private reapStaleDirectories(): void {
