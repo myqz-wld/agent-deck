@@ -1,11 +1,9 @@
 /**
  * Ownership registry for the browser engine.
  *
- * Tabs belong to an owner key, never to a transport connection. That is the whole reason this file
- * exists: the Agent Deck MCP server uses a stateless HTTP transport with a fresh transport instance
- * per request, so any browser state parked on a connection would evaporate between two tool calls.
- *
- * Caps are enforced here because both fronts share one Electron process.
+ * Tabs belong to an Agent Deck session, never to a transport connection. The CLI and Remote broker
+ * can therefore reconnect without losing browser state. Caps are enforced here because all
+ * sessions share one Electron process.
  */
 
 import { BrowserWindow, type BrowserWindowConstructorOptions } from 'electron';
@@ -24,7 +22,6 @@ import {
 import {
   BrowserOwnershipRegistryCore,
   ownerPartition,
-  type BrowserOwnerLeaseCore,
 } from './registry-core';
 import { BrowserTabCollectionCore } from './tab-collection-core';
 
@@ -36,8 +33,6 @@ export {
   ownerCacheKey,
   ownerPartition,
 } from './registry-core';
-
-export type BrowserOwnerLease = BrowserOwnerLeaseCore<BrowserOwnerHandle>;
 
 export class BrowserOwnerHandle {
   readonly partition: string;
@@ -116,12 +111,7 @@ export class BrowserOwnerHandle {
     this.tabs.closeTab(tabId);
   }
 
-  /** Observe EngineTab removal without retaining its BrowserWindow or webContents. */
-  onTabClosed(listener: (tabId: number) => void): () => void {
-    return this.tabs.onTabClosed(listener);
-  }
-
-  /** Close every tab except the given ids. Used by the Codex `finalizeTabs` request. */
+  /** Close every tab except the given ids. */
   keepOnly(tabIds: readonly number[]): void {
     this.tabs.keepOnly(tabIds);
   }
@@ -164,12 +154,6 @@ export class BrowserEngine {
 
   acquire(owner: BrowserOwnerKey): BrowserOwnerHandle {
     return this.ownership.acquire(owner);
-  }
-
-  acquireLease(
-    owner: BrowserOwnerKey & { kind: 'codex-pipe' },
-  ): BrowserOwnerLeaseCore<BrowserOwnerHandle> {
-    return this.ownership.acquireLease(owner);
   }
 
   peek(owner: BrowserOwnerKey): BrowserOwnerHandle | null {

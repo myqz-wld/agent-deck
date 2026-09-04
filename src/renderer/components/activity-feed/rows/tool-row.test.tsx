@@ -8,10 +8,6 @@ vi.mock('@renderer/components/diff/DiffViewer', () => ({
   DiffViewer: () => <div data-testid="diff-viewer" />,
 }));
 
-vi.mock('@renderer/components/ImageThumb', () => ({
-  ImageThumb: () => <div data-testid="image-thumb" />,
-}));
-
 vi.mock('@renderer/components/MarkdownText', () => ({
   MarkdownText: ({ text }: { text: string }) => <div>{text}</div>,
 }));
@@ -141,7 +137,6 @@ describe('ToolEndRow tool output disclosure', () => {
           toolResult: 'tool output done',
           status: 'completed',
         })}
-        sessionId="s"
         startEvent={startEvent}
       />,
     );
@@ -174,7 +169,6 @@ describe('ToolEndRow tool output disclosure', () => {
           },
           status: 'completed',
         })}
-        sessionId="s"
         startEvent={startEvent}
       />,
     );
@@ -201,7 +195,6 @@ describe('ToolEndRow tool output disclosure', () => {
           toolResult: { activity_kind: 'interacted' },
           status: 'completed',
         })}
-        sessionId="s"
       />,
     );
 
@@ -219,7 +212,6 @@ describe('ToolEndRow tool output disclosure', () => {
           toolUseId: 'agent-output-1',
           toolResult: 'gAAAA-encrypted-raw-output',
         })}
-        sessionId="s"
       />,
     );
 
@@ -239,7 +231,6 @@ describe('ToolEndRow tool output disclosure', () => {
           toolResult: 'search unavailable',
           status: 'failed',
         })}
-        sessionId="s"
       />,
     );
 
@@ -260,7 +251,6 @@ describe('ToolEndRow tool output disclosure', () => {
           toolInputTruncated: true,
           toolResultTruncated: true,
         })}
-        sessionId="s"
       />,
     );
 

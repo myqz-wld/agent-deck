@@ -14,7 +14,6 @@ import {
   type ParsedCodexAgentToml,
 } from '@shared/codex-agent-toml';
 import { parseFrontmatter } from '@main/utils/frontmatter';
-import type { AssetMeta, UserAssetsSnapshot } from '@shared/types';
 import { getCodexHome } from './codex-home';
 
 export { getCodexHome } from './codex-home';
@@ -56,14 +55,6 @@ export interface CodexPluginAgentContent {
 type AgentLookup =
   | { ok: true; agent: CodexPluginAgentContent }
   | { ok: false; reason: string };
-
-export function listCodexPluginAssets(): UserAssetsSnapshot {
-  const assets = getCodexUserPluginRoots().flatMap(scanCodexPluginAssets);
-  return {
-    agents: assets.filter((asset) => asset.kind === 'agent').map(toAssetMeta).sort(compareAssets),
-    skills: assets.filter((asset) => asset.kind === 'skill').map(toAssetMeta).sort(compareAssets),
-  };
-}
 
 export function resolveCodexProjectPluginAgentContent(
   agentName: string,
@@ -241,32 +232,4 @@ function findPluginAgent(
       parsed: match.parsed,
     },
   };
-}
-
-function toAssetMeta(asset: CodexPluginAsset): AssetMeta {
-  return {
-    kind: asset.kind,
-    source: 'user',
-    adapter: 'codex-cli',
-    origin: 'plugin',
-    pluginName: asset.pluginName,
-    runtimeName: asset.runtimeName,
-    name: asset.name,
-    qualifiedName: `plugin:${asset.pluginName}/${asset.name}`,
-    description:
-      asset.kind === 'agent'
-        ? asset.parsed.description ?? ''
-        : asset.frontmatter.description ?? '',
-    ...(asset.kind === 'agent'
-      ? {
-          model: asset.parsed.model,
-          thinking: asset.parsed.modelReasoningEffort,
-        }
-      : {}),
-    absPath: asset.path,
-  };
-}
-
-function compareAssets(a: AssetMeta, b: AssetMeta): number {
-  return a.qualifiedName.localeCompare(b.qualifiedName);
 }

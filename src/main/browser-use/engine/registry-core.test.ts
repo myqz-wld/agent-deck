@@ -19,7 +19,7 @@ function resource(): BrowserOwnerResource & { tabs: number } {
 }
 
 describe('browser ownership registry Core', () => {
-  it('isolates namespace partitions and reuses one live owner', () => {
+  it('isolates session partitions and reuses one live owner', () => {
     const createHandle = vi.fn(() => resource());
     const registry = new BrowserOwnershipRegistryCore({ createHandle });
     const owner = { kind: 'session', id: 'same' } as const;
@@ -27,26 +27,8 @@ describe('browser ownership registry Core', () => {
     expect(registry.acquire(owner)).toBe(registry.acquire(owner));
     expect(createHandle).toHaveBeenCalledOnce();
     expect(ownerPartition(owner)).not.toBe(
-      ownerPartition({ kind: 'codex-pipe', id: 'same' }),
+      ownerPartition({ kind: 'session', id: 'other' }),
     );
-  });
-
-  it('waits for the last lease and fences a force-disposed generation', async () => {
-    const registry = new BrowserOwnershipRegistryCore({
-      createHandle: () => resource(),
-    });
-    const owner = { kind: 'codex-pipe', id: 'pipe' } as const;
-    const first = registry.acquireLease(owner);
-    const second = registry.acquireLease(owner);
-
-    await first.release();
-    expect(first.handle.isDisposed).toBe(false);
-    await registry.disposeOwner(owner);
-    const replacement = registry.acquireLease(owner);
-    await second.release();
-    expect(replacement.handle.isDisposed).toBe(false);
-    await replacement.release();
-    expect(replacement.handle.isDisposed).toBe(true);
   });
 
   it('enforces per-owner and total caps without creating extra owners', () => {

@@ -1,5 +1,4 @@
-import type { AgentEvent, ImageSource, ImageToolResult } from '@shared/types';
-import { isImageTool } from '@shared/mcp-tools';
+import type { AgentEvent } from '@shared/types';
 import {
   type BaseClaudeHookPayload,
   CLAUDE_AGENT_ID,
@@ -24,148 +23,19 @@ interface MultiEditToolInput {
   edits?: { old_string: string; new_string: string }[];
 }
 
-// ───────────────────────────────────────────────────────── Image MCP tools
-
-/**
- * 图片工具的 file-changed payload（不含 sessionId/agentId/ts/kind/cwd）。
- * sdk-bridge 与 hook PostToolUse 共用 imageResultToFileChanges 输出，再各自补包装。
- */
-export interface ImageFileChangedPayload {
-  filePath: string;
-  kind: 'image';
-  before: ImageSource | null;
-  after: ImageSource | null;
-  metadata: Record<string, unknown>;
-  toolCallId?: string;
-}
-
-/**
- * 解析 MCP 图片工具的 tool_result.content。
- * 兼容三种形态：
- * - string  → 直接 JSON.parse
- * - Block[] → 找第一个 {type:'text', text:string}，对 text JSON.parse
- * - 其他    → 返回 null
- * 解析后的对象必须有 `kind` 字段且以 'image-' 开头才算合法。
- */
-export function parseImageToolResult(content: unknown): ImageToolResult | null {
-  if (content == null) return null;
-  const tryParse = (s: string): ImageToolResult | null => {
-    try {
-      const v = JSON.parse(s) as ImageToolResult & { kind?: string };
-      if (typeof v?.kind === 'string' && v.kind.startsWith('image-')) return v;
-    } catch {
-      /* swallow */
-    }
-    return null;
-  };
-  if (typeof content === 'string') return tryParse(content);
-  if (Array.isArray(content)) {
-    for (const b of content) {
-      if (b && typeof b === 'object') {
-        const bb = b as { type?: string; text?: string };
-        if (bb.type === 'text' && typeof bb.text === 'string') {
-          const r = tryParse(bb.text);
-          if (r) return r;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-/**
- * 把一条 ImageToolResult 翻译成 0~N 条 file-changed payload。
- *
- * - image-read  → 0 条（不进 file_changes 表，由活动流的「缩略图 + 描述」卡片覆盖）
- * - image-write → 1 条：before=null, after=path（文生图新文件）；metadata 带 prompt / provider / model
- * - image-edit  → 1 条：before/after 各指向 server 快照路径；metadata 带 prompt / provider / model
- * - image-multi-edit → N 条，filePath 都用 result.file（同一张图，让 SessionDetail 按文件分组聚合）
- *   每条 metadata 带 editIndex / total / prompt / provider / model
- */
-export function imageResultToFileChanges(
-  result: ImageToolResult,
-  toolUseId?: string,
-): ImageFileChangedPayload[] {
-  switch (result.kind) {
-    case 'image-read':
-      return [];
-    case 'image-write':
-      return [
-        {
-          filePath: result.file,
-          kind: 'image',
-          before: null,
-          after: { kind: 'path', path: result.file },
-          metadata: {
-            source: 'ImageWrite',
-            prompt: result.prompt,
-            ...(result.provider ? { provider: result.provider } : {}),
-            ...(result.model ? { model: result.model } : {}),
-            ...(result.mime ? { mime: result.mime } : {}),
-          },
-          toolCallId: toolUseId,
-        },
-      ];
-    case 'image-edit':
-      return [
-        {
-          filePath: result.file,
-          kind: 'image',
-          before: { kind: 'path', path: result.beforeFile },
-          after: { kind: 'path', path: result.afterFile },
-          metadata: {
-            source: 'ImageEdit',
-            prompt: result.prompt,
-            ...(result.provider ? { provider: result.provider } : {}),
-            ...(result.model ? { model: result.model } : {}),
-            ...(result.mime ? { mime: result.mime } : {}),
-          },
-          toolCallId: toolUseId,
-        },
-      ];
-    case 'image-multi-edit':
-      return result.edits.map((e, i) => ({
-        filePath: result.file,
-        kind: 'image' as const,
-        before: { kind: 'path' as const, path: e.beforeFile },
-        after: { kind: 'path' as const, path: e.afterFile },
-        metadata: {
-          source: 'ImageMultiEdit',
-          prompt: e.prompt,
-          editIndex: i,
-          total: result.edits.length,
-          ...(result.provider ? { provider: result.provider } : {}),
-          ...(result.model ? { model: result.model } : {}),
-        },
-        toolCallId: toolUseId,
-      }));
-  }
-}
-
-// ──────────────────────────────────────────────────────────────────────
-
 /**
  * PostToolUse 翻译。如果 tool_name 是 Edit/Write/MultiEdit，会同时返回
  * 一个 file-changed 事件（包含 before/after）。
  *
- * **plan deep-review-batch-a1-b-fixes-20260519 §Phase 3 Step 3.4 修法**(A1-MED-4 claude):
- * - 函数签名 narrow 加 `tool_use_id?: string`(SDK PostToolUse hook payload 协议提供此字段,
- *   spike1 已实证 sdk.d.ts:1870-1875 PostToolUse event 含 `tool_use_id: string`,
- *   PermissionRequest 不含此字段是 SDK 协议事实)
- * - 4 处 file-changed emit(Edit / Write / MultiEdit / image tool 内嵌 N 条) 都补 `toolCallId`
- *   字段透传 p.tool_use_id,与 sdk-message-translate maybeEmitFileChanged 路径对称
- *   (sdk-message-translate L209/L218/L229 早就在 tool_use 阶段传了 toolCallId,hook 路径
- *   漏传 → 仅当 SDK hook 模式没传 tool_use_id 时下游 FileChangeRecord.toolCallId=null,
- *   破坏「reverse lookup tool from file change」契约)。
- * - 修法范围**仅 translatePostToolUse**(当前唯一调用 file-changed emit 的 hook 路径);
- *   translatePreToolUse / translatePostToolUseFailure 不调 file-changed,无需修改。
+ * The current Claude hook contract requires `tool_use_id` for PostToolUse events, and text file
+ * changes preserve it for reverse lookup from the persisted change to its tool call.
  */
 export function translatePostToolUse(
   p: BaseClaudeHookPayload & {
     tool_name?: string;
     tool_input?: unknown;
     tool_response?: unknown;
-    tool_use_id?: string;
+    tool_use_id: string;
     duration_ms?: number;
   },
 ): AgentEvent[] {
@@ -249,26 +119,6 @@ export function translatePostToolUse(
         },
         ts,
       });
-    }
-  } else if (isImageTool(p.tool_name)) {
-    // MCP 图片工具（mcp__<server>__Image*）：解析 server 返回的结构化 JSON，
-    // 翻译成 0~N 条 file-changed 事件（payload.before/after 是 ImageSource，不带图片二进制）
-    // plan §Phase 3 Step 3.4 修法:imageResultToFileChanges 传 tool_use_id,内部循环 N 条都带
-    // toolCallId(image-multi-edit 1 个 tool_use 对应 N file-changed 共享同 toolCallId)。
-    const parsed = parseImageToolResult(p.tool_response);
-    if (parsed) {
-      for (const fc of imageResultToFileChanges(parsed, p.tool_use_id)) {
-        events.push({
-          sessionId: p.session_id,
-          agentId: CLAUDE_AGENT_ID,
-          kind: 'file-changed',
-          payload: {
-            cwd: p.cwd,
-            ...fc,
-          },
-          ts,
-        });
-      }
     }
   }
 

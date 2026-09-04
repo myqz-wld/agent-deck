@@ -11,19 +11,9 @@ import { on } from './_helpers';
 let chooseDirectoryDialogPromise: Promise<string | null> | null = null;
 
 export function registerWindowAppIpc(): void {
-  on(IpcInvoke.AppGetVersion, () => app.getVersion());
-
   // Window
   on(IpcInvoke.WindowSetAlwaysOnTop, (_e, value) => {
     getFloatingWindow().setAlwaysOnTop(Boolean(value));
-    return true;
-  });
-  on(IpcInvoke.WindowSetIgnoreMouse, (_e, value) => {
-    getFloatingWindow().setIgnoreMouse(Boolean(value));
-    return true;
-  });
-  on(IpcInvoke.WindowMinimize, () => {
-    getFloatingWindow().window?.minimize();
     return true;
   });
   on(IpcInvoke.WindowToggleCompact, () => getFloatingWindow().toggleCompact());

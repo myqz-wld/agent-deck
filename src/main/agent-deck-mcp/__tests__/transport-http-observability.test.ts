@@ -80,9 +80,6 @@ describe('MCP HTTP operation classifier', () => {
     expect(classifyMcpHttpOperation(toolBody('present_diff'))).toMatchObject({
       operationClass: 'human_wait',
     });
-    expect(classifyMcpHttpOperation(toolBody('browser_wait'))).toMatchObject({
-      operationClass: 'human_wait',
-    });
     expect(classifyMcpHttpOperation(toolBody('spawn_session'))).toMatchObject({
       operationClass: 'spawn',
     });
@@ -111,19 +108,6 @@ describe('MCP HTTP operation classifier', () => {
       'report_issue',
       'append_issue_context',
       'update_issue_status',
-      'browser_open',
-      'browser_tabs',
-      'browser_navigate',
-      'browser_close',
-      'browser_snapshot',
-      'browser_screenshot',
-      'browser_click',
-      'browser_type',
-      'browser_press',
-      'browser_scroll',
-      'browser_read_console',
-      'browser_read_network',
-      'browser_evaluate',
     ]) {
       expect(classifyMcpHttpOperation(toolBody(name))).toMatchObject({
         operationClass: 'local',

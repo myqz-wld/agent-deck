@@ -56,6 +56,7 @@ describe('Claude SDK structured tool results', () => {
         status: 'completed',
       },
     }));
+    expect(internal.toolUseNames).toHaveLength(0);
   });
 
   it('keeps per-block content when one message contains multiple tool results', () => {
@@ -84,5 +85,6 @@ describe('Claude SDK structured tool results', () => {
       .map(([event]) => event)
       .filter((event) => event.kind === 'tool-use-end');
     expect(endings.map((event) => event.payload.toolResult)).toEqual(['a', 'b']);
+    expect(internal.toolUseNames).toHaveLength(0);
   });
 });

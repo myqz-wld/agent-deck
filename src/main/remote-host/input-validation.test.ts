@@ -3,9 +3,7 @@ import { sessionConsoleCreateOptionsFixture } from '@contracts/session-console-c
 
 import {
   parseRemoteHostCreateSession,
-  parseRemoteHostHistoryRequest,
   parseRemoteHostMutationAuthority,
-  parseRemoteHostPageRequest,
   parseRemoteHostPendingResponse as parseRemoteHostPendingResponseInput,
   parseRemoteHostProfileDraft,
   parseRemoteHostRuntimeUpdate,
@@ -72,23 +70,6 @@ describe('remote-host IPC input validation', () => {
       ...draft(),
       argv: ['ssh', '-o', 'StrictHostKeyChecking=no'],
     })).toThrow('unexpected fields');
-  });
-
-  it('enforces bounded pagination and safe cursors at the IPC boundary', () => {
-    expect(parseRemoteHostPageRequest({
-      profileId: 'remote-a',
-      limit: 100,
-    })).toMatchObject({ profileId: 'remote-a', limit: 100 });
-    expect(() => parseRemoteHostPageRequest({
-      profileId: 'remote-a',
-      limit: 101,
-    })).toThrow('range');
-    expect(() => parseRemoteHostHistoryRequest({
-      profileId: 'remote-a',
-      sessionId: 'session-a',
-      cursor: 'line\nbreak',
-      limit: 20,
-    })).toThrow('invalid');
   });
 
   it('accepts only bounded session-detail requests and Workspace-relative diff paths', () => {

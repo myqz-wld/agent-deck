@@ -1,9 +1,4 @@
 import type { AgentEvent } from '@shared/types';
-import { isImageTool } from '@shared/mcp-tools';
-import {
-  imageResultToFileChanges,
-  parseImageToolResult,
-} from '@main/adapters/claude-code/translate';
 import type { InternalSession } from './types';
 
 type EmitTranslatedEvent = (kind: AgentEvent['kind'], payload: unknown) => void;
@@ -71,23 +66,4 @@ export function consumePendingFileChangeIntentCore(
   if (!intent) return;
   internal.pendingFileChangeIntents.delete(toolUseId);
   if (status === 'completed') emit('file-changed', intent);
-}
-
-/** Consume every tool-name lookup and project successful image results into file changes. */
-export function maybeEmitImageFileChangedCore(
-  emit: EmitTranslatedEvent,
-  internal: InternalSession,
-  toolUseId: string | undefined,
-  content: unknown,
-  status: 'completed' | 'failed' = 'completed',
-): void {
-  if (!toolUseId) return;
-  const toolName = internal.toolUseNames.get(toolUseId);
-  internal.toolUseNames.delete(toolUseId);
-  if (status === 'failed' || !isImageTool(toolName)) return;
-  const parsed = parseImageToolResult(content);
-  if (!parsed) return;
-  for (const fileChange of imageResultToFileChanges(parsed, toolUseId)) {
-    emit('file-changed', fileChange);
-  }
 }

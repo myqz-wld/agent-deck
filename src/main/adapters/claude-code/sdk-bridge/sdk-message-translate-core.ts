@@ -1,8 +1,7 @@
 /**
  * SDK message → AgentEvent 翻译（CHANGELOG_52 Step 3a / 第三轮大文件拆分）。
  *
- * 抽自 sdk-bridge.ts 内的 3 个 private 方法 (translate / maybeEmitFileChanged /
- * maybeEmitImageFileChanged)，行为与原版字节级等价。
+ * 抽自 sdk-bridge.ts 内的 message and file-change translators.
  *
  * 这 3 个函数是**纯函数**：
  * - 入参全部 prop-drive（emit 函数 / sessionId / msg / internal 引用）
@@ -12,7 +11,7 @@
  * 护栏（不变）：
  * - REVIEW_11 Bug 2 — system.init/status 上行 frame 的 permissionMode 反向同步 + emit upsert
  * - REVIEW_13 Bug 6 — result frame `if (internal.expectedClose) return` 整段 return（红字 / finished UI / 系统通知三通道一起 skip）
- * - CHANGELOG_47 — maybeEmitImageFileChanged 内 internal.toolUseNames.delete 提到所有 tool_result 顶层
+ * - tool-use name lookups are deleted for every terminal tool_result
  * - thinking-prelude 启发式（紧邻另一个 text 的 当前 block 是 thinking-prelude）
  */
 import type { AgentEvent } from '@shared/types';
@@ -53,7 +52,6 @@ import {
 } from './message-translation-state-core';
 import {
   consumePendingFileChangeIntentCore,
-  maybeEmitImageFileChangedCore,
   pushFileChangeIntentCore,
 } from './message-file-changes-core';
 
@@ -200,11 +198,11 @@ export function translateSdkMessageCore(
     for (const block of blocks) {
       if (block.type === 'tool_result') {
         // 反查 assistant tool_use 时记下的 name；renderer ToolEndRow 必须靠这个才能显示
-        // 「<tool> 完成」而不是兜底的「工具 完成」。maybeEmitImageFileChanged 内部还会
-        // 用同一个 map 然后 delete，所以这里只 get、不 delete。
+        // 「<tool> 完成」而不是兜底的「工具 完成」。Terminal result consumes the lookup.
         const toolName = block.tool_use_id
           ? internal.toolUseNames.get(block.tool_use_id)
           : undefined;
+        if (block.tool_use_id) internal.toolUseNames.delete(block.tool_use_id);
         // CHANGELOG_61 A1：tool-use-end status 跨 adapter 统一字段。
         // claude tool_result 含 `is_error: boolean` → 翻为 status='failed' / 'completed'，
         // 与 codex tool-use-end 的 status 对齐。UI ToolEndRow 据此显示红色边框 + ⚠ 徽标。
@@ -218,15 +216,8 @@ export function translateSdkMessageCore(
         });
         // plan §Phase 3 Step 3.5 修法 (A1-MED-1 codex): pendingFileChangeIntents 消费时序。
         // status='completed' → emit 之前 push 的 intent + delete;status='failed' 仅 delete
-        // (intent 不 emit,避免 SDK 工具 fail 时发出脏 file-changed)。intent 没找到 (typically
-        // 图片工具走 maybeEmitImageFileChanged 另一路径,本 Map 不参与) → no-op。
+        // (intent 不 emit,避免 SDK 工具 fail 时发出脏 file-changed)。intent 没找到则 no-op。
         consumePendingFileChangeIntentCore(e, internal, block.tool_use_id, status);
-        // mcp 图片工具结果识别：反查 toolName，匹配则把 result.content 解析后翻译成 file-changed
-        // **plan deep-review-batch-a1-b-followup-r3-20260519 §Phase 2.8 修法**（M2 codex A1 MED-2）：
-        // status 透传给 maybeEmitImageFileChanged，与 Step 3.5 修法对称 — failed 时不 emit
-        // file-changed (避免 SDK 图片工具 fail 时发出脏 file-changed,与 Edit/Write/MultiEdit
-        // 的 status='failed' 不 emit intent 行为对齐)。
-        maybeEmitImageFileChangedCore(e, internal, block.tool_use_id, block.content, status);
       }
     }
   } else if (msg.type === 'result') {

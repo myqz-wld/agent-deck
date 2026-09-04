@@ -1,13 +1,3 @@
-import type { ClaudeFinalResultUsage } from './final-result-usage';
-
-export function claudeResultOutputTokens(result: ClaudeFinalResultUsage): number {
-  const entries = Object.values(result.modelUsage ?? {});
-  if (entries.length > 0) {
-    return entries.reduce((sum, usage) => sum + (usage.outputTokens ?? 0), 0);
-  }
-  return result.usage?.output_tokens ?? 0;
-}
-
 export function claudeContextWindowFailureReason(
   result: { terminal_reason?: unknown },
 ): 'context-window-exceeded' | null {

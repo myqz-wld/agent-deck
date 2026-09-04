@@ -1,5 +1,4 @@
 import type { AgentEvent } from '@shared/types';
-import { isImageTool } from '@shared/mcp-tools';
 import { toolIcon } from './tool-icons';
 
 /** SimpleRow 单行灰文字摘要：按事件 kind / waiting-for-user 子类型分发到一句中文描述。 */
@@ -142,7 +141,6 @@ function translateSessionEndReason(reason: string): string {
 /**
  * 工具入参的单行摘要：用在 ToolStartRow 头部 + SimpleRow fallback。
  * 各工具取最具识别度的字段（Edit/Write/Read/MultiEdit 取 file_path、Bash 取 command 等）。
- * 兜底：mcp 图片工具（mcp__<server>__Image*）也走 file_path 摘要。
  */
 export function describeToolInput(toolName: string, input: unknown): string | null {
   if (!input || typeof input !== 'object') return null;
@@ -265,9 +263,6 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
       return firstLine.slice(0, 80) + (firstLine.length > 80 ? '…' : '');
     }
     default: {
-      if (isImageTool(toolName) && typeof o.file_path === 'string') {
-        return o.file_path;
-      }
       return null;
     }
   }

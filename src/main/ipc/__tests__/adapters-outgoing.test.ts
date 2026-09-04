@@ -6,7 +6,6 @@ import { IpcInvoke } from '@shared/ipc-channels';
 const mocks = vi.hoisted(() => ({
   dispatch: vi.fn(),
   deleteUpload: vi.fn(),
-  loadUploaded: vi.fn(),
   listPending: vi.fn(),
   listCommands: vi.fn(),
   removePending: vi.fn(),
@@ -56,7 +55,6 @@ vi.mock('@main/diff-review/service', () => ({
 }));
 vi.mock('@main/store/image-uploads', () => ({
   deleteUploadIfExists: mocks.deleteUpload,
-  loadUploadedImage: mocks.loadUploaded,
 }));
 vi.mock('../adapters-attachments', () => ({
   persistAdapterAttachments: mocks.persistAttachments,
@@ -120,12 +118,6 @@ describe('adapter outgoing queue IPC', () => {
     });
     mocks.persistAttachments.mockResolvedValue([]);
     mocks.deleteUpload.mockResolvedValue(undefined);
-    mocks.loadUploaded.mockResolvedValue({
-      ok: true,
-      dataUrl: 'data:image/png;base64,c2FmZQ==',
-      mime: 'image/png',
-      bytes: 5,
-    });
     mocks.respondDiffReview.mockResolvedValue(true);
     registerAdaptersIpc();
   });
@@ -215,40 +207,6 @@ describe('adapter outgoing queue IPC', () => {
       {}, 'codex-cli', 'source', 'pending-1',
     )).resolves.toBe(false);
     expect(mocks.deleteUpload).toHaveBeenCalledTimes(1);
-  });
-
-  it('authorizes a pending preview by current session, message, and ordered slot', async () => {
-    const attachment = {
-      kind: 'uploaded' as const,
-      path: '/tmp/authorized.png',
-      mime: 'image/png',
-      bytes: 5,
-    };
-    mocks.listPending.mockImplementation((sessionId: string) =>
-      sessionId === 'source'
-        ? [{ id: 'pending-1', text: '', attachments: [attachment] }]
-        : []);
-
-    await expect(handler(IpcInvoke.AdapterLoadPendingOutgoingAttachment)(
-      {}, 'codex-cli', 'source', 'pending-1', '0',
-    )).resolves.toMatchObject({ ok: true, mime: 'image/png' });
-    expect(mocks.loadUploaded).toHaveBeenCalledWith('/tmp/authorized.png');
-
-    await expect(handler(IpcInvoke.AdapterLoadPendingOutgoingAttachment)(
-      {}, 'codex-cli', 'other-session', 'pending-1', '0',
-    )).resolves.toEqual({ ok: false, reason: 'not_found' });
-    await expect(handler(IpcInvoke.AdapterLoadPendingOutgoingAttachment)(
-      {}, 'codex-cli', 'source', 'pending-1', '1',
-    )).resolves.toEqual({ ok: false, reason: 'not_found' });
-    expect(mocks.loadUploaded).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns not-found when the provider consumes or deletes a message before preview', async () => {
-    mocks.listPending.mockReturnValue([]);
-    await expect(handler(IpcInvoke.AdapterLoadPendingOutgoingAttachment)(
-      {}, 'codex-cli', 'source', 'consumed', '0',
-    )).resolves.toEqual({ ok: false, reason: 'not_found' });
-    expect(mocks.loadUploaded).not.toHaveBeenCalled();
   });
 
   it('keeps queue deletion successful when best-effort upload cleanup fails', async () => {

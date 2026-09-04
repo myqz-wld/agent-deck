@@ -413,30 +413,4 @@ export const eventRepo = {
     getDb().prepare(`DELETE FROM events WHERE session_id = ?`).run(sessionId);
   },
 
-  /**
-   * CHANGELOG_47：判断该 session 是否曾出现过 tool-use-start 事件、且 toolInput.file_path 等于给定值。
-   *
-   * 用途：loadImageBlob 的白名单兜底。ImageRead 不进 file_changes 表，原本靠
-   * `listForSession(sessionId, 500)` 全拉到 JS 侧线性扫，长会话事件 > 500 后旧图永久读不出。
-   * 改成 SQL `json_extract` + EXISTS LIMIT 1，无视事件总数，命中即返回。
-   *
-   * 走 sqlite json_extract 路径，sqlite 3.38+ 内置（better-sqlite3 当前 bundled）。
-   */
-  hasToolUseStartWithFilePath(sessionId: string, filePath: string): boolean {
-    if (!sessionId || !filePath) return false;
-    // 坏行隔离：CASE WHEN json_valid 同款守卫（详 findLatestAssistantMessage 注释）。
-    const r = getDb()
-      .prepare(
-        `SELECT 1 FROM events
-         WHERE session_id = ?
-           AND kind = 'tool-use-start'
-           AND CASE WHEN json_valid(payload_json)
-                 THEN json_extract(payload_json, '$.toolInput.file_path') = ?
-                 ELSE 0 END
-         LIMIT 1`,
-      )
-      .get(sessionId, filePath);
-    return r !== undefined;
-  },
-
 };

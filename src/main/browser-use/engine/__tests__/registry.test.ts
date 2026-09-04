@@ -6,14 +6,13 @@ import { BrowserTabLimitError } from '../types';
 import { fakeWindowFactory } from './_fakes';
 
 describe('BrowserEngine ownership', () => {
-  it('isolates owners by partition and never crosses namespaces', () => {
-    const sessionPartition = ownerPartition({ kind: 'session', id: 'sid-1' });
-    const pipePartition = ownerPartition({ kind: 'codex-pipe', id: 'sid-1' });
+  it('isolates owners by partition', () => {
+    const firstPartition = ownerPartition({ kind: 'session', id: 'sid-1' });
+    const secondPartition = ownerPartition({ kind: 'session', id: 'sid-2' });
 
-    expect(sessionPartition).toMatch(/^agent-deck-browser-[a-f0-9]{20}$/);
-    expect(pipePartition).toMatch(/^agent-deck-browser-[a-f0-9]{20}$/);
-    // Same raw id, different front: storage, cookies, and auth state must not be shared.
-    expect(sessionPartition).not.toBe(pipePartition);
+    expect(firstPartition).toMatch(/^agent-deck-browser-[a-f0-9]{20}$/);
+    expect(secondPartition).toMatch(/^agent-deck-browser-[a-f0-9]{20}$/);
+    expect(firstPartition).not.toBe(secondPartition);
   });
 
   it('returns the same handle for one owner and separate handles per owner', () => {
@@ -119,9 +118,9 @@ describe('BrowserEngine ownership', () => {
   it('enforces the global tab cap across owners', async () => {
     const engine = new BrowserEngine({ ...fakeWindowFactory(), maxTotalTabs: 2 });
     await engine.acquire({ kind: 'session', id: 'sid-1' }).openTab();
-    await engine.acquire({ kind: 'codex-pipe', id: 'codex-1' }).openTab();
+    await engine.acquire({ kind: 'session', id: 'sid-2' }).openTab();
 
-    await expect(engine.acquire({ kind: 'session', id: 'sid-2' }).openTab()).rejects.toThrow(
+    await expect(engine.acquire({ kind: 'session', id: 'sid-3' }).openTab()).rejects.toThrow(
       /global limit/,
     );
   });
@@ -169,48 +168,6 @@ describe('BrowserEngine ownership', () => {
 });
 
 describe('BrowserEngine disposal', () => {
-  it('keeps a leased owner alive until the final connection releases it', async () => {
-    const factory = fakeWindowFactory();
-    const engine = new BrowserEngine(factory);
-    const owner = { kind: 'codex-pipe', id: 'codex-shared' } as const;
-    const first = engine.acquireLease(owner);
-    const second = engine.acquireLease(owner);
-    await first.handle.openTab();
-
-    expect(second.handle).toBe(first.handle);
-    await first.release();
-    expect(factory.windows[0]?.destroyed).toBe(false);
-    expect(engine.peek(owner)).toBe(second.handle);
-
-    await second.release();
-    expect(factory.windows[0]?.destroy).toHaveBeenCalledOnce();
-    expect(engine.peek(owner)).toBeNull();
-
-    await second.release();
-    expect(factory.windows[0]?.destroy).toHaveBeenCalledOnce();
-  });
-
-  it('fences old leases when lifecycle force-disposes an owner', async () => {
-    const factory = fakeWindowFactory();
-    const engine = new BrowserEngine(factory);
-    const owner = { kind: 'codex-pipe', id: 'codex-fenced' } as const;
-    const stale = engine.acquireLease(owner);
-    await stale.handle.openTab();
-
-    await engine.disposeOwner(owner);
-    expect(stale.handle.isDisposed).toBe(true);
-    expect(factory.windows[0]?.destroy).toHaveBeenCalledOnce();
-
-    const replacement = engine.acquireLease(owner);
-    await replacement.handle.openTab();
-    await stale.release();
-    expect(factory.windows[1]?.destroyed).toBe(false);
-    expect(engine.peek(owner)).toBe(replacement.handle);
-
-    await replacement.release();
-    expect(factory.windows[1]?.destroy).toHaveBeenCalledOnce();
-  });
-
   it('disposes one owner without touching another and stays idempotent', async () => {
     const factory = fakeWindowFactory();
     const engine = new BrowserEngine(factory);
@@ -230,7 +187,7 @@ describe('BrowserEngine disposal', () => {
     const factory = fakeWindowFactory();
     const engine = new BrowserEngine(factory);
     await engine.acquire({ kind: 'session', id: 'alice' }).openTab();
-    await engine.acquire({ kind: 'codex-pipe', id: 'codex-1' }).openTab();
+    await engine.acquire({ kind: 'session', id: 'bob' }).openTab();
 
     await engine.disposeAll();
 

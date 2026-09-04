@@ -151,7 +151,7 @@ export function renameSdkSessionImpl(
  * - restart-controller.ts:341 restartWithClaudeCodeSandbox (claude)
  *
  * 调用方 (spawn 主路径,新增 R2 reviewer-claude MED 修法):
- * - claude-code/sdk-bridge/session-finalize.ts:98 spawn 主路径 cli_session_id 写入
+ * - claude-code/sdk-bridge/session-finalize-core.ts spawn 主路径 cli_session_id 写入
  *   (spawn 时 oldCliSid === newCliSessionId === applicationSid,wrapper 内 L632 不写
  *   黑名单语义等价直调 sessionRepo;统一走 wrapper 让契约层硬约束 SSOT 不被绕过)
  */

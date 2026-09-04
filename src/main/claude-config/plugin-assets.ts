@@ -11,7 +11,6 @@ import {
 } from '@main/plugin-assets';
 import { parseFrontmatter } from '@main/utils/frontmatter';
 import log from '@main/utils/logger';
-import type { AssetMeta, UserAssetsSnapshot } from '@shared/types';
 
 const logger = log.scope('claude-plugin-assets');
 const CLAUDE_ASSET_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -44,14 +43,6 @@ type AgentLookup =
 interface ClaudePluginContainer {
   path: string;
   allowContentOnly: boolean;
-}
-
-export function listClaudePluginAssets(): UserAssetsSnapshot {
-  const assets = getClaudeUserPluginRoots().flatMap(scanClaudePluginAssets);
-  return {
-    agents: assets.filter((asset) => asset.kind === 'agent').map(toAssetMeta).sort(compareAssets),
-    skills: assets.filter((asset) => asset.kind === 'skill').map(toAssetMeta).sort(compareAssets),
-  };
 }
 
 export function resolveClaudeProjectPluginAgentContent(
@@ -332,31 +323,4 @@ function findPluginAgent(
       content: match.content,
     },
   };
-}
-
-function toAssetMeta(asset: ClaudePluginAsset): AssetMeta {
-  return {
-    kind: asset.kind,
-    source: 'user',
-    adapter: 'claude-code',
-    origin: 'plugin',
-    pluginName: asset.pluginName,
-    runtimeName: asset.runtimeName,
-    name: asset.name,
-    qualifiedName: `plugin:${asset.pluginName}/${asset.name}`,
-    description: asset.frontmatter.description ?? '',
-    ...(asset.kind === 'agent'
-      ? {
-          tools: asset.frontmatter.tools,
-          model: asset.frontmatter.model,
-          thinking: asset.frontmatter.effort,
-          provider: asset.frontmatter.gateway,
-        }
-      : {}),
-    absPath: asset.path,
-  };
-}
-
-function compareAssets(a: AssetMeta, b: AssetMeta): number {
-  return a.qualifiedName.localeCompare(b.qualifiedName);
 }

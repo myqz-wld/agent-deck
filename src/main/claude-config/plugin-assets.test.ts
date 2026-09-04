@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   getClaudePluginAssetPath,
-  listClaudePluginAssets,
   resolveClaudeProjectPluginAgentContent,
   resolveClaudeUserPluginAgentContent,
 } from './plugin-assets';
@@ -49,7 +48,7 @@ describe('Claude Plugin assets', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('lists installed Plugin Agents and Skills with qualified display and runtime names', () => {
+  it('resolves installed Plugin Agent and Skill paths', () => {
     const pluginRoot = join(configRoot, 'plugins', 'cache', 'demo', '1.0.0');
     writePlugin(pluginRoot, 'demo', 'plugin-agent');
     write(
@@ -57,26 +56,12 @@ describe('Claude Plugin assets', () => {
       JSON.stringify({ plugins: { 'demo@personal': [{ installPath: pluginRoot }] } }),
     );
 
-    const snapshot = listClaudePluginAssets();
-    expect(snapshot.agents).toEqual([
-      expect.objectContaining({
-        name: 'plugin-agent',
-        origin: 'plugin',
-        pluginName: 'demo',
-        runtimeName: 'demo:plugin-agent',
-        qualifiedName: 'plugin:demo/plugin-agent',
-        model: 'sonnet',
-      }),
-    ]);
-    expect(snapshot.skills).toEqual([
-      expect.objectContaining({
-        name: 'plugin-skill',
-        pluginName: 'demo',
-        qualifiedName: 'plugin:demo/plugin-skill',
-      }),
-    ]);
-    expect(getClaudePluginAssetPath('agent', 'plugin-agent', snapshot.agents[0].absPath))
-      .toBe(snapshot.agents[0].absPath);
+    const agentPath = join(pluginRoot, 'agents', 'plugin-agent.md');
+    const skillPath = join(pluginRoot, 'skills', 'plugin-skill', 'SKILL.md');
+    expect(getClaudePluginAssetPath('agent', 'plugin-agent')).toBe(realpathSync(agentPath));
+    expect(getClaudePluginAssetPath('skill', 'plugin-skill')).toBe(realpathSync(skillPath));
+    expect(getClaudePluginAssetPath('agent', 'plugin-agent', agentPath))
+      .toBe(realpathSync(agentPath));
     expect(getClaudePluginAssetPath('agent', 'plugin-agent', join(root, 'missing.md')))
       .toBeNull();
   });
@@ -104,25 +89,15 @@ describe('Claude Plugin assets', () => {
       '---\nname: custom-skill\ndescription: custom skill\n---\nCustom skill body',
     );
 
-    const snapshot = listClaudePluginAssets();
-    expect(snapshot.agents).toEqual([
-      expect.objectContaining({
-        pluginName: 'skills-dir-demo',
-        name: 'custom-agent',
-        runtimeName: 'skills-dir-demo:custom-agent',
-      }),
-    ]);
-    expect(snapshot.skills).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        pluginName: 'skills-dir-demo',
-        name: 'root-skill',
-        description: 'Root plugin skill description.',
-      }),
-      expect.objectContaining({
-        pluginName: 'skills-dir-demo',
-        name: 'custom-skill',
-      }),
-    ]));
+    expect(getClaudePluginAssetPath('agent', 'custom-agent')).toBe(realpathSync(
+      join(pluginRoot, 'components', 'agents', 'custom-agent.md'),
+    ));
+    expect(getClaudePluginAssetPath('skill', 'root-skill')).toBe(realpathSync(
+      join(pluginRoot, 'SKILL.md'),
+    ));
+    expect(getClaudePluginAssetPath('skill', 'custom-skill')).toBe(realpathSync(
+      join(pluginRoot, 'components', 'skills', 'custom-skill', 'SKILL.md'),
+    ));
   });
 
   it('resolves project and user Plugin Agents by native qualified name', () => {

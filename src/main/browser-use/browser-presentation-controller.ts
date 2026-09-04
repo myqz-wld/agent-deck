@@ -184,21 +184,6 @@ export class BrowserPresentationController {
     return Object.freeze({ snapshot, appliedBounds: Object.freeze({ ...appliedBounds }) });
   }
 
-  select(rendererId: number, leaseId: string, tabId: number): BrowserPresentationResult {
-    const presentation = this.requireActive(rendererId, leaseId);
-    const handle = this.requireOwner(presentation);
-    const tab = handle.requireTab(tabId);
-    handle.markActive(tabId);
-    const appliedBounds = presentation.bounds == null
-      ? null
-      : tab.present(presentation.window, presentation.bounds);
-    const snapshot = this.projection.publish(presentation.source, presentation.ownerId).snapshot;
-    return Object.freeze({
-      snapshot,
-      appliedBounds: appliedBounds == null ? null : Object.freeze({ ...appliedBounds }),
-    });
-  }
-
   close(rendererId: number, leaseId: string, tabId: number): BrowserPresentationResult {
     const presentation = this.requireActive(rendererId, leaseId);
     const handle = this.requireOwner(presentation);

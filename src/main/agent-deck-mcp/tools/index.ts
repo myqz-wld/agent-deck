@@ -72,7 +72,6 @@ import { taskDeleteHandler } from './handlers/task-delete';
 import { reportIssueHandler } from './handlers/report-issue';
 import { appendIssueContextHandler } from './handlers/append-issue-context';
 import { updateIssueStatusHandler } from './handlers/update-issue-status';
-import { buildBrowserTools } from './browser-tools';
 
 export interface BuildAgentDeckToolsDeps {
   /** Authenticated caller profile; external/global transports have no adapter profile. */
@@ -446,14 +445,6 @@ export async function buildAgentDeckTools(
     reportIssue,
     appendIssueContext,
     updateIssueStatus,
-    // Legacy Local Browser MCP fronts stay disabled for every adapter after the unified
-    // skill+CLI cutover. External callers have no profile and Server Core owns its independent
-    // staged Remote compatibility registration.
-    ...buildBrowserTools({
-      tool,
-      makeCtx,
-      enabled: profile?.mcpBrowserTools === true,
-    }),
   ];
   return profile ? filterAgentDeckTools(tools, profile.mcpTools) : tools;
 }

@@ -10,8 +10,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { HookRouteDiagnostics } from '@main/hook-server/route-diagnostics';
-import { CLAUDE_HOOK_EVENTS, HookInstaller } from '../hook-installer';
+import { CLAUDE_HOOK_EVENTS, HookInstallerCore } from '../hook-installer-core';
+import { desktopClaudeHookInstallerObserver } from '../hook-installer-host';
 import { buildHookRoutes } from '../hook-routes';
+
+class HookInstaller extends HookInstallerCore {
+  constructor(port: number, token: string, relayRoot: string) {
+    super(port, token, relayRoot, desktopClaudeHookInstallerObserver);
+  }
+}
 
 const TOKEN = 'e'.repeat(64);
 

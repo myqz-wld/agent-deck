@@ -15,5 +15,4 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
-| 2026-08-27 | `PLAN_45_adapter-session-commands.md` | completed | Integrate native adapter slash commands into Agent Deck | CHANGELOG_631 |
-| 2026-08-24 | `PLAN_44_pi-adapter-project-trust.md` | completed | Design Pi integration and add native project trust to existing adapters | CHANGELOG_628 / REVIEW_262 |
+| 2026-09-04 | `PLAN_46_compatibility-dead-code-cleanup.md` | completed | Remove obsolete compatibility and production-dead code | CHANGELOG_638 / REVIEW_267 |

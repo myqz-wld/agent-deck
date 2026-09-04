@@ -5,9 +5,6 @@ import { IpcInvoke } from '@shared/ipc-channels';
 const fileChangeReadRepoMock = vi.hoisted(() => ({
   hasImagePathForSession: vi.fn(),
 }));
-const eventRepoMock = vi.hoisted(() => ({
-  hasToolUseStartWithFilePath: vi.fn(),
-}));
 const fsMock = vi.hoisted(() => ({
   realpath: vi.fn(),
   open: vi.fn(),
@@ -21,7 +18,6 @@ const fileHandle = vi.hoisted(() => ({
 vi.mock('@main/store/file-change-read-repo', () => ({
   fileChangeReadRepo: fileChangeReadRepoMock,
 }));
-vi.mock('@main/store/event-repo', () => ({ eventRepo: eventRepoMock }));
 vi.mock('@main/store/image-uploads', () => ({ loadUploadedImage: vi.fn() }));
 vi.mock('@main/utils/logger', () => ({
   default: { scope: () => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn() }) },
@@ -44,7 +40,6 @@ describe('ImageLoadBlob targeted authorization', () => {
     fileHandle.stat.mockResolvedValue({ size: 4 });
     fileHandle.readFile.mockResolvedValue(Buffer.from('safe'));
     fileHandle.close.mockResolvedValue(undefined);
-    eventRepoMock.hasToolUseStartWithFilePath.mockReturnValue(false);
     registerImagesIpc();
   });
 

@@ -210,8 +210,7 @@ export const ActivityRow = memo(function ActivityRow({
         : typeof startName === 'string' ? startName : undefined;
       if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') return null;
     }
-    return <ToolEndRow event={event} sessionId={sessionId} startEvent={startEvent}
-      allowLocalAssets={allowLocalAssets} />;
+    return <ToolEndRow event={event} startEvent={startEvent} />;
   }
   return <SimpleRow event={event} />;
 });

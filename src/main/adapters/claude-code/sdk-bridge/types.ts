@@ -231,8 +231,8 @@ export interface InternalSession {
   pendingExitPlanModes: Map<string, PendingExitPlanModeEntry>;
   /**
    * tool_use_id → tool_name 映射。SDK 的 tool_result block 只带 tool_use_id 不带 toolName，
-   * 但我们需要在 tool_result 时识别「这条结果是不是 mcp 图片工具的」才能翻译成 file-changed。
-   * assistant.tool_use 处理时 set，user.tool_result 消费后 delete。
+   * renderer 需要在 tool_result 时还原工具名。assistant.tool_use 处理时 set，
+   * user.tool_result 消费后 delete。
    */
   toolUseNames: Map<string, string>;
   /**
@@ -248,8 +248,7 @@ export interface InternalSession {
    * 修法:tool_use 阶段把 intent push 到本 Map(pushFileChangeIntent),tool_result 阶段拿
    * tool_use_id find → status='completed' emit + delete / status='failed' 仅 delete 不 emit。
    * session-end / consume finally 时显式 clear 防 leak(虽然 internal GC 会带走,显式 clear
-   * 与 toolUseNames 同款保险)。图片工具路径走 maybeEmitImageFileChanged 另一路径,本 Map
-   * 不参与图片工具(图片工具已经是 tool_result 阶段 emit,无 fail 路径污染问题)。
+   * 与 toolUseNames 同款保险)。
    */
   pendingFileChangeIntents: Map<string, Record<string, unknown>>;
   /**

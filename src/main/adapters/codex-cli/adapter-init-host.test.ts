@@ -28,7 +28,8 @@ vi.mock('./sdk-bridge/runtime-host', () => ({
 
 describe('desktop Codex adapter init host', () => {
   it('owns both initialization settings and the concrete bridge constructor', async () => {
-    const { desktopCodexAdapterInitHost: host } = await import('./adapter-init-host');
+    const { desktopCodexCliAdapterHost } = await import('./adapter-init-host');
+    const host = desktopCodexCliAdapterHost.bridge;
 
     expect(host.readPermissionTimeoutMs()).toBe(12_000);
     expect(host.readCodexCliPath()).toBe('/trusted/codex');

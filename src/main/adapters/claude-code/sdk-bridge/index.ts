@@ -349,7 +349,7 @@ export class ClaudeSdkBridge {
 
   // CHANGELOG_52 Step 3b：6 respond/list 方法 + 3 timeout 方法迁到 PermissionResponder。
   // class 上保留薄 wrapper（保持 public API 与 timeout setTimeout 引用兼容），
-  // 真正实现见 sdk-bridge/permission-responder.ts。
+  // 真正实现见 sdk-bridge/permission-responder-core.ts。
 
   respondPermission(sessionId: string, requestId: string, response: PermissionResponse): void {
     return this.responder.respondPermission(sessionId, requestId, response);

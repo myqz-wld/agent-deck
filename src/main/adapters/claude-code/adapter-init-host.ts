@@ -70,5 +70,3 @@ export const desktopClaudeCodeAdapterHost = createClaudeCodeAdapterHost({
     ),
   },
 });
-
-export const desktopClaudeAdapterInitHost = desktopClaudeCodeAdapterHost.bridge;

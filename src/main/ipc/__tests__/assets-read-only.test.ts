@@ -16,7 +16,6 @@ vi.mock('@main/bundled-assets', () => ({
   isSafeName: (name: string) => /^[a-z0-9][a-z0-9-]{0,63}$/.test(name),
 }));
 vi.mock('@main/user-assets', () => ({
-  listUserAssets: vi.fn(() => ({ agents: [], skills: [] })),
   getUserAssetContent: mocks.getUserAssetContent,
   getUserAssetPath: vi.fn(() => null),
 }));

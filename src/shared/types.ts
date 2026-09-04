@@ -23,7 +23,6 @@ export * from './types/task';
 export * from './types/issue';
 export * from './types/settings/app-settings';
 export * from './types/settings/defaults';
-export * from './types/settings/permission-scan';
 export * from './types/assets';
 export * from './types/attachment';
 export * from './types/token-usage';

@@ -15,7 +15,6 @@ export interface BrowserOwnerResource {
 
 interface BrowserOwnerRecord<Handle extends BrowserOwnerResource> {
   readonly handle: Handle;
-  leases: number;
 }
 
 export interface BrowserOwnershipRegistryOptions<Handle extends BrowserOwnerResource> {
@@ -36,21 +35,6 @@ export function ownerPartition(owner: BrowserOwnerKey): string {
   return `agent-deck-browser-${digest}`;
 }
 
-export class BrowserOwnerLeaseCore<Handle extends BrowserOwnerResource> {
-  private released = false;
-
-  constructor(
-    readonly handle: Handle,
-    private readonly releaseRecord: () => Promise<void>,
-  ) {}
-
-  async release(): Promise<void> {
-    if (this.released) return;
-    this.released = true;
-    await this.releaseRecord();
-  }
-}
-
 /** Provider-neutral ownership, lease, disposal, and capacity state machine. */
 export class BrowserOwnershipRegistryCore<Handle extends BrowserOwnerResource> {
   private readonly owners = new Map<string, BrowserOwnerRecord<Handle>>();
@@ -65,18 +49,6 @@ export class BrowserOwnershipRegistryCore<Handle extends BrowserOwnerResource> {
 
   acquire(owner: BrowserOwnerKey): Handle {
     return this.ensureOwner(owner).handle;
-  }
-
-  acquireLease(
-    owner: BrowserOwnerKey & { kind: 'codex-pipe' },
-  ): BrowserOwnerLeaseCore<Handle> {
-    const cacheKey = ownerCacheKey(owner);
-    const record = this.ensureOwner(owner);
-    record.leases += 1;
-    return new BrowserOwnerLeaseCore(
-      record.handle,
-      () => this.releaseLease(cacheKey, record),
-    );
   }
 
   peek(owner: BrowserOwnerKey): Handle | null {
@@ -122,21 +94,8 @@ export class BrowserOwnershipRegistryCore<Handle extends BrowserOwnerResource> {
     const cacheKey = ownerCacheKey(owner);
     const existing = this.owners.get(cacheKey);
     if (existing != null && !existing.handle.isDisposed) return existing;
-    const record = {
-      handle: this.options.createHandle(owner),
-      leases: 0,
-    };
+    const record = { handle: this.options.createHandle(owner) };
     this.owners.set(cacheKey, record);
     return record;
-  }
-
-  private async releaseLease(
-    cacheKey: string,
-    record: BrowserOwnerRecord<Handle>,
-  ): Promise<void> {
-    record.leases = Math.max(0, record.leases - 1);
-    if (record.leases !== 0 || this.owners.get(cacheKey) !== record) return;
-    this.owners.delete(cacheKey);
-    await record.handle.dispose();
   }
 }

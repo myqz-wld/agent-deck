@@ -50,7 +50,8 @@ vi.mock('./resources', () => ({
 
 describe('desktop Grok adapter host', () => {
   it('owns settings, resources, and the concrete bridge constructor', async () => {
-    const { desktopGrokAdapterHost: host } = await import('./adapter-host');
+    const { desktopGrokBuildAdapterHost } = await import('./adapter-host');
+    const host = desktopGrokBuildAdapterHost.bridge;
     const options = { emit: vi.fn() } as unknown as Parameters<
       typeof host.createBridge
     >[0];

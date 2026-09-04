@@ -70,7 +70,6 @@ const operation = (
 const TOOL_OPERATIONS = new Map<string, McpHttpOperation>([
   ['present_plan', operation('human_wait', 0)],
   ['present_diff', operation('human_wait', 1)],
-  ['browser_wait', operation('human_wait', 2)],
   ['spawn_session', operation('spawn', 3)],
   ['hand_off_session', operation('hand_off', 4)],
   ['enter_worktree', operation('lifecycle', 5)],
@@ -88,19 +87,6 @@ const TOOL_OPERATIONS = new Map<string, McpHttpOperation>([
   ['report_issue', operation('local', 19)],
   ['append_issue_context', operation('local', 20)],
   ['update_issue_status', operation('local', 21)],
-  ['browser_open', operation('local', 22)],
-  ['browser_tabs', operation('local', 23)],
-  ['browser_navigate', operation('local', 24)],
-  ['browser_close', operation('local', 25)],
-  ['browser_snapshot', operation('local', 26)],
-  ['browser_screenshot', operation('local', 27)],
-  ['browser_click', operation('local', 28)],
-  ['browser_type', operation('local', 29)],
-  ['browser_press', operation('local', 30)],
-  ['browser_scroll', operation('local', 31)],
-  ['browser_read_console', operation('local', 32)],
-  ['browser_read_network', operation('local', 33)],
-  ['browser_evaluate', operation('local', 34)],
 ]);
 
 const PROTOCOL_OPERATIONS = new Map<string, McpHttpOperation>([

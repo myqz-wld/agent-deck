@@ -4,17 +4,23 @@ import { dirname, join } from 'node:path';
 import type { SessionMessage } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  createClaudeFamilyForkedSession,
+  createClaudeFamilyForkedSessionCore,
   encodeClaudeSdkProjectKey,
   parseCompleteClaudeJsonl,
   selectClaudeForkBoundary,
   type ClaudeTranscriptEntry,
-} from '../fork-session';
-import { ClaudeForkDiscardError } from '../fork-session-cleanup';
+  type CreateClaudeFamilyForkArgs,
+} from '../fork-session-core';
+import { desktopClaudeFamilyForkHost } from '../fork-session-host';
+import { ClaudeForkDiscardError } from '../fork-session-cleanup-core';
 
 const SOURCE_APP_ID = '11111111-1111-4111-8111-111111111111';
 const SOURCE_NATIVE_ID = '22222222-2222-4222-8222-222222222222';
 const FORK_NATIVE_ID = '33333333-3333-4333-8333-333333333333';
+
+function createClaudeFamilyForkedSession(args: CreateClaudeFamilyForkArgs) {
+  return createClaudeFamilyForkedSessionCore(args, desktopClaudeFamilyForkHost);
+}
 
 function activeMessage(type: 'user' | 'assistant', uuid: string): SessionMessage {
   return {

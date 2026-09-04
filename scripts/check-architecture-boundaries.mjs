@@ -199,7 +199,6 @@ const rules = [
     root: 'src/main/adapters/claude-code/adapter-init-core.ts',
     forbiddenTargets: [
       'src/main/adapters/claude-code/adapter-init-host',
-      'src/main/adapters/claude-code/index',
       'src/main/adapters/claude-code/sdk-bridge/index',
       'src/main/runtime-host',
       'src/main/store',
@@ -213,9 +212,7 @@ const rules = [
     root: 'src/main/adapters/claude-code/adapter-core.ts',
     forbiddenTargets: [
       'src/main/adapters/claude-code/adapter-init-host',
-      'src/main/adapters/claude-code/fork-session',
       'src/main/adapters/claude-code/gateway-fork-safety',
-      'src/main/adapters/claude-code/index',
       'src/main/browser-use',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -235,9 +232,7 @@ const rules = [
       'src/main/adapters/claude-code/fork-session-host',
       'src/main/adapters/claude-code/gateway-fork-safety',
       'src/main/adapters/claude-code/gateway-fork-safety-host',
-      'src/main/adapters/claude-code/hook-installer',
       'src/main/adapters/claude-code/hook-installer-host',
-      'src/main/adapters/claude-code/index',
       'src/main/hook-server/route-diagnostics-host',
       'src/main/runtime-host',
       'src/main/session/manager',
@@ -343,7 +338,6 @@ const rules = [
     name: 'codex-summary-runner-core-host',
     root: 'src/main/adapters/codex-cli/summarizer-runner-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/codex-cli/summarizer-runner',
       'src/main/adapters/codex-cli/summarizer-runner-host',
       'src/main/session/oneshot-llm/codex-runner',
       'src/main/runtime-host',
@@ -358,7 +352,6 @@ const rules = [
     root: 'src/main/adapters/codex-cli/adapter-init-core.ts',
     forbiddenTargets: [
       'src/main/adapters/codex-cli/adapter-init-host',
-      'src/main/adapters/codex-cli/index',
       'src/main/adapters/codex-cli/sdk-bridge/index',
       'src/main/adapters/codex-cli/app-server',
       'src/main/hook-server',
@@ -375,7 +368,6 @@ const rules = [
     root: 'src/main/adapters/codex-cli/adapter-core.ts',
     forbiddenTargets: [
       'src/main/adapters/codex-cli/adapter-init-host',
-      'src/main/adapters/codex-cli/index',
       'src/main/browser-use',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -394,8 +386,6 @@ const rules = [
     forbiddenTargets: [
       'src/main/adapters/codex-cli/adapter-init-host',
       'src/main/adapters/codex-cli/desktop-ephemeral-filter',
-      'src/main/adapters/codex-cli/index',
-      'src/main/adapters/codex-cli/summarizer-runner',
       'src/main/adapters/codex-cli/summarizer-runner-host',
       'src/main/hook-server/route-diagnostics-host',
       'src/main/runtime-host',
@@ -714,9 +704,6 @@ const rules = [
     forbiddenTargets: [
       'src/main/adapters/provider-runtime-host',
       'src/main/adapters/registry',
-      'src/main/adapters/claude-code/index',
-      'src/main/adapters/codex-cli/index',
-      'src/main/adapters/grok-build/index',
       'src/main/event-bus',
       'src/main/runtime-host',
       'src/main/session',
@@ -732,9 +719,6 @@ const rules = [
     forbiddenTargets: [
       'src/main/adapters/provider-runtime-host',
       'src/main/adapters/registry',
-      'src/main/adapters/claude-code/index',
-      'src/main/adapters/codex-cli/index',
-      'src/main/adapters/grok-build/index',
       'src/main/browser-use',
       'src/main/event-bus',
       'src/renderer',
@@ -773,11 +757,8 @@ const rules = [
     forbiddenTargets: [
       'src/main/adapters/provider-runtime-host',
       'src/main/adapters/claude-code/adapter-init-host',
-      'src/main/adapters/claude-code/index',
       'src/main/adapters/codex-cli/adapter-init-host',
-      'src/main/adapters/codex-cli/index',
       'src/main/adapters/grok-build/adapter-host',
-      'src/main/adapters/grok-build/index',
       'src/main/runtime-host',
       'src/main/session',
       'src/main/store',
@@ -860,7 +841,6 @@ const rules = [
     name: 'codex-fork-target-runtime-host',
     root: 'src/main/adapters/codex-cli/sdk-bridge/fork-session/target-runtime.ts',
     forbiddenTargets: [
-      'src/main/adapters/codex-cli/sdk-bridge/fork-session/target-runtime-host',
       'src/main/codex-config/agents-md-installer',
       'src/main/runtime-host',
       'src/main/store',
@@ -873,7 +853,6 @@ const rules = [
     name: 'codex-create-runtime-selection-host',
     root: 'src/main/adapters/codex-cli/sdk-bridge/create-session/runtime-selection.ts',
     forbiddenTargets: [
-      'src/main/adapters/codex-cli/sdk-bridge/create-session/runtime-selection-host',
       'src/main/codex-config/agents-md-installer',
       'src/main/runtime-host',
       'src/main/store',
@@ -968,7 +947,6 @@ const rules = [
     name: 'session-model-controller-core',
     root: 'src/main/adapters/session-model-controller-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/session-model-controller',
       'src/main/adapters/session-model-controller-host',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -983,8 +961,6 @@ const rules = [
     name: 'grok-summary-runner-core-host',
     root: 'src/main/adapters/grok-build/summarizer-runner-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/grok-build/summarizer-runner',
-      'src/main/adapters/grok-build/summarizer-runner-host',
       'src/main/runtime-host',
       'src/main/store',
       'src/main/utils',
@@ -997,7 +973,6 @@ const rules = [
     root: 'src/main/adapters/grok-build/adapter-host-core.ts',
     forbiddenTargets: [
       'src/main/adapters/grok-build/adapter-host',
-      'src/main/adapters/grok-build/index',
       'src/main/adapters/grok-build/bridge',
       'src/main/adapters/grok-build/resources',
       'src/main/runtime-host',
@@ -1015,10 +990,7 @@ const rules = [
       'src/main/adapters/grok-build/adapter-host',
       'src/main/adapters/grok-build/bridge-runtime-host',
       'src/main/adapters/grok-build/hook-installer-host',
-      'src/main/adapters/grok-build/index',
       'src/main/adapters/grok-build/resources',
-      'src/main/adapters/grok-build/summarizer-runner',
-      'src/main/adapters/grok-build/summarizer-runner-host',
       'src/main/hook-server/route-diagnostics-host',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1034,7 +1006,6 @@ const rules = [
     forbiddenTargets: [
       'src/main/adapters/grok-build/adapter-host',
       'src/main/adapters/grok-build/hook-installer-host',
-      'src/main/adapters/grok-build/index',
       'src/main/event-bus',
       'src/main/runtime-host',
       'src/main/session',
@@ -1050,7 +1021,6 @@ const rules = [
     forbiddenTargets: [
       'src/main/adapters/grok-build/adapter-host',
       'src/main/adapters/grok-build/hook-installer-host',
-      'src/main/adapters/grok-build/index',
       'src/main/hook-server/route-diagnostics-host',
       'src/main/runtime-host',
       'src/main/session',
@@ -1067,9 +1037,7 @@ const rules = [
       'src/main/adapters/grok-build/adapter-host',
       'src/main/adapters/grok-build/hook-installer',
       'src/main/adapters/grok-build/hook-routes',
-      'src/main/adapters/grok-build/index',
       'src/main/adapters/grok-build/resources',
-      'src/main/adapters/grok-build/summarizer-runner',
       'src/main/browser-use',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1104,7 +1072,6 @@ const rules = [
       'src/main/session/manager/sdk-pending-claim',
       'src/main/session/manager/session-registration',
       'src/main/adapters/claude-code/adapter-init-host',
-      'src/main/adapters/claude-code/index',
       'src/main/runtime-host',
       'src/main/store',
       'src/main/utils',
@@ -1113,42 +1080,23 @@ const rules = [
     forbiddenPackages: ['electron', 'electron-log'],
   },
   {
-    name: 'claude-adapter-session-manager-injection',
-    root: 'src/main/adapters/claude-code/index.ts',
-    forbiddenTargets: ['src/main/session/manager'],
-    forbidNodeBuiltins: false,
-    forbiddenPackages: ['electron', 'electron-log'],
-  },
-  {
     name: 'claude-bridge-session-manager-injection',
     root: 'src/main/adapters/claude-code/sdk-bridge/index.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/create-session/gateway-options',
-      'src/main/adapters/claude-code/sdk-bridge/recoverer/jsonl-discovery',
       'src/main/adapters/claude-code/sdk-bridge/recoverer/jsonl-discovery-host',
       'src/main/adapters/claude-code/sdk-bridge/recovery-freshness-host',
       'src/main/adapters/claude-code/sdk-bridge/session-defaults-host',
-      'src/main/adapters/claude-code/sdk-bridge/permission-responder',
       'src/main/adapters/claude-code/sdk-bridge/permission-responder-host',
-      'src/main/adapters/claude-code/sdk-bridge/cwd-transition-controller',
       'src/main/adapters/claude-code/sdk-bridge/cwd-transition-controller-host',
-      'src/main/adapters/claude-code/sdk-bridge/message-controller',
       'src/main/adapters/claude-code/sdk-bridge/message-controller-host',
-      'src/main/adapters/claude-code/sdk-bridge/session-lifecycle',
       'src/main/adapters/claude-code/sdk-bridge/session-lifecycle-host',
-      'src/main/adapters/claude-code/sdk-bridge/pending-outgoing',
       'src/main/adapters/claude-code/sdk-bridge/pending-outgoing-host',
-      'src/main/adapters/claude-code/sdk-bridge/stream-processor',
       'src/main/adapters/claude-code/sdk-bridge/stream-processor-host',
-      'src/main/adapters/claude-code/sdk-bridge/session-finalize',
       'src/main/adapters/claude-code/sdk-bridge/session-finalize-host',
-      'src/main/adapters/claude-code/sdk-bridge/can-use-tool',
       'src/main/adapters/claude-code/sdk-bridge/can-use-tool-host',
       'src/main/adapters/claude-code/sdk-bridge/create-session/create-session-sdk-query-host',
       'src/main/adapters/claude-code/gateway-profiles',
-      'src/main/adapters/claude-code/usage-snapshot',
       'src/main/adapters/claude-code/usage-snapshot-host',
-      'src/main/adapters/session-model-controller',
       'src/main/adapters/session-model-controller-host',
       'src/main/session/continuation-context/recovery',
       'src/main/session/manager',
@@ -1169,9 +1117,7 @@ const rules = [
     root: 'src/main/adapters/claude-code/sdk-bridge/create-session/create-session-impl.ts',
     forbiddenTargets: [
       'src/main/adapters/claude-code/sdk-bridge/session-defaults-host',
-      'src/main/adapters/claude-code/sdk-bridge/session-finalize',
       'src/main/adapters/claude-code/sdk-bridge/session-finalize-host',
-      'src/main/adapters/claude-code/sdk-bridge/can-use-tool',
       'src/main/adapters/claude-code/sdk-bridge/can-use-tool-host',
       'src/main/adapters/claude-code/sdk-bridge/create-session/create-session-sdk-query-host',
       'src/main/store',
@@ -1322,7 +1268,6 @@ const rules = [
     name: 'grok-live-token-rate-core',
     root: 'src/main/adapters/grok-build/live-token-rate-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/grok-build/live-token-rate',
       'src/main/adapters/grok-build/live-token-rate-host',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1337,7 +1282,6 @@ const rules = [
     name: 'codex-live-token-rate-core',
     root: 'src/main/adapters/codex-cli/sdk-bridge/live-token-rate-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/codex-cli/sdk-bridge/live-token-rate',
       'src/main/adapters/codex-cli/sdk-bridge/live-token-rate-host',
       'src/main/adapters/codex-cli/sdk-bridge/types',
       'src/main/adapters/codex-cli/app-server/client',
@@ -1354,7 +1298,6 @@ const rules = [
     name: 'claude-live-token-rate-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/live-token-rate-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/live-token-rate',
       'src/main/adapters/claude-code/sdk-bridge/live-token-rate-host',
       'src/main/adapters/claude-code/sdk-bridge/types',
       'src/main/event-bus',
@@ -1386,7 +1329,6 @@ const rules = [
     name: 'claude-context-usage-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/context-usage-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/context-usage',
       'src/main/adapters/claude-code/sdk-bridge/runtime-metadata-sync',
       'src/main/adapters/claude-code/sdk-bridge/runtime-metadata-host',
       'src/main/event-bus',
@@ -1402,7 +1344,6 @@ const rules = [
     name: 'claude-message-translation-state-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/message-translation-state-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/message-translation-state',
       'src/main/adapters/claude-code/sdk-bridge/message-translation-state-host',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1436,10 +1377,6 @@ const rules = [
       'src/main/adapters/claude-code/sdk-bridge/live-token-rate-host',
       'src/main/adapters/claude-code/sdk-bridge/runtime-metadata-sync',
       'src/main/adapters/claude-code/sdk-bridge/runtime-metadata-host',
-      'src/main/adapters/claude-code/sdk-bridge/final-result-usage',
-      'src/main/adapters/claude-code/sdk-bridge/user-message-acceptance',
-      'src/main/adapters/claude-code/sdk-bridge/context-usage',
-      'src/main/adapters/claude-code/sdk-bridge/message-translation-state',
       'src/main/adapters/claude-code/sdk-bridge/message-translation-state-host',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1454,10 +1391,8 @@ const rules = [
     name: 'claude-stream-finalize-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/stream-finalize-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/stream-processor',
       'src/main/adapters/claude-code/sdk-bridge/stream-finalize-host',
       'src/main/adapters/claude-code/sdk-bridge/live-token-rate-host',
-      'src/main/adapters/claude-code/sdk-bridge/live-token-rate',
       'src/main/adapters/claude-code/sdk-bridge/create-session/gateway-sandbox-settings',
       'src/main/session',
       'src/main/event-bus',
@@ -1472,7 +1407,6 @@ const rules = [
     name: 'claude-stream-session-identity-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/stream-session-identity-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/stream-processor',
       'src/main/adapters/claude-code/sdk-bridge/stream-session-identity-host',
       'src/main/session',
       'src/main/event-bus',
@@ -1487,7 +1421,6 @@ const rules = [
     name: 'claude-stream-wait-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/stream-wait-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/stream-processor',
       'src/main/adapters/claude-code/sdk-bridge/stream-wait-host',
       'src/main/adapters/claude-code/sdk-bridge/constants',
       'src/main/session',
@@ -1503,13 +1436,11 @@ const rules = [
     name: 'claude-stream-processor-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/stream-processor-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/stream-processor',
       'src/main/adapters/claude-code/sdk-bridge/stream-processor-host',
       'src/main/adapters/claude-code/sdk-bridge/sdk-message-translate',
       'src/main/adapters/claude-code/sdk-bridge/stream-finalize-host',
       'src/main/adapters/claude-code/sdk-bridge/stream-session-identity-host',
       'src/main/adapters/claude-code/sdk-bridge/stream-wait-host',
-      'src/main/adapters/claude-code/sdk-bridge/user-message-stream',
       'src/main/adapters/claude-code/sdk-bridge/user-message-stream-host',
       'src/main/adapters/claude-code/sdk-bridge/constants',
       'src/main/session',
@@ -1525,7 +1456,6 @@ const rules = [
     name: 'claude-final-result-usage-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/final-result-usage-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/final-result-usage',
       'src/main/event-bus',
       'src/main/runtime-host',
       'src/main/session',
@@ -1540,10 +1470,6 @@ const rules = [
     root: 'src/main/adapters/claude-code/sdk-bridge/session-defaults-core.ts',
     forbiddenTargets: [
       'src/main/adapters/claude-code/sdk-bridge/session-defaults-host',
-      'src/main/adapters/claude-code/sdk-bridge/model-resolve',
-      'src/main/adapters/claude-code/sdk-bridge/sandbox-resolve',
-      'src/main/adapters/claude-code/sdk-bridge/effort-resolve',
-      'src/main/adapters/claude-code/sdk-bridge/create-session/gateway-options',
       'src/main/adapters/claude-code/gateway-profiles',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1558,7 +1484,6 @@ const rules = [
     name: 'claude-session-lifecycle-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/session-lifecycle-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/session-lifecycle',
       'src/main/adapters/claude-code/sdk-bridge/session-lifecycle-host',
       'src/main/adapters/claude-code/sdk-bridge/pending-cancellation',
       'src/main/adapters/claude-code/sdk-bridge/types',
@@ -1605,7 +1530,6 @@ const rules = [
     name: 'claude-hook-installer-core',
     root: 'src/main/adapters/claude-code/hook-installer-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/hook-installer',
       'src/main/adapters/claude-code/hook-installer-host',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1622,7 +1546,6 @@ const rules = [
     forbiddenTargets: [
       'src/main/adapters/claude-code/sdk-bridge/pending-cancellation',
       'src/main/adapters/claude-code/sdk-bridge/pending-cancellation-host',
-      'src/main/adapters/claude-code/sdk-bridge/session-lifecycle',
       'src/main/adapters/claude-code/sdk-bridge/session-lifecycle-host',
       'src/main/adapters/claude-code/sdk-bridge/types',
       'src/main/adapters/claude-code/sdk-bridge/create-session/gateway-sandbox-settings',
@@ -1639,7 +1562,6 @@ const rules = [
     name: 'claude-message-controller-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/message-controller-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/message-controller',
       'src/main/adapters/claude-code/sdk-bridge/message-controller-host',
       'src/main/session/hand-off',
       'src/main/event-bus',
@@ -1654,8 +1576,6 @@ const rules = [
     name: 'claude-pending-outgoing-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/pending-outgoing-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/pending-outgoing',
-      'src/main/adapters/claude-code/sdk-bridge/user-message-acceptance',
       'src/main/event-bus',
       'src/main/runtime-host',
       'src/main/session',
@@ -1687,7 +1607,6 @@ const rules = [
     name: 'claude-can-use-tool-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/can-use-tool-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/can-use-tool',
       'src/main/adapters/claude-code/sdk-bridge/can-use-tool-host',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1702,7 +1621,6 @@ const rules = [
     name: 'claude-cwd-transition-controller-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/cwd-transition-controller-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/cwd-transition-controller',
       'src/main/adapters/claude-code/sdk-bridge/cwd-transition-controller-host',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1732,7 +1650,6 @@ const rules = [
     name: 'claude-jsonl-discovery-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/recoverer/jsonl-discovery-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/recoverer/jsonl-discovery',
       'src/main/adapters/claude-code/sdk-bridge/recoverer/jsonl-discovery-host',
       'src/main/platform',
       'src/main/runtime-host',
@@ -1747,7 +1664,6 @@ const rules = [
     name: 'claude-user-message-stream-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/user-message-stream-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/user-message-stream',
       'src/main/adapters/claude-code/sdk-bridge/user-message-stream-host',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1762,7 +1678,6 @@ const rules = [
     name: 'claude-user-message-acceptance-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/user-message-acceptance-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/user-message-acceptance',
       'src/main/adapters/claude-code/sdk-bridge/constants',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1777,7 +1692,6 @@ const rules = [
     name: 'claude-permission-responder-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/permission-responder-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/permission-responder',
       'src/main/adapters/claude-code/sdk-bridge/permission-responder-host',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1792,7 +1706,6 @@ const rules = [
     name: 'claude-session-finalize-core',
     root: 'src/main/adapters/claude-code/sdk-bridge/session-finalize-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/sdk-bridge/session-finalize',
       'src/main/adapters/claude-code/sdk-bridge/session-finalize-host',
       'src/main/adapters/claude-code/sdk-bridge/types',
       'src/main/event-bus',
@@ -1808,9 +1721,7 @@ const rules = [
     name: 'claude-fork-cleanup-core',
     root: 'src/main/adapters/claude-code/fork-session-cleanup-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/fork-session-cleanup',
       'src/main/adapters/claude-code/fork-session-cleanup-host',
-      'src/main/adapters/claude-code/fork-session',
       'src/main/event-bus',
       'src/main/runtime-host',
       'src/main/session',
@@ -1824,9 +1735,7 @@ const rules = [
     name: 'claude-native-fork-core',
     root: 'src/main/adapters/claude-code/fork-session-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/fork-session',
       'src/main/adapters/claude-code/fork-session-host',
-      'src/main/adapters/claude-code/fork-session-cleanup',
       'src/main/adapters/claude-code/fork-session-cleanup-host',
       'src/main/adapters/claude-code/sdk-loader',
       'src/main/event-bus',
@@ -1859,7 +1768,6 @@ const rules = [
     forbiddenTargets: [
       'src/main/adapters/claude-code/gateway-fork-safety',
       'src/main/adapters/claude-code/gateway-fork-safety-host',
-      'src/main/adapters/claude-code/fork-session',
       'src/main/adapters/claude-code/gateway-profiles',
       'src/main/event-bus',
       'src/main/runtime-host',
@@ -1888,7 +1796,6 @@ const rules = [
     name: 'claude-usage-snapshot-core',
     root: 'src/main/adapters/claude-code/usage-snapshot-core.ts',
     forbiddenTargets: [
-      'src/main/adapters/claude-code/usage-snapshot',
       'src/main/adapters/claude-code/usage-snapshot-host',
       'src/main/adapters/claude-code/resolve-claude-binary',
       'src/main/adapters/claude-code/sdk-runtime',

@@ -34,10 +34,6 @@ export function registerBrowserIpc(): void {
       event.sender.id, request.leaseId, request.tabId, request.bounds,
     );
   });
-  on(IpcInvoke.BrowserPresentationSelect, (event, value) => {
-    const request = parseBrowserPresentationTab(value);
-    return controller.select(event.sender.id, request.leaseId, request.tabId);
-  });
   on(IpcInvoke.BrowserPresentationClose, (event, value) => {
     const request = parseBrowserPresentationTab(value);
     return controller.close(event.sender.id, request.leaseId, request.tabId);

@@ -15,4 +15,5 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-09-04 | `REVIEW_267_compatibility-dead-code-audit.md` | Compatibility and dead-code retirement | 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW open |
 | 2026-09-03 | `REVIEW_266_browser-runtime-remount.md` | Cross-day Browser runtime remount | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed |

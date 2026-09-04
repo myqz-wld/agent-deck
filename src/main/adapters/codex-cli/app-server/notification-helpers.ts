@@ -66,10 +66,6 @@ export function readCompletedAgentMessageText(notification: CodexAppServerNotifi
   return typeof item.text === 'string' ? item.text : '';
 }
 
-export function readTerminalErrorText(notification: CodexAppServerNotification): string {
-  return readTerminalError(notification)?.message ?? '';
-}
-
 export interface CodexTerminalErrorEvidence {
   message: string;
   codexErrorInfo: string | null;

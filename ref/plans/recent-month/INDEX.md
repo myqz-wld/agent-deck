@@ -15,6 +15,8 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-08-27 | `PLAN_45_adapter-session-commands.md` | completed | Integrate native adapter slash commands into Agent Deck | CHANGELOG_631 |
+| 2026-08-24 | `PLAN_44_pi-adapter-project-trust.md` | completed | Design Pi integration and add native project trust to existing adapters | CHANGELOG_628 / REVIEW_262 |
 | 2026-08-18 | `PLAN_43_unified-browser-skill-cli-iab.md` | completed with Remote live gate retained | Unify Browser skill, CLI, responsive IAB, and annotation | CHANGELOG_618 / REVIEW_255 |
 | 2026-08-18 | `PLAN_42_summary-settings-layout-and-timeout-policy.md` | completed | Align generator settings order and internalize summary timeout | REVIEW_254 |
 | 2026-08-18 | `PLAN_41_current-only-gap-sweep.md` | completed | Close remaining utility, root-config, prompt, and settings-copy gaps | REVIEW_253 |
@@ -29,11 +31,3 @@ This bucket contains only plans that currently belong to this mutually exclusive
 | 2026-08-09 | `PLAN_32_remote-local-capability-parity.md` | completed with external acceptance | Complete Local/Remote parity and Workspace-sandbox delivery | CHANGELOG_578 / REVIEW_217 |
 | 2026-08-08 | `PLAN_31_handoff-lifecycle-context-v2.md` | completed with documented residuals | Harden handoff context, lifecycle, and rollback boundaries | CHANGELOG_436 / REVIEW_216 |
 | 2026-08-06 | `PLAN_31_linux-remote-core-foundation.md` | completed with follow-up | Deliver Remote Core, Relay/Worker, Feishu, and Workspace foundations | CHANGELOG_565 / PLAN_32 |
-| 2026-08-03 | `PLAN_30_context-window-observation-unification.md` | completed | Unify observed context capacity across continuations | CHANGELOG_430 / REVIEW_212 |
-| 2026-07-31 | `PLAN_29_review-208-defect-remediation.md` | completed | Close all fifteen defects confirmed by REVIEW_208 | CHANGELOG_427 / REVIEW_209 |
-| 2026-07-31 | `PLAN_28_compatibility-and-defect-audit.md` | completed | Clean internal compatibility seams and audit functional defects | REVIEW_208 / PLAN_29 |
-| 2026-07-31 | `PLAN_27_runtime-integration-repair.md` | completed with documented residuals | Repair reviewed Hook, gateway, and Codex provider integrations | CHANGELOG_425 / REVIEW_206 |
-| 2026-07-30 | `PLAN_26_automatic-worktree-cwd-transition.md` | completed | Move session cwd automatically at the acknowledged provider boundary | CHANGELOG_418 / REVIEW_200 |
-| 2026-07-30 | `PLAN_25_hook-event-lifecycle-completeness.md` | completed | Complete hook lifecycle capture without version or paging probes | CHANGELOG_415 |
-| 2026-07-29 | `PLAN_24_maintenance-timeout-terminal-policy.md` | completed | Adopt safe disable-until-restart maintenance timeout policy | CHANGELOG_412 / REVIEW_188 |
-| 2026-07-29 | `PLAN_23_whole-project-quality-refresh.md` | completed with documented residuals | Harden cross-adapter runtime, storage, UI, logging, and packaging | CHANGELOG_411 / REVIEW_187 |

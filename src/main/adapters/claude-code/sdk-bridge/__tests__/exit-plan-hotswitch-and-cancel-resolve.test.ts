@@ -34,7 +34,9 @@ import { desktopClaudeCreateSessionSdkQueryHost } from '../create-session/create
 import { makeInternalSession, type InternalSession } from '../types';
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentEvent } from '@shared/types';
-import { cancelPendingAndEmit, runCloseSessionCleanup } from '../pending-cancellation';
+import { runCloseSessionCleanup } from '../pending-cancellation';
+import { cancelClaudePendingAndEmitCore } from '../pending-cancellation-core';
+import { createDesktopClaudePendingCancellationHost } from '../pending-cancellation-host';
 import { sessionManager } from '@main/session/manager';
 
 vi.mock('@main/session/manager', () => ({
@@ -47,6 +49,19 @@ vi.mock('@main/session/manager', () => ({
     updateCliSessionId: vi.fn(),
   },
 }));
+
+function cancelPendingAndEmit(
+  internal: InternalSession,
+  realIdForEmit: string,
+  emit: (event: AgentEvent) => void,
+): void {
+  cancelClaudePendingAndEmitCore(
+    internal,
+    realIdForEmit,
+    emit,
+    createDesktopClaudePendingCancellationHost(sessionManager),
+  );
+}
 
 // session-repo mock：MED-1 路径调 setPermissionMode + get（emit upsert 用）。
 // get 返回一个可变 record，让 setPermissionMode 写入后 get 能读回新值断言 DB 同步。
@@ -234,7 +249,7 @@ describe('REVIEW_78 MED-2 — cancelPendingAndEmit best-effort resolve 三类 pe
     });
 
     const emitted: AgentEvent[] = [];
-    cancelPendingAndEmit(internal, 'sess-c4', (e) => emitted.push(e), sessionManager);
+    cancelPendingAndEmit(internal, 'sess-c4', (e) => emitted.push(e));
 
     // 修法核心：三类 resolver 都被调（修前只 emit cancelled + clear Map，不 resolve）
     expect(permResolver).toHaveBeenCalledWith({
@@ -274,7 +289,7 @@ describe('REVIEW_78 MED-2 — cancelPendingAndEmit best-effort resolve 三类 pe
       timer: null,
     });
 
-    cancelPendingAndEmit(internal, 'sess-c4', () => undefined, sessionManager);
+    cancelPendingAndEmit(internal, 'sess-c4', () => undefined);
     // cancelPendingAndEmit 调一次 resolver
     expect(settleCount).toBe(1);
     expect(settled).toEqual({ behavior: 'deny', message: 'session ended', interrupt: true });

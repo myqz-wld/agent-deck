@@ -50,5 +50,3 @@ export const desktopCodexCliAdapterHost = createCodexCliAdapterHost({
     formatEvents: (events) => formatEventsForPrompt(events),
   },
 });
-
-export const desktopCodexAdapterInitHost = desktopCodexCliAdapterHost.bridge;

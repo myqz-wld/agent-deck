@@ -1,6 +1,6 @@
 import { realpathSync } from 'node:fs';
 import { normalize, resolve } from 'node:path';
-import { getClaudeConfigRoot } from './fork-session';
+import { getClaudeConfigRoot } from './fork-session-core';
 import { resolveClaudeGatewayProfile } from './gateway-profiles';
 import type { ClaudeGatewayForkSafetyHost } from './gateway-fork-safety-core';
 

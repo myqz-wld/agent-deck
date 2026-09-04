@@ -61,7 +61,7 @@ export function translatePreToolUse(
   input: BaseClaudeHookPayload & {
     tool_name?: string;
     tool_input?: unknown;
-    tool_use_id?: string;
+    tool_use_id: string;
   },
 ): AgentEvent {
   return claudeHookEvent(input, 'tool-use-start', {
@@ -94,7 +94,7 @@ export function translatePostToolUseFailure(
   input: BaseClaudeHookPayload & {
     tool_name?: string;
     tool_input?: unknown;
-    tool_use_id?: string;
+    tool_use_id: string;
     error?: string;
     is_interrupt?: boolean;
     duration_ms?: number;
@@ -116,7 +116,7 @@ export function translatePermissionDenied(
   input: BaseClaudeHookPayload & {
     tool_name?: string;
     tool_input?: unknown;
-    tool_use_id?: string;
+    tool_use_id: string;
     reason?: string;
   },
 ): AgentEvent {

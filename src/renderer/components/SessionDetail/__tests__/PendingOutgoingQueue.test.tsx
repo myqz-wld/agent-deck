@@ -15,20 +15,17 @@ import type {
 import { PendingOutgoingQueue } from '../composer-sdk/PendingOutgoingQueue';
 
 let messages: PendingOutgoingMessage[];
-let loadPendingOutgoingAttachment: ReturnType<typeof vi.fn>;
 let listPendingOutgoingMessages: ReturnType<typeof vi.fn>;
 let deletePendingOutgoingMessage: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   messages = [];
-  loadPendingOutgoingAttachment = vi.fn();
   listPendingOutgoingMessages = vi.fn(() => Promise.resolve(messages));
   deletePendingOutgoingMessage = vi.fn(() => Promise.resolve(true));
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
       listPendingOutgoingMessages,
-      loadPendingOutgoingAttachment,
       deletePendingOutgoingMessage,
       onAgentEvent: vi.fn((_listener: (event: AgentEvent) => void) => vi.fn()),
     } as unknown as Window['api'],
@@ -56,7 +53,6 @@ describe('PendingOutgoingQueue original compact rows', () => {
     expect(remove.className).toContain('w-5');
     expect(screen.queryByRole('button', { name: '展开等待消息' })).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(loadPendingOutgoingAttachment).not.toHaveBeenCalled();
   });
 
   it('keeps attachment-only rows as their original inline summary', async () => {
@@ -75,7 +71,6 @@ describe('PendingOutgoingQueue original compact rows', () => {
     expect(row.textContent).toContain('(仅附件)  · 2 个附件');
     expect(screen.queryByRole('button', { name: '展开等待消息' })).toBeNull();
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(loadPendingOutgoingAttachment).not.toHaveBeenCalled();
   });
 
   it('does not let a delayed delete from A mutate or refresh B', async () => {

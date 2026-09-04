@@ -11,7 +11,6 @@ export interface BrowserTabResource {
 /** Per-owner tab identity, active selection, observation, and disposal state. */
 export class BrowserTabCollectionCore<Tab extends BrowserTabResource> {
   private readonly tabs = new Map<number, Tab>();
-  private readonly tabClosedListeners = new Set<(tabId: number) => void>();
   private nextId = 1;
   private activeId: number | null = null;
   private disposed = false;
@@ -82,12 +81,6 @@ export class BrowserTabCollectionCore<Tab extends BrowserTabResource> {
     this.getTab(tabId)?.close();
   }
 
-  onTabClosed(listener: (tabId: number) => void): () => void {
-    if (this.disposed) return () => {};
-    this.tabClosedListeners.add(listener);
-    return () => this.tabClosedListeners.delete(listener);
-  }
-
   keepOnly(tabIds: readonly number[]): void {
     const keep = new Set(tabIds);
     for (const tab of this.listTabs()) {
@@ -98,7 +91,6 @@ export class BrowserTabCollectionCore<Tab extends BrowserTabResource> {
   forget(tabId: number): void {
     if (!this.tabs.delete(tabId)) return;
     if (this.activeId === tabId) this.activeId = null;
-    for (const listener of [...this.tabClosedListeners]) listener(tabId);
   }
 
   dispose(): void {
@@ -109,7 +101,6 @@ export class BrowserTabCollectionCore<Tab extends BrowserTabResource> {
       this.forget(tab.id);
     }
     this.activeId = null;
-    this.tabClosedListeners.clear();
   }
 
   private prune(): void {

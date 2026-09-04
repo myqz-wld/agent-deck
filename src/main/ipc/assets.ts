@@ -5,7 +5,7 @@
  *
  * Channels in this module cover bundled/user asset reads, bundled Agent runtime
  * deltas, Codex Gateway suggestions, and Finder reveal:
- *   - AssetsListBundled / AssetsListUser    —— 列表
+ *   - AssetsListBundled                     —— 列表
  *   - AssetsGetContent                      —— 单个 asset 完整内容
  *   - AssetsRevealInFolder                  —— shell.showItemInFolder 跨平台显示
  *
@@ -35,7 +35,6 @@ import {
 import {
   getUserAssetContent,
   getUserAssetPath,
-  listUserAssets,
 } from '@main/user-assets';
 import {
   resetBundledAgentRuntimeOverride,
@@ -103,8 +102,6 @@ function parseAssetName(value: unknown, source: AssetSource): string {
 
 export function registerAssetsIpc(): void {
   on(IpcInvoke.AssetsListBundled, () => getBundledAssets());
-
-  on(IpcInvoke.AssetsListUser, () => listUserAssets());
 
   on(IpcInvoke.AssetsGetContent, (_e, kindArg, nameArg, sourceArg, adapterArg, pathArg) => {
     const kind = parseKind(kindArg);

@@ -1,8 +1,8 @@
 /**
  * preload/api/misc: 不属于 sessions / adapters / teams 三大域的杂项 IPC facade。
  *
- * 包含 app version / window 控制 / hooks / settings / dialogs / claude-md / assets /
- * permissions 扫描 / 图片加载 / summarizer 诊断。
+ * 包含 window 控制 / hooks / settings / dialogs / claude-md / assets / 图片加载 /
+ * summarizer 诊断。
  */
 
 import { ipcRenderer } from 'electron';
@@ -17,21 +17,17 @@ import type {
   BundledAssetsSnapshot,
   ClaudeGatewayProfileOption,
   CodexGatewayProfileOption,
-  CodexPermissionScanResult,
   ImageSource,
   GrokAuthProbeResult,
   LoadImageBlobResult,
-  PermissionScanResult,
   ProviderUsageSnapshotResult,
   TokenRateRow,
   TokenDailyRow,
   TokenUsageQueryOptions,
-  UserAssetsSnapshot,
 } from '@shared/types';
 
 export const miscApi = {
   // 应用
-  getAppVersion: (): Promise<string> => ipcRenderer.invoke(IpcInvoke.AppGetVersion),
 
   /**
    * 当前进程平台（CHANGELOG_57）。preload 进程能直接读 `process.platform` 全局
@@ -44,9 +40,6 @@ export const miscApi = {
   // 窗口
   setAlwaysOnTop: (value: boolean): Promise<void> =>
     ipcRenderer.invoke(IpcInvoke.WindowSetAlwaysOnTop, value),
-  setIgnoreMouse: (value: boolean): Promise<void> =>
-    ipcRenderer.invoke(IpcInvoke.WindowSetIgnoreMouse, value),
-  minimizeWindow: (): Promise<void> => ipcRenderer.invoke(IpcInvoke.WindowMinimize),
   toggleCompact: (): Promise<boolean> => ipcRenderer.invoke(IpcInvoke.WindowToggleCompact),
 
   // Hook
@@ -94,24 +87,8 @@ export const miscApi = {
     destructive?: boolean;
   }): Promise<boolean> => ipcRenderer.invoke(IpcInvoke.DialogConfirm, opts),
 
-  /** 扫描会话 cwd 对应的三层 Claude Code settings.json，返回原文 + 合并视图 */
-  scanCwdSettings: (cwd: string): Promise<PermissionScanResult> =>
-    ipcRenderer.invoke(IpcInvoke.PermissionScanCwd, cwd),
-  /** 用系统默认应用打开 settings 文件；main 端会校验 path 必须是该 cwd 的候选路径之一 */
-  openPermissionFile: (
-    cwd: string,
-    path: string,
-  ): Promise<{ ok: boolean; reason?: string }> =>
-    ipcRenderer.invoke(IpcInvoke.PermissionOpenFile, cwd, path),
-  /** 扫描 Codex 侧权限/配置展示面：sandbox、固定 approval policy、MCP、config.toml。 */
-  scanCodexSettings: (sessionId: string): Promise<CodexPermissionScanResult> =>
-    ipcRenderer.invoke(IpcInvoke.PermissionScanCodex, sessionId),
-  /** 打开 Codex config.toml；main 端校验 path 必须是 ~/.codex/config.toml。 */
-  openCodexPermissionFile: (path: string): Promise<{ ok: boolean; reason?: string }> =>
-    ipcRenderer.invoke(IpcInvoke.PermissionOpenCodexFile, path),
-
   /**
-   * 按需读取一张 mcp 图片工具产生的图片为 dataURL（main 进程做白名单 + ext + size 校验）。
+   * 按需读取一张 file-change 图片为 dataURL（main 进程做白名单 + ext + size 校验）。
    * 仅支持 path 形态的 ImageSource；任何失败返回 { ok:false, reason }，由 UI 显示「图片不可读」灰底兜底。
    */
   loadImageBlob: (sessionId: string, source: ImageSource): Promise<LoadImageBlobResult> =>
@@ -168,9 +145,6 @@ export const miscApi = {
   /** 列内置 plugin agents+skills（main 启动时一次性扫 frontmatter，缓存读）。 */
   listBundledAssets: (): Promise<BundledAssetsSnapshot> =>
     ipcRenderer.invoke(IpcInvoke.AssetsListBundled),
-  /** 列只读用户资产（Claude/Codex/Grok 原生 root 与 Plugin）；每次现扫现读。 */
-  listUserAssets: (): Promise<UserAssetsSnapshot> =>
-    ipcRenderer.invoke(IpcInvoke.AssetsListUser),
   /**
    * 读单个 asset 完整文本。「查看完整内容」使用。
    *

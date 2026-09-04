@@ -487,7 +487,6 @@ describe('ServerCoreSessionConsoleAuthority', () => {
     }, context())).rejects.toMatchObject({ code: 'conflict' });
     expect(releaseMutationClaim).toHaveBeenCalledTimes(1);
   });
-
   it('rejects a non-owner context before claiming mutation authority', async () => {
     const { authority, metadata } = harness();
     await expect(authority.createSession(await createParams(authority), context({

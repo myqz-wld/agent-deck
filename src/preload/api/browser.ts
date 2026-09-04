@@ -28,10 +28,6 @@ export const browserApi = {
     request: BrowserPresentationUpdateRequest,
   ): Promise<BrowserPresentationResult> =>
     ipcRenderer.invoke(IpcInvoke.BrowserPresentationUpdate, request),
-  selectBrowserPresentationTab: (
-    request: BrowserPresentationTabRequest,
-  ): Promise<BrowserPresentationResult> =>
-    ipcRenderer.invoke(IpcInvoke.BrowserPresentationSelect, request),
   closeBrowserPresentationTab: (
     request: BrowserPresentationTabRequest,
   ): Promise<BrowserPresentationResult> =>

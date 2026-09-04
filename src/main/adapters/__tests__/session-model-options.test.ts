@@ -34,7 +34,17 @@ import {
   resolveCreateSessionModelOptions,
   SessionModelOptionsError,
 } from '../session-model-options';
-import { SessionModelController } from '../session-model-controller';
+import {
+  SessionModelControllerCore,
+  type SessionModelControllerContext,
+} from '../session-model-controller-core';
+import { desktopSessionModelControllerHost } from '../session-model-controller-host';
+
+class SessionModelController extends SessionModelControllerCore {
+  constructor(context: SessionModelControllerContext) {
+    super(context, desktopSessionModelControllerHost);
+  }
+}
 
 describe('session model option normalization', () => {
   it('keeps provider and model ids open-ended and trims them for creation', () => {

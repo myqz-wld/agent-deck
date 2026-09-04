@@ -10,7 +10,6 @@ import {
   parseRemoteHostFileChangePageRequest,
   parseRemoteHostFileFinalDiffRequest,
   parseRemoteHostEventListRequest,
-  parseRemoteHostHistoryRequest,
   parseRemoteHostImageAssetRequest,
   parseRemoteHostIssueListRequest,
   parseRemoteHostIssueMutationTarget,
@@ -18,7 +17,6 @@ import {
   parseRemoteHostIssueTarget,
   parseRemoteHostIssueUpdate,
   parseRemoteHostMutationTarget,
-  parseRemoteHostPageRequest,
   parseRemoteHostPendingResponse,
   parseRemoteHostPendingIndexRequest,
   parseRemoteHostPlanReviewAsk,
@@ -131,8 +129,6 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().workspaceDirectories.create(
       parseRemoteHostWorkspaceDirectoryCreate(request),
     )));
-  on(RemoteHostIpcInvoke.ProjectsList, (_event, request) => safely(() =>
-    getRemoteHostService().listProjects(parseRemoteHostPageRequest(request))));
   on(RemoteHostIpcInvoke.SessionCreate, (_event, request) => safely(() =>
     getRemoteHostService().createSession(parseRemoteHostCreateSession(request))));
   on(RemoteHostIpcInvoke.SessionArchive, (_event, request) => safely(() =>
@@ -151,8 +147,6 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().historyMutations.delete(
       parseRemoteHostSessionHistoryMutation(request),
     )));
-  on(RemoteHostIpcInvoke.HistoryList, (_event, request) => safely(() =>
-    getRemoteHostService().listHistory(parseRemoteHostHistoryRequest(request))));
   on(RemoteHostIpcInvoke.EventsList, (_event, request) => safely(() =>
     getRemoteHostService().detail.listEvents(parseRemoteHostEventListRequest(request))));
   on(RemoteHostIpcInvoke.SummariesList, (_event, request) => safely(() =>

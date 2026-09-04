@@ -45,36 +45,11 @@ describe('ActivityRecordsView source boundaries', () => {
         }],
       },
       ts: 1,
-    }, {
-      sessionId: 'remote-session',
-      agentId: 'codex-cli',
-      kind: 'tool-use-start',
-      payload: {
-        toolUseId: 'image-1',
-        toolName: 'mcp__agent-deck-image__ImageRead',
-        toolInput: { file_path: 'Workspace/image.png' },
-      },
-      ts: 2,
-    }, {
-      sessionId: 'remote-session',
-      agentId: 'codex-cli',
-      kind: 'tool-use-end',
-      payload: {
-        toolUseId: 'image-1',
-        toolName: 'ImageRead',
-        toolResult: JSON.stringify({
-          kind: 'image-read',
-          file: 'Workspace/image.png',
-          description: '远程图片描述',
-        }),
-      },
-      ts: 3,
     }];
     render(<ActivityRecordsView events={events} loaded loadError={null}
       sessionId="remote-session" agentId="codex-cli" isSdk
       allowLocalAssets={false} interactivePending={false} />);
     expect(screen.getByText('带远程附件的消息')).toBeTruthy();
-    expect(screen.getByText('远程图片需通过资产通道读取')).toBeTruthy();
     expect(loadUploadedImage).not.toHaveBeenCalled();
     expect(loadImageBlob).not.toHaveBeenCalled();
   });

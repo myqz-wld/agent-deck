@@ -11,7 +11,6 @@ import {
   decodeRelayRouteFrame,
   emptyRoutePayload,
   encodeRelayRouteFrame,
-  RelayRouteFrameDecoder,
   RelayRouteFrameError,
   type RelayRouteFrame,
 } from './route-frame';
@@ -45,24 +44,6 @@ function legacyRouteFrame(metadata: Record<string, unknown>): Uint8Array {
 }
 
 describe('Relay route framing', () => {
-  it('decodes fragmented and coalesced opaque stream frames', () => {
-    const first = encodeRelayRouteFrame(dataFrame('desktop-1', 1, '{"ordinary":"core"}'));
-    const second = encodeRelayRouteFrame(dataFrame('feishu-2', 4, 'opaque\u0000bytes'));
-    const combined = new Uint8Array(first.byteLength + second.byteLength);
-    combined.set(first);
-    combined.set(second, first.byteLength);
-
-    const decoder = new RelayRouteFrameDecoder();
-    expect(decoder.push(combined.subarray(0, 3))).toEqual([]);
-    expect(decoder.push(combined.subarray(3, first.byteLength + 9))).toEqual([
-      expect.objectContaining({ streamId: 'desktop-1', sequence: 1, kind: 'data' }),
-    ]);
-    expect(decoder.push(combined.subarray(first.byteLength + 9))).toEqual([
-      expect.objectContaining({ streamId: 'feishu-2', sequence: 4, kind: 'data' }),
-    ]);
-    expect(decoder.bufferedBytes).toBe(0);
-  });
-
   it('rejects invalid state fields before encoding', () => {
     expect(() =>
       encodeRelayRouteFrame({
@@ -136,35 +117,6 @@ describe('Relay route framing', () => {
     );
   });
 
-  it('rejects an oversized declaration before buffering a body', () => {
-    const prefix = new Uint8Array(4);
-    new DataView(prefix.buffer).setUint32(0, 4097, false);
-    const decoder = new RelayRouteFrameDecoder({ maxFrameBytes: 4096 });
-    expect(() => decoder.push(prefix)).toThrowError(
-      expect.objectContaining<Partial<RelayRouteFrameError>>({ code: 'frame_oversized' }),
-    );
-  });
-
-  it('rejects one oversized chunk without retaining it and streams large coalescing', () => {
-    const oversized = new Uint8Array(1024 * 1024);
-    new DataView(oversized.buffer).setUint32(0, 4097, false);
-    const rejecting = new RelayRouteFrameDecoder({ maxFrameBytes: 4096 });
-    expect(() => rejecting.push(oversized)).toThrowError(
-      expect.objectContaining<Partial<RelayRouteFrameError>>({ code: 'frame_oversized' }),
-    );
-    expect(rejecting.bufferedBytes).toBe(0);
-
-    const first = encodeRelayRouteFrame(dataFrame('stream-a', 1, 'x'));
-    const second = encodeRelayRouteFrame(dataFrame('stream-b', 2, 'y'));
-    const combined = new Uint8Array(first.byteLength + second.byteLength);
-    combined.set(first);
-    combined.set(second, first.byteLength);
-    const maxBodyBytes = Math.max(first.byteLength, second.byteLength) - 4;
-    const decoder = new RelayRouteFrameDecoder({ maxFrameBytes: maxBodyBytes });
-    expect(combined.byteLength).toBeGreaterThan(maxBodyBytes);
-    expect(decoder.push(combined)).toHaveLength(2);
-    expect(decoder.bufferedBytes).toBe(0);
-  });
 });
 
 describe('Worker attachment wire', () => {
@@ -329,7 +281,7 @@ describe('Worker attachment wire', () => {
       accessSurface: null,
       accessGrant: null,
     });
-    expect(new RelayRouteFrameDecoder().push(encoded)[0]).toEqual(
+    expect(decodeRelayRouteFrame(encoded)).toEqual(
       expect.objectContaining({ kind: 'reset', resetCode: 'worker_fenced' }),
     );
   });

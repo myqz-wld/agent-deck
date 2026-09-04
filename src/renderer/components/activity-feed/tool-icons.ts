@@ -1,7 +1,7 @@
 /**
  * 工具名 → emoji 图标映射。
  *
- * 风格约束：保持纯 emoji，与现有视觉语言一致（ExitPlanMode 📋 / Task 🤖 / ImageRead 🖼 /
+ * 风格约束：保持纯 emoji，与现有视觉语言一致（ExitPlanMode 📋 / Task 🤖 /
  * file-changed 📝 / finished ✅ / waiting ⚠ 等）。不引入 lucide-react —— renderer 当前没有
  * 这个 dep，加进来纯增 bundle 体积。
  *
@@ -10,7 +10,7 @@
  *   AskUserQuestion 80 / Agent 78 / TaskOutput 48 / Glob 41 / WebFetch 27 /
  *   WebSearch 22 / SendMessage 21 / ExitPlanMode 15 / TaskStop 10 /
  *   Skill 7 / EnterPlanMode 7 / TeamCreate 6 / Task 3
- * 后续按主题加 case 即可；其他 mcp__*（含 mcp 图片工具）走 🔧 兜底。
+ * 后续按主题加 case 即可；其他 mcp__* 走 🔧 兜底。
  *
  * REVIEW_17 R1 / L10：本应用自带 task store MCP server (CHANGELOG_42-43 + plan
  * task-mcp-merge-into-agent-deck-mcp-20260521 合并入 agent-deck namespace)，

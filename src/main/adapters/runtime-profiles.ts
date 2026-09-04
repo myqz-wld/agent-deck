@@ -44,12 +44,6 @@ export interface AdapterRuntimeProfile {
     extraAllowWrite: boolean;
   };
   mcpTools: McpToolPolicy;
-  /**
-   * Local legacy Browser MCP registration. Unified interactive sessions use the bundled Browser
-   * skill plus `agent-deck-browser`, so every local adapter must keep this false. Server Core owns
-   * its separately staged Remote compatibility surface.
-   */
-  mcpBrowserTools: boolean;
 }
 
 const profiles = {
@@ -91,7 +85,6 @@ const profiles = {
       extraAllowWrite: true,
     },
     mcpTools: { kind: 'all' },
-    mcpBrowserTools: false,
   },
   'codex-cli': {
     id: 'codex-cli',
@@ -132,7 +125,6 @@ const profiles = {
       extraAllowWrite: true,
     },
     mcpTools: { kind: 'all' },
-    mcpBrowserTools: false,
   },
   'grok-build': {
     id: 'grok-build',
@@ -174,7 +166,6 @@ const profiles = {
       extraAllowWrite: false,
     },
     mcpTools: { kind: 'all' },
-    mcpBrowserTools: false,
   },
 } satisfies Record<SessionAdapterId, AdapterRuntimeProfile>;
 

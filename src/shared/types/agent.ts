@@ -53,20 +53,6 @@ export interface PendingOutgoingMessage {
   attachments: PendingOutgoingAttachment[];
 }
 
-export type PendingOutgoingAttachmentLoadResult =
-  | { ok: true; dataUrl: string; mime: string; bytes: number }
-  | {
-      ok: false;
-      reason:
-        | 'not_found'
-        | 'enoent'
-        | 'too_big'
-        | 'denied'
-        | 'invalid_ext'
-        | 'io_error'
-        | 'unsupported_source';
-    };
-
 /** Renderer-safe result of a no-prompt Grok ACP initialize/authenticate probe. */
 export interface GrokAuthProbeResult {
   ok: boolean;

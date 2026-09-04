@@ -13,8 +13,6 @@ import {
 } from 'node:path';
 import {
   isNativeAssetName,
-  type AssetMeta,
-  type UserAssetsSnapshot,
 } from '@shared/types';
 import { parseFrontmatter } from '@main/utils/frontmatter';
 import log from '@main/utils/logger';
@@ -72,21 +70,6 @@ function isSafeGrokAgentSelector(name: string): boolean {
 export function getGrokHome(): string {
   const configured = process.env.GROK_HOME?.trim();
   return configured ? resolve(configured) : join(homedir(), '.grok');
-}
-
-export function listGrokUserAssets(): UserAssetsSnapshot {
-  const roots = getRoots();
-  const agents = scanAgentDir(join(roots.grokHome, 'agents'));
-  const skills = scanSkillDir(join(roots.grokHome, 'skills'));
-  const plugins = discoverGrokUserPluginRoots(roots);
-  for (const plugin of plugins) {
-    agents.push(...scanPluginAgents(plugin));
-    skills.push(...scanPluginSkills(plugin));
-  }
-  return {
-    agents: agents.map(toAssetMeta).sort(compareAssets),
-    skills: skills.map(toAssetMeta).sort(compareAssets),
-  };
 }
 
 export function resolveGrokUserAgentContent(
@@ -343,28 +326,6 @@ function toResolvedAgent(
   };
 }
 
-function toAssetMeta(asset: GrokAssetDescriptor): AssetMeta {
-  return {
-    kind: asset.kind,
-    source: 'user',
-    adapter: 'grok-build',
-    origin: asset.pluginName ? 'plugin' : 'direct',
-    ...(asset.pluginName ? { pluginName: asset.pluginName } : {}),
-    runtimeName: asset.pluginName ? `${asset.pluginName}:${asset.name}` : asset.name,
-    name: asset.name,
-    qualifiedName: asset.pluginName ? `plugin:${asset.pluginName}/${asset.name}` : asset.name,
-    description: asset.frontmatter.description ?? '',
-    ...(asset.kind === 'agent'
-      ? {
-          tools: asset.frontmatter.tools,
-          model: asset.frontmatter.model,
-          thinking: asset.frontmatter.effort || undefined,
-        }
-      : {}),
-    absPath: asset.path,
-  };
-}
-
 function isAllowedGrokAssetPath(
   path: string,
   kind: 'agent' | 'skill',
@@ -389,8 +350,4 @@ function isAllowedGrokAssetPath(
   } catch {
     return false;
   }
-}
-
-function compareAssets(a: AssetMeta, b: AssetMeta): number {
-  return a.name.localeCompare(b.name) || a.qualifiedName.localeCompare(b.qualifiedName);
 }
