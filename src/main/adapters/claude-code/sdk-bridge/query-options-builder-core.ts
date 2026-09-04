@@ -97,10 +97,9 @@ export function buildClaudeQueryOptionsCore(
     // 只在用户明确选了 bypassPermissions 时才开 —— 这样运行时 setPermissionMode 切到
     // 别的模式后，flag 不会留下残余权限放大风险（CLI 子进程已经按这个 flag 启动）。
     allowDangerouslySkipPermissions: permissionMode === 'bypassPermissions',
-    // Claude Code 默认 system prompt + agent-deck 自带 CLAUDE.md（追加到末尾）。
-    // append 文本读自 resources/claude-config/CLAUDE.md，跟随应用打包；
-    // 实际位置在 user/project/local 三层 CLAUDE.md 全部加载完之后，
-    // LLM 上下文末尾位置 instruction following 最强。
+    // Claude Code preset system prompt + agent-deck 自带约定（作为 preset 的末尾区块）。
+    // append 文本读自 resources/claude-config/CLAUDE.md，跟随应用打包；user/project/local
+    // CLAUDE.md 则由 settingSources 独立加载为 project context。
     // 已去掉用户自定义 systemPrompt 功能（避免 isolation mode 与 agent-deck 约定冲突）。
     //
     // CHANGELOG_46 起 team 名由 lead 在会话内自由建（NewSessionDialog 删了 teamName

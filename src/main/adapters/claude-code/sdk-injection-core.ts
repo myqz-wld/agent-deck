@@ -13,8 +13,7 @@ export interface ClaudePluginSelectionOptions {
   selectedPluginDir?: string;
 }
 
-const APPEND_HEADER =
-  '\n\n--- Agent Deck 应用约定（随应用打包，独立于 user/project/local CLAUDE.md）---\n\n';
+const APPEND_HEADER = '\n\n--- Agent Deck application conventions ---\n\n';
 
 /** Select bundled and native plugins without discovering settings or filesystem paths. */
 export function selectClaudeSessionPlugins(

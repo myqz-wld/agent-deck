@@ -12,9 +12,9 @@
  *    - prod (.app)：<app>/Contents/Resources/claude-config/...
  *
  * 3. CLAUDE.md 注入位置：通过 SDK 的
- *    `systemPrompt: { type: 'preset', preset: 'claude_code', append }` 字段，
- *    实际位置在 user/project/local 三层 CLAUDE.md 全部加载完之后追加。
- *    LLM 上下文末尾位置 instruction following 最强。
+ *    `systemPrompt: { type: 'preset', preset: 'claude_code', append }` 字段，作为 Claude Code
+ *    preset system prompt 的末尾区块。user/project/local CLAUDE.md 由 `settingSources` 另行加载
+ *    为 project context，不属于同一个 system prompt 的前后拼接链。
  *
  * 4. Skill / agent 注入位置：通过 SDK 的 `plugins: [{ type: 'local', path }]`。
  *    运行时按 settings 裁剪 app-owned plugin mirror 的 `skills/` / `agents/` 子目录，实现

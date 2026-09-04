@@ -314,7 +314,7 @@ export class ServerCoreNodeAssetCatalog {
     if (!content) return '';
     if (adapterId === 'claude-code') return formatClaudeSystemPromptAppend(content);
     if (adapterId === 'codex-cli') {
-      return `--- Agent Deck application conventions (bundled, per-session) ---\n\n${content}`;
+      return `--- Agent Deck application conventions ---\n\n${content}`;
     }
     return content;
   }

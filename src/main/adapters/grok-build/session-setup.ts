@@ -14,6 +14,11 @@ export interface GrokSessionSetupOptions {
   }) => Promise<string[]>;
 }
 
+/**
+ * Build extension metadata shared by ACP session/new and session/load. Grok Build consumes
+ * `rules` while constructing a new native session; loading retains that session's persisted
+ * system prompt.
+ */
 export async function buildGrokSessionMeta(
   runtime: GrokRuntime,
   options: GrokSessionSetupOptions,

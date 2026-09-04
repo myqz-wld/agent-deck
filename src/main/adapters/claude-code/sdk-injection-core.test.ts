@@ -45,7 +45,8 @@ describe('Claude SDK injection Core', () => {
     ).toEqual([{ type: 'local', path: '/native' }]);
     expect(installMirror).not.toHaveBeenCalled();
     expect(formatClaudeSystemPromptAppend('')).toBe('');
-    expect(formatClaudeSystemPromptAppend('rules')).toContain('rules');
-    expect(formatClaudeSystemPromptAppend('rules')).toContain('Agent Deck 应用约定');
+    expect(formatClaudeSystemPromptAppend('rules')).toBe(
+      '\n\n--- Agent Deck application conventions ---\n\nrules',
+    );
   });
 });
