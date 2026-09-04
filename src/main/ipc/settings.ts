@@ -227,7 +227,7 @@ function applyGrokCliPath(p: Partial<AppSettings>, next: AppSettings): void {
  * 修法前：bridge 持 `private currentSandboxMode` field 当 settings 镜像，settings 改 →
  * `applyCodexSandboxMode` push 到 bridge → bridge createSession 用 field。修法后：bridge
  * createSession 改为直接 `settingsStore.get('codexSandbox')` 直读，与 claude-code adapter
- * `sdk-bridge/sandbox-resolve.ts` 同款直读模式 — 删 in-memory mirror + setter + apply hook
+ * `sdk-bridge/sandbox-resolve-core.ts` 同款直读模式 — 删 in-memory mirror + setter + apply hook
  * 三层冗余,降配置回路复杂度。「切档仅下次新建会话生效」语义不变（spawn-time 锁定,与
  * claudeCodeSandbox 同模式）。
  */

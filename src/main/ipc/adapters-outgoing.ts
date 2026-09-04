@@ -3,11 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { adapterRegistry } from '@main/adapters/registry';
 import {
   deleteUploadIfExists,
-  loadUploadedImage,
 } from '@main/store/image-uploads';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
-import type { PendingOutgoingAttachmentLoadResult } from '@shared/types';
 import { IpcInputError, on, parseStringId } from './_helpers';
 import { persistAdapterAttachments } from './adapters-attachments';
 import { dispatchAdapterMessageWithHandOffRedirect } from './adapters-message-dispatch';
@@ -18,10 +16,6 @@ const logger = log.scope('adapter-outgoing-ipc');
 
 function pendingAttachmentId(index: number): string {
   return String(index);
-}
-
-function pendingAttachmentNotFound(): PendingOutgoingAttachmentLoadResult {
-  return { ok: false, reason: 'not_found' };
 }
 
 export function registerAdapterOutgoingIpc(): void {
@@ -110,40 +104,6 @@ export function registerAdapterOutgoingIpc(): void {
       })),
     }));
   });
-
-  on(
-    IpcInvoke.AdapterLoadPendingOutgoingAttachment,
-    async (_e, agentId, sessionId, messageId, attachmentId) => {
-      const parsedAgentId = parseStringId('agentId', agentId, 64);
-      const adapter = adapterRegistry.get(parsedAgentId);
-      if (!adapter) throw new Error('adapter not found');
-      const sid = parseStringId('sessionId', sessionId);
-      const id = parseStringId('messageId', messageId, 128);
-      const slotId = parseStringId('attachmentId', attachmentId, 32);
-      const message = (adapter.listPendingOutgoingMessages?.(sid) ?? [])
-        .find((candidate) => candidate.id === id);
-      const attachment = message?.attachments?.find(
-        (_candidate, index) => pendingAttachmentId(index) === slotId,
-      );
-      if (!attachment) return pendingAttachmentNotFound();
-      try {
-        const result = await loadUploadedImage(attachment.path);
-        return result.ok ? result : { ok: false, reason: result.reason };
-      } catch (error) {
-        logger.warn('pending attachment load failed', {
-          agentId: parsedAgentId,
-          sessionId: sid,
-          messageId: id,
-          action: 'load-attachment',
-          error: safeErrorSummary(error),
-        });
-        return {
-          ok: false,
-          reason: 'io_error',
-        } satisfies PendingOutgoingAttachmentLoadResult;
-      }
-    },
-  );
 
   on(IpcInvoke.AdapterDeletePendingOutgoing, async (_e, agentId, sessionId, messageId) => {
     const parsedAgentId = parseStringId('agentId', agentId, 64);

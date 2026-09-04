@@ -142,8 +142,8 @@ export class EngineTab {
 
   close(): void {
     // Automation owns these hidden tabs outright. BrowserWindow.close() can be cancelled by a
-    // hostile beforeunload handler, which would leave the renderer alive while both fronts report
-    // success. destroy() is synchronous and cannot be vetoed by page content.
+    // hostile beforeunload handler, which would leave the renderer alive after the operation
+    // reports success. destroy() is synchronous and cannot be vetoed by page content.
     if (!this.isDestroyed()) this.surface.destroy();
   }
 

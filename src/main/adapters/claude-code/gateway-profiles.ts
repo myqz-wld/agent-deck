@@ -1,5 +1,4 @@
 import {
-  assertClaudeGatewayProfileIdCore,
   claudeGatewaySettingsPathCore,
   listClaudeGatewayProfilesCore,
   resolveClaudeGatewayProfileCore,
@@ -29,10 +28,6 @@ export function claudeGatewaySettingsPath(
     paths,
     desktopClaudeGatewayProfileHost,
   );
-}
-
-export function assertClaudeGatewayProfileId(profileId: string): void {
-  assertClaudeGatewayProfileIdCore(profileId);
 }
 
 export function listClaudeGatewayProfiles(

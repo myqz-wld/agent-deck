@@ -70,9 +70,6 @@ describe('useRemoteSessionSource detail read fencing', () => {
     window.api = {
       listRemoteHostSessionPresentations: vi.fn(async (request) =>
         presentationPage(`${request.profileId} list`, 1, request.kind)),
-      listRemoteHostProjects: vi.fn(async () => ({
-        projects: [], nextCursor: null, total: 0, revision: 1,
-      })),
       listRemoteHostPending: vi.fn(async (request) => ({
         requests: [{
           id: 'same-request',
@@ -120,7 +117,6 @@ describe('useRemoteSessionSource detail read fencing', () => {
             createdAt: 1,
             updatedAt: 3,
           })),
-      listRemoteHostHistory: vi.fn(async () => ({ entries: [], nextCursor: null, revision: 1 })),
       listRemoteHostEvents: vi.fn(async () => ({
         events: [], revision: 1, truncated: false,
       })),

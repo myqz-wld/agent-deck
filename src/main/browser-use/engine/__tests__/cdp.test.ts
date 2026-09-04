@@ -27,22 +27,7 @@ function sentMethods(target: FakeDebugger): string[] {
   return target.sendCommand.mock.calls.map(([method]) => method);
 }
 
-describe('CdpBridge event forwarding', () => {
-  it('normalizes the empty top-level session id to undefined', async () => {
-    const { bridge, target } = makeBridge();
-    const listener = vi.fn();
-    bridge.attach();
-    bridge.onMessage(listener);
-
-    target.emit('message', {}, 'Page.loadEventFired', { timestamp: 1 }, '');
-    target.emit('message', {}, 'Runtime.executionContextCreated', {}, 'child-session');
-
-    // An empty string must not be forwarded: the official Browser client would treat page traffic as
-    // child-target traffic, drop Fetch.requestPaused, and deadlock navigation (REVIEW_177).
-    expect(listener).toHaveBeenNthCalledWith(1, 'Page.loadEventFired', { timestamp: 1 }, undefined);
-    expect(listener).toHaveBeenNthCalledWith(2, 'Runtime.executionContextCreated', {}, 'child-session');
-  });
-
+describe('CdpBridge attachment', () => {
   it('attaches once and tolerates an already-attached debugger', () => {
     const { bridge, target } = makeBridge();
     bridge.attach();
@@ -50,28 +35,6 @@ describe('CdpBridge event forwarding', () => {
 
     expect(target.attach).toHaveBeenCalledOnce();
     expect(target.attach).toHaveBeenCalledWith('1.3');
-  });
-
-  it('reports detach to subscribers', () => {
-    const { bridge, target } = makeBridge();
-    const onDetach = vi.fn();
-    bridge.attach();
-    bridge.onDetach(onDetach);
-
-    target.detach();
-
-    expect(onDetach).toHaveBeenCalledWith('target closed');
-  });
-
-  it('passes the child session id through on send', async () => {
-    const { bridge, target } = makeBridge();
-    await bridge.send('Runtime.evaluate', { expression: '1' }, 'child-session');
-
-    expect(target.sendCommand).toHaveBeenLastCalledWith(
-      'Runtime.evaluate',
-      { expression: '1' },
-      'child-session',
-    );
   });
 });
 

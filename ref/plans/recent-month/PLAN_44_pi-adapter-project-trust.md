@@ -654,6 +654,6 @@ Pi and the existing adapters make their normal model calls only after session cr
 
 ## Cold-Start Instruction
 
-Read `ref/plans/recent-3-days/PLAN_44_pi-adapter-project-trust.md`, then verify the completed trust
+Read `ref/plans/recent-month/PLAN_44_pi-adapter-project-trust.md`, then verify the completed trust
 implementation and final records against the preserved worktree branch. Pi production work remains
 a separate future delivery.

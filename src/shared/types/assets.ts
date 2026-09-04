@@ -138,11 +138,6 @@ export interface BundledAssetsSnapshot {
   skills: AssetMeta[];
 }
 
-export interface UserAssetsSnapshot {
-  agents: AssetMeta[];
-  skills: AssetMeta[];
-}
-
 /** 「查看完整内容」拉取的完整文件文本。 */
 export interface AssetContentResult {
   ok: boolean;

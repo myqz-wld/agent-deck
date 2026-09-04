@@ -14,7 +14,7 @@ import {
   BROWSER_TABS_SCHEMA,
   BROWSER_TYPE_SCHEMA,
   BROWSER_WAIT_SCHEMA,
-} from '@main/agent-deck-mcp/tools/schemas/browser';
+} from '@main/browser-use/operation-schemas';
 import {
   DESKTOP_BROKER_BROWSER_OPERATIONS,
   isJsonObject,

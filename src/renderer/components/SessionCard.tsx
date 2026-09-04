@@ -1,6 +1,5 @@
 import { useMemo, useState, type JSX } from 'react';
 import type { AgentEvent, SessionRecord } from '@shared/types';
-import { isImageTool } from '@shared/mcp-tools';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { toolIcon } from './activity-feed/tool-icons';
 import { describeAgentToolInput, resolveToolNameAlias } from './activity-feed/describe';
@@ -389,10 +388,6 @@ function summariseToolInput(toolName: string, input: unknown): string | null {
       return skill;
     }
     default: {
-      // 兜底：mcp 图片工具（mcp__<server>__Image*）也走 file_path 摘要
-      if (isImageTool(toolName) && typeof o.file_path === 'string') {
-        return shortenPath(o.file_path);
-      }
       return null;
     }
   }

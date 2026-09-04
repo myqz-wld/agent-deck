@@ -5,7 +5,6 @@
 import { extname } from 'node:path';
 import { promises as fsp } from 'node:fs';
 import { IpcInvoke } from '@shared/ipc-channels';
-import { eventRepo } from '@main/store/event-repo';
 import { fileChangeReadRepo } from '@main/store/file-change-read-repo';
 import type { ImageSource, LoadImageBlobResult } from '@shared/types';
 import { on } from './_helpers';
@@ -88,20 +87,17 @@ async function loadImageBlob(
 }
 
 /**
- * 使用定向 SQL 验证 file_path、受 json_valid 保护的 before/after path，
- * 或 tool-use-start 的 file_path；所有查询都在首个命中处停止。
+ * 使用定向 SQL 验证 file_path 或受 json_valid 保护的 before/after path。
  */
 function isPathInSessionWhitelist(sessionId: string, target: string): boolean {
   if (!sessionId) return false;
   if (fileChangeReadRepo.hasImagePathForSession(sessionId, target)) return true;
-  // 兜底：ImageRead 不进 file_changes，靠 tool-use-start 事件兜底。
-  if (eventRepo.hasToolUseStartWithFilePath(sessionId, target)) return true;
   return false;
 }
 
 export function registerImagesIpc(): void {
   // Image: 按需读取一张图片为 dataURL 给 renderer 渲染。
-  // 安全门：双白名单（path 必须出现在该 session 的 file_changes 或 tool-use-start 事件里）+ 扩展名 + size 校验。
+  // 安全门：path 必须出现在该 session 的 file_changes 中，再做扩展名与大小校验。
   on(IpcInvoke.ImageLoadBlob, async (_e, sessionId, source): Promise<LoadImageBlobResult> => {
     return loadImageBlob(String(sessionId ?? ''), source as ImageSource);
   });

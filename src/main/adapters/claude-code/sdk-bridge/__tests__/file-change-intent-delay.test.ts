@@ -18,11 +18,24 @@ import {
   consumePendingFileChangeIntent,
 } from '../sdk-message-translate';
 import { makeInternalSession } from '../types';
-import { StreamProcessor } from '../stream-processor';
+import {
+  ClaudeStreamProcessorCore,
+  type ClaudeStreamProcessorContext,
+} from '../stream-processor-core';
+import {
+  createDesktopClaudeStreamProcessorHost,
+  type ClaudeStreamSessionManagerPort,
+} from '../stream-processor-host';
 import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
 import { sessionManager } from '@main/session/manager';
 import type { AgentEvent } from '@shared/types';
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
+
+class StreamProcessor extends ClaudeStreamProcessorCore {
+  constructor(context: ClaudeStreamProcessorContext, manager: ClaudeStreamSessionManagerPort) {
+    super(context, createDesktopClaudeStreamProcessorHost(manager));
+  }
+}
 
 // Phase 1.5: stream-processor.consume finally clear 测试需要 mock sessionManager
 // （consume finally 调 sessionManager.releaseSdkClaim）。
@@ -120,7 +133,7 @@ describe('Phase 3 Step 3.5 — file-changed emit 延迟到 tool-use-end + comple
     expect(internal.pendingFileChangeIntents.size).toBe(0);
   });
 
-  it('toolUseId 没匹配 (典型图片工具走 maybeEmitImageFileChanged 另路径) → no-op', () => {
+  it('toolUseId 没匹配 → no-op', () => {
     const { internal, emit, emitted } = setupInternal();
     consumePendingFileChangeIntent(emit, internal, 'unknown_tool_use', 'completed');
     expect(emitted.length).toBe(0);

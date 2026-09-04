@@ -1,10 +1,8 @@
 /**
  * 跨进程共享：用户在输入框附带的图片 attachment 类型。
  *
- * 设计要点（与 file.ts 的 ImageSource 区分）：
- * - ImageSource (`{kind:'path'|'snapshot'}`) 是「Agent 写出/编辑的图」，承载在 file_changes 表
- * - 这里的 UploadedAttachment 是「用户从输入框发进来的图」，承载在 events.payload_json
- * - 用 `kind:'uploaded'` 命名让两套语义互不干扰
+ * 设计要点：UploadedAttachment 是用户从输入框发进来的图，承载在
+ * events.payload_json；用 `kind:'uploaded'` 与 file-change 图片来源区分。
  *
  * IPC 流向：
  * 1. renderer 粘贴/拖放/上传 → 内存 base64 + canvas resize 缩略图（state 只存缩略图，

@@ -1,5 +1,4 @@
-import type { DiffPayload, ImageSource } from '@shared/types';
-import { isImageTool } from '@shared/mcp-tools';
+import type { DiffPayload } from '@shared/types';
 
 /**
  * 把 toolInput 翻译成 DiffPayload，让 PermissionRow / ToolStartRow 渲染 Monaco/图片 diff。
@@ -8,7 +7,7 @@ import { isImageTool } from '@shared/mcp-tools';
 export function toolInputToDiff(
   toolName: string,
   input: unknown,
-): DiffPayload<string | null> | DiffPayload<ImageSource | null> | null {
+): DiffPayload<string | null> | null {
   if (!input || typeof input !== 'object') return null;
   const i = input as {
     file_path?: string;
@@ -34,23 +33,6 @@ export function toolInputToDiff(
       metadata: { source: 'MultiEdit', editCount: i.edits.length },
       ts,
     };
-  }
-  // mcp 图片工具：tool-use-start 阶段只有 input.file_path，结构如下：
-  // - ImageRead 直接展示这张图（before=null, after=path）→ 驱动 ImageDiffRenderer 缩略图视图
-  // - 其他图片工具（Write/Edit/MultiEdit）的 before/after 要等 tool_result 才能拿到 server 快照路径，
-  //   tool-use-start 阶段返 null 让 ToolStartRow 不画 diff，等 file-changed 事件来画
-  if (isImageTool(toolName)) {
-    if (toolName.endsWith('__ImageRead')) {
-      return {
-        kind: 'image',
-        filePath: i.file_path,
-        before: null,
-        after: { kind: 'path', path: i.file_path },
-        metadata: { source: 'ImageRead' },
-        ts,
-      } as DiffPayload<ImageSource | null>;
-    }
-    return null;
   }
   return null;
 }

@@ -7,7 +7,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import type { AssetMeta, UserAssetsSnapshot } from '@shared/types';
+import type { AssetMeta } from '@shared/types';
 import { isNativeAssetName } from '@shared/types';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
 import { __metaBuilders } from './bundled-assets';
@@ -16,16 +16,13 @@ import {
   getClaudeConfigRoot,
   getClaudePluginAssetPath,
   hasClaudePluginManifest,
-  listClaudePluginAssets,
 } from './claude-config/plugin-assets';
 import {
   getCodexHome,
   getCodexPluginAssetPath,
-  listCodexPluginAssets,
 } from './codex-config/plugin-assets';
 import {
   getGrokUserAssetPath,
-  listGrokUserAssets,
 } from './adapters/grok-build/custom-assets';
 import { normalizeExistingPath, safeIsDir, safeIsFile } from './plugin-assets';
 import log from '@main/utils/logger';
@@ -33,29 +30,7 @@ import log from '@main/utils/logger';
 const logger = log.scope('main-user-assets');
 
 type UserAdapter = 'claude-code' | 'codex-cli' | 'grok-build';
-
-export function listUserAssets(): UserAssetsSnapshot {
-  const claudeDirect = listDirectAssets('claude-code');
-  const codexDirect = listDirectAssets('codex-cli');
-  const claudePlugins = listClaudePluginAssets();
-  const codexPlugins = listCodexPluginAssets();
-  const grokAssets = listGrokUserAssets();
-  const agents = [
-      ...claudeDirect.agents,
-      ...claudePlugins.agents,
-      ...codexDirect.agents,
-      ...codexPlugins.agents,
-      ...grokAssets.agents,
-    ].sort(compareAssets);
-  const skills = [
-      ...claudeDirect.skills,
-      ...claudePlugins.skills,
-      ...codexDirect.skills,
-      ...codexPlugins.skills,
-      ...grokAssets.skills,
-    ].sort(compareAssets);
-  return { agents, skills };
-}
+type DirectAssetsSnapshot = { agents: AssetMeta[]; skills: AssetMeta[] };
 
 export function getUserAssetContent(
   kind: 'agent' | 'skill',
@@ -111,7 +86,7 @@ function findDirectAssetPath(
   return direct?.absPath ?? null;
 }
 
-function listDirectAssets(adapter: 'claude-code' | 'codex-cli'): UserAssetsSnapshot {
+function listDirectAssets(adapter: 'claude-code' | 'codex-cli'): DirectAssetsSnapshot {
   return {
     agents: adapter === 'claude-code' ? scanClaudeAgents() : scanCodexAgents(),
     skills: scanSkills(adapter),
@@ -226,18 +201,4 @@ function asReadOnlyDirect(asset: AssetMeta): AssetMeta {
     origin: 'direct',
     runtimeName: asset.name,
   };
-}
-
-function compareAssets(a: AssetMeta, b: AssetMeta): number {
-  const adapterOrder: Record<UserAdapter, number> = {
-    'claude-code': 0,
-    'codex-cli': 1,
-    'grok-build': 2,
-  };
-  return (
-    adapterOrder[a.adapter] - adapterOrder[b.adapter] ||
-    (a.origin === 'plugin' ? 1 : 0) - (b.origin === 'plugin' ? 1 : 0) ||
-    a.qualifiedName.localeCompare(b.qualifiedName) ||
-    a.absPath.localeCompare(b.absPath)
-  );
 }

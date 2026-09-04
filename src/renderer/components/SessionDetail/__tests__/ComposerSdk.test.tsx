@@ -29,19 +29,16 @@ function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
 }
 
 let sendAdapterMessage: ReturnType<typeof vi.fn>;
-let steerAdapterTurn: ReturnType<typeof vi.fn>;
 let interruptAdapterSession: ReturnType<typeof vi.fn>;
 let setSessionModelOptions: ReturnType<typeof vi.fn>;
 let setAdapterSessionMode: ReturnType<typeof vi.fn>;
 let setAdapterPermissionMode: ReturnType<typeof vi.fn>;
 let listPendingOutgoingMessages: ReturnType<typeof vi.fn>;
 let deletePendingOutgoingMessage: ReturnType<typeof vi.fn>;
-let loadPendingOutgoingAttachment: ReturnType<typeof vi.fn>;
 let emitAgentEvent: (event: AgentEvent) => void;
 
 beforeEach(() => {
   sendAdapterMessage = vi.fn(() => Promise.resolve());
-  steerAdapterTurn = vi.fn(() => Promise.resolve());
   interruptAdapterSession = vi.fn(() => Promise.resolve());
   setSessionModelOptions = vi.fn(() => Promise.resolve());
   setAdapterSessionMode = vi.fn(() => Promise.resolve());
@@ -50,10 +47,6 @@ beforeEach(() => {
     () => Promise.resolve([]),
   );
   deletePendingOutgoingMessage = vi.fn(() => Promise.resolve(true));
-  loadPendingOutgoingAttachment = vi.fn(() => Promise.resolve({
-    ok: false,
-    reason: 'not_found',
-  }));
   resetImageAttachmentSidecarForTests();
   useSessionStore.setState({
     sessions: new Map(),
@@ -75,14 +68,12 @@ beforeEach(() => {
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
       listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
       sendAdapterMessage,
-      steerAdapterTurn,
       interruptAdapterSession,
       setSessionModelOptions,
       setAdapterSessionMode,
       setAdapterPermissionMode,
       listPendingOutgoingMessages,
       deletePendingOutgoingMessage,
-      loadPendingOutgoingAttachment,
       onAgentEvent: vi.fn((listener: (event: AgentEvent) => void) => {
         emitAgentEvent = listener;
         return vi.fn();
@@ -436,7 +427,6 @@ describe('ComposerSdk unified input routing', () => {
         text: 'use the latest instruction',
       });
     });
-    expect(steerAdapterTurn).not.toHaveBeenCalled();
   });
 
   it('routes idle input through sendAdapterMessage', async () => {
@@ -451,7 +441,6 @@ describe('ComposerSdk unified input routing', () => {
         text: 'next turn',
       });
     });
-    expect(steerAdapterTurn).not.toHaveBeenCalled();
   });
 
   it('uses Grok insertion copy while keeping negotiated image input available', async () => {

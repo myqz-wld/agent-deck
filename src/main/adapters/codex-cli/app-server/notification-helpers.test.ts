@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { readTerminalError, readTerminalErrorText } from './notification-helpers';
+import { readTerminalError } from './notification-helpers';
 
 describe('Codex app-server notification helpers', () => {
   it('surfaces terminal provider errors and ignores retry progress', () => {
-    expect(readTerminalErrorText({
+    expect(readTerminalError({
       method: 'error',
       params: { error: { message: 'invalid_json_schema' }, willRetry: false },
-    })).toBe('invalid_json_schema');
-    expect(readTerminalErrorText({
+    })?.message).toBe('invalid_json_schema');
+    expect(readTerminalError({
       method: 'error',
       params: { error: { message: 'temporary' }, willRetry: true },
-    })).toBe('');
+    })).toBeNull();
   });
 
   it('preserves the native structured error classification without inferring from text', () => {

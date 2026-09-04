@@ -4,8 +4,15 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { HookRouteDiagnostics } from '@main/hook-server/route-diagnostics';
 import { buildHookRoutes } from '../hook-routes';
-import { HookInstaller } from '../hook-installer';
+import { HookInstallerCore } from '../hook-installer-core';
+import { desktopClaudeHookInstallerObserver } from '../hook-installer-host';
 import { translatePostCompact } from '../translate';
+
+class HookInstaller extends HookInstallerCore {
+  constructor(port: number, token: string, relayRoot: string) {
+    super(port, token, relayRoot, desktopClaudeHookInstallerObserver);
+  }
+}
 
 describe('Claude PostCompact hook support', () => {
   it('translates PostCompact payload into a first-class lifecycle event with summary', () => {

@@ -3,15 +3,51 @@ import type { AgentEvent } from '@shared/types';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { MAX_PENDING_MESSAGES } from '../sdk-bridge/constants';
 import {
-  sendClaudeMessage,
+  sendClaudeMessageCore,
   type ClaudeMessageControllerContext,
-} from '../sdk-bridge/message-controller';
+  type ClaudeMessageInput,
+} from '../sdk-bridge/message-controller-core';
+import { desktopClaudeMessageControllerHost } from '../sdk-bridge/message-controller-host';
 import {
-  listClaudePendingOutgoingMessages,
-  removeClaudePendingOutgoingMessage,
-} from '../sdk-bridge/pending-outgoing';
-import { confirmClaudeUserMessageAcceptance } from '../sdk-bridge/user-message-acceptance';
+  listClaudePendingOutgoingMessagesCore,
+  removeClaudePendingOutgoingMessageCore,
+} from '../sdk-bridge/pending-outgoing-core';
+import {
+  confirmClaudeUserMessageAcceptanceCore,
+  rememberIgnoredClaudeUserMessageIdCore,
+} from '../sdk-bridge/user-message-acceptance-core';
 import type { InternalSession, PendingUserMessage } from '../sdk-bridge/types';
+
+function sendClaudeMessage(
+  context: ClaudeMessageControllerContext,
+  input: ClaudeMessageInput,
+): Promise<void> {
+  return sendClaudeMessageCore(context, input, desktopClaudeMessageControllerHost);
+}
+
+const listClaudePendingOutgoingMessages = listClaudePendingOutgoingMessagesCore;
+
+function removeClaudePendingOutgoingMessage(
+  sessions: ReadonlyMap<string, InternalSession>,
+  sessionId: string,
+  messageId: string,
+) {
+  return removeClaudePendingOutgoingMessageCore(sessions, sessionId, messageId, {
+    rememberIgnoredUserMessageId: rememberIgnoredClaudeUserMessageIdCore,
+  });
+}
+
+function confirmClaudeUserMessageAcceptance(
+  emit: (event: AgentEvent) => void,
+  sessionId: string,
+  message: { type: string; uuid?: unknown; parent_tool_use_id?: unknown },
+  internal: InternalSession,
+): void {
+  confirmClaudeUserMessageAcceptanceCore(emit, sessionId, message, internal, {
+    agentId: 'claude-code',
+    now: () => Date.now(),
+  });
+}
 
 function sessionWithPending(count = 0): InternalSession {
   return {

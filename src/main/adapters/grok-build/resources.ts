@@ -35,10 +35,6 @@ function getStore(): GrokResourceStore {
   return store;
 }
 
-export function getGrokConfigRoot(): string {
-  return getStore().configRoot;
-}
-
 export function getGrokPluginRoot(): string {
   return getStore().pluginRoot;
 }

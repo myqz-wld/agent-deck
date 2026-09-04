@@ -11,16 +11,12 @@ import {
   parseWorkspaceDirectoryRef,
 } from '@contracts/index';
 import {
-  REMOTE_HOST_MAX_HISTORY_LIMIT,
   REMOTE_HOST_MAX_JSON_BYTES,
-  REMOTE_HOST_MAX_PAGE_LIMIT,
   REMOTE_HOST_MAX_TEXT_BYTES,
   type RemoteHostCreateSessionDto,
-  type RemoteHostHistoryRequestDto,
   type RemoteHostJsonObject,
   type RemoteHostJsonValue,
   type RemoteHostMutationTargetDto,
-  type RemoteHostPageRequestDto,
   type RemoteHostPendingAction,
   type RemoteHostPendingResponseDto,
   type RemoteHostRuntimeUpdateDto,
@@ -209,13 +205,6 @@ function pendingValue(
   return parsed;
 }
 
-function positiveInteger(value: unknown, field: string, maximum: number): number {
-  if (!Number.isSafeInteger(value) || (value as number) <= 0 || (value as number) > maximum) {
-    throw new RemoteHostInputError(field, `must be in range 1..${maximum}`);
-  }
-  return value as number;
-}
-
 function revision(value: unknown, field: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) {
     throw new RemoteHostInputError(field, 'must be a non-negative safe integer');
@@ -225,27 +214,6 @@ function revision(value: unknown, field: string): number {
 
 export function parseRemoteHostProfileId(value: unknown): string {
   return token(value, 'profileId', 128);
-}
-
-function parsePageBase(value: unknown): {
-  raw: Record<string, unknown>;
-  profileId: string;
-  cursor?: string;
-  limit: number;
-} {
-  const raw = object(value, 'page');
-  return {
-    raw,
-    profileId: parseRemoteHostProfileId(raw.profileId),
-    ...(raw.cursor === undefined ? {} : { cursor: token(raw.cursor, 'cursor', 512) }),
-    limit: positiveInteger(raw.limit, 'limit', REMOTE_HOST_MAX_PAGE_LIMIT),
-  };
-}
-
-export function parseRemoteHostPageRequest(value: unknown): RemoteHostPageRequestDto {
-  const page = parsePageBase(value);
-  exactKeys(page.raw, page.cursor === undefined ? ['limit', 'profileId'] : ['cursor', 'limit', 'profileId'], 'page');
-  return { profileId: page.profileId, ...(page.cursor ? { cursor: page.cursor } : {}), limit: page.limit };
 }
 
 export function parseRemoteHostSessionTarget(value: unknown): RemoteHostSessionTargetDto {
@@ -311,19 +279,6 @@ export function parseRemoteHostMutationTarget(value: unknown): RemoteHostMutatio
     ...parseRemoteHostSessionTarget({ profileId: raw.profileId, sessionId: raw.sessionId }),
     expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
     intentId: intentId(raw.intentId),
-  };
-}
-
-export function parseRemoteHostHistoryRequest(value: unknown): RemoteHostHistoryRequestDto {
-  const raw = object(value, 'history');
-  const expected = ['limit', 'profileId', 'sessionId'];
-  if (raw.cursor !== undefined) expected.push('cursor');
-  exactKeys(raw, expected, 'history');
-  return {
-    profileId: parseRemoteHostProfileId(raw.profileId),
-    sessionId: token(raw.sessionId, 'sessionId', 256),
-    ...(raw.cursor === undefined ? {} : { cursor: token(raw.cursor, 'cursor', 512) }),
-    limit: positiveInteger(raw.limit, 'limit', REMOTE_HOST_MAX_HISTORY_LIMIT),
   };
 }
 

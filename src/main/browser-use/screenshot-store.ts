@@ -1,5 +1,5 @@
 /**
- * Persistence and bounded retention for MCP browser screenshots.
+ * Persistence and bounded retention for Browser screenshot artifacts.
  *
  * Production files live only under `<os.tmpdir()>/agent-deck-browser/<session>/`. The store never
  * follows a symlink at the managed root, session-directory, or screenshot-file level, and the

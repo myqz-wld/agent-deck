@@ -15,4 +15,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-08-27 | `REVIEW_265_system-status-session-readiness.md` | System status and Claude startup consistency | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 2 LOW fixed |

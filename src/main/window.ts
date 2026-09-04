@@ -7,7 +7,7 @@ import {
 import { createImpl, closeImpl } from './window/lifecycle';
 import { setAlwaysOnTopImpl, setWindowTransparentImpl } from './window/pin-visual';
 import { toggleCompactImpl, toggleMaximizeImpl, toggleDefaultImpl } from './window/sizing';
-import { setIgnoreMouseImpl, flashImpl } from './window/polish';
+import { flashImpl } from './window/polish';
 
 /**
  * Main floating-window facade. Domain helpers share one mutable state object so lifecycle,
@@ -62,10 +62,6 @@ export class FloatingWindow {
 
   toggleDefault(): { width: number; height: number } {
     return toggleDefaultImpl(this._state);
-  }
-
-  setIgnoreMouse(ignore: boolean): void {
-    setIgnoreMouseImpl(this._state, ignore);
   }
 
   flash(): void {

@@ -4,7 +4,7 @@ import type { LoadImageBlobResult } from '@shared/types';
 /**
  * 共享的图片加载器底层 hook：cache + loading 状态机 + abort 保护。
  *
- * 抽出原因：ImageBlobLoader（mcp 工具产生的图）和 UploadedImageThumb（用户上传的图）
+ * 抽出原因：ImageBlobLoader（file-change 图）和 UploadedImageThumb（用户上传的图）
  * 都需要同款 cache + loading 模式，但 cache key / loader 函数不同，不能直接共用。
  * 把状态机抽到 hook，cache Map 由调用方传入实现独立 namespace。
  *

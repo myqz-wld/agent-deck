@@ -96,6 +96,7 @@ export function startWorktreeTransitionResumeRecovery(): void {
   });
 }
 
+/** Test teardown seam for the process-lifetime listener and deferred generation cache. */
 export function stopWorktreeTransitionResumeRecovery(): void {
   unsubscribe?.();
   unsubscribe = null;

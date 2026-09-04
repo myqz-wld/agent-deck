@@ -15,10 +15,9 @@ type Mode = 'side' | 'after-only' | 'slide';
  *
  * 设计：
  * - 通过 useDiffSessionId() 拿当前 sessionId，传给 ImageBlobLoader → 主进程白名单校验
- * - before/after 是 ImageSource（kind:'path' 现阶段唯一形态），不带图片二进制；ImageBlobLoader
- *   懒加载 dataURL。MCP server 清理快照后会显示「图片不可读」灰底兜底。
+ * - before/after 是 ImageSource，不带图片二进制；ImageBlobLoader 懒加载 dataURL。
  * - 支持三种模式：side（左右并排，默认）/ after-only（仅看新图）/ slide（二期接 react-compare-slider）
- * - header 显示 filePath、NEW 标签（before == null = ImageWrite 新增场景）、prompt（来自 metadata）
+ * - header 显示 filePath、NEW 标签和可选 metadata prompt。
  */
 export function ImageDiffRenderer({ payload }: Props): JSX.Element {
   const sessionId = useDiffSessionId();

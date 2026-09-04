@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -39,7 +39,7 @@ vi.mock('./bundled-assets', () => ({
   },
 }));
 
-import { getUserAssetPath, listUserAssets } from './user-assets';
+import { getUserAssetPath } from './user-assets';
 
 describe('read-only user asset path resolution', () => {
   let root: string;
@@ -74,50 +74,4 @@ describe('read-only user asset path resolution', () => {
     expect(getUserAssetPath('agent', name, 'claude-code', join(root, 'missing.md'))).toBeNull();
   });
 
-  it('classifies a Claude skills-dir plugin root once instead of duplicating it as a direct skill', () => {
-    const pluginRoot = join(process.env.CLAUDE_CONFIG_DIR!, 'skills', 'demo-plugin');
-    mkdirSync(join(pluginRoot, '.claude-plugin'), { recursive: true });
-    writeFileSync(
-      join(pluginRoot, '.claude-plugin', 'plugin.json'),
-      JSON.stringify({ name: 'demo-plugin' }),
-      'utf8',
-    );
-    writeFileSync(
-      join(pluginRoot, 'SKILL.md'),
-      '---\nname: demo-skill\ndescription: plugin root skill\n---\nBody',
-      'utf8',
-    );
-
-    const normalizedSkillPath = join(realpathSync(pluginRoot), 'SKILL.md');
-    const matches = listUserAssets().skills.filter((asset) =>
-      asset.adapter === 'claude-code' && asset.absPath === normalizedSkillPath
-    );
-    expect(matches).toEqual([
-      expect.objectContaining({
-        origin: 'plugin',
-        pluginName: 'demo-plugin',
-        qualifiedName: 'plugin:demo-plugin/demo-skill',
-      }),
-    ]);
-  });
-
-  it('preserves a native Codex Agent model_provider in read-only metadata', () => {
-    const agentRoot = join(process.env.CODEX_HOME!, 'agents');
-    mkdirSync(agentRoot, { recursive: true });
-    writeFileSync(
-      join(agentRoot, 'reviewer.toml'),
-      [
-        'name = "reviewer"',
-        'description = "provider metadata"',
-        'model_provider = "native-team"',
-      ].join('\n'),
-      'utf8',
-    );
-
-    expect(
-      listUserAssets().agents.find(
-        (asset) => asset.adapter === 'codex-cli' && asset.name === 'reviewer',
-      ),
-    ).toMatchObject({ provider: 'native-team' });
-  });
 });

@@ -1,14 +1,5 @@
 import type { FloatingWindowState } from './_deps';
 
-/** mouse event pass-through 切换 — true = 鼠标点击穿透到下层 app (forward 仍透鼠标 hover 给 web)。 */
-export function setIgnoreMouseImpl(state: FloatingWindowState, ignore: boolean): void {
-  // REVIEW_103 L-E: 与其他 impl 一致守 isDestroyed (destroyed-nonnull window 调
-  // setIgnoreMouseEvents 会 throw);当前 'closed' listener 同步置 state.win=null 使其几乎不可达,
-  // 此处零成本一致性防御。
-  if (!state.win || state.win.isDestroyed()) return;
-  state.win.setIgnoreMouseEvents(ignore, { forward: true });
-}
-
 /**
  * 窗口短促置顶动画 — macOS 没有任务栏闪烁的标准 API,此处先实现窗口 opacity 闪烁作为视觉提示。
  *

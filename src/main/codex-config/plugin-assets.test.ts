@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   getCodexPluginAssetPath,
-  listCodexPluginAssets,
   resolveCodexProjectPluginAgentContent,
   resolveCodexUserPluginAgentContent,
 } from './plugin-assets';
@@ -59,31 +58,16 @@ describe('Codex Plugin assets', () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it('lists native Plugin Skills and Agent Deck Plugin Agent TOML extensions', () => {
+  it('resolves native Plugin Skill and Agent paths', () => {
     const pluginRoot = join(codexHome, 'plugins', 'cache', 'demo', '1.0.0');
     writePlugin(pluginRoot, 'demo', 'plugin-agent');
 
-    const snapshot = listCodexPluginAssets();
-    expect(snapshot.agents).toEqual([
-      expect.objectContaining({
-        name: 'plugin-agent',
-        origin: 'plugin',
-        pluginName: 'demo',
-        runtimeName: 'demo:plugin-agent',
-        qualifiedName: 'plugin:demo/plugin-agent',
-        model: 'gpt-5.6-sol',
-        thinking: 'high',
-      }),
-    ]);
-    expect(snapshot.skills).toEqual([
-      expect.objectContaining({
-        name: 'plugin-skill',
-        pluginName: 'demo',
-        qualifiedName: 'plugin:demo/plugin-skill',
-      }),
-    ]);
-    expect(getCodexPluginAssetPath('skill', 'plugin-skill', snapshot.skills[0].absPath))
-      .toBe(snapshot.skills[0].absPath);
+    const agentPath = join(pluginRoot, 'agents', 'plugin-agent.toml');
+    const skillPath = join(pluginRoot, 'skills', 'plugin-skill', 'SKILL.md');
+    expect(getCodexPluginAssetPath('agent', 'plugin-agent')).toBe(realpathSync(agentPath));
+    expect(getCodexPluginAssetPath('skill', 'plugin-skill')).toBe(realpathSync(skillPath));
+    expect(getCodexPluginAssetPath('skill', 'plugin-skill', skillPath))
+      .toBe(realpathSync(skillPath));
     expect(getCodexPluginAssetPath('skill', 'plugin-skill', join(root, 'missing', 'SKILL.md')))
       .toBeNull();
   });
@@ -116,13 +100,14 @@ describe('Codex Plugin assets', () => {
     const pluginRoot = join(process.env.HOME!, '.agents', 'plugins', 'plugins', 'personal-demo');
     writePlugin(pluginRoot, 'personal-demo', 'personal-agent');
 
-    expect(listCodexPluginAssets().agents).toEqual([
-      expect.objectContaining({
+    expect(resolveCodexUserPluginAgentContent('personal-demo:personal-agent')).toMatchObject({
+      ok: true,
+      agent: {
         name: 'personal-agent',
         pluginName: 'personal-demo',
         runtimeName: 'personal-demo:personal-agent',
-      }),
-    ]);
+      },
+    });
   });
 
   it('rejects ambiguous unqualified Plugin Agent names', () => {

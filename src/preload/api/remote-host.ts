@@ -14,8 +14,6 @@ import type {
   RemoteHostFileFinalDiffRequestDto,
   RemoteHostEventListDto,
   RemoteHostEventListRequestDto,
-  RemoteHostHistoryPageDto,
-  RemoteHostHistoryRequestDto,
   RemoteHostImageAssetRequestDto,
   RemoteHostImageAssetResultDto,
   RemoteHostIssueGetDto,
@@ -28,7 +26,6 @@ import type {
   RemoteHostIssueTargetDto,
   RemoteHostIssueUpdateDto,
   RemoteHostMutationTargetDto,
-  RemoteHostPageRequestDto,
   RemoteHostPendingListDto,
   RemoteHostPendingIndexDto,
   RemoteHostPendingIndexRequestDto,
@@ -40,7 +37,6 @@ import type {
   RemoteHostPlanReviewSessionDto,
   RemoteHostPlanReviewTargetDto,
   RemoteHostProfileDraftDto,
-  RemoteHostProjectPageDto,
   RemoteHostRuntimeControlsDto,
   RemoteHostRuntimeUpdateDto,
   RemoteHostRuntimeUpdateResultDto,
@@ -137,10 +133,6 @@ export const remoteHostApi = {
     request: RemoteHostWorkspaceDirectoryCreateDto,
   ): Promise<RemoteHostWorkspaceDirectoryCreateResultDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.WorkspaceDirectoryCreate, request),
-  listRemoteHostProjects: (
-    request: RemoteHostPageRequestDto,
-  ): Promise<RemoteHostProjectPageDto> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.ProjectsList, request),
   createRemoteHostSession: (
     request: RemoteHostCreateSessionDto,
   ): Promise<{ sessionId: string; revision: number }> =>
@@ -161,10 +153,6 @@ export const remoteHostApi = {
     request: RemoteHostSessionHistoryMutationDto,
   ): Promise<RemoteHostSessionHistoryMutationResultDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.SessionDelete, request),
-  listRemoteHostHistory: (
-    request: RemoteHostHistoryRequestDto,
-  ): Promise<RemoteHostHistoryPageDto> =>
-    ipcRenderer.invoke(RemoteHostIpcInvoke.HistoryList, request),
   listRemoteHostEvents: (
     request: RemoteHostEventListRequestDto,
   ): Promise<RemoteHostEventListDto> =>

@@ -97,13 +97,6 @@ export type ProtocolMessage =
   | ProtocolResultMessage
   | ProtocolSubscribeMessage;
 
-export type ClientProtocolMessage =
-  | ClientHelloMessage
-  | ProtocolCancelMessage
-  | ProtocolPingMessage
-  | ProtocolRequestMessage
-  | ProtocolSubscribeMessage;
-
 export type HostProtocolMessage =
   | HostHelloMessage
   | ProtocolErrorMessage

@@ -41,19 +41,15 @@ describe('browser tab collection Core', () => {
     expect(collection.activeTab()).toBe(first);
   });
 
-  it('notifies once, keeps selected tabs, and makes disposal idempotent', () => {
+  it('keeps selected tabs and makes disposal idempotent', () => {
     const collection = new BrowserTabCollectionCore<ReturnType<typeof tab>>();
     const keep = tab(collection.allocateTabId());
     const close = tab(collection.allocateTabId());
     collection.register(keep);
     collection.register(close);
-    const listener = vi.fn();
-    collection.onTabClosed(listener);
-
     collection.keepOnly([keep.id]);
     expect(close.close).toHaveBeenCalledOnce();
     collection.listTabs();
-    expect(listener).toHaveBeenCalledWith(close.id);
     collection.dispose();
     collection.dispose();
     expect(keep.destroy).toHaveBeenCalledOnce();

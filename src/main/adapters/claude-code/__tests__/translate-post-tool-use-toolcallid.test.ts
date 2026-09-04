@@ -5,8 +5,6 @@
  *
  * **测试覆盖**:
  * - Edit / Write / MultiEdit hook payload 含 tool_use_id → file-changed payload.toolCallId 透传
- * - hook payload 不含 tool_use_id (老协议) → toolCallId 字段 undefined 不破
- * - 图片工具(MCP image-write/edit)hook payload 含 tool_use_id → 内嵌 file-changed payload 也含 toolCallId
  */
 import { describe, expect, it } from 'vitest';
 import { translatePostToolUse } from '../translate';
@@ -65,20 +63,6 @@ describe('Phase 3 Step 3.4 — translatePostToolUse toolCallId 透传 (A1-MED-4 
     const fc = events.find((e) => e.kind === 'file-changed');
     expect(fc).toBeDefined();
     expect((fc!.payload as FileChangePayload).toolCallId).toBe('tool_use_zzz');
-  });
-
-  it('hook payload 不含 tool_use_id (老协议) → toolCallId 字段 undefined 不破', () => {
-    const events = translatePostToolUse({
-      session_id: 'sess-1',
-      cwd: '/tmp',
-      tool_name: 'Edit',
-      tool_input: { file_path: '/tmp/foo.ts', old_string: 'A', new_string: 'B' },
-      // 故意不传 tool_use_id
-    });
-    const fc = events.find((e) => e.kind === 'file-changed');
-    expect(fc).toBeDefined();
-    expect((fc!.payload as FileChangePayload).toolCallId).toBeUndefined();
-    // 行为不破 — 仅 toolCallId 字段缺失,UI 仍可用
   });
 
   it('Bash 工具 (无 file-changed 翻译) → 仅 tool-use-end 一条事件,不 emit file-changed', () => {

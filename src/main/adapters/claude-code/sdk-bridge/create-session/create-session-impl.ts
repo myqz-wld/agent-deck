@@ -217,7 +217,7 @@ export async function createSessionImpl(
     // however, is isolated to this SDK query through opts.settingsPath → options.settings;
     // never mutate process.env to switch one session's Gateway.
 
-    // CHANGELOG_52 Step 3c：canUseTool 巨型 callback (~275 行) 抽到 sdk-bridge/can-use-tool.ts。
+    // CHANGELOG_52 Step 3c：canUseTool 巨型 callback 抽到 sdk-bridge/can-use-tool-core.ts。
     // class state 通过 deps 注入（internal / sessionId getter / emit / 超时阈值 / responder ref）。
     // 护栏（READ_ONLY 白名单 / SandboxNetworkAccess auto-deny / approve+plan deny+message
     // / approve-bypass deny+interrupt / 超时 timer + abort listener）全部完整保留在 module。

@@ -49,5 +49,3 @@ export const desktopGrokBuildAdapterHost = createGrokBuildAdapterHost({
     },
   },
 });
-
-export const desktopGrokAdapterHost = desktopGrokBuildAdapterHost.bridge;

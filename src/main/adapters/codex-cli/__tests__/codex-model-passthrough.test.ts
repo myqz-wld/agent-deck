@@ -6,15 +6,12 @@
  * 测试三件事:
  * 1. `runCodexOneshot(opts.model)` 透传到 app-server `startThread({ model })` 参数
  * 2. `opts.model` 边界 case (undefined / '' / '   ' / 'gpt-x') 的 trim+skip 行为
- * 3. summarizer-runner 空 model 保持 undefined，直接回退到 Codex config.toml
  *
  * Mock 策略 (与 `sdk-bridge.early-err-cleanup.test.ts` 同款):
  * - mock `@main/adapters/codex-cli/codex-instance-pool.getCodexInstance` 返 fake Codex
  *   instance,startThread 捕获 ThreadOptions 参数后返 fake Thread (run 立即 resolve)
  *
  * 不变量验证（从 R2 reviewer-codex MED-2 修法建议）：
- * - settings 非空 → ThreadOptions.model = settings 值
- * - settings 空 → ThreadOptions 不含 model 字段（fallback config.toml）
  * - 全空格字符串 → trim 后视为空 → 不 spread
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -204,66 +201,6 @@ describe('runCodexOneshot model spread to ThreadOptions', () => {
     expect(captured[0].workingDirectory).toMatch(/agent-deck-periodic-summary-/);
     expect(captured[0].workingDirectory).not.toBe('/tmp/proj');
     expect(captured[0].configOverrides).toMatchObject({ mcp_servers: {} });
-  });
-});
-
-describe('Codex summary runner reasoning settings', () => {
-  it('keeps a blank summary model unset', async () => {
-    const { resolveCodexSummaryModel } = await import('../summarizer-runner');
-
-    expect(resolveCodexSummaryModel(undefined)).toBeUndefined();
-    expect(resolveCodexSummaryModel('')).toBeUndefined();
-    expect(resolveCodexSummaryModel('   ')).toBeUndefined();
-    expect(resolveCodexSummaryModel('  gpt-explicit  ')).toBe('gpt-explicit');
-  });
-
-  it.each([undefined, '', 'invalid'])(
-    'falls back from summary effort %j to low',
-    async (value) => {
-      const { resolveCodexSummaryReasoning } = await import('../summarizer-runner');
-      expect(resolveCodexSummaryReasoning(value)).toBe('low');
-    },
-  );
-
-  it('runs periodic summary only inside the explicitly relaxed hardened boundary', async () => {
-    const { settingsStore } = await import('@main/store/settings-store');
-    const previous = settingsStore.get('summaryThinking');
-    settingsStore.set('summaryThinking', 'max');
-    try {
-      const { summariseCodexSessionViaOneshot } = await import('../summarizer-runner');
-      await expect(
-        summariseCodexSessionViaOneshot(
-          '/tmp/source-workspace',
-          [],
-          () => 'activity',
-          '{"recentUserInputs":["untrusted"]}',
-        ),
-      ).resolves.toBe('mock-response');
-
-      expect(captured).toHaveLength(1);
-      expect(captured[0]).toMatchObject({
-        sandboxMode: 'read-only',
-        approvalPolicy: 'never',
-        skipGitRepoCheck: true,
-        modelReasoningEffort: 'max',
-        useBaseConfig: false,
-        networkAccessEnabled: false,
-        additionalDirectories: [],
-        dynamicTools: [],
-        environments: [],
-        runtimeWorkspaceRoots: [],
-        selectedCapabilityRoots: [],
-        ephemeral: true,
-        configOverrides: { mcp_servers: {} },
-      });
-      expect(captured[0].workingDirectory).toMatch(/agent-deck-periodic-summary-/);
-      expect(captured[0].workingDirectory).not.toBe('/tmp/source-workspace');
-      const features = captured[0].configOverrides?.features as Record<string, unknown>;
-      expect(Object.keys(features).length).toBeGreaterThan(0);
-      expect(Object.values(features).every((value) => value === false)).toBe(true);
-    } finally {
-      settingsStore.set('summaryThinking', previous);
-    }
   });
 });
 

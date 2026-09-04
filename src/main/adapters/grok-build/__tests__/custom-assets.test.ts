@@ -1,6 +1,7 @@
 import {
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -10,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   getGrokUserAssetPath,
-  listGrokUserAssets,
   resolveGrokUserAgentContent,
 } from '../custom-assets';
 
@@ -82,32 +82,24 @@ describe('Grok custom assets', () => {
     });
   });
 
-  it('lists direct user assets and plugin components with plugin-qualified names', () => {
+  it('resolves direct user assets and plugin components', () => {
     writeFile(join(grokHome, 'agents', 'User.Agent.md'), agent('User.Agent'));
     writeFile(join(grokHome, 'skills', 'user-skill', 'SKILL.md'), skill('user-skill'));
     writeFile(join(grokHome, 'plugins', 'demo', 'plugin.json'), '{"name":"demo"}');
     writeFile(join(grokHome, 'plugins', 'demo', 'agents', 'plugin-agent.md'), agent('plugin-agent'));
     writeFile(join(grokHome, 'plugins', 'demo', 'skills', 'plugin-skill', 'SKILL.md'), skill('plugin-skill'));
 
-    const snapshot = listGrokUserAssets();
-    expect(snapshot.agents).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: 'User.Agent', absPath: expect.stringContaining('User.Agent.md') }),
-        expect.objectContaining({
-          name: 'plugin-agent',
-          qualifiedName: 'plugin:demo/plugin-agent',
-          runtimeName: 'demo:plugin-agent',
-        }),
-      ]),
+    expect(getGrokUserAssetPath('agent', 'User.Agent')).toBe(
+      join(grokHome, 'agents', 'User.Agent.md'),
     );
-    expect(snapshot.skills).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: 'user-skill' }),
-        expect.objectContaining({
-          name: 'plugin-skill',
-          qualifiedName: 'plugin:demo/plugin-skill',
-        }),
-      ]),
+    expect(getGrokUserAssetPath('agent', 'plugin-agent')).toBe(
+      realpathSync(join(grokHome, 'plugins', 'demo', 'agents', 'plugin-agent.md')),
+    );
+    expect(getGrokUserAssetPath('skill', 'user-skill')).toBe(
+      join(grokHome, 'skills', 'user-skill', 'SKILL.md'),
+    );
+    expect(getGrokUserAssetPath('skill', 'plugin-skill')).toBe(
+      realpathSync(join(grokHome, 'plugins', 'demo', 'skills', 'plugin-skill', 'SKILL.md')),
     );
   });
 
@@ -180,39 +172,13 @@ describe('Grok custom assets', () => {
       }),
     );
 
-    const pluginSkills = listGrokUserAssets().skills.filter((asset) => asset.origin === 'plugin');
-    expect(pluginSkills).toHaveLength(2);
-    expect(pluginSkills).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        pluginName: 'market-plugin',
-        qualifiedName: 'plugin:market-plugin/market-skill',
-        absPath: expect.stringContaining(
-          join('2.0.0', 'skills', 'market-skill', 'SKILL.md'),
-        ),
-      }),
-      expect.objectContaining({
-        pluginName: 'grok-active',
-        qualifiedName: 'plugin:grok-active/active-skill',
-      }),
-    ]));
-    expect(pluginSkills.some((asset) =>
-      asset.absPath.includes(join('1.0.0', 'skills', 'market-skill'))
-    )).toBe(false);
-    expect(pluginSkills.some((asset) => asset.pluginName === 'grok-disabled')).toBe(false);
-  });
-
-  it('folds multiline descriptions instead of exposing the YAML marker', () => {
-    writeFile(
-      join(grokHome, 'skills', 'folded-skill', 'SKILL.md'),
-      '---\nname: folded-skill\ndescription: >-\n  First description line\n  continues here.\n---\nBody',
+    expect(getGrokUserAssetPath('skill', 'market-skill')).toBe(
+      realpathSync(join(activeClaude, 'skills', 'market-skill', 'SKILL.md')),
     );
-
-    expect(listGrokUserAssets().skills).toEqual([
-      expect.objectContaining({
-        name: 'folded-skill',
-        description: 'First description line continues here.',
-      }),
-    ]);
+    expect(getGrokUserAssetPath('skill', 'active-skill')).toBe(
+      realpathSync(join(activeGrok, 'skills', 'active-skill', 'SKILL.md')),
+    );
+    expect(getGrokUserAssetPath('skill', 'disabled-skill')).toBeNull();
   });
 
   it('accepts direct and plugin path hints for read-only inspection', () => {

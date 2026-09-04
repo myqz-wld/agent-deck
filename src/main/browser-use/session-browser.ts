@@ -1,10 +1,9 @@
 /**
- * Session-owned browser helpers shared by the MCP browser tools and the session lifecycle.
+ * Session-owned browser helpers shared by Browser operations and the session lifecycle.
  *
- * Every Agent Deck session that opens a browser owns its tabs through the `session` owner
- * namespace, which is what keeps one session from seeing another session's pages, cookies, or
- * storage. Release is idempotent and never creates a browser, so lifecycle call sites can call it
- * unconditionally.
+ * Every Agent Deck session that opens a browser owns its tabs through its application session id,
+ * which keeps one session from seeing another session's pages, cookies, or storage. Release is
+ * idempotent and never creates a browser, so lifecycle call sites can call it unconditionally.
  */
 
 import log from '@main/utils/logger';

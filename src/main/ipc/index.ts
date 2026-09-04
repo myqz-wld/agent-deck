@@ -4,12 +4,11 @@
  *
  * 子 module：
  * - _helpers.ts          on() / IpcInputError / 8 个 parseXxx
- * - window-app.ts        AppGetVersion + Window* + Dialog* + AppPlayTestSound + AppShowTestNotification + DialogConfirm
+ * - window-app.ts        Window* + Dialog* + AppPlayTestSound + AppShowTestNotification + DialogConfirm
  * - sessions.ts          Session* + SessionListHistory
  * - hooks.ts             HookInstall / Uninstall / Status
  * - settings.ts          SettingsGet / Set + 9 apply / warn helper + ClaudeMd*
  * - adapters.ts          Adapter* (createSession / sendMessage / RespondPermission / etc.)
- * - permissions.ts       PermissionScanCwd / PermissionOpenFile
  * - images.ts            ImageLoadBlob + 双白名单 + TOCTOU 防护
  * - diagnostics.ts       SummarizerLastErrors
  * - assets.ts            Assets* (bundled + user agents/skills 管理，CHANGELOG_57)
@@ -23,7 +22,6 @@ import { registerSessionsIpc } from './sessions';
 import { registerHooksIpc } from './hooks';
 import { registerSettingsIpc } from './settings';
 import { registerAdaptersIpc } from './adapters';
-import { registerPermissionsIpc } from './permissions';
 import { registerImagesIpc } from './images';
 import { registerDiagnosticsIpc } from './diagnostics';
 import { registerAssetsIpc } from './assets';
@@ -42,7 +40,6 @@ export function bootstrapIpc(): void {
   registerSettingsIpc();
   registerAdaptersIpc();
   registerPlanReviewIpc();
-  registerPermissionsIpc();
   registerImagesIpc();
   registerDiagnosticsIpc();
   registerAssetsIpc();

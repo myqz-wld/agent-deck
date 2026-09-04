@@ -37,7 +37,8 @@ vi.mock('./sdk-bridge', () => ({
 
 describe('desktop Claude adapter init host', () => {
   it('owns the permission setting and concrete bridge constructor', async () => {
-    const { desktopClaudeAdapterInitHost: host } = await import('./adapter-init-host');
+    const { desktopClaudeCodeAdapterHost } = await import('./adapter-init-host');
+    const host = desktopClaudeCodeAdapterHost.bridge;
 
     expect(host.readPermissionTimeoutMs()).toBe(12_000);
     const options = {

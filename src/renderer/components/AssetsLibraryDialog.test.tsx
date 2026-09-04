@@ -24,7 +24,6 @@ afterEach(() => {
 function installApi() {
   const local = {
     listBundledAssets: vi.fn(),
-    listUserAssets: vi.fn(),
     getSettings: vi.fn(),
     getAssetContent: vi.fn(),
     setSettings: vi.fn(),
@@ -108,18 +107,6 @@ describe('AssetsLibraryDialog source authority', () => {
         absPath: '/app/resources/skills/deep-review/SKILL.md',
       }],
     });
-    local.listUserAssets.mockResolvedValue({
-      agents: [],
-      skills: [{
-        kind: 'skill',
-        source: 'user',
-        adapter: 'claude-code',
-        name: 'personal-skill',
-        qualifiedName: 'personal-skill',
-        description: 'User-managed skill',
-        absPath: '/home/user/.claude/skills/personal-skill/SKILL.md',
-      }],
-    });
     local.getSettings.mockResolvedValue(INJECTION);
 
     render(<AssetsLibraryDialog open onClose={vi.fn()} />);
@@ -129,7 +116,6 @@ describe('AssetsLibraryDialog source authority', () => {
     expect(screen.queryByText('用户与 Plugin（只读）')).toBeNull();
     expect(local.listBundledAssets).toHaveBeenCalledTimes(1);
     expect(local.getSettings).toHaveBeenCalledTimes(1);
-    expect(local.listUserAssets).not.toHaveBeenCalled();
   });
 
   it('shows the Worker effective Reviewer Agent configuration and modified state', async () => {

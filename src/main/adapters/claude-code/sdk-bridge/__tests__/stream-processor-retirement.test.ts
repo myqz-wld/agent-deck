@@ -3,9 +3,22 @@ import { sessionManager } from '@main/session/manager';
 import { MockSdkQuery } from '@main/__tests__/_shared/mocks/sdk-query';
 import type { AgentEvent } from '@shared/types';
 import { describe, expect, it, vi } from 'vitest';
-import { StreamProcessor } from '../stream-processor';
+import {
+  ClaudeStreamProcessorCore,
+  type ClaudeStreamProcessorContext,
+} from '../stream-processor-core';
+import {
+  createDesktopClaudeStreamProcessorHost,
+  type ClaudeStreamSessionManagerPort,
+} from '../stream-processor-host';
 import { translateSdkMessage } from '../sdk-message-translate';
 import { makeInternalSession, type PendingUserMessage } from '../types';
+
+class StreamProcessor extends ClaudeStreamProcessorCore {
+  constructor(context: ClaudeStreamProcessorContext, manager: ClaudeStreamSessionManagerPort) {
+    super(context, createDesktopClaudeStreamProcessorHost(manager));
+  }
+}
 
 vi.mock('@main/store/session-repo', () => ({
   sessionRepo: {

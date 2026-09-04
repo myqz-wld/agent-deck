@@ -2,18 +2,15 @@
  * Per-tab CDP bridge: attach/detach, command send with timeout, event fan-out, and lazily enabled
  * console / network ring buffers.
  *
- * Two consumers with different needs share this file. The Codex pipe front needs raw command
- * pass-through plus every event, including child-target traffic. The MCP browser tools need cheap
- * console and network history. MCP tabs arm lightweight network lifecycle tracking before their
- * first navigation so `browser_wait(kind:"network-idle")` can observe the whole request. Network
- * history remains independently lazy and starts only at the first `browser_read_network` call.
- * Codex tabs never call that MCP-only arming path, so the official Browser client still owns their
- * CDP domains.
+ * The session-scoped Browser executor uses this bridge for commands plus cheap console and network
+ * history. Tabs arm lightweight network lifecycle tracking before their first navigation so
+ * `wait(kind:"network-idle")` can observe the whole request. Network history remains independently
+ * lazy and starts only at the first network-read operation.
  */
 
 import type { Debugger, Event } from 'electron';
 
-import { CDP_TIMEOUT_MS, type CdpDetachListener, type CdpMessageListener } from './types';
+import { CDP_TIMEOUT_MS } from './types';
 
 const MAX_CONSOLE_ENTRIES = 200;
 const MAX_NETWORK_ENTRIES = 200;
@@ -51,8 +48,6 @@ export interface NetworkActivityState {
 }
 
 export class CdpBridge {
-  private readonly messageListeners = new Set<CdpMessageListener>();
-  private readonly detachListeners = new Set<CdpDetachListener>();
   private readonly consoleEntries: ConsoleEntry[] = [];
   private readonly networkEntries: NetworkEntry[] = [];
   private readonly pendingRequests = new Map<string, PendingNetworkRequest>();
@@ -94,22 +89,11 @@ export class CdpBridge {
   async send(
     method: string,
     params: UnknownRecord = {},
-    cdpSessionId?: string,
     timeoutMs = CDP_TIMEOUT_MS,
   ): Promise<unknown> {
     this.attach();
-    const command = this.getDebugger().sendCommand(method, params, cdpSessionId);
+    const command = this.getDebugger().sendCommand(method, params);
     return withTimeout(command, timeoutMs, `CDP command timed out: ${method}`);
-  }
-
-  onMessage(listener: CdpMessageListener): () => void {
-    this.messageListeners.add(listener);
-    return () => this.messageListeners.delete(listener);
-  }
-
-  onDetach(listener: CdpDetachListener): () => void {
-    this.detachListeners.add(listener);
-    return () => this.detachListeners.delete(listener);
   }
 
   enableConsoleCapture(): Promise<void> {
@@ -206,18 +190,12 @@ export class CdpBridge {
     const target = this.getDebugger();
     target.on(
       'message',
-      (_event: Event, method: string, params: UnknownRecord, debuggerSessionId?: string) => {
-        // Electron reports top-level page events with an empty-string session id. Forwarding that
-        // value makes the official Browser client treat page traffic as child-target traffic and
-        // drop `Fetch.requestPaused`, which deadlocks navigation (REVIEW_177).
-        const cdpSessionId = debuggerSessionId || undefined;
+      (_event: Event, method: string, params: UnknownRecord) => {
         this.captureLogEvent(method, params);
-        for (const listener of this.messageListeners) listener(method, params, cdpSessionId);
       },
     );
-    target.on('detach', (_event: Event, reason: string) => {
+    target.on('detach', (_event: Event, _reason: string) => {
       this.resetDomainState();
-      for (const listener of this.detachListeners) listener(reason);
     });
   }
 

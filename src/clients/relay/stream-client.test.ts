@@ -8,7 +8,7 @@ import {
   type RelayRouteFrame,
 } from '@protocol/relay';
 import { RelayStreamRouter } from '../../hosts/relay/router';
-import { RelayClientBridgeError, RelayClientFrameBridge } from './stream-client';
+import { RelayClientBridgeError, RelayClientFrameBridge } from '@protocol/relay/client-bridge';
 
 function inbound(
   generation: number,

@@ -2,23 +2,15 @@
  * Provider-neutral browser engine contracts.
  *
  * The engine owns Electron windows, their CDP connection, and semantic page actions. It knows
- * nothing about Codex, MCP, or any adapter protocol: those live in `../fronts/*` and in the
- * Agent Deck MCP browser tools. Keeping this file protocol-free is what makes one browser usable
- * from every adapter.
+ * nothing about an adapter protocol; the session-scoped CLI and Remote broker provide those
+ * boundaries. Keeping this file protocol-free makes one browser usable from every adapter.
  */
 
 import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
 import type { EngineTabSurface } from './surface';
 
-/**
- * Ownership namespace. `codex-pipe` keeps the OpenAI Browser plugin's session identity separate
- * from `session`, which is keyed by an Agent Deck session id, so the two fronts can never see or
- * dispose each other's tabs.
- */
-export type BrowserOwnerKind = 'codex-pipe' | 'session';
-
 export interface BrowserOwnerKey {
-  kind: BrowserOwnerKind;
+  kind: 'session';
   id: string;
 }
 
@@ -33,15 +25,6 @@ export interface CreateTabOptions {
   /** Show and focus the window. Defaults to the engine's `showWindows` option. */
   show?: boolean;
 }
-
-export type CdpMessageListener = (
-  method: string,
-  params: Record<string, unknown>,
-  /** Child-target session id. Always `undefined` for top-level page traffic. */
-  cdpSessionId: string | undefined,
-) => void;
-
-export type CdpDetachListener = (reason: string) => void;
 
 export interface BrowserEngineOptions {
   /** Window factory seam for tests. Production uses `new BrowserWindow(...)`. */

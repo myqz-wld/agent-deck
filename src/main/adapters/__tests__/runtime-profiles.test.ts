@@ -81,11 +81,6 @@ describe('adapter runtime profiles', () => {
         thinkingLevels: ['low', 'medium', 'high', 'xhigh'],
       },
     });
-    expect({
-      claude: getAdapterRuntimeProfile('claude-code').mcpBrowserTools,
-      codex: getAdapterRuntimeProfile('codex-cli').mcpBrowserTools,
-      grok: getAdapterRuntimeProfile('grok-build').mcpBrowserTools,
-    }).toEqual({ claude: false, codex: false, grok: false });
   });
 
   it('guards adapter ids at runtime', () => {

@@ -2,7 +2,20 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { StreamProcessor } from '../stream-processor';
+import {
+  ClaudeStreamProcessorCore,
+  type ClaudeStreamProcessorContext,
+} from '../stream-processor-core';
+import {
+  createDesktopClaudeStreamProcessorHost,
+  type ClaudeStreamSessionManagerPort,
+} from '../stream-processor-host';
+
+class StreamProcessor extends ClaudeStreamProcessorCore {
+  constructor(context: ClaudeStreamProcessorContext, manager: ClaudeStreamSessionManagerPort) {
+    super(context, createDesktopClaudeStreamProcessorHost(manager));
+  }
+}
 
 const streamSessionManager = {
   releaseSdkClaim: () => undefined,

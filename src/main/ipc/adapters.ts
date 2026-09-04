@@ -254,20 +254,6 @@ export function registerAdaptersIpc(): void {
     await adapter.interruptSession(parseStringId('sessionId', sessionId));
     return true;
   });
-  on(IpcInvoke.AdapterSteerTurn, async (_e, agentId, sessionId, text) => {
-    const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
-    if (!adapter?.steerTurn || adapter.capabilities.canSteerTurn !== true) {
-      throw new Error('adapter cannot steer active turn');
-    }
-    if (typeof text !== 'string') {
-      throw new IpcInputError('text', 'must be string');
-    }
-    if (text.length > MAX_USER_MESSAGE_LENGTH) {
-      throw new IpcInputError('text', `> 102400 chars (got ${text.length.toLocaleString()} chars)`);
-    }
-    await adapter.steerTurn(parseStringId('sessionId', sessionId), text);
-    return true;
-  });
   on(IpcInvoke.AdapterRespondPermission, async (_e, agentId, sessionId, requestId, response) => {
     const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.respondPermission) throw new Error('adapter cannot respond to permission');

@@ -1,6 +1,5 @@
 import type { AgentEvent } from '@shared/types';
 import {
-  cancelClaudePendingAndEmitCore,
   runClaudeCloseSessionCleanupCore,
 } from './pending-cancellation-core';
 import {
@@ -8,20 +7,6 @@ import {
   type ClaudePendingCancellationManagerPort,
 } from './pending-cancellation-host';
 import type { InternalSession } from './types';
-
-export function cancelPendingAndEmit(
-  internal: InternalSession,
-  realIdForEmit: string,
-  emit: (event: AgentEvent) => void,
-  sessionManager: ClaudePendingCancellationManagerPort,
-): void {
-  cancelClaudePendingAndEmitCore(
-    internal,
-    realIdForEmit,
-    emit,
-    createDesktopClaudePendingCancellationHost(sessionManager),
-  );
-}
 
 export function runCloseSessionCleanup(input: {
   sessions: Map<string, InternalSession>;

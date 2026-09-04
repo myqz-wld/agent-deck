@@ -13,7 +13,6 @@ import type {
   PermissionResponse,
   UploadedAttachmentInput,
   PendingOutgoingMessage,
-  PendingOutgoingAttachmentLoadResult,
   AdapterSessionMode,
   CodexApprovalPolicy,
   SessionCreationConfiguration,
@@ -54,31 +53,12 @@ export const adaptersApi = {
     sessionId: string,
   ): Promise<PendingOutgoingMessage[]> =>
     ipcRenderer.invoke(IpcInvoke.AdapterListPendingOutgoing, agentId, sessionId),
-  loadPendingOutgoingAttachment: (
-    agentId: string,
-    sessionId: string,
-    messageId: string,
-    attachmentId: string,
-  ): Promise<PendingOutgoingAttachmentLoadResult> =>
-    ipcRenderer.invoke(
-      IpcInvoke.AdapterLoadPendingOutgoingAttachment,
-      agentId,
-      sessionId,
-      messageId,
-      attachmentId,
-    ),
   deletePendingOutgoingMessage: (
     agentId: string,
     sessionId: string,
     messageId: string,
   ): Promise<boolean> =>
     ipcRenderer.invoke(IpcInvoke.AdapterDeletePendingOutgoing, agentId, sessionId, messageId),
-  steerAdapterTurn: (
-    agentId: string,
-    sessionId: string,
-    text: string,
-  ): Promise<void> =>
-    ipcRenderer.invoke(IpcInvoke.AdapterSteerTurn, agentId, sessionId, text),
   respondPermission: (
     agentId: string,
     sessionId: string,

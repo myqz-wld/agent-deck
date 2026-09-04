@@ -21,7 +21,6 @@ import {
 import { ENTER_WORKTREE_SCHEMA } from '../tools/schemas/lifecycle';
 import { TASK_CREATE_SCHEMA } from '../tools/schemas/tasks';
 import { REPORT_ISSUE_SCHEMA } from '../tools/schemas/issues';
-import { BROWSER_OPEN_SCHEMA } from '../tools/schemas/browser';
 
 describe('MCP caller identity boundary', () => {
   it('forces global-token and missing-auth callers to the external sentinel', () => {
@@ -67,7 +66,6 @@ describe('MCP caller identity boundary', () => {
       ENTER_WORKTREE_SCHEMA,
       TASK_CREATE_SCHEMA,
       REPORT_ISSUE_SCHEMA,
-      BROWSER_OPEN_SCHEMA,
     ]) {
       expect(schema).not.toHaveProperty('callerSessionId');
     }

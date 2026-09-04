@@ -1,17 +1,14 @@
 import { useMemo, useState, type JSX } from 'react';
 
-import { ImageThumb } from '@renderer/components/ImageThumb';
 import {
   ChevronDownIcon,
   ChevronRightIcon,
-  ImageIcon,
 } from '@renderer/components/icons';
 import type { AgentEvent } from '@shared/types';
 import { describeToolInput } from '../describe';
 import {
   formatDisplayText,
   formatToolResult,
-  parseImageReadResult,
 } from '../format';
 import {
   formatToolDuration,
@@ -22,14 +19,10 @@ import { toolIcon } from '../tool-icons';
 
 export function ToolEndRow({
   event,
-  sessionId,
   startEvent,
-  allowLocalAssets = true,
 }: {
   event: AgentEvent;
-  sessionId: string;
   startEvent?: AgentEvent;
-  allowLocalAssets?: boolean;
 }): JSX.Element {
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   const startPayload = (startEvent?.payload ?? {}) as Record<string, unknown>;
@@ -48,12 +41,11 @@ export function ToolEndRow({
   const duration = formatToolDuration(payload.durationMs);
   const truncation = providerTruncationLabel(payload);
   const text = useMemo(() => formatToolResult(result), [result]);
-  const imageRead = useMemo(() => parseImageReadResult(result), [result]);
   const hasContent = text.trim().length > 0;
   const inputForDisplay = mergeToolInputs(startPayload.toolInput, payload.toolInput);
   const detail = useMemo(
-    () => imageRead ? null : describeToolInput(tool, inputForDisplay),
-    [imageRead, inputForDisplay, tool],
+    () => describeToolInput(tool, inputForDisplay),
+    [inputForDisplay, tool],
   );
   const containerClass = status.isError
     ? 'min-w-0 rounded-md border border-status-error/40 bg-status-error/[0.05] p-2 text-[11px]'
@@ -73,17 +65,10 @@ export function ToolEndRow({
             : <ChevronRightIcon className="h-3 w-3" />}
         </span>
         <span className="min-w-0 truncate">
-          {imageRead
-            ? <><ImageIcon className="mr-1 inline h-3 w-3" />ImageRead</>
-            : `${toolIcon(tool, payload.toolKind ?? startPayload.toolKind)} ${tool}`}{' '}
+          {`${toolIcon(tool, payload.toolKind ?? startPayload.toolKind)} ${tool}`}{' '}
           {status.isError ? (
             <span className="text-status-error/90">{status.label}</span>
           ) : status.label}
-          {imageRead?.provider && (
-            <span className="ml-1.5 text-[9px] text-deck-muted/70">
-              [{imageRead.provider}{imageRead.model ? ` · ${imageRead.model}` : ''}]
-            </span>
-          )}
           {detail && (
             <span className="ml-1.5 truncate text-[10px] text-deck-muted/85">
               · {detail}
@@ -101,28 +86,7 @@ export function ToolEndRow({
           {timestamp}
         </span>
       </button>
-      {imageRead && (
-        <div className="mt-2 flex gap-2">
-          {allowLocalAssets ? (
-            <ImageThumb
-              sessionId={sessionId}
-              source={{ kind: 'path', path: imageRead.file }}
-              size="md"
-            />
-          ) : (
-            <div className="rounded border border-deck-border/50 px-2 py-1 text-[9px] text-deck-muted">
-              远程图片需通过资产通道读取
-            </div>
-          )}
-          <div className="flex-1 overflow-hidden">
-            <div className="text-[9px] uppercase tracking-wider text-deck-muted">描述</div>
-            <div className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap text-[11px] text-deck-text/90 scrollbar-deck">
-              {imageRead.description}
-            </div>
-          </div>
-        </div>
-      )}
-      {open && !imageRead && (
+      {open && (
         hasContent ? (
           <pre className="mt-1 max-h-64 overflow-auto rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted scrollbar-deck">
             {text}

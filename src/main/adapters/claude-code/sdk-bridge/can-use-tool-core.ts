@@ -6,7 +6,7 @@
  * ExitPlanMode / 默认权限请求。class state 通过 MakeCanUseToolDeps 注入。
  *
  * 护栏（不变，全部完整保留）：
- * - REVIEW_11 Bug 4 — READ_ONLY_TOOLS / __ImageRead 后缀白名单（任何 permissionMode 下放行）
+ * - REVIEW_11 Bug 4 — READ_ONLY_TOOLS 白名单（任何 permissionMode 下放行）
  * - REVIEW_14/15 — SandboxNetworkAccess auto-deny + 结构化 message 引导 model fallback
  * - REVIEW_11 Bug 3 — approve+plan 走 deny+message 不走 allow（避免 plan→deny→plan 死循环 + setPermissionMode race）
  * - CHANGELOG_34 — approve-bypass deny+interrupt:true（不能 allow）
@@ -79,8 +79,7 @@ export function makeCanUseToolCore(
     // 体感「default mode 跟 plan mode 没区别都要审核」。
     // 白名单内的工具语义上不会改变文件系统 / 不会执行外部命令，截胡放行无安全风险，且与
     // SDK 行为不冲突（SDK 文档明确：注册 canUseTool 即表示决定权完全归应用）。
-    // MCP 图片读取类工具（命名约定 mcp__xxx__ImageRead 或后缀 __ImageRead）同样白名单。
-    if (READ_ONLY_TOOLS.has(toolName) || toolName.endsWith('__ImageRead')) {
+    if (READ_ONLY_TOOLS.has(toolName)) {
       return { behavior: 'allow', updatedInput: input };
     }
 

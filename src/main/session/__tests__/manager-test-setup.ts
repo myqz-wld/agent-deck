@@ -126,7 +126,6 @@ export function makeEventRepoMock(): {
   countForSession: () => number;
   findLatestAssistantMessage: () => null;
   deleteForSession: ReturnType<typeof vi.fn>;
-  hasToolUseStartWithFilePath: () => boolean;
 } {
   return {
     insert: (e) => {
@@ -137,7 +136,6 @@ export function makeEventRepoMock(): {
     countForSession: () => 0,
     findLatestAssistantMessage: () => null,
     deleteForSession: vi.fn(),
-    hasToolUseStartWithFilePath: () => false,
   };
 }
 
