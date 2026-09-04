@@ -4,8 +4,7 @@ interface AdapterHelpConfig {
   name: 'Claude Code' | 'Codex CLI' | 'Grok Build';
   configPaths: ReactNode;
   managedFeatures: string;
-  terminalIntegration: ReactNode;
-  inAppFeatures?: ReactNode;
+  hookPath: string;
 }
 
 function InlineCode({ children }: { children: ReactNode }): JSX.Element {
@@ -22,40 +21,19 @@ const CONFIGS: Record<'claude' | 'codex' | 'grok', AdapterHelpConfig> = {
       </>
     ),
     managedFeatures: '模型、权限、沙盒和 MCP',
-    terminalIntegration: (
-      <>
-        安装上方 Hook 后，外部终端会话通过{' '}
-        <InlineCode>~/.claude/settings.json</InlineCode> 上报到 Agent Deck。
-      </>
-    ),
+    hookPath: '~/.claude/settings.json',
   },
   codex: {
     name: 'Codex CLI',
-    configPaths: <InlineCode>$CODEX_HOME/config.toml</InlineCode>,
+    configPaths: <InlineCode>~/.codex/config.toml</InlineCode>,
     managedFeatures: '模型、权限、沙盒和 MCP',
-    terminalIntegration: (
-      <>
-        安装上方 Hook 后，外部终端会话通过{' '}
-        <InlineCode>~/.codex/hooks.json</InlineCode> 上报到 Agent Deck。
-      </>
-    ),
+    hookPath: '~/.codex/hooks.json',
   },
   grok: {
     name: 'Grok Build',
     configPaths: <InlineCode>~/.grok/config.toml</InlineCode>,
     managedFeatures: '模型别名、推理参数、认证和 MCP',
-    terminalIntegration: (
-      <>
-        安装上方 Hook 后，外部终端会话通过{' '}
-        <InlineCode>~/.grok/hooks/agent-deck.json</InlineCode> 上报到 Agent Deck；应用内会话由 Grok Build 直接连接。
-      </>
-    ),
-    inAppFeatures: (
-      <>
-        应用内会话会加载 Agent Deck 应用约定、内置 Skills / Agents 和适用于 Grok Build
-        的 MCP 工具；Grok Build 原生配置与登录状态仍由 Grok Build CLI 管理。
-      </>
-    ),
+    hookPath: '~/.grok/hooks/agent-deck.json',
   },
 };
 
@@ -74,16 +52,14 @@ export function AdapterConfigHelp({
       </p>
       <p>
         <strong className="text-deck-text/80">终端接入：</strong>
-        {config.terminalIntegration}
+        安装上方 Hook 后，外部终端中的 {config.name} 会话会通过{' '}
+        <InlineCode>{config.hookPath}</InlineCode> 上报到 Agent Deck。
       </p>
       <p>
         <strong className="text-deck-text/80">应用内功能：</strong>
-        {config.inAppFeatures ?? (
-          <>
-            应用内会话会注入 Agent Deck 应用约定和内置 skills；间歇总结与会话续接上下文在「通用 →
-            会话」设置，内置 MCP 在「通用 → 跨工具协作（MCP）」设置。
-          </>
-        )}
+        Agent Deck 内的 {config.name} 会话会加载应用约定、内置 Skills、Agents 和 MCP
+        工具；间歇总结与会话续接上下文在「通用 → 会话」中设置，MCP 在「通用 →
+        跨工具协作（MCP）」中设置。
       </p>
     </div>
   );
