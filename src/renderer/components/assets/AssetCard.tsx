@@ -5,7 +5,7 @@ import { EyeIcon, PencilIcon } from '../icons';
 /**
  * 资产库 Dialog 单条 AssetCard（plan assets-codex-user-and-ui-unify-20260521 §D6 简化:
  * 删 dedupBundledByName / NonEmptyAssetGroup / AdapterBadge 三件物,各 sub-tab 单 adapter 视图
- * 内 bundled / user 资产都是单条独立显示;同名跨 adapter 资产由 sub-tab 切换分别显)。
+ * 内每个 bundled 资产都是单条独立显示；同名跨 adapter 资产由 sub-tab 切换分别显示）。
  *
  * 历史背景（已废弃）：plan reviewer-codex-cross-adapter-20260519 §Phase 4 Step 4.1 抽出双角标
  * 合并 UI。assets-codex-user-and-ui-unify-20260521 §Q1 用户答「全部 sub-tab 切换」后双角标合并
@@ -18,7 +18,7 @@ export function AssetCard({
   onConfigure,
   showReadOnlyBadge = true,
 }: {
-  /** 单条 AssetMeta（user / bundled 同款，按所在 sub-tab 单 adapter 视图）。 */
+  /** 单条 AssetMeta，按所在 sub-tab 的 adapter 视图显示。 */
   asset: AssetMeta;
   onView: (asset: AssetMeta) => void;
   /** bundled Agent only：只改 app-owned model/thinking/provider 差异。 */

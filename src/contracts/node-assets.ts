@@ -6,7 +6,7 @@ export const NODE_ASSET_RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
 
 export type NodeAssetAdapterId = 'claude-code' | 'codex-cli' | 'grok-build';
 export type NodeAssetKind = 'agent' | 'skill';
-export type NodeAssetSource = 'bundled' | 'user';
+export type NodeAssetSource = 'bundled';
 
 export interface NodeAssetRuntimeDto {
   model: string | null;
@@ -129,7 +129,7 @@ function kind(value: unknown, field: string): NodeAssetKind {
 }
 
 function source(value: unknown, field: string): NodeAssetSource {
-  if (value !== 'bundled' && value !== 'user') fail(field);
+  if (value !== 'bundled') fail(field);
   return value;
 }
 

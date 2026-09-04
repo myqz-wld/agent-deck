@@ -1,5 +1,5 @@
 import type { NodeAssetDto } from '@contracts/index';
-import type { AssetMeta, BundledAssetsSnapshot, UserAssetsSnapshot } from '@shared/types';
+import type { AssetMeta, BundledAssetsSnapshot } from '@shared/types';
 
 function toAssetMeta(asset: NodeAssetDto): AssetMeta {
   const runtime = asset.runtimeDefaults && asset.runtimeOverride
@@ -29,19 +29,10 @@ function toAssetMeta(asset: NodeAssetDto): AssetMeta {
   };
 }
 
-export function remoteAssetSnapshots(assets: NodeAssetDto[]): {
-  bundled: BundledAssetsSnapshot;
-  user: UserAssetsSnapshot;
-} {
+export function remoteAssetsSnapshot(assets: NodeAssetDto[]): BundledAssetsSnapshot {
   const mapped = assets.map(toAssetMeta);
   return {
-    bundled: {
-      agents: mapped.filter((asset) => asset.source === 'bundled' && asset.kind === 'agent'),
-      skills: mapped.filter((asset) => asset.source === 'bundled' && asset.kind === 'skill'),
-    },
-    user: {
-      agents: mapped.filter((asset) => asset.source === 'user' && asset.kind === 'agent'),
-      skills: mapped.filter((asset) => asset.source === 'user' && asset.kind === 'skill'),
-    },
+    agents: mapped.filter((asset) => asset.kind === 'agent'),
+    skills: mapped.filter((asset) => asset.kind === 'skill'),
   };
 }

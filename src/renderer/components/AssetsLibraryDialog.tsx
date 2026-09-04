@@ -4,7 +4,6 @@ import {
   type AppSettings,
   type AssetMeta,
   type BundledAssetsSnapshot,
-  type UserAssetsSnapshot,
 } from '@shared/types';
 import { AdapterSubTab, type AssetAdapter } from './assets/AdapterSubTab';
 import { AssetsTab } from './assets/AssetsTab';
@@ -13,7 +12,7 @@ import { ApplicationConventionTab } from './assets/ApplicationConventionTab';
 import { RemoteApplicationConventionTab } from './assets/RemoteApplicationConventionTab';
 import { ContentViewerModal, type ContentViewerState } from './assets/ContentViewerModal';
 import { InjectionToggleBar } from './assets/InjectionToggleBar';
-import { remoteAssetSnapshots } from './assets/remote-asset-presentation';
+import { remoteAssetsSnapshot } from './assets/remote-asset-presentation';
 import { CloseIcon, LibraryIcon } from './icons';
 import { errorMessage } from '@renderer/lib/error-message';
 import { useModalFocus } from './use-modal-focus';
@@ -26,8 +25,8 @@ import { AssetsLibraryTabButton as TabBtn } from './AssetsLibraryTabButton';
  * 端原生资产发现补齐）。
  *
  * 三 Tab，每 tab 内部按 adapter sub-tab 切换：
- * - Skills：sub-tab(Claude/Codex/Grok)，直系与 Plugin 资产统一只读展示
- * - Agents：sub-tab(Claude/Codex/Grok)，直系与 Plugin 资产统一只读展示
+ * - Skills：sub-tab(Claude/Codex/Grok)，只展示 Agent Deck 内置资产
+ * - Agents：sub-tab(Claude/Codex/Grok)，只展示 Agent Deck 内置资产
  * - 应用约定：sub-tab(Claude/Codex)，子 editor dirty 时切换前 confirm 拦截
  *
  * dirty 拦截契约：
@@ -54,7 +53,6 @@ type TabKey = 'skills' | 'agents' | 'claude-md';
 export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JSX.Element | null {
   const [tab, setTab] = useState<TabKey>('skills');
   const [bundled, setBundled] = useState<BundledAssetsSnapshot | null>(null);
-  const [user, setUser] = useState<UserAssetsSnapshot | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [assetsTruncated, setAssetsTruncated] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -82,7 +80,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
   const remoteCatalogRevisionRef = useRef<number | null>(null);
   remoteIdentityRef.current = remoteIdentity;
   remoteUsableRef.current = remoteUsable;
-  const assetsReady = bundled !== null && user !== null && settings !== null;
+  const assetsReady = bundled !== null && settings !== null;
   const initialPresentation = useInitialAsyncPresentation(
     open && !assetsReady && loadError === null,
     `${remoteIdentity ?? 'local'}:${open ? 'open' : 'closed'}:${remoteCatalogRefresh}:assets`,
@@ -109,7 +107,6 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
       setViewer(null);
       setBundledAgentEditor(null);
       setBundled(null);
-      setUser(null);
       setSettings(null);
       return;
     }
@@ -118,7 +115,6 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
     setUpdateError(null);
     setLoadError(null);
     setBundled(null);
-    setUser(null);
     setSettings(null);
     setAssetsTruncated(false);
     remoteCatalogRevisionRef.current = null;
@@ -142,10 +138,9 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
             seq !== fetchSeqRef.current || remoteIdentityRef.current !== fetchIdentity ||
             !remoteUsableRef.current
           ) return;
-          const next = remoteAssetSnapshots(result.assets);
+          const next = remoteAssetsSnapshot(result.assets);
           remoteCatalogRevisionRef.current = result.revision;
-          setBundled(next.bundled);
-          setUser(next.user);
+          setBundled(next);
           setSettings({ ...DEFAULT_SETTINGS, ...result.injection });
           setAssetsTruncated(result.assetsTruncated);
         })
@@ -160,15 +155,12 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
     }
     void Promise.allSettled([
       window.api.listBundledAssets(),
-      window.api.listUserAssets(),
       window.api.getSettings(),
-    ]).then(([b, u, s]) => {
+    ]).then(([b, s]) => {
       if (seq !== fetchSeqRef.current) return;
       const errs: string[] = [];
       if (b.status === 'fulfilled') setBundled(b.value);
       else errs.push(`内置资产读取失败：${(b.reason as Error).message}`);
-      if (u.status === 'fulfilled') setUser(u.value);
-      else errs.push(`用户资产读取失败：${(u.reason as Error).message}`);
       if (s.status === 'fulfilled') {
         setSettings(s.value);
       } else {
@@ -244,7 +236,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
         profileId: remoteProfileId,
         adapterId: asset.adapter,
         kind: asset.kind,
-        source: asset.source,
+        source: 'bundled',
         name: asset.name,
         qualifiedName: asset.qualifiedName,
         location: asset.absPath,
@@ -408,8 +400,6 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
                 kind="skill"
                 adapter={skillsAdapter}
                 bundled={bundled?.skills ?? []}
-                user={user?.skills ?? []}
-                sourceScope={remoteIdentity === null ? 'local' : 'remote'}
                 onView={openViewer}
               />
             </>
@@ -428,8 +418,6 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
                 kind="agent"
                 adapter={agentsAdapter}
                 bundled={bundled?.agents ?? []}
-                user={user?.agents ?? []}
-                sourceScope={remoteIdentity === null ? 'local' : 'remote'}
                 onView={openViewer}
                 onConfigureBundledAgent={remoteIdentity === null ? setBundledAgentEditor : undefined}
               />

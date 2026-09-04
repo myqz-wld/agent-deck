@@ -11,7 +11,7 @@ Agent Deck is a desktop workspace for coordinating Claude Code, Codex CLI, and G
 - Review plans and diffs before important changes continue.
 - Track tasks and issues alongside the sessions doing the work.
 - Isolate changes in Git worktrees when parallel work should stay separate.
-- Browse installed Agents, Skills, and plugins from the Assets Library.
+- Browse bundled Agents and Skills and manage application conventions from the Assets Library.
 - Use a private, session-scoped Browser with an in-app view and screenshot annotation.
 - Discover and run the slash commands supported by the active adapter from either Local or Remote
   message composers.
