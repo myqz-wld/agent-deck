@@ -28,8 +28,12 @@ may attach an app-owned runtime delta to a bundled Agent without editing this di
 - Claude and Codex bundled Agents may additionally select their adapter's Gateway profile.
 - Reset removes the whole app-owned delta and exposes the packaged Agent defaults again.
 - Bundled Skills have no runtime override. Direct and Plugin Agents/Skills remain owned by their
-  native adapter directories and are read-only in the Assets Library; Agent Deck provides no
-  create, edit, delete, install, or enable operation for them.
+  native adapter directories and are not listed or managed in the Assets Library. Agent Deck
+  provides no create, edit, delete, install, or enable operation for them.
+
+The Remote asset catalog and Remote Agent selection are bundled-only and do not enumerate native
+user or Plugin assets. Provider runtimes may still load assets from their isolated native homes;
+Desktop-local Agent selection retains its native user and Plugin resolution paths.
 
 Provider endpoints, credentials, and alias definitions stay in each adapter's native configuration.
 The resource layer stores only adapter-native Gateway ids; it neither stores credentials nor writes
@@ -46,7 +50,9 @@ skills, and `CLAUDE.md`; their `gateway` id resolves independently to
 - `agent-deck-plugin/agents/reviewer-claude.md`: Claude Code reviewer teammate body.
 - `agent-deck-plugin/skills/*/SKILL.md`: Claude Code-side `agent-deck:*` skills.
 - `spawn_session(agentName=...)` resolves bundled Agents, project `.claude/agents`, user `${CLAUDE_CONFIG_DIR:-~/.claude}/agents`, and native Claude Plugin Agents. Plugin selectors use `<plugin>:<agent>` and the selected Plugin root is passed to the Claude SDK through `plugins` for that session.
-- The Assets Library shows user-root Agents/Skills and installed native Plugin Agents/Skills. Direct and Plugin files are inspection-only and stay under Claude Code ownership.
+- The Assets Library lists only Agent Deck's bundled Claude Agents/Skills. User-root and native
+  Plugin assets remain available through Claude Code's native loading and Desktop-local spawn
+  resolution, but are not shown there.
 
 ## codex-config/
 
@@ -68,7 +74,9 @@ The Codex adapter uses this resource root. Codex app-server has no Claude SDK `p
   boundaries remain authoritative.
 - An empty Codex Gateway selection delegates to `${CODEX_HOME:-~/.codex}/config.toml`. A non-empty
   selection resolves to the same-named `.toml`.
-- The Assets Library shows user-root Agents/Skills, native Plugin Skills, and Plugin TOML Agent extensions. All direct and Plugin files are inspection-only and stay under Codex CLI ownership.
+- The Assets Library lists only Agent Deck's bundled Codex Agents/Skills. User-root assets, native
+  Plugin Skills, and Plugin TOML Agent extensions remain available through Codex CLI's native
+  loading and Desktop-local Agent Deck spawn resolution, but are not shown there.
 - Agent Deck reads native Codex configuration and Gateway profiles but does not write
   `${CODEX_HOME:-~/.codex}/config.toml`, `${CODEX_HOME:-~/.codex}/gateways/`,
   `~/.codex/AGENTS.md`, or `~/.codex/skills/agent-deck/`.
@@ -81,7 +89,9 @@ The Grok Build adapter uses this resource root through the official ACP v1 `sess
 - `agent-deck-plugin/`: App-bundled Grok plugin containing `reviewer-grok` and the Agent Deck review skills.
 - Grok accepts a whole plugin directory, while Agent Deck exposes independent Skills and Agents switches. At runtime the selected subdirectories are copied to an app-owned mirror under `<userData>/grok-plugin-profiles/`, and that mirror is passed through ACP `_meta.pluginDirs`.
 - `spawn_session(agentName=...)` resolves Grok's bundled, project (`.grok/agents`), user (`~/.grok/agents`), and native Plugin Agents. Plugin selectors use `<plugin>:<agent>`; the selected native profile and Plugin root are passed through ACP `_meta.agentProfile` / `_meta.pluginDirs`.
-- The Assets Library shows `~/.grok/{agents,skills}` plus discoverable Plugin Agents/Skills. Direct and Plugin files are inspection-only and stay under Grok ownership.
+- The Assets Library lists only Agent Deck's bundled Grok Agents/Skills. User-root and discoverable
+  Plugin assets remain available through Grok's native loading and Desktop-local spawn resolution,
+  but are not shown there.
 - The mirror and editable application-convention copy contain only Agent Deck-owned resources. Agent Deck does not write `~/.grok/config.toml`, `~/.grok/AGENTS.md`, or user plugins.
 - The Grok binary is not part of `extraResources`; Settings may point to an installed binary, otherwise the adapter resolves `grok` from the user shell `PATH`.
 

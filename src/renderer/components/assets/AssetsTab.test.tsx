@@ -6,63 +6,62 @@ import { AssetsTab } from './AssetsTab';
 
 afterEach(cleanup);
 
-function userAgent(): AssetMeta {
+function bundledAgent(): AssetMeta {
   return {
     kind: 'agent',
-    source: 'user',
+    source: 'bundled',
     adapter: 'claude-code',
-    origin: 'direct',
-    runtimeName: 'user-agent',
-    name: 'user-agent',
-    qualifiedName: 'user-agent',
-    description: 'User-managed Agent',
-    absPath: '/tmp/user-agent.md',
+    name: 'reviewer-claude',
+    qualifiedName: 'agent-deck:claude-code:reviewer-claude',
+    description: 'Bundled Agent',
+    absPath: '/tmp/reviewer-claude.md',
   };
 }
 
 describe('AssetsTab', () => {
-  it('只读展示用户资产且不提供新建或编辑入口', () => {
+  it('只展示内置资产及其查看入口', () => {
     render(
       <AssetsTab
         kind="agent"
         adapter="claude-code"
-        bundled={[]}
-        user={[userAgent()]}
+        bundled={[bundledAgent()]}
         onView={vi.fn()}
       />,
     );
 
-    expect(screen.getByText('用户与 Plugin（只读）')).toBeTruthy();
-    expect(screen.getByText('~/.claude/agents/')).toBeTruthy();
-    expect(screen.getByText('只读')).toBeTruthy();
+    expect(screen.getByText('内置')).toBeTruthy();
+    expect(screen.getByText('agent-deck:claude-code:reviewer-claude')).toBeTruthy();
+    expect(screen.queryByText('用户与 Plugin（只读）')).toBeNull();
+    expect(screen.queryByText('~/.claude/agents/')).toBeNull();
     expect(screen.queryByRole('button', { name: /新建/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /编辑/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /展开查看/ })).toBeNull();
     expect(screen.getByRole('button', { name: '查看' })).toBeTruthy();
   });
 
-  it('空状态引导用户使用原生 CLI 管理', () => {
+  it('内置资产为空时显示空状态', () => {
     render(
       <AssetsTab
         kind="skill"
         adapter="codex-cli"
         bundled={[]}
-        user={[]}
         onView={vi.fn()}
       />,
     );
 
-    expect(screen.getByText('未发现资产。请通过 Codex CLI 原生配置管理。')).toBeTruthy();
+    expect(screen.getByText('内置（只读）')).toBeTruthy();
+    expect(screen.getByText('（无）')).toBeTruthy();
   });
 
   it('initially bounds a large catalog and reveals it in fixed pages', () => {
-    const user = Array.from({ length: 120 }, (_, index) => ({
-      ...userAgent(),
+    const bundled = Array.from({ length: 120 }, (_, index) => ({
+      ...bundledAgent(),
       name: `agent-${index}`,
-      qualifiedName: `agent-${index}`,
+      qualifiedName: `agent-deck:claude-code:agent-${index}`,
       absPath: `/safe/agent-${index}.md`,
     }));
-    render(<AssetsTab kind="agent" adapter="claude-code" bundled={[]} user={user} onView={vi.fn()} />);
+    render(
+      <AssetsTab kind="agent" adapter="claude-code" bundled={bundled} onView={vi.fn()} />,
+    );
 
     expect(screen.getAllByRole('button', { name: '查看' })).toHaveLength(50);
     fireEvent.click(screen.getByRole('button', { name: '再显示 50 项' }));

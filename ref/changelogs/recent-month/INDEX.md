@@ -15,6 +15,10 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-08-27 | `CHANGELOG_634_system-status-session-readiness.md` | Align system status rows and stabilize Claude startup controls |
+| 2026-08-27 | `CHANGELOG_633_codex-clear-stable-id-feedback.md` | Preserve Codex clear completion on same-id native rotation |
+| 2026-08-27 | `CHANGELOG_632_session-command-system-feedback.md` | Show one final system status for silent native commands |
+| 2026-08-27 | `CHANGELOG_631_adapter-session-commands.md` | Add native adapter slash commands to Local and Remote composers |
 | 2026-08-24 | `CHANGELOG_630_session-authoring-interaction-stability.md` | Stabilize trust, History reactivation, and expanded composer actions |
 | 2026-08-24 | `CHANGELOG_629_session-settings-clarity.md` | Clarify project trust, Hook actions, and Codex SessionEnd timeout |
 | 2026-08-24 | `CHANGELOG_628_native-project-trust.md` | Add native project trust to Local and Remote session creation |
@@ -210,8 +214,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | 2026-08-05 | `CHANGELOG_439_grok-binary-cache-host-boundary.md` | Host the Grok executable cache outside Electron |
 | 2026-08-05 | `CHANGELOG_438_application-path-host-boundary.md` | Install one immutable application host path identity |
 | 2026-08-05 | `CHANGELOG_437_authoritative-database-host-boundary.md` | Inject the Core database host and prove its Node boundary |
-| 2026-08-04 | `CHANGELOG_436_remote-core-cwd-free-console.md` | Add cwd-free session and opaque project contracts |
-| 2026-08-04 | `CHANGELOG_435_remote-core-p2-host-controls.md` | Add bounded Feishu controls and exact Linux instance lifecycle |
-| 2026-08-04 | `CHANGELOG_434_remote-core-p1-foundations.md` | Establish the three-topology remote Core P1 foundations |
-| 2026-08-04 | `CHANGELOG_433_review-responsibility-and-depth.md` | Unify review roles and keep follow-up severity-driven |
-| 2026-08-04 | `CHANGELOG_432_diff-history-and-runtime-diagnostics.md` | Keep diffs current and make runtime delays diagnosable |

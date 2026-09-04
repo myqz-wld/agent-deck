@@ -188,7 +188,6 @@ export function createServerCoreRuntimeWithOverrides(
     providerSettings,
   );
   const nodeAssets = ServerCoreNodeAssetCatalog.create({
-    providerHomeRoot: workspaceBoundary.providerHomeRoot,
     runtimeReadRoots: workspaceBoundary.runtimeReadRoots,
     stateDirectory: input.paths.stateDirectory,
     settings: providerSettings,

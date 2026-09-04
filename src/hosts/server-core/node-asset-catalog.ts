@@ -36,7 +36,6 @@ import { createGrokResourceStore, type GrokPluginProfileOptions } from '@main/ad
 import { substituteResourcesPlaceholderWithRoot } from '@main/utils/resources-placeholder-transformer';
 import type { AssetMeta } from '@shared/types';
 
-import { scanServerCoreUserAssets } from './node-asset-user-scan';
 import { applyServerCoreBundledAgentRuntimeOverride } from './node-asset-runtime-overrides';
 import type { ServerCoreProviderSettings } from './provider-settings';
 import { isRemoteSensitiveAssetPath } from './remote-sensitive-data';
@@ -45,7 +44,6 @@ import type { ServerCoreBundledAgentAsset } from './spawn-agent-runtime';
 
 const READ_ONLY_REASON = '这里展示当前远端环境中的配置，不能在此页面修改。';
 const ASSET_SCAN_CACHE_TTL_MS = 5_000;
-const ASSET_SCAN_MAX_VISITED_ENTRIES = (NODE_ASSET_MAX_ITEMS + 1) * 32;
 
 const mirrorFilesystem = {
   cpSync,
@@ -103,7 +101,6 @@ interface InternalNodeAssetSnapshot {
 }
 
 export interface ServerCoreNodeAssetCatalogOptions {
-  providerHomeRoot: string;
   runtimeReadRoots: readonly string[];
   stateDirectory: string;
   settings: ServerCoreProviderSettings;
@@ -168,7 +165,7 @@ function dto(asset: AssetMeta, location: string): NodeAssetDto {
   return {
     adapterId: asset.adapter,
     kind: asset.kind,
-    source: asset.source,
+    source: 'bundled',
     name: asset.name,
     qualifiedName: asset.qualifiedName,
     description: asset.description,
@@ -401,25 +398,7 @@ export class ServerCoreNodeAssetCatalog {
   private assets(): InternalNodeAssetSnapshot {
     const now = this.options.now?.() ?? Date.now();
     if (this.scanCache && this.scanCache.expiresAt > now) return this.scanCache.snapshot;
-    const providerHomeRoot = canonicalDirectory(this.options.providerHomeRoot);
-    const userScan = providerHomeRoot
-      ? scanServerCoreUserAssets(providerHomeRoot, {
-          maxAssets: NODE_ASSET_MAX_ITEMS + 1,
-          maxVisitedEntries: ASSET_SCAN_MAX_VISITED_ENTRIES,
-        })
-      : { assets: [], truncated: false };
-    const user = providerHomeRoot
-      ? userScan.assets.flatMap((asset) => {
-          const internal = this.internal(
-            asset,
-            `个人配置/${relative(providerHomeRoot, asset.absPath)}`,
-            providerHomeRoot,
-          );
-          return internal ? [internal] : [];
-        })
-      : [];
-    const candidates = [...this.packagedAssets, ...user];
-    const assets = fairAssets(candidates);
+    const assets = [...this.packagedAssets];
     const conventionDigests = Object.fromEntries(
       (['claude-code', 'codex-cli', 'grok-build'] as const).map((adapterId) => [
         adapterId,
@@ -433,8 +412,7 @@ export class ServerCoreNodeAssetCatalog {
       assets: assets.map((asset) => [asset.dto, asset.contentDigest]),
       conventionDigests,
       injection: this.injection(),
-      truncated: this.packagedTruncated || userScan.truncated ||
-        candidates.length > NODE_ASSET_MAX_ITEMS + 1,
+      truncated: this.packagedTruncated,
     }));
     if (fingerprint !== this.catalogFingerprint) {
       this.catalogFingerprint = fingerprint;
@@ -444,8 +422,7 @@ export class ServerCoreNodeAssetCatalog {
       assets,
       conventionDigests,
       revision: this.catalogRevision,
-      truncated: this.packagedTruncated || userScan.truncated ||
-        candidates.length > NODE_ASSET_MAX_ITEMS + 1,
+      truncated: this.packagedTruncated,
     };
     this.scanCache = {
       snapshot,

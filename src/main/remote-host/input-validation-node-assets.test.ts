@@ -27,5 +27,10 @@ describe('Remote node asset input validation', () => {
     expect(() => parseRemoteHostNodeAssetConvention({
       profileId: 'remote-a', adapterId: 'codex-cli', localFallback: true,
     })).toThrow();
+    expect(() => parseRemoteHostNodeAssetContent({
+      profileId: 'remote-a', adapterId: 'claude-code', kind: 'agent',
+      source: 'user', name: 'personal-agent', qualifiedName: 'personal-agent',
+      location: 'Personal configuration/agents/personal-agent.md',
+    })).toThrow();
   });
 });

@@ -94,6 +94,44 @@ function installApi() {
 }
 
 describe('AssetsLibraryDialog source authority', () => {
+  it('loads and renders only bundled assets on Local', async () => {
+    const { local } = installApi();
+    local.listBundledAssets.mockResolvedValue({
+      agents: [],
+      skills: [{
+        kind: 'skill',
+        source: 'bundled',
+        adapter: 'claude-code',
+        name: 'deep-review',
+        qualifiedName: 'agent-deck:claude-code:deep-review',
+        description: 'Bundled review skill',
+        absPath: '/app/resources/skills/deep-review/SKILL.md',
+      }],
+    });
+    local.listUserAssets.mockResolvedValue({
+      agents: [],
+      skills: [{
+        kind: 'skill',
+        source: 'user',
+        adapter: 'claude-code',
+        name: 'personal-skill',
+        qualifiedName: 'personal-skill',
+        description: 'User-managed skill',
+        absPath: '/home/user/.claude/skills/personal-skill/SKILL.md',
+      }],
+    });
+    local.getSettings.mockResolvedValue(INJECTION);
+
+    render(<AssetsLibraryDialog open onClose={vi.fn()} />);
+
+    expect(await screen.findByText('agent-deck:claude-code:deep-review')).toBeTruthy();
+    expect(screen.queryByText('personal-skill')).toBeNull();
+    expect(screen.queryByText('用户与 Plugin（只读）')).toBeNull();
+    expect(local.listBundledAssets).toHaveBeenCalledTimes(1);
+    expect(local.getSettings).toHaveBeenCalledTimes(1);
+    expect(local.listUserAssets).not.toHaveBeenCalled();
+  });
+
   it('shows the Worker effective Reviewer Agent configuration and modified state', async () => {
     installApi();
     render(<AssetsLibraryDialog open onClose={vi.fn()} remote={{
@@ -123,7 +161,7 @@ describe('AssetsLibraryDialog source authority', () => {
 
     expect(await screen.findByText('(远端 · aws-relay-on-mac)')).toBeTruthy();
     expect(await screen.findByText('agent-deck:claude-code:deep-review')).toBeTruthy();
-    expect(screen.getByText('远端资产')).toBeTruthy();
+    expect(screen.queryByText('远端资产')).toBeNull();
     expect(screen.getAllByText('远端资产仅供查看。')).toHaveLength(1);
     expect(screen.queryByText('个人配置/.claude/skills/')).toBeNull();
     expect(screen.queryByText('这里展示当前远端环境中的配置，不能在此页面修改。')).toBeNull();

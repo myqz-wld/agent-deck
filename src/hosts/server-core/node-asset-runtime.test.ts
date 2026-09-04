@@ -111,7 +111,6 @@ describe('ServerCoreNodeAssetRuntime', () => {
       },
     });
     const catalog = ServerCoreNodeAssetCatalog.create({
-      providerHomeRoot: paths.home,
       runtimeReadRoots: [paths.contents],
       stateDirectory: paths.state,
       settings,
@@ -159,7 +158,8 @@ describe('ServerCoreNodeAssetRuntime', () => {
       runtimeDefaults: { model: string | null } | null;
       runtimeOverride: { model: string | null } | null;
     }> }).assets;
-    expect(assets.filter((asset) => asset.name === 'sample')).toHaveLength(8);
+    expect(assets.filter((asset) => asset.name === 'sample')).toHaveLength(6);
+    expect(assets.every((asset) => asset.source === 'bundled')).toBe(true);
 
     const bundledSkill = assets.find((asset) =>
       asset.adapterId === 'codex-cli' && asset.kind === 'skill' && asset.source === 'bundled');
@@ -173,95 +173,30 @@ describe('ServerCoreNodeAssetRuntime', () => {
       location: bundledSkill!.location,
     }));
     expect((content.result as { content: string }).content).toContain('sample skill');
-    const pluginAgent = assets.find((asset) =>
-      asset.qualifiedName === 'plugin:demo/sample' && asset.adapterId === 'claude-code');
-    expect(pluginAgent?.location).toContain('.claude/plugins/demo/agents/sample.md');
-    expect(assets.some((asset) =>
-      asset.qualifiedName === 'plugin:demo/sample' && asset.adapterId === 'grok-build')).toBe(true);
     expect(assets.find((asset) =>
       asset.qualifiedName === 'agent-deck:claude-code:sample')).toMatchObject({
       model: 'full-review-model',
       runtimeDefaults: { model: null },
       runtimeOverride: { model: 'full-review-model' },
     });
-    const pluginContent = await runtime.execute(input('node.assets.content', {
-      adapterId: pluginAgent!.adapterId,
-      kind: pluginAgent!.kind,
-      source: pluginAgent!.source,
-      name: pluginAgent!.name,
-      qualifiedName: pluginAgent!.qualifiedName,
-      location: pluginAgent!.location,
-    }));
-    expect((pluginContent.result as { content: string }).content).toContain('plugin body');
     const convention = await runtime.execute(input('node.assets.convention', {
       adapterId: 'claude-code',
     }));
     expect((convention.result as { content: string }).content).toContain('# claude');
   });
 
-  it('reuses a bounded scan snapshot and refreshes Provider Home assets after expiry', () => {
+  it('does not enumerate Provider Home assets', () => {
     const paths = fixtures();
-    let now = 1_000;
     const catalog = ServerCoreNodeAssetCatalog.create({
-      providerHomeRoot: paths.home,
       runtimeReadRoots: [paths.contents],
       stateDirectory: paths.state,
       settings: resolveServerCoreProviderSettings({}),
-      scanCacheTtlMs: 100,
-      now: () => now,
     });
     expect(catalog).not.toBeNull();
-    expect(catalog!.list(1).revision).toBe(1);
-
-    const agents = join(paths.home, '.claude', 'agents');
-    mkdirSync(agents, { recursive: true });
-    writeFileSync(
-      join(agents, 'late.md'),
-      '---\nname: late\ndescription: late agent\n---\nlate body\n',
-    );
-    const params = {
-      adapterId: 'claude-code',
-      kind: 'agent',
-      source: 'user',
-      name: 'late',
-      qualifiedName: 'late',
-      location: '个人配置/.claude/agents/late.md',
-    } as const;
-
-    expect(catalog!.content(params, 2)).toBeNull();
-    now += 101;
-    const late = catalog!.content(params, 2);
-    expect(late?.content).toContain('late body');
-    expect(late?.revision).toBe(2);
-    expect(catalog!.list(2)).toMatchObject({ revision: 2 });
-
-    writeFileSync(
-      join(agents, 'late.md'),
-      '---\nname: late\ndescription: changed agent\n---\nchanged body\n',
-    );
-    expect(() => catalog!.content(params, 3)).toThrow(/changed after the catalog snapshot/u);
-    expect(catalog!.list(3)).toMatchObject({ revision: 3 });
-  });
-
-  it('caps a large Provider Home inventory before caching or returning it', () => {
-    const paths = fixtures();
-    const agents = join(paths.home, '.claude', 'agents');
-    mkdirSync(agents, { recursive: true });
-    for (let index = 0; index < 600; ++index) {
-      writeFileSync(
-        join(agents, `agent-${index}.md`),
-        `---\nname: agent-${index}\ndescription: bounded agent\n---\n`,
-      );
-    }
-    const catalog = ServerCoreNodeAssetCatalog.create({
-      providerHomeRoot: paths.home,
-      runtimeReadRoots: [paths.contents],
-      stateDirectory: paths.state,
-      settings: resolveServerCoreProviderSettings({}),
-    });
-
     const listed = catalog!.list(1);
-    expect(listed.assets).toHaveLength(512);
-    expect(listed.assetsTruncated).toBe(true);
+    expect(listed.assets).toHaveLength(6);
+    expect(listed.assets.every((asset) => asset.source === 'bundled')).toBe(true);
+    expect(listed.assets.some((asset) => asset.qualifiedName === 'plugin:demo/sample')).toBe(false);
+    expect(listed.assetsTruncated).toBe(false);
   });
 });
