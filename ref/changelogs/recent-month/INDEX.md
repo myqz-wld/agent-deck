@@ -83,4 +83,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | 2026-08-07 | `CHANGELOG_571_remote-task-and-activity-parity.md` | Reuse shared Remote task and activity presentations |
 | 2026-08-07 | `CHANGELOG_570_remote-summary-and-text-diff-parity.md` | Add Workspace-bounded Remote summaries and text diffs |
 | 2026-08-07 | `CHANGELOG_568_remote-new-session-parity.md` | Mirror Local New Session controls through Remote Core |
-| 2026-08-06 | `CHANGELOG_565_workspace-bounded-relay-worker.md` | Bound Relay Worker clients to one Workspace |
