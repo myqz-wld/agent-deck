@@ -8,9 +8,11 @@ export const SPAWN_SESSION_MODEL_VALUES = [
   'sonnet',
   'opus',
   'fable',
+  'gpt-6-astra',
   'gpt-5.6-sol',
   'gpt-5.6-terra',
   'gpt-5.6-luna',
+  'grok-4.6',
   'grok-4.5',
 ] as const;
 

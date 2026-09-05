@@ -1,0 +1,42 @@
+[
+  {
+    "path": "build.txt",
+    "sha256": "2e57f77d67030875384bef576ef2a79c40d905a4107fa0a6d7e26fe68967b2d8"
+  },
+  {
+    "path": "focused-tests-final.txt",
+    "sha256": "59aa15ff90c8ba1a02c28fa7b07234b56c36146e16f089166c79838a80fa3641"
+  },
+  {
+    "path": "full-tests.txt",
+    "sha256": "48b68a8e9b7210d1828faea0169feaf50e0fd67ae01e0cde275a27b1f68db71a"
+  },
+  {
+    "path": "inventory-evidence.json",
+    "sha256": "8ebcbb53b1b183d6b3cb44d7797063ac07bbb92f543050df22ac790c787887bf"
+  },
+  {
+    "path": "model-name-inventory.md",
+    "sha256": "f0597c8ef87c1a7b4d7af6c641ad3d54526a8763421fc02058dec98ea0bf65f2"
+  },
+  {
+    "path": "prompt-asset-validation.md",
+    "sha256": "89b835b8b9a4e427b9becf042e75405145ceaa722a0b81c12b17359979cd0a9f"
+  },
+  {
+    "path": "review-expiry.txt",
+    "sha256": "12d804f4b5d26d063d6468618d4470805c1f9842367f3dd42d35ab88e206e4a6"
+  },
+  {
+    "path": "source-manifest.json",
+    "sha256": "6d1122cbb24551d9ca7bf3409e5768a58facb86a1657c2bf5d2b3e40f80e8e81"
+  },
+  {
+    "path": "typecheck-final.txt",
+    "sha256": "2a1ab6f29dfcc3c234deba11a1c3a682b7f86922d65823c70ec76ab5c04b680a"
+  },
+  {
+    "path": "validation.json",
+    "sha256": "2d40a8b00f7a8059f33b61e5c64df1a0e82bbdb021a171a826fa39cfb6b2a5c2"
+  }
+]

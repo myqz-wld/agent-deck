@@ -1,0 +1,921 @@
+> skill-market-workspace@0.1.4 validate
+> npm run catalog:check && npm run plugins:check && npm test
+
+
+> skill-market-workspace@0.1.4 catalog:check
+> node tooling/skill-market-cli/scripts/generate-catalogs.mjs --check
+
+checked 4 catalog views
+
+> skill-market-workspace@0.1.4 plugins:check
+> node tooling/skill-market-cli/scripts/package-plugins.mjs --check
+
+checked 3 plugin CLI bundles (43 files each)
+
+> skill-market-workspace@0.1.4 test
+> node --test tooling/skill-market-cli/test/*.test.mjs
+
+TAP version 13
+# Subtest: an explicit local repository bypasses cache and Git operations
+ok 1 - an explicit local repository bypasses cache and Git operations
+  ---
+  duration_ms: 54.536
+  type: 'test'
+  ...
+# Subtest: a missing cache clones atomically only when online
+ok 2 - a missing cache clones atomically only when online
+  ---
+  duration_ms: 36.019333
+  type: 'test'
+  ...
+# Subtest: cache source mismatches block reads before refresh
+ok 3 - cache source mismatches block reads before refresh
+  ---
+  duration_ms: 18.535542
+  type: 'test'
+  ...
+# Subtest: read refresh failures may return stale data but strict callers fail
+ok 4 - read refresh failures may return stale data but strict callers fail
+  ---
+  duration_ms: 22.166042
+  type: 'test'
+  ...
+# Subtest: optional catalog lookup never creates or refreshes a cache
+ok 5 - optional catalog lookup never creates or refreshes a cache
+  ---
+  duration_ms: 10.770584
+  type: 'test'
+  ...
+# Subtest: zero TTL disables automatic refresh while reporting stale provenance
+ok 6 - zero TTL disables automatic refresh while reporting stale provenance
+  ---
+  duration_ms: 12.155958
+  type: 'test'
+  ...
+# Subtest: invalid cache marker JSON is surfaced without rewriting it
+ok 7 - invalid cache marker JSON is surfaced without rewriting it
+  ---
+  duration_ms: 16.663834
+  type: 'test'
+  ...
+# Subtest: invalid catalog content returns a typed blocked recovery
+ok 8 - invalid catalog content returns a typed blocked recovery
+  ---
+  duration_ms: 7.639667
+  type: 'test'
+  ...
+# Subtest: baseline capability contracts cover Claude, Codex, and Grok
+ok 9 - baseline capability contracts cover Claude, Codex, and Grok
+  ---
+  duration_ms: 11.22825
+  type: 'test'
+  ...
+# Subtest: Codex capability gaps are explicit and recoverable
+ok 10 - Codex capability gaps are explicit and recoverable
+  ---
+  duration_ms: 0.261417
+  type: 'test'
+  ...
+# Subtest: Claude scope and Grok trust requirements remain adapter-specific
+ok 11 - Claude scope and Grok trust requirements remain adapter-specific
+  ---
+  duration_ms: 1.79175
+  type: 'test'
+  ...
+# Subtest: capability validation rejects incomplete operation contracts
+ok 12 - capability validation rejects incomplete operation contracts
+  ---
+  duration_ms: 1.030584
+  type: 'test'
+  ...
+# Subtest: the canonical fixture catalog validates
+ok 13 - the canonical fixture catalog validates
+  ---
+  duration_ms: 13.2025
+  type: 'test'
+  ...
+# Subtest: the repository catalog covers every first-class adapter
+ok 14 - the repository catalog covers every first-class adapter
+  ---
+  duration_ms: 9.215
+  type: 'test'
+  ...
+# Subtest: catalog plugins may be bootstrap or ordinary packages
+ok 15 - catalog plugins may be bootstrap or ordinary packages
+  ---
+  duration_ms: 0.464875
+  type: 'test'
+  ...
+# Subtest: catalog validation rejects duplicate identities
+ok 16 - catalog validation rejects duplicate identities
+  ---
+  duration_ms: 0.684333
+  type: 'test'
+  ...
+# Subtest: catalog validation rejects unsafe paths
+ok 17 - catalog validation rejects unsafe paths
+  ---
+  duration_ms: 0.353542
+  type: 'test'
+  ...
+# Subtest: catalog validation rejects unsafe defaults and malformed package records
+ok 18 - catalog validation rejects unsafe defaults and malformed package records
+  ---
+  duration_ms: 2.343
+  type: 'test'
+  ...
+# Subtest: catalog paths and native manifest paths follow the canonical layout
+ok 19 - catalog paths and native manifest paths follow the canonical layout
+  ---
+  duration_ms: 0.29625
+  type: 'test'
+  ...
+# Subtest: catalog entries must remain sorted by id
+ok 20 - catalog entries must remain sorted by id
+  ---
+  duration_ms: 0.14175
+  type: 'test'
+  ...
+# Subtest: help exposes canonical commands and obsolete names are not aliases
+ok 21 - help exposes canonical commands and obsolete names are not aliases
+  ---
+  duration_ms: 2.174041
+  type: 'test'
+  ...
+# Subtest: proposal CLI dispatches exact action contracts and rejects cross-action options
+ok 22 - proposal CLI dispatches exact action contracts and rejects cross-action options
+  ---
+  duration_ms: 0.69225
+  type: 'test'
+  ...
+# Subtest: lifecycle CLI maps exact options and domain warnings into the v1 envelope
+ok 23 - lifecycle CLI maps exact options and domain warnings into the v1 envelope
+  ---
+  duration_ms: 0.290959
+  type: 'test'
+  ...
+# Subtest: lifecycle confirmation failures retain status, recovery, and exit-class data
+ok 24 - lifecycle confirmation failures retain status, recovery, and exit-class data
+  ---
+  duration_ms: 0.150791
+  type: 'test'
+  ...
+# Subtest: list reads local state without creating config or cache
+ok 25 - list reads local state without creating config or cache
+  ---
+  duration_ms: 12.726083
+  type: 'test'
+  ...
+# Subtest: invalid list filters fail before config, cache, or native reads
+ok 26 - invalid list filters fail before config, cache, or native reads
+  ---
+  duration_ms: 0.831417
+  type: 'test'
+  ...
+# Subtest: discover passes refresh policy and returns ranked catalog JSON
+ok 27 - discover passes refresh policy and returns ranked catalog JSON
+  ---
+  duration_ms: 6.29725
+  type: 'test'
+  ...
+# Subtest: config set and unset are the only commands that persist defaults
+ok 28 - config set and unset are the only commands that persist defaults
+  ---
+  duration_ms: 17.300541
+  type: 'test'
+  ...
+# Subtest: the executable lists three adapters through fake binaries without network state
+ok 29 - the executable lists three adapters through fake binaries without network state
+  ---
+  duration_ms: 2993.39625
+  type: 'test'
+  ...
+# Subtest: the executable runs the full standalone lifecycle in an isolated HOME
+ok 30 - the executable runs the full standalone lifecycle in an isolated HOME
+  ---
+  duration_ms: 1321.760792
+  type: 'test'
+  ...
+# Subtest: the executable prepares and submits a proposal through a local remote and fake gh
+ok 31 - the executable prepares and submits a proposal through a local remote and fake gh
+  ---
+  duration_ms: 2882.42675
+  type: 'test'
+  ...
+# Subtest: in-memory defaults match the canonical catalog without creating config
+ok 32 - in-memory defaults match the canonical catalog without creating config
+  ---
+  duration_ms: 13.3605
+  type: 'test'
+  ...
+# Subtest: explicit config writes persist only requested fields and environment wins
+ok 33 - explicit config writes persist only requested fields and environment wins
+  ---
+  duration_ms: 18.550084
+  type: 'test'
+  ...
+# Subtest: invalid and unknown config values return actionable typed errors
+ok 34 - invalid and unknown config values return actionable typed errors
+  ---
+  duration_ms: 9.925542
+  type: 'test'
+  ...
+# Subtest: repository identity is transport-independent but local identity is explicit
+ok 35 - repository identity is transport-independent but local identity is explicit
+  ---
+  duration_ms: 0.458167
+  type: 'test'
+  ...
+# Subtest: package ids round-trip through the canonical parser
+ok 36 - package ids round-trip through the canonical parser
+  ---
+  duration_ms: 3.124959
+  type: 'test'
+  ...
+# Subtest: package ids reject unsupported adapters and non-kebab names
+ok 37 - package ids reject unsupported adapters and non-kebab names
+  ---
+  duration_ms: 0.309709
+  type: 'test'
+  ...
+# Subtest: result helpers emit the stable v1 contract
+ok 38 - result helpers emit the stable v1 contract
+  ---
+  duration_ms: 0.17425
+  type: 'test'
+  ...
+# Subtest: README exposes the canonical three-adapter Skill surface without legacy aliases
+ok 39 - README exposes the canonical three-adapter Skill surface without legacy aliases
+  ---
+  duration_ms: 7.707083
+  type: 'test'
+  ...
+# Subtest: README keeps list local and discover catalog-oriented
+ok 40 - README keeps list local and discover catalog-oriented
+  ---
+  duration_ms: 2.7985
+  type: 'test'
+  ...
+# Subtest: README configuration and result contract follow CLI help
+ok 41 - README configuration and result contract follow CLI help
+  ---
+  duration_ms: 3.536916
+  type: 'test'
+  ...
+# Subtest: documentation identifies canonical and generated repository assets
+ok 42 - documentation identifies canonical and generated repository assets
+  ---
+  duration_ms: 3.045584
+  type: 'test'
+  ...
+# Subtest: CONTRIBUTING documents the implemented proposal and safety boundaries
+ok 43 - CONTRIBUTING documents the implemented proposal and safety boundaries
+  ---
+  duration_ms: 2.201792
+  type: 'test'
+  ...
+# Subtest: downloads are versioned, idempotent, and require force for different content
+ok 44 - downloads are versioned, idempotent, and require force for different content
+  ---
+  duration_ms: 110.938125
+  type: 'test'
+  ...
+# Subtest: download swap failures restore the prior destination
+ok 45 - download swap failures restore the prior destination
+  ---
+  duration_ms: 67.024041
+  type: 'test'
+  ...
+# Subtest: symlinked download roots cannot redirect writes
+ok 46 - symlinked download roots cannot redirect writes
+  ---
+  duration_ms: 7.540084
+  type: 'test'
+  ...
+# Subtest: rendered views match the checked-in golden files byte for byte
+ok 47 - rendered views match the checked-in golden files byte for byte
+  ---
+  duration_ms: 34.774625
+  type: 'test'
+  ...
+# Subtest: write and check modes detect generated drift
+ok 48 - write and check modes detect generated drift
+  ---
+  duration_ms: 35.561833
+  type: 'test'
+  ...
+# Subtest: fake native binaries execute only against an isolated HOME
+ok 49 - fake native binaries execute only against an isolated HOME
+  ---
+  duration_ms: 1536.535583
+  type: 'test'
+  ...
+# Subtest: native JSON variants normalize to one three-adapter inventory contract
+ok 50 - native JSON variants normalize to one three-adapter inventory contract
+  ---
+  duration_ms: 1.851042
+  type: 'test'
+  ...
+# Subtest: native reader uses adapter-owned commands and machine-readable output
+ok 51 - native reader uses adapter-owned commands and machine-readable output
+  ---
+  duration_ms: 0.825208
+  type: 'test'
+  ...
+# Subtest: managed v2 state reconciles active, disabled, and broken paths
+ok 52 - managed v2 state reconciles active, disabled, and broken paths
+  ---
+  duration_ms: 24.043125
+  type: 'test'
+  ...
+# Subtest: local inventory joins optional catalog data without scanning unrelated skills
+ok 53 - local inventory joins optional catalog data without scanning unrelated skills
+  ---
+  duration_ms: 42.03525
+  type: 'test'
+  ...
+# Subtest: semantic version comparison and catalog absence states are deterministic
+ok 54 - semantic version comparison and catalog absence states are deterministic
+  ---
+  duration_ms: 0.240958
+  type: 'test'
+  ...
+# Subtest: inventory reports unsafe recorded paths as broken without trusting their location
+ok 55 - inventory reports unsafe recorded paths as broken without trusting their location
+  ---
+  duration_ms: 32.829541
+  type: 'test'
+  ...
+# Subtest: inventory rejects a symlinked managed-state file before reading it
+ok 56 - inventory rejects a symlinked managed-state file before reading it
+  ---
+  duration_ms: 12.350416
+  type: 'test'
+  ...
+# Subtest: mutations request latest data and never accept implicit stale fallback
+ok 57 - mutations request latest data and never accept implicit stale fallback
+  ---
+  duration_ms: 15.016709
+  type: 'test'
+  ...
+# Subtest: an exact stale head is an offline provenance pin, not a loose override
+ok 58 - an exact stale head is an offline provenance pin, not a loose override
+  ---
+  duration_ms: 4.717375
+  type: 'test'
+  ...
+# Subtest: cache mutations bind marker provenance to actual HEAD and clean content
+ok 59 - cache mutations bind marker provenance to actual HEAD and clean content
+  ---
+  duration_ms: 0.244041
+  type: 'test'
+  ...
+# Subtest: catalog status policy separates deprecated confirmation from hard blocks
+ok 60 - catalog status policy separates deprecated confirmation from hard blocks
+  ---
+  duration_ms: 0.41875
+  type: 'test'
+  ...
+# Subtest: lifecycle rejects invalid ids and adapter-incompatible options before config reads
+ok 61 - lifecycle rejects invalid ids and adapter-incompatible options before config reads
+  ---
+  duration_ms: 1.336375
+  type: 'test'
+  ...
+# Subtest: standalone catalog mutations route through the strict snapshot and preserve exact options
+ok 62 - standalone catalog mutations route through the strict snapshot and preserve exact options
+  ---
+  duration_ms: 9.470958
+  type: 'test'
+  ...
+# Subtest: implicit stale lifecycle snapshots are denied before package handlers run
+ok 63 - implicit stale lifecycle snapshots are denied before package handlers run
+  ---
+  duration_ms: 11.572458
+  type: 'test'
+  ...
+# Subtest: plugin routing validates manifest identity and passes source expectations to native adapters
+ok 64 - plugin routing validates manifest identity and passes source expectations to native adapters
+  ---
+  duration_ms: 22.163792
+  type: 'test'
+  ...
+# Subtest: custom download destinations cannot escape the managed downloads root
+ok 65 - custom download destinations cannot escape the managed downloads root
+  ---
+  duration_ms: 13.186708
+  type: 'test'
+  ...
+# Subtest: owned locks are released even when the protected operation fails
+ok 66 - owned locks are released even when the protected operation fails
+  ---
+  duration_ms: 11.819709
+  type: 'test'
+  ...
+# Subtest: active locks time out with a retryable typed error
+ok 67 - active locks time out with a retryable typed error
+  ---
+  duration_ms: 70.716458
+  type: 'test'
+  ...
+# Subtest: stale locks are quarantined before a new owner proceeds
+ok 68 - stale locks are quarantined before a new owner proceeds
+  ---
+  duration_ms: 12.883667
+  type: 'test'
+  ...
+# Subtest: an old lock owned by a live process is not stolen
+ok 69 - an old lock owned by a live process is not stolen
+  ---
+  duration_ms: 27.699
+  type: 'test'
+  ...
+# Subtest: Codex and Claude marketplace verification binds native mutation to the catalog source
+ok 70 - Codex and Claude marketplace verification binds native mutation to the catalog source
+  ---
+  duration_ms: 60.054833
+  type: 'test'
+  ...
+# Subtest: Codex local-marketplace update requires confirmation and bounds reinstall retries
+ok 71 - Codex local-marketplace update requires confirmation and bounds reinstall retries
+  ---
+  duration_ms: 12.09875
+  type: 'test'
+  ...
+# Subtest: Codex Git-marketplace update refreshes before the confirmed reinstall
+ok 72 - Codex Git-marketplace update refreshes before the confirmed reinstall
+  ---
+  duration_ms: 4.824459
+  type: 'test'
+  ...
+# Subtest: Codex reports an explicit blocked recovery after exactly two failed add attempts
+ok 73 - Codex reports an explicit blocked recovery after exactly two failed add attempts
+  ---
+  duration_ms: 8.264458
+  type: 'test'
+  ...
+# Subtest: Codex native activation gaps are reported before reading or mutating state
+ok 74 - Codex native activation gaps are reported before reading or mutating state
+  ---
+  duration_ms: 0.341416
+  type: 'test'
+  ...
+# Subtest: Claude preserves detected scope, keeps data by default, and emits update restart guidance
+ok 75 - Claude preserves detected scope, keeps data by default, and emits update restart guidance
+  ---
+  duration_ms: 6.937583
+  type: 'test'
+  ...
+# Subtest: Claude rejects managed install scope and requires explicit scope when installed scope is unknown
+ok 76 - Claude rejects managed install scope and requires explicit scope when installed scope is unknown
+  ---
+  duration_ms: 6.8055
+  type: 'test'
+  ...
+# Subtest: install does not call a native installer when the installed version requires update
+ok 77 - install does not call a native installer when the installed version requires update
+  ---
+  duration_ms: 6.805667
+  type: 'test'
+  ...
+# Subtest: Grok installation requires trust and local lifecycle verifies source provenance
+ok 78 - Grok installation requires trust and local lifecycle verifies source provenance
+  ---
+  duration_ms: 8.342583
+  type: 'test'
+  ...
+# Subtest: Grok refreshes local-source metadata, preserves activation, and keeps data by default
+ok 79 - Grok refreshes local-source metadata, preserves activation, and keeps data by default
+  ---
+  duration_ms: 9.427125
+  type: 'test'
+  ...
+# Subtest: Grok keeps native update for non-local sources
+ok 80 - Grok keeps native update for non-local sources
+  ---
+  duration_ms: 3.025333
+  type: 'test'
+  ...
+# Subtest: Grok bounds local-source reinstall retries after preserving data
+ok 81 - Grok bounds local-source reinstall retries after preserving data
+  ---
+  duration_ms: 14.412542
+  type: 'test'
+  ...
+# Subtest: the executable mutates plugins only through each adapter's fake native CLI
+ok 82 - the executable mutates plugins only through each adapter's fake native CLI
+  ---
+  duration_ms: 5543.91325
+  type: 'test'
+  ...
+# Subtest: package digests are stable across creation order but include executable mode
+ok 83 - package digests are stable across creation order but include executable mode
+  ---
+  duration_ms: 67.319375
+  type: 'test'
+  ...
+# Subtest: catalog packages reject symbolic links before copy
+ok 84 - catalog packages reject symbolic links before copy
+  ---
+  duration_ms: 13.210125
+  type: 'test'
+  ...
+# Subtest: catalog packages reject nested Git metadata
+ok 85 - catalog packages reject nested Git metadata
+  ---
+  duration_ms: 15.268125
+  type: 'test'
+  ...
+# Subtest: plugin bundle generation creates byte-identical self-contained artifacts
+ok 86 - plugin bundle generation creates byte-identical self-contained artifacts
+  ---
+  duration_ms: 222.705042
+  type: 'test'
+  ...
+# Subtest: plugin bundle check reports changed and extra files
+ok 87 - plugin bundle check reports changed and extra files
+  ---
+  duration_ms: 41.060834
+  type: 'test'
+  ...
+# Subtest: checked-in plugin bundles execute the canonical CLI
+ok 88 - checked-in plugin bundles execute the canonical CLI
+  ---
+  duration_ms: 608.1525
+  type: 'test'
+  ...
+# Subtest: all adapters expose only the ten canonical focused Skills
+ok 89 - all adapters expose only the ten canonical focused Skills
+  ---
+  duration_ms: 41.313458
+  type: 'test'
+  ...
+# Subtest: focused Skills are thin CLI entry points with intentional invocation policy
+ok 90 - focused Skills are thin CLI entry points with intentional invocation policy
+  ---
+  duration_ms: 89.026875
+  type: 'test'
+  ...
+# Subtest: focused Skills name every command-specific option from the CLI contract
+ok 91 - focused Skills name every command-specific option from the CLI contract
+  ---
+  duration_ms: 21.370125
+  type: 'test'
+  ...
+# Subtest: plugin manifests expose v0.1.4 without legacy search or upload promises
+ok 92 - plugin manifests expose v0.1.4 without legacy search or upload promises
+  ---
+  duration_ms: 3.068458
+  type: 'test'
+  ...
+# Subtest: every non-removed catalog package has its declared content and manifest
+ok 93 - every non-removed catalog package has its declared content and manifest
+  ---
+  duration_ms: 9.76475
+  type: 'test'
+  ...
+# Subtest: Grok standalone packages mirror complete source topology with controlled prompt deltas
+ok 94 - Grok standalone packages mirror complete source topology with controlled prompt deltas
+  ---
+  duration_ms: 99.75375
+  type: 'test'
+  ...
+# Subtest: proposal apply adds explicit packages for all three adapters and regenerates views
+ok 95 - proposal apply adds explicit packages for all three adapters and regenerates views
+  ---
+  duration_ms: 129.902666
+  type: 'test'
+  ...
+# Subtest: proposal apply updates versions while preserving each adapter catalog status
+ok 96 - proposal apply updates versions while preserving each adapter catalog status
+  ---
+  duration_ms: 64.757292
+  type: 'test'
+  ...
+# Subtest: plugin updates synchronize exact manifests and generated native catalog versions
+ok 97 - plugin updates synchronize exact manifests and generated native catalog versions
+  ---
+  duration_ms: 361.607083
+  type: 'test'
+  ...
+# Subtest: retire keeps package files while remove deletes content and keeps a tombstone
+ok 98 - retire keeps package files while remove deletes content and keeps a tombstone
+  ---
+  duration_ms: 126.310625
+  type: 'test'
+  ...
+# Subtest: prepare blocks source changes after plan and never follows a package symlink for remove
+ok 99 - prepare blocks source changes after plan and never follows a package symlink for remove
+  ---
+  duration_ms: 65.612542
+  type: 'test'
+  ...
+# Subtest: proposal specs normalize exact targets, source paths, and deterministic identity
+ok 100 - proposal specs normalize exact targets, source paths, and deterministic identity
+  ---
+  duration_ms: 14.198792
+  type: 'test'
+  ...
+# Subtest: proposal specs reject implicit targets, metadata on delete actions, and bootstrap packages
+ok 101 - proposal specs reject implicit targets, metadata on delete actions, and bootstrap packages
+  ---
+  duration_ms: 0.491333
+  type: 'test'
+  ...
+# Subtest: new standalone packages start at 0.0.1 and add requires catalog metadata
+ok 102 - new standalone packages start at 0.0.1 and add requires catalog metadata
+  ---
+  duration_ms: 0.157083
+  type: 'test'
+  ...
+# Subtest: catalog action validation enforces existence, versions, retirement, and tombstones
+ok 103 - catalog action validation enforces existence, versions, retirement, and tombstones
+  ---
+  duration_ms: 0.669833
+  type: 'test'
+  ...
+# Subtest: proposal Git client creates an isolated branch worktree and hashes its exact diff
+ok 104 - proposal Git client creates an isolated branch worktree and hashes its exact diff
+  ---
+  duration_ms: 979.004958
+  type: 'test'
+  ...
+# Subtest: proposal Git pushes only when a remote branch is absent or already exact
+ok 105 - proposal Git pushes only when a remote branch is absent or already exact
+  ---
+  duration_ms: 979.573667
+  type: 'test'
+  ...
+# Subtest: proposal Git rejects embedded push credentials before execution
+ok 106 - proposal Git rejects embedded push credentials before execution
+  ---
+  duration_ms: 0.733541
+  type: 'test'
+  ...
+# Subtest: GitHub host identity and strategy select direct or fork without guessing push URLs
+ok 107 - GitHub host identity and strategy select direct or fork without guessing push URLs
+  ---
+  duration_ms: 1.64675
+  type: 'test'
+  ...
+# Subtest: GitHub client blocks unauthenticated submission before repository mutation
+ok 108 - GitHub client blocks unauthenticated submission before repository mutation
+  ---
+  duration_ms: 3685.447125
+  type: 'test'
+  ...
+# Subtest: GitHub client creates/verifies forks and discovers or creates exact pull requests
+ok 109 - GitHub client creates/verifies forks and discovers or creates exact pull requests
+  ---
+  duration_ms: 1455.549042
+  type: 'test'
+  ...
+# Subtest: existing PRs are idempotent only for the exact owner, branch, and commit
+ok 110 - existing PRs are idempotent only for the exact owner, branch, and commit
+  ---
+  duration_ms: 402.053125
+  type: 'test'
+  ...
+# Subtest: proposal state is sealed, revisioned, and stored only at canonical paths
+ok 111 - proposal state is sealed, revisioned, and stored only at canonical paths
+  ---
+  duration_ms: 35.035875
+  type: 'test'
+  ...
+# Subtest: proposal state rejects hand edits and redirected workspace paths
+ok 112 - proposal state rejects hand edits and redirected workspace paths
+  ---
+  duration_ms: 9.245625
+  type: 'test'
+  ...
+# Subtest: proposal storage rejects symlinked managed roots
+ok 113 - proposal storage rejects symlinked managed roots
+  ---
+  duration_ms: 5.079584
+  type: 'test'
+  ...
+# Subtest: proposal storage rejects filesystem-root HOME before creating locks
+ok 114 - proposal storage rejects filesystem-root HOME before creating locks
+  ---
+  duration_ms: 0.285625
+  type: 'test'
+  ...
+# Subtest: proposal storage accepts an explicit safe Skill Market home outside HOME
+ok 115 - proposal storage accepts an explicit safe Skill Market home outside HOME
+  ---
+  duration_ms: 6.564875
+  type: 'test'
+  ...
+# Subtest: submit requires exact external-effect confirmation before authentication or push
+ok 116 - submit requires exact external-effect confirmation before authentication or push
+  ---
+  duration_ms: 1280.023209
+  type: 'test'
+  ...
+# Subtest: authentication failure blocks before branch creation
+ok 117 - authentication failure blocks before branch creation
+  ---
+  duration_ms: 1314.468458
+  type: 'test'
+  ...
+# Subtest: direct submit pushes the exact prepared commit, creates one PR, and repeats as noop
+ok 118 - direct submit pushes the exact prepared commit, creates one PR, and repeats as noop
+  ---
+  duration_ms: 1799.97125
+  type: 'test'
+  ...
+# Subtest: remote branch collisions block without force-push or PR creation
+ok 119 - remote branch collisions block without force-push or PR creation
+  ---
+  duration_ms: 1381.947834
+  type: 'test'
+  ...
+# Subtest: read-only permission selects a verified fork as an equal submit path
+ok 120 - read-only permission selects a verified fork as an equal submit path
+  ---
+  duration_ms: 1373.57375
+  type: 'test'
+  ...
+# Subtest: submit resumes after push and discovers an exact PR without pushing again
+ok 121 - submit resumes after push and discovers an exact PR without pushing again
+  ---
+  duration_ms: 1333.656958
+  type: 'test'
+  ...
+# Subtest: plan, prepare, status, abort, and identical re-plan are durable and local
+ok 122 - plan, prepare, status, abort, and identical re-plan are durable and local
+  ---
+  duration_ms: 1693.83625
+  type: 'test'
+  ...
+# Subtest: plan blocks a dirty base checkout before creating durable proposal state
+ok 123 - plan blocks a dirty base checkout before creating durable proposal state
+  ---
+  duration_ms: 373.169125
+  type: 'test'
+  ...
+# Subtest: prepare detects source mutation, rolls back its transient state, and can resume after re-plan
+ok 124 - prepare detects source mutation, rolls back its transient state, and can resume after re-plan
+  ---
+  duration_ms: 500.394208
+  type: 'test'
+  ...
+# Subtest: abort requires explicit discard only for drift inside the exact proposal worktree
+ok 125 - abort requires explicit discard only for drift inside the exact proposal worktree
+  ---
+  duration_ms: 1511.679125
+  type: 'test'
+  ...
+# Subtest: discover ranks exact, prefix, token, then description matches
+ok 126 - discover ranks exact, prefix, token, then description matches
+  ---
+  duration_ms: 2.736709
+  type: 'test'
+  ...
+# Subtest: discover without a query browses active entries with stable pagination
+ok 127 - discover without a query browses active entries with stable pagination
+  ---
+  duration_ms: 10.384
+  type: 'test'
+  ...
+# Subtest: discover filters deprecated entries only when explicitly requested
+ok 128 - discover filters deprecated entries only when explicitly requested
+  ---
+  duration_ms: 0.23075
+  type: 'test'
+  ...
+# Subtest: list filters only normalized local inventory and retains provenance
+ok 129 - list filters only normalized local inventory and retains provenance
+  ---
+  duration_ms: 0.3785
+  type: 'test'
+  ...
+# Subtest: list excludes absent history by default and requires an explicit history view
+ok 130 - list excludes absent history by default and requires an explicit history view
+  ---
+  duration_ms: 0.580875
+  type: 'test'
+  ...
+# Subtest: query validation rejects invalid filters and unbounded pages
+ok 131 - query validation rejects invalid filters and unbounded pages
+  ---
+  duration_ms: 0.215083
+  type: 'test'
+  ...
+# Subtest: claude standalone lifecycle preserves activation through update
+ok 132 - claude standalone lifecycle preserves activation through update
+  ---
+  duration_ms: 185.834542
+  type: 'test'
+  ...
+# Subtest: codex standalone lifecycle preserves activation through update
+ok 133 - codex standalone lifecycle preserves activation through update
+  ---
+  duration_ms: 357.137084
+  type: 'test'
+  ...
+# Subtest: grok standalone lifecycle preserves activation through update
+ok 134 - grok standalone lifecycle preserves activation through update
+  ---
+  duration_ms: 322.226042
+  type: 'test'
+  ...
+# Subtest: unmanaged collisions require adoption and preserve disabled activation
+ok 135 - unmanaged collisions require adoption and preserve disabled activation
+  ---
+  duration_ms: 101.434709
+  type: 'test'
+  ...
+# Subtest: local drift blocks activation until exact confirmation
+ok 136 - local drift blocks activation until exact confirmation
+  ---
+  duration_ms: 195.227333
+  type: 'test'
+  ...
+# Subtest: install rollback restores an absent state after beforeStateWrite failure
+ok 137 - install rollback restores an absent state after beforeStateWrite failure
+  ---
+  duration_ms: 37.125
+  type: 'test'
+  ...
+# Subtest: install rollback restores an absent state after afterStateWrite failure
+ok 138 - install rollback restores an absent state after afterStateWrite failure
+  ---
+  duration_ms: 68.292208
+  type: 'test'
+  ...
+# Subtest: unsafe managed-state paths block updates before touching either location
+ok 139 - unsafe managed-state paths block updates before touching either location
+  ---
+  duration_ms: 56.756208
+  type: 'test'
+  ...
+# Subtest: duplicate active and disabled paths are treated as broken, not guessed
+ok 140 - duplicate active and disabled paths are treated as broken, not guessed
+  ---
+  duration_ms: 70.989917
+  type: 'test'
+  ...
+# Subtest: claude writes through a symlinked adapter root
+ok 141 - claude writes through a symlinked adapter root
+  ---
+  duration_ms: 57.368583
+  type: 'test'
+  ...
+# Subtest: codex writes through a symlinked adapter root
+ok 142 - codex writes through a symlinked adapter root
+  ---
+  duration_ms: 53.601125
+  type: 'test'
+  ...
+# Subtest: grok writes through a symlinked adapter root
+ok 143 - grok writes through a symlinked adapter root
+  ---
+  duration_ms: 60.053417
+  type: 'test'
+  ...
+# Subtest: symlinked skills roots cannot redirect managed writes outside the adapter root
+ok 144 - symlinked skills roots cannot redirect managed writes outside the adapter root
+  ---
+  duration_ms: 25.432917
+  type: 'test'
+  ...
+# Subtest: dangling adapter-root symlinks remain blocked
+ok 145 - dangling adapter-root symlinks remain blocked
+  ---
+  duration_ms: 11.222333
+  type: 'test'
+  ...
+# Subtest: update, activation, and uninstall failures roll filesystem and state back together
+ok 146 - update, activation, and uninstall failures roll filesystem and state back together
+  ---
+  duration_ms: 166.89175
+  type: 'test'
+  ...
+# Subtest: uninstall history can be reinstalled as a fresh managed package
+ok 147 - uninstall history can be reinstalled as a fresh managed package
+  ---
+  duration_ms: 177.518083
+  type: 'test'
+  ...
+# Subtest: concurrent installs serialize into one install and one idempotent no-op
+ok 148 - concurrent installs serialize into one install and one idempotent no-op
+  ---
+  duration_ms: 69.145541
+  type: 'test'
+  ...
+# Subtest: standalone source changes require an exact confirmation before overwrite
+ok 149 - standalone source changes require an exact confirmation before overwrite
+  ---
+  duration_ms: 96.60575
+  type: 'test'
+  ...
+1..149
+# tests 149
+# suites 0
+# pass 149
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 9200.581375

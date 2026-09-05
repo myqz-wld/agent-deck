@@ -5,6 +5,7 @@ import {
   parseUsageTokenParams,
   parseUsageTokenResult,
   USAGE_DAILY_MAX_ITEMS,
+  USAGE_PROVIDER_MAX_WINDOWS,
 } from './usage';
 
 const daily = {
@@ -94,6 +95,23 @@ describe('Remote usage contracts', () => {
       rates: [], topToday: [], daily: [daily, daily], dailyTruncated: false,
       today: '2026-08-10', revision: 3,
     }, 100)).toThrow();
+  });
+
+  it('bounds quota windows and enforces identity within each quota', () => {
+    const base = { id: 'current', label: '当前窗口', usedPercent: 10, resetsAt: null };
+    const windows = Array.from({ length: USAGE_PROVIDER_MAX_WINDOWS }, (_, index) => ({
+      ...base, quotaId: `quota-${index}`,
+    }));
+    const result = (values: unknown[]) => ({
+      snapshots: [{ provider: 'codex-cli', label: 'Codex', status: 'ok', updatedAt: 1, windows: values }],
+      revision: 1,
+    });
+    expect(parseUsageProviderResult(result(windows)).snapshots[0].windows).toHaveLength(windows.length);
+    expect(() => parseUsageProviderResult(result([...windows, { ...base, quotaId: 'overflow' }]))).toThrow();
+    expect(() => parseUsageProviderResult(result([windows[0], windows[0]]))).toThrow();
+    for (const quotaId of [null, '', 'x'.repeat(513), 'bad\0quota']) {
+      expect(() => parseUsageProviderResult(result([{ ...base, quotaId }]))).toThrow();
+    }
   });
 
   it('rejects a token ledger that would exceed one transport frame', () => {

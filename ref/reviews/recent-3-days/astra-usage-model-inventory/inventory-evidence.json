@@ -1,0 +1,26 @@
+{
+  "project_head": "365dabc0eab9f328ac9fc0cbd6938ecef4ca5a7d",
+  "skill_market_head": "eca6a1c99fcebc9903df2104942a3af20392e976",
+  "skill_market_modified": false,
+  "standalone_skill_count": 15,
+  "plugin_skill_count": 30,
+  "parallel_task_copies": [
+    {
+      "path": "../skill-market/skills/claude/parallel-tasks/SKILL.md",
+      "sha256": "63140dc4c0fabf9b948415b1e34fe5ad828c40855478d343938b544cdef2327f",
+      "catalog_version": "0.0.11"
+    },
+    {
+      "path": "../skill-market/skills/codex/parallel-tasks/SKILL.md",
+      "sha256": "63140dc4c0fabf9b948415b1e34fe5ad828c40855478d343938b544cdef2327f",
+      "catalog_version": "0.0.11"
+    },
+    {
+      "path": "../skill-market/skills/grok/parallel-tasks/SKILL.md",
+      "sha256": "63140dc4c0fabf9b948415b1e34fe5ad828c40855478d343938b544cdef2327f",
+      "catalog_version": "0.0.11"
+    }
+  ],
+  "literal_model_names_in_other_skills": false,
+  "scope": "Active src/resources and Skill Market canonical Skills, supporting assets and catalog; tests and historical ref records are classified separately."
+}

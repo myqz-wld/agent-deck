@@ -39,6 +39,8 @@ Bundled runtimes are selected by default. Configure an external runtime only whe
 
 Each session keeps its agent's own model, permission, approval, and sandbox settings. Coordination never widens the access granted to that runtime.
 
+Grok defaults to `grok-4.6` when no model is configured. Explicit model selections and native user configuration keep their existing precedence. Spawn and handoff accept free-text model names; their suggestions include `gpt-6-astra` and `grok-4.6`.
+
 ## Runtime Configuration
 
 ### Slash Commands

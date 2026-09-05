@@ -149,8 +149,8 @@ export function buildCodexUsageSnapshot(
   updatedAt = Date.now(),
 ): ProviderUsageSnapshot {
   const label = providerUsageLabel('codex-cli');
-  const limits = chooseCodexRateLimitSnapshot(response);
-  if (!limits) {
+  const quotas = collectCodexRateLimitSnapshots(response);
+  if (quotas.size === 0) {
     return unavailableUsageSnapshot(
       'codex-cli',
       `${label} 暂未返回账户额度信息`,
@@ -158,12 +158,24 @@ export function buildCodexUsageSnapshot(
     );
   }
 
-  const windows = [
-    buildCodexWindow('current', '当前窗口', limits.primary),
-    buildCodexWindow('weekly', '周用量', limits.secondary),
-  ];
-  const hasWindowData = windows.some((w) => w.usedPercent !== null || w.resetsAt !== null);
-  if (!hasWindowData) {
+  const windows = [...quotas].sort(([left], [right]) => {
+    if (left === 'codex') return right === 'codex' ? 0 : -1;
+    if (right === 'codex') return 1;
+    return left.localeCompare(right);
+  }).flatMap(([quotaId, limits]) => {
+    const prefix = quotaId === 'codex' ? '' : `${limits.limitName?.trim() || quotaId} · `;
+    const quotaWindows = [
+      buildCodexWindow('current', `${prefix}当前窗口`, limits.primary),
+      buildCodexWindow('weekly', `${prefix}周用量`, limits.secondary),
+    ];
+    if (!quotaWindows.some((window) => window.usedPercent !== null || window.resetsAt !== null)) {
+      return [];
+    }
+    return quotaId === 'codex'
+      ? quotaWindows
+      : quotaWindows.map((window) => ({ ...window, quotaId }));
+  });
+  if (windows.length === 0) {
     return unavailableUsageSnapshot(
       'codex-cli',
       `${label} 暂未返回可展示的额度信息`,
@@ -268,17 +280,19 @@ function buildCodexWindow(
   };
 }
 
-function chooseCodexRateLimitSnapshot(
+function collectCodexRateLimitSnapshots(
   response: CodexAccountRateLimitsResponseLike,
-): CodexRateLimitSnapshotLike | null {
-  const byLimit = response.rateLimitsByLimitId ?? null;
-  const values = Object.values(byLimit ?? {}).filter(Boolean) as CodexRateLimitSnapshotLike[];
-  return (
-    byLimit?.codex ??
-    values.find((entry) => entry.limitId === 'codex') ??
-    values[0] ??
-    response.rateLimits
-  );
+): Map<string, CodexRateLimitSnapshotLike> {
+  const quotas = new Map<string, CodexRateLimitSnapshotLike>();
+  if (response.rateLimits) {
+    quotas.set(response.rateLimits.limitId?.trim() || 'codex', response.rateLimits);
+  }
+  // The indexed response is authoritative for duplicate ids; keep every distinct quota,
+  // including model-specific limits such as Astra, without a model-name allowlist.
+  for (const [key, limits] of Object.entries(response.rateLimitsByLimitId ?? {})) {
+    if (limits) quotas.set(limits.limitId?.trim() || key, limits);
+  }
+  return quotas;
 }
 
 function normalizePercent(value: number | null | undefined): number | null {

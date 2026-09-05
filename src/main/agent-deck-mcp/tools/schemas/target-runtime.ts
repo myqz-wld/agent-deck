@@ -43,7 +43,7 @@ const model = z
   .max(256)
   .optional()
   .describe(
-    'Optional non-null free-text model override, trimmed to 1-256 characters; for spawn_session it applies to the spawned session only. Suggested values include Claude Code haiku, sonnet, opus, and fable; Codex CLI gpt-5.6-sol, gpt-5.6-terra, and gpt-5.6-luna; and Grok Build grok-4.5. Suggestions are not an allowlist; the selected runtime validates the value. Spawn precedence is explicit model > resolved agent model > same-adapter source session > selected Gateway/native default. Omission never cross-inherits; null and empty-after-trim values reject.',
+    'Optional non-null free-text model override, trimmed to 1-256 characters; for spawn_session it applies to the spawned session only. Suggested values include Claude Code haiku, sonnet, opus, and fable; Codex CLI gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra, and gpt-5.6-luna; and Grok Build grok-4.6 and grok-4.5. Suggestions are not an allowlist; the selected runtime validates the value. Spawn precedence is explicit model > resolved agent model > same-adapter source session > selected Gateway/native default. Omission never cross-inherits; null and empty-after-trim values reject.',
   );
 
 const thinking = z

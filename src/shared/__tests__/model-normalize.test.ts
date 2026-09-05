@@ -119,6 +119,7 @@ describe('normalizeModel', () => {
     });
 
     it.each([
+      'gpt-6-astra',
       'gpt-5.6-sol',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
@@ -130,6 +131,8 @@ describe('normalizeModel', () => {
     });
 
     it('GPT 尾部 variant 迭代合并，但中间同名字样保留', () => {
+      expect(normalizeModel('gpt-6-astra-thinking-xhigh').bucketKey).toBe('gpt-6-astra');
+      expect(normalizeModel('gpt-6-astra-ultra').bucketKey).toBe('gpt-6-astra');
       expect(normalizeModel('gpt-5.6-sol-thinking-max[1m]').bucketKey).toBe('gpt-5.6-sol');
       expect(normalizeModel('gpt-5.6-sol-ultra').bucketKey).toBe('gpt-5.6-sol');
       expect(normalizeModel('gpt-5.6-thinking-preview').bucketKey).toBe(

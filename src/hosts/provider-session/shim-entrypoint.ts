@@ -123,9 +123,9 @@ export function providerSessionGrokConfig(proxyBaseUrl: string): string {
     'default = "agent-deck-broker"',
     '',
     '[model.agent-deck-broker]',
-    'model = "grok-4.5"',
+    'model = "grok-4.6"',
     `base_url = "${proxyBaseUrl}"`,
-    'name = "Grok 4.5"',
+    'name = "Grok 4.6"',
     'env_key = "XAI_API_KEY"',
     'api_backend = "chat_completions"',
     '',
@@ -285,7 +285,7 @@ export async function runProviderSessionShim(
     ? new ProviderSessionMultiplexConnection({ role: 'shim', stream: rawStream })
     : null;
   const proxy = new ProviderSessionShimInferenceProxy({
-    localModelIds: ['grok-4.5'],
+    localModelIds: ['grok-4.6', 'grok-4.5'],
     onFailure: ({ path, reason }) => process.stderr.write(
       `[provider-session-inference] ${path || '[missing-path]'}: ${reason}\n`,
     ),

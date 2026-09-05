@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-09-04 | `REVIEW_270_astra-usage-and-model-inventory.md` | Quota groups, reviewer defaults and model-name inventory | 1 MEDIUM fixed / inventory only |
 | 2026-09-04 | `REVIEW_269_project-code-quality-remediation.md` | Fix accepted project scan findings | 14 defects fixed / 4 LOW items addressed |
 | 2026-09-04 | `REVIEW_268_project-code-quality-scan.md` | Project defects, architecture and dead-code scan | 3 HIGH / 11 MEDIUM / 4 LOW; resolved in REVIEW_269 |
 | 2026-09-04 | `REVIEW_267_compatibility-dead-code-audit.md` | Compatibility and dead-code retirement | 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW open |

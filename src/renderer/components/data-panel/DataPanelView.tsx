@@ -218,7 +218,10 @@ function ProviderUsageCard({ snapshot }: { snapshot: ProviderUsageSnapshot }): J
       </div>
       {snapshot.status === 'ok' ? (
         <div className="mt-2 space-y-1.5">
-          {snapshot.windows.map((window) => <ProviderUsageWindowRow key={window.id} window={window} />)}
+          {snapshot.windows.map((window) => <ProviderUsageWindowRow
+            key={JSON.stringify([window.quotaId ?? null, window.id])}
+            window={window}
+          />)}
         </div>
       ) : (
         <div className="mt-2 min-h-10 text-[10px] leading-4 text-deck-muted/70">
