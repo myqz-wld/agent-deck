@@ -12,18 +12,19 @@ import type { UploadedAttachmentRef } from '@shared/types';
 
 import type { GrokExtensionNotification, GrokPromptCompleteNotification } from './extension';
 import { GrokLivePromptCompletion } from './live-prompt-completion';
+import { removePendingGrokOutgoingMessage, runGrokPendingPromptRequest } from './pending-outgoing';
 import { errorText } from './protocol-utils';
 import { GrokFirstModelEventWatchdog } from './first-model-event-watchdog';
 import { applyRecoveredGrokTurn, GrokProviderCompletionRecovery } from './provider-completion-recovery';
 import type { GrokPendingMessage, GrokRuntime, GrokSubmittingMessage } from './runtime-types';
-import {
-  handleGrokTurnFailure,
-  resolveGrokSessionCommand,
-} from './session-command-feedback';
+import { handleGrokTurnFailure, resolveGrokSessionCommand } from './session-command-feedback';
 import { grokTurnBoundaryBlocked, prepareGrokNextTurn } from './turn-boundary';
 import { finalizeGrokAcpResponse, responseFromGrokLiveOutcome } from './turn-response';
 import type {
-  GrokEnqueueOptions, GrokInterjectRequest, GrokTurnQueueOptions, PreparedGrokMessage,
+  GrokEnqueueOptions,
+  GrokInterjectRequest,
+  GrokTurnQueueOptions,
+  PreparedGrokMessage,
 } from './turn-queue-types';
 import { beginGrokTurn, clearGrokTurnLiveRate, flushGrokTextUpdates } from './translate';
 import {
@@ -131,45 +132,7 @@ export class GrokTurnQueue {
     runtime: GrokRuntime,
     messageId: string,
   ): Promise<PendingAgentMessage | null> {
-    const index = runtime.queue.findIndex(
-      (message) => toPendingAgentMessage(message)?.id === messageId,
-    );
-    if (index >= 0) {
-      const [removed] = runtime.queue.splice(index, 1);
-      return toPendingAgentMessage(removed);
-    }
-    const submitting = runtime.submittingMessage;
-    const pending = toPendingAgentMessage(submitting?.message);
-    if (
-      !submitting ||
-      pending?.id !== messageId ||
-      submitting.status !== 'submitting'
-    ) return null;
-    if (submitting.kind === 'interject') {
-      submitting.status = 'cancelled';
-      submitting.requestController?.abort();
-      if (runtime.submittingMessage === submitting) runtime.submittingMessage = null;
-      void this.drain(runtime);
-      return pending;
-    }
-    submitting.status = 'cancelling';
-    if (!submitting.promptRequestIssued) {
-      submitting.status = 'cancelled';
-      return pending;
-    }
-    try {
-      await runtime.process?.connection.agent.notify(methods.agent.session.cancel, {
-        sessionId: requireNativeSession(runtime),
-      });
-    } catch (error) {
-      if (runtime.submittingMessage === submitting) submitting.status = 'submitting';
-      throw error;
-    }
-    if (runtime.submittingMessage !== submitting || submitting.status !== 'cancelling') {
-      return null;
-    }
-    submitting.status = 'cancelled';
-    return pending;
+    return removePendingGrokOutgoingMessage(runtime, messageId, () => { void this.drain(runtime); });
   }
 
   confirmPromptAccepted(runtime: GrokRuntime): void {
@@ -360,6 +323,7 @@ export class GrokTurnQueue {
           status: 'submitting',
           promptRequestIssued: false,
           kind: 'prompt',
+          requestController: currentTurnController,
         }
       : null;
     runtime.submittingMessage = submitting;
@@ -386,7 +350,7 @@ export class GrokTurnQueue {
         () => this.livePromptCompletion.run(runtime, (turnId) =>
           this.firstModelEventWatchdog.run(
             runtime,
-            () => runtime.process!.connection.agent.request(
+            () => runGrokPendingPromptRequest(submitting, () => runtime.process!.connection.agent.request(
               methods.agent.session.prompt,
               {
                 sessionId: requireNativeSession(runtime),
@@ -394,7 +358,7 @@ export class GrokTurnQueue {
                 _meta: { turnId },
               },
               { cancellationSignal: currentTurnController.signal },
-            ),
+            )),
           )),
       );
       if (isCancelled(submitting)) return;
@@ -436,6 +400,11 @@ export class GrokTurnQueue {
         flushText: () => this.flushText(runtime),
       });
     } finally {
+      if (isCancelled(submitting) && submitting?.promptRequestIssued) {
+        runtime.ready = false;
+        runtime.suppressUpdates = true;
+        recycleTransport = true;
+      }
       if (runtime.currentTurnController === currentTurnController) {
         runtime.currentTurnController = null;
       }

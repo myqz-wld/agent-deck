@@ -10,10 +10,10 @@ import {
   type FeishuQuestionFieldBinding,
 } from './action-envelope';
 import type { MappedFeishuEvent } from './types';
+import { CONTROL_DATA_CHARACTERS, FORBIDDEN_TEXT_CHARACTERS } from '@gateways/im/text-policy';
 
 const UTF8 = new TextEncoder();
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@/$-]*$/;
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 const MAX_RAW_EVENT_BYTES = 64_000;
 
 export interface FeishuEventMapperOptions {
@@ -21,6 +21,8 @@ export interface FeishuEventMapperOptions {
   tenantKey: string;
   now(): number;
   maximumRawBytes?: number;
+  /** Authenticated app identity, resolved before SDK event delivery starts. */
+  botOpenId?: string;
 }
 
 function fail(code: string, message: string): never {
@@ -51,12 +53,14 @@ function exact(
   }
 }
 
-function bounded(value: unknown, label: string, maximum = 512): string {
+function bounded(
+  value: unknown, label: string, maximum = 512, controls = CONTROL_DATA_CHARACTERS,
+): string {
   if (
     typeof value !== 'string' ||
     value.length === 0 ||
     UTF8.encode(value).byteLength > maximum ||
-    CONTROL.test(value)
+    controls.test(value)
   ) fail('invalid_event', `${label} is malformed`);
   return value;
 }
@@ -110,15 +114,17 @@ function commonHeader(
   };
 }
 
-function validateMentions(value: unknown): void {
-  if (value === undefined) return;
+function validateMentions(value: unknown, options: FeishuEventMapperOptions): string[] {
+  if (options.botOpenId !== undefined) token(options.botOpenId, 'bot.open_id');
+  const addressedKeys: string[] = [];
+  if (value === undefined) return addressedKeys;
   if (!Array.isArray(value) || value.length > 32) {
     fail('invalid_event', 'message.mentions is malformed');
   }
   for (const [index, item] of value.entries()) {
     const mention = record(item, `message.mentions[${index}]`);
     exact(mention, ['id', 'key', 'mentioned_type', 'name', 'tenant_key'], ['id', 'key'], `message.mentions[${index}]`);
-    bounded(mention.key, `message.mentions[${index}].key`, 128);
+    const key = bounded(mention.key, `message.mentions[${index}].key`, 128);
     if (mention.name !== undefined) bounded(mention.name, `message.mentions[${index}].name`, 256);
     const id = record(mention.id, `message.mentions[${index}].id`);
     exact(id, ['open_id', 'union_id', 'user_id'], [], `message.mentions[${index}].id`);
@@ -130,7 +136,15 @@ function validateMentions(value: unknown): void {
     }
     if (mention.tenant_key !== undefined) token(mention.tenant_key, `message.mentions[${index}].tenant_key`);
     if (mention.mentioned_type !== undefined) bounded(mention.mentioned_type, `message.mentions[${index}].mentioned_type`, 32);
+    if (/^@_user_[0-9]+$/.test(key) && id.open_id === options.botOpenId && options.botOpenId !== undefined &&
+      (mention.tenant_key === undefined || mention.tenant_key === options.tenantKey)) {
+      addressedKeys.push(key);
+    }
   }
+  // A duplicated placeholder is ambiguous even if one entry claims to be the bot.
+  const keys = value.map((item) => (item as Record<string, unknown>).key);
+  if (new Set(keys).size !== keys.length) fail('invalid_event', 'message mention keys are duplicated');
+  return addressedKeys;
 }
 
 export function mapFeishuMessageEvent(
@@ -179,7 +193,7 @@ export function mapFeishuMessageEvent(
     exact(context, ['active_chat_id'], [], 'message.lark_agent_context');
     if (context.active_chat_id !== undefined) token(context.active_chat_id, 'message.lark_agent_context.active_chat_id');
   }
-  validateMentions(message.mentions);
+  const botMentions = validateMentions(message.mentions, options);
   const contentText = bounded(message.content, 'message.content', 32_768);
   let content: unknown;
   try {
@@ -189,6 +203,12 @@ export function mapFeishuMessageEvent(
   }
   const contentObject = record(content, 'message.content');
   exact(contentObject, ['text'], ['text'], 'message.content');
+  const text = bounded(contentObject.text, 'message.content.text', 16_384, FORBIDDEN_TEXT_CHARACTERS);
+  const addressed = text.trimStart();
+  const prefix = message.chat_type === 'group' ? botMentions.find((key) =>
+    addressed.startsWith(key) && /^[ \t\r\n]/.test(addressed.slice(key.length)),
+  ) : undefined;
+  const normalized = prefix ? addressed.slice(prefix.length).replace(/^[ \t\r\n]+/, '') : text;
   const chatId = token(message.chat_id, 'message.chat_id');
   const messageId = token(message.message_id, 'message.message_id');
   const event = parseFeishuInboundEvent({
@@ -198,7 +218,7 @@ export function mapFeishuMessageEvent(
     openId,
     chatId,
     chatType: message.chat_type as 'group' | 'p2p',
-    text: bounded(contentObject.text, 'message.content.text', 16_384),
+    text: normalized,
   });
   return {
     event,

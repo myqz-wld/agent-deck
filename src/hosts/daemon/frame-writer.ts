@@ -9,6 +9,9 @@ import {
 
 import type { DaemonConnectionLimits } from './types';
 
+/** Transport adapters emit this only after another bounded chunk is admitted downstream. */
+export const DAEMON_WRITE_PROGRESS_EVENT = 'daemon-write-progress';
+
 interface OutboundFrame {
   readonly bytes: Uint8Array;
   readonly control: boolean;
@@ -39,7 +42,9 @@ export class BoundedFrameWriter {
     private readonly stream: Duplex,
     private readonly limits: DaemonConnectionLimits,
     private readonly callbacks: BoundedFrameWriterCallbacks,
-  ) {}
+  ) {
+    this.stream.on(DAEMON_WRITE_PROGRESS_EVENT, this.onWriteProgress);
+  }
 
   get queuedFrameCount(): number {
     return this.controlFrames.length + this.frames.length + this.outstandingFrames;
@@ -96,6 +101,7 @@ export class BoundedFrameWriter {
     if (this.disposed) return;
     this.disposed = true;
     this.stream.off('drain', this.onDrain);
+    this.stream.off(DAEMON_WRITE_PROGRESS_EVENT, this.onWriteProgress);
     this.controlFrames.splice(0);
     this.frames.splice(0);
     this.queuedEvents = 0;
@@ -139,6 +145,10 @@ export class BoundedFrameWriter {
       this.callbacks.onFailure('transport-write-failed');
     }
   }
+
+  private readonly onWriteProgress = (): void => {
+    if (!this.disposed && this.queuedBytesValue > 0) this.recordProgress();
+  };
 
   private readonly onDrain = (): void => {
     this.waitingForDrain = false;

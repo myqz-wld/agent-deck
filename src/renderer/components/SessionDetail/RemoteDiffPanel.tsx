@@ -1,41 +1,34 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 
-import type { DiffPayload, FileChangePayload, FileChangeSummary, FileFinalDiffResult } from '@shared/types';
+import type { DiffPayload, FileChangePayload, FileFinalDiffResult } from '@shared/types';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { decodeBlob, groupFileChanges } from './helpers';
 import { DiffTab } from './DiffTab';
 import { useFileChangeSelection } from './use-file-change-selection';
-import type { FileChangeLoadSummary } from './use-file-changes';
+import { useFileChangePages } from './use-file-change-pages';
 
 type DiffMode = 'single' | 'final';
-
-function mergeChanges(
-  current: readonly FileChangeSummary[],
-  incoming: readonly FileChangeSummary[],
-): FileChangeSummary[] {
-  const byId = new Map(current.map((item) => [item.id, item]));
-  for (const item of incoming) byId.set(item.id, item);
-  return [...byId.values()].sort((left, right) => right.ts - left.ts || right.id - left.id);
-}
 
 export function RemoteDiffPanel({ source }: { source: RemoteSessionSourceView }): JSX.Element {
   const sourceRef = useRef(source);
   sourceRef.current = source;
   const sessionId = source.selectedSessionId ?? '';
   const workspaceKey = `${source.identity}:${sessionId}`;
-  const [changes, setChanges] = useState<FileChangeSummary[] | null>(null);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [lastLoadSummary, setLastLoadSummary] = useState<FileChangeLoadSummary | null>(null);
+  const { changes, error, hasMore, loadedCount, loadingMore, lastLoadSummary, loadMore, retry } =
+    useFileChangePages({
+      identity: workspaceKey,
+      enabled: true,
+      revision: source.dataRevision,
+      readPage: (cursor) => source.listFileChanges(cursor),
+      errorMessage: (reason, more) => reason instanceof Error ? reason.message
+        : more ? '无法加载更早远程改动。' : '无法加载远程文件改动。',
+    });
   const [payload, setPayload] = useState<FileChangePayload | null>(null);
   const [payloadLoading, setPayloadLoading] = useState(false);
   const [payloadError, setPayloadError] = useState<string | null>(null);
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
-  const listGeneration = useRef(0);
-  const listWorkspace = useRef<string | null>(null);
   const payloadGeneration = useRef(0);
   const finalGeneration = useRef(0);
   const selection = useFileChangeSelection({ changes, sessionId, workspaceKey });
@@ -44,40 +37,6 @@ export function RemoteDiffPanel({ source }: { source: RemoteSessionSourceView })
     () => groups.find((group) => group.filePath === selection.selectedFilePath) ?? null,
     [groups, selection.selectedFilePath],
   );
-
-  const loadFirstPage = async (incremental: boolean): Promise<void> => {
-    const current = ++listGeneration.current;
-    setLoadingMore(false);
-    if (!incremental) {
-      setChanges(null);
-      setNextCursor(null);
-      setLastLoadSummary(null);
-    }
-    setError(null);
-    try {
-      const page = await sourceRef.current.listFileChanges();
-      if (current !== listGeneration.current) return;
-      setChanges((existing) => incremental && existing
-        ? mergeChanges(existing, page.items)
-        : page.items);
-      setNextCursor((existing) => incremental && existing !== null
-        ? existing
-        : page.nextCursor);
-    } catch (reason) {
-      if (current === listGeneration.current) {
-        setError(reason instanceof Error ? reason.message : '无法加载远程文件改动。');
-      }
-    }
-  };
-
-  useEffect(() => {
-    const incremental = listWorkspace.current === workspaceKey;
-    listWorkspace.current = workspaceKey;
-    void loadFirstPage(incremental);
-    return () => { listGeneration.current += 1; };
-    // The source revision is the stable same-identity refresh boundary.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source.dataRevision, workspaceKey]);
 
   useEffect(() => () => {
     payloadGeneration.current += 1;
@@ -131,35 +90,6 @@ export function RemoteDiffPanel({ source }: { source: RemoteSessionSourceView })
     });
   }, [diffMode, selectedGroup?.lastId, selection.selectedFilePath, workspaceKey]);
 
-  const loadMore = async (): Promise<void> => {
-    if (!nextCursor || loadingMore) return;
-    const current = ++listGeneration.current;
-    setLoadingMore(true);
-    setLastLoadSummary(null);
-    try {
-      const page = await sourceRef.current.listFileChanges(nextCursor);
-      if (current !== listGeneration.current) return;
-      const existing = changes ?? [];
-      const ids = new Set(existing.map((item) => item.id));
-      const paths = new Set(existing.map((item) => item.filePath));
-      const added = page.items.filter((item) => !ids.has(item.id));
-      setChanges(mergeChanges(existing, page.items));
-      setNextCursor(page.nextCursor);
-      setLastLoadSummary({
-        addedChangeCount: added.length,
-        addedFileCount: new Set(added.filter((item) => !paths.has(item.filePath))
-          .map((item) => item.filePath)).size,
-        exhausted: page.nextCursor === null,
-      });
-    } catch (reason) {
-      if (current === listGeneration.current) {
-        setError(reason instanceof Error ? reason.message : '无法加载更早远程改动。');
-      }
-    } finally {
-      if (current === listGeneration.current) setLoadingMore(false);
-    }
-  };
-
   const diffPayload: DiffPayload | null = payload ? {
     kind: payload.kind,
     filePath: payload.filePath,
@@ -186,8 +116,8 @@ export function RemoteDiffPanel({ source }: { source: RemoteSessionSourceView })
       sessionId={sessionId}
       changes={changes}
       diffError={error}
-      hasMore={nextCursor !== null}
-      loadedCount={changes?.length ?? 0}
+      hasMore={hasMore}
+      loadedCount={loadedCount}
       loadingMore={loadingMore}
       lastLoadSummary={lastLoadSummary}
       hasNewerChanges={selection.hasNewerChanges}
@@ -209,7 +139,7 @@ export function RemoteDiffPanel({ source }: { source: RemoteSessionSourceView })
       onDiffModeChange={setDiffMode}
       onLoadMore={() => void loadMore()}
       onFollowLatest={() => { selection.followLatest(); setDiffMode('single'); setFinalDiff(null); }}
-      onRetry={() => void loadFirstPage(changes !== null)}
+      onRetry={() => void retry()}
     />
   );
 }

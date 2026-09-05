@@ -74,6 +74,7 @@ import { startMainEventLoopMonitor } from '../utils/main-event-loop-monitor';
 import { startBrowserCliBroker } from '../browser-use/browser-cli-broker';
 import { initializeBrowserRuntimeContextHost } from '../browser-use/browser-runtime-context-host';
 import { initializeBrowserViewHost } from '../browser-use/view-host';
+import { getBrowserShowController } from '../browser-use/browser-show-runtime';
 import { reapBrowserScreenshotsAtStartup } from '../browser-use/screenshot-store';
 // NOTE(REVIEW_<X>):以下 codex-config 模块**必须**走 static import,不要改回 dynamic import。
 // 同一模块在多处 dynamic import 会让 vite SSR/rollup 把模块代码 inline
@@ -344,8 +345,13 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   // Native Browser views need a continuously painted, non-focusable host even while the IAB tab is
   // not selected. Creating it here keeps it out of provider/session construction paths.
   try {
-    const browserViewHost = initializeBrowserViewHost();
-    state.browserViewHostDispose = () => browserViewHost.dispose();
+    const browserViewHost = initializeBrowserViewHost({
+      onShowRequested: (surface, target) => getBrowserShowController().request(surface, target),
+    });
+    state.browserViewHostDispose = () => {
+      getBrowserShowController().reset();
+      browserViewHost.dispose();
+    };
   } catch (err) {
     logger.warn('[browser-view] parking host unavailable', err);
   }

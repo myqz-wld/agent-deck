@@ -1,0 +1,22 @@
+
+> agent-deck@0.1.0 test .
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/coordination/focused.config.cjs
+
+
+ RUN  v2.1.9 .
+
+ ✓ src/main/store/__tests__/task-repo.test.ts (67 tests) 792ms
+ ✓ src/main/plan-review/__tests__/service.test.ts (14 tests) 27ms
+ ✓ src/main/agent-deck-mcp/__tests__/hand-off-session.resource-transfer.test.ts (10 tests) 16ms
+ ✓ src/main/teams/__tests__/universal-message-watcher-durability.test.ts (3 tests) 11ms
+ ✓ src/main/diff-review/service.test.ts (5 tests) 21ms
+ ✓ src/main/session/worktree-transition/__tests__/git-cleanup-references.test.ts (6 tests) 10ms
+ ✓ src/main/hook-server/server.test.ts (4 tests) 133ms
+ ✓ src/main/session/worktree-transition/__tests__/transition-delivery.test.ts (1 test) 5ms
+ ✓ src/main/store/__tests__/message-delivery-state.test.ts (5 tests) 8ms
+ ✓ src/main/agent-deck-mcp/__tests__/helpers.deny-external.test.ts (3 tests) 3ms
+
+ Test Files  10 passed (10)
+      Tests  118 passed (118)
+   Start at  19:06:16
+   Duration  12.34s (transform 2.91s, setup 275ms, collect 4.86s, tests 1.03s, environment 3ms, prepare 1.18s)

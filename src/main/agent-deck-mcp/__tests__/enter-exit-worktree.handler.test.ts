@@ -177,7 +177,8 @@ function enterDeps() {
     now: () => 1,
     runGit: async (args: string[]) => {
       const command = args.join(' ');
-      if (command === 'rev-parse --git-common-dir') return '/repo/.git';
+      if (command === 'worktree list --porcelain -z') return 'worktree /repo\0\0';
+      if (command === 'rev-parse --show-toplevel') return '/repo';
       if (command.includes('HEAD^{commit}')) return 'a'.repeat(40);
       return '';
     },

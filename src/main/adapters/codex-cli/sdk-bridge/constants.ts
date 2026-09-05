@@ -15,7 +15,7 @@ export const AGENT_ID = 'codex-cli';
  */
 export { MAX_USER_MESSAGE_LENGTH as MAX_MESSAGE_LENGTH } from '@shared/message-limits';
 
-/** 单会话 pendingMessages 队列上限（与 claude-code 对齐：20 条）。 */
+/** 单会话 pendingTurns 队列上限（与 claude-code 对齐：20 条）。 */
 export const MAX_PENDING_MESSAGES = 20;
 
 /** 30 秒未拿到 thread.started 事件就 fallback：避免 createSession 永远 hang。 */

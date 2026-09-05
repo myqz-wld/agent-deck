@@ -1,0 +1,19 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/lead/vitest.config.cjs /tmp/agent-deck-scan/2026-09-04-project-scan/lead/hook-auth-production.test.ts
+
+
+ RUN  v2.1.9 <repo>
+
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/lead/hook-auth-production.test.ts > lead verification of the production Hook route authentication boundary > compares canonical and encoded requests using the actual Claude user-prompt route
+{"target":"/hook/userpromptsubmit","authenticated":false,"status":401,"emitted":[]}
+{"target":"/hook/userpromptsubmit","authenticated":true,"status":200,"emitted":[{"sessionId":"isolated-test-session","agentId":"claude-code","kind":"message","payload":{"role":"user","text":"isolated synthetic prompt","metadata":{"cwd":"/fixture-workspace"}},"ts":1788573401648,"source":"hook","hookOrigin":"cli"}]}
+{"target":"/%68ook/userpromptsubmit","authenticated":false,"status":200,"emitted":[{"sessionId":"isolated-test-session","agentId":"claude-code","kind":"message","payload":{"role":"user","text":"isolated synthetic prompt","metadata":{"cwd":"/fixture-workspace"}},"ts":1788573401651,"source":"hook","hookOrigin":"cli"}]}
+{"target":"http://localhost/hook/userpromptsubmit","authenticated":false,"status":200,"emitted":[{"sessionId":"isolated-test-session","agentId":"claude-code","kind":"message","payload":{"role":"user","text":"isolated synthetic prompt","metadata":{"cwd":"/fixture-workspace"}},"ts":1788573401651,"source":"hook","hookOrigin":"cli"}]}
+
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/lead/hook-auth-production.test.ts (1 test) 39ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  18:56:41
+   Duration  341ms (transform 67ms, setup 31ms, collect 98ms, tests 39ms, environment 0ms, prepare 31ms)

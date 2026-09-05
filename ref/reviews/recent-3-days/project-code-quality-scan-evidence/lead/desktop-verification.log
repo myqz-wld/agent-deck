@@ -1,0 +1,15 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/desktop/vitest.config.mjs --reporter\=dot
+
+
+ RUN  v2.1.9 <repo>
+
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/desktop/flow-reproductions.test.tsx (4 tests) 51ms
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/desktop/browser-show-reproduction.test.tsx (1 test) 12ms
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/desktop/windows-sound-reproduction.test.tsx (1 test) 8ms
+
+ Test Files  3 passed (3)
+      Tests  6 passed (6)
+   Start at  19:05:28
+   Duration  9.34s (transform 1.48s, setup 668ms, collect 1.97s, tests 71ms, environment 2.23s, prepare 546ms)

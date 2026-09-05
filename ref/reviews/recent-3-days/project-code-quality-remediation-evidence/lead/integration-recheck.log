@@ -1,0 +1,16 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs src/clients/relay/stream-client.test.ts src/main/agent-deck-mcp/__tests__/enter-exit-worktree.handler.test.ts --maxWorkers\=1 --minWorkers\=1
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 <repo>
+
+ ✓ src/clients/relay/stream-client.test.ts (13 tests) 397ms
+   ✓ Relay client -> router -> local Worker integration > round-trips opaque Core frames above initial credit and forwards cancellation 389ms
+ ✓ src/main/agent-deck-mcp/__tests__/enter-exit-worktree.handler.test.ts (10 tests) 7ms
+
+ Test Files  2 passed (2)
+      Tests  23 passed (23)
+   Start at  20:25:55
+   Duration  1.56s (transform 384ms, setup 48ms, collect 485ms, tests 404ms, environment 0ms, prepare 78ms)

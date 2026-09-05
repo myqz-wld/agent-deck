@@ -87,7 +87,7 @@ export interface DaemonConnectionLimits {
   readonly maxQueuedBytes: number;
   readonly maxPendingMessages: number;
   readonly protocolCloseGraceMs: number;
-  /** Maximum interval without stream write callback/drain progress while bytes remain queued. */
+  /** Maximum interval without stream write callback/drain or admitted-chunk progress while bytes remain queued. */
   readonly writeProgressTimeoutMs: number;
 }
 

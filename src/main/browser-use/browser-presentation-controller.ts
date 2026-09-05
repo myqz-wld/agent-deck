@@ -112,6 +112,7 @@ export interface BrowserPresentationControllerOptions {
   readonly getHost: () => BrowserPresentationHost;
   readonly getOwner?: (ownerId: string) => BrowserOwnerHandle | null;
   readonly createLeaseId?: () => string;
+  readonly onPresented?: (rendererId: number, source: BrowserStateSource, tabId: number) => void;
 }
 
 /** Main-owned gate between renderer layout coordinates and session-private Browser views. */
@@ -123,7 +124,7 @@ export class BrowserPresentationController {
   private readonly createLeaseId: () => string;
   private active: ActivePresentation | null = null;
 
-  constructor(options: BrowserPresentationControllerOptions) {
+  constructor(private readonly options: BrowserPresentationControllerOptions) {
     this.projection = options.projection ?? getBrowserStateProjectionRegistry();
     this.getWindow = options.getWindow;
     this.getHost = options.getHost;
@@ -181,6 +182,7 @@ export class BrowserPresentationController {
     if (appliedBounds == null) throw new Error('Browser view could not be presented.');
     presentation.bounds = { ...appliedBounds };
     const snapshot = this.projection.publish(presentation.source, presentation.ownerId).snapshot;
+    this.options.onPresented?.(rendererId, presentation.source, tabId);
     return Object.freeze({ snapshot, appliedBounds: Object.freeze({ ...appliedBounds }) });
   }
 

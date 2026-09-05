@@ -13,10 +13,12 @@ function makeSession(): ClaudeLifecycleSession {
     cliSessionId: 'native',
     query: {
       interrupt: vi.fn(async () => undefined),
+      close: vi.fn(),
       setPermissionMode: vi.fn(async () => undefined),
     },
     streamDrained: Promise.resolve(),
     pendingUserMessages: ['queued'],
+    notify: null,
     acceptedEnqueueFingerprints: new Map([['one', 'one']]),
     permissionMode: 'default',
   };

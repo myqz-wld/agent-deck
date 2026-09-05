@@ -1,0 +1,207 @@
+[
+  {
+    "path": "README.md",
+    "bytes": 1818,
+    "sha256": "e6f41870a7f76d1756177226bc75e978d53d12831e2362b41bb9d7f735f7bd9c"
+  },
+  {
+    "path": "changed-source.txt",
+    "bytes": 7037,
+    "sha256": "86760ccd57bdf8d296d0f8c2c30cf6b627f7f662011b3fb4af7307aaf9bff113"
+  },
+  {
+    "path": "desktop/changed-files.txt",
+    "bytes": 1510,
+    "sha256": "79f57e2cefad8ebbc9352521b11ad50c3c92b6925ba954887269a01d1e9b542e"
+  },
+  {
+    "path": "desktop/focused-tests.log",
+    "bytes": 4062,
+    "sha256": "f4297e0fa680ded0d50e8a86968f524144a3441ca049324e9424feb90a2f6ec2"
+  },
+  {
+    "path": "desktop/report.md",
+    "bytes": 9535,
+    "sha256": "30b4eaf8076d1eb01da82ab9523d18dbb3af89c4575acb8a2a9fd2bca68e7a42"
+  },
+  {
+    "path": "desktop/typecheck.cjs",
+    "bytes": 1360,
+    "sha256": "f450eb5632fe2bf6c8c626c084bd6866d7de808873e2aa285e1898d90c5f79c3"
+  },
+  {
+    "path": "desktop/typecheck.log",
+    "bytes": 95,
+    "sha256": "fc73d51bcee481e5fb0c505fae1a16f30c7d4d568f545bcda760f081a8bf1ea0"
+  },
+  {
+    "path": "entry-graph.cjs",
+    "bytes": 4413,
+    "sha256": "a6ccaf666fe6df186fdcb0d43d730703a46d338a9542477931729ae25c2ccd21"
+  },
+  {
+    "path": "entry-graph.json",
+    "bytes": 3428,
+    "sha256": "b9aaf9247ebf7eea7bf4190882ac1700def79c31c90a320c7c301aade71fcc1a"
+  },
+  {
+    "path": "lead/build.log",
+    "bytes": 8523,
+    "sha256": "d3c8d6fbfe9508a96b49c11eb88e70eb9599142829e124f8b1a58825c257ed35"
+  },
+  {
+    "path": "lead/consistency-checks.json",
+    "bytes": 811,
+    "sha256": "9c1bbb0e651bb5c4c81596e9731d34b24f2171f97943b83a034f3b769fd6098f"
+  },
+  {
+    "path": "lead/full-tests-final.log",
+    "bytes": 84900,
+    "sha256": "263e7335ff93d56e77df36f35e5f6e88d8326223f8036acf45deae5c7dbd948c"
+  },
+  {
+    "path": "lead/integration-initial-results.txt",
+    "bytes": 1248,
+    "sha256": "61f8cee4790c710b8742d9c6c9a47a5762598c879d712041777698d013746837"
+  },
+  {
+    "path": "lead/integration-recheck.log",
+    "bytes": 854,
+    "sha256": "c984660f044882295bbe9487af82d67106522399d008c515bab88ce1664c79cd"
+  },
+  {
+    "path": "lead/remote-issues-recheck.log",
+    "bytes": 576,
+    "sha256": "184fa067c924c478f24e4cdea202685fed7b777d1bc535e04a86996068e278d3"
+  },
+  {
+    "path": "lead/review-expiry.txt",
+    "bytes": 786089,
+    "sha256": "1e1c392645fcdebb59e5ea11b8b98e711f0ccb58797a7a819bb4bf484b0c3bd1"
+  },
+  {
+    "path": "lead/security-tests.log",
+    "bytes": 1054,
+    "sha256": "4d1badbcb65e65d682995c1c63bfe1872b4224b940f443b07784682d72e37e8a"
+  },
+  {
+    "path": "lead/storage-initial.log",
+    "bytes": 2697,
+    "sha256": "85bdd9300d91536a99eabbc35c833de08049de1f9fb63bddff03f10991626504"
+  },
+  {
+    "path": "lead/storage-recheck.log",
+    "bytes": 566,
+    "sha256": "a0243169932e5fb343c9702540ded0940ae056f4656b7632b74bd9b1b7a38595"
+  },
+  {
+    "path": "lead/task-crud-recheck.log",
+    "bytes": 843,
+    "sha256": "95a4e0091166bcb770108c608af4798ac25ffcce219ebd372287267d7ae74f1f"
+  },
+  {
+    "path": "lead/typecheck-final.log",
+    "bytes": 361,
+    "sha256": "2a1ab6f29dfcc3c234deba11a1c3a682b7f86922d65823c70ec76ab5c04b680a"
+  },
+  {
+    "path": "lead/worktree-tests.log",
+    "bytes": 1348,
+    "sha256": "16cd664fb820cb5266795f361dfe9d117841fe1754826d37d59faf8d0def65b0"
+  },
+  {
+    "path": "remote/changed-files.json",
+    "bytes": 3057,
+    "sha256": "4ab903e656b2fb8a1d7ca5e6df18668462873e3af8aa12a578f4bdf69d87a9c1"
+  },
+  {
+    "path": "remote/focused-tests.txt",
+    "bytes": 3361,
+    "sha256": "565010f42f499d132bbdd709029555c66fa748e259575b1511f97b8787130c82"
+  },
+  {
+    "path": "remote/report.md",
+    "bytes": 8695,
+    "sha256": "022a4f896648328edf820ef772d8eedaae76bb0465d98a72135a94249d924791"
+  },
+  {
+    "path": "remote/tsconfig.json",
+    "bytes": 327,
+    "sha256": "71b91977d44bf8452e83cf1cf436c64072fdfa51bf7d9f18d0bec492e85c57c7"
+  },
+  {
+    "path": "remote/typecheck-result.json",
+    "bytes": 318,
+    "sha256": "b7909fce4f75f2ed71901fc0929f67e9c0840d11fa3b51da11cc294b147b1218"
+  },
+  {
+    "path": "remote/typecheck.txt",
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "runtime/adapter-check.cjs",
+    "bytes": 2518,
+    "sha256": "246a7f8d9286aa5656251b0e78466d1ebe7160de6b10b3915e3ec38f40471e04"
+  },
+  {
+    "path": "runtime/binding-fingerprint.json",
+    "bytes": 300,
+    "sha256": "556204cc38b846b2d5b8fc7dca0774d54b294831b520ae6749e3d569b2750490"
+  },
+  {
+    "path": "runtime/changed-files.txt",
+    "bytes": 3054,
+    "sha256": "a9d6f9ad2ba296a5e7684cf2fb8e546b730ebb6707eb6b9354c44361add2067f"
+  },
+  {
+    "path": "runtime/diff-check.txt",
+    "bytes": 12,
+    "sha256": "bde294368bfed77c2cddf8cec271d398aee9cdbab3b26e1059281bd33adb0120"
+  },
+  {
+    "path": "runtime/focused-command.txt",
+    "bytes": 2133,
+    "sha256": "1571eac4f7ddfa3775efe0c1fb9986a07b115bc9a0489661ad6cf89d5c42622a"
+  },
+  {
+    "path": "runtime/focused-tests.txt",
+    "bytes": 7339,
+    "sha256": "ef2bccc223f1c40d413fa21a7838a335aee7a14badbd994f60e3699ee099c7b1"
+  },
+  {
+    "path": "runtime/queue-search.txt",
+    "bytes": 122,
+    "sha256": "414d7f70172e2256b58da3eeeed33e5c42dd55d825bda69064cb06d1e03fcc7b"
+  },
+  {
+    "path": "runtime/report.md",
+    "bytes": 10135,
+    "sha256": "196ccfde5848b578c326d203b38c355aa49d431bb5dffe155b6994a3446bdbf7"
+  },
+  {
+    "path": "runtime/run-focused.py",
+    "bytes": 2539,
+    "sha256": "e55d04f40013c13a06e7c863b078e389002bf5ca2477121dfbc3a4b66f054b28"
+  },
+  {
+    "path": "runtime/source-manifest.json",
+    "bytes": 8041,
+    "sha256": "793ffa28e145cadcef0b26c5746a07ba9d98ad53e87a8cd93a634ed45821972e"
+  },
+  {
+    "path": "runtime/typecheck.txt",
+    "bytes": 41,
+    "sha256": "4ca9fbb6ba72f8ad13a785051b2138ce8a3c949e15eb92feeedec6327d32cc9a"
+  },
+  {
+    "path": "source-manifest.json",
+    "bytes": 23235,
+    "sha256": "75879c4a4cd37a2c11ffbc6f2abd448d2ec983759b678c09ae3af73e1f45737a"
+  },
+  {
+    "path": "validation.json",
+    "bytes": 1974,
+    "sha256": "dcc49b5471b96a6822ec08a20cd2143669f71ecd68e214a46e0f0c4db5e7b729"
+  }
+]

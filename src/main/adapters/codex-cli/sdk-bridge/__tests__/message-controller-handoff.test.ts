@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { AgentEvent } from '@shared/types';
+import { CodexPendingTurnQueue } from '@main/adapters/codex-cli/sdk-bridge/pending-turn-queue';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
 import { worktreeToolInvocationRegistry } from '@main/session/worktree-transition/tool-invocation-registry';
-import { MessageController, type MessageControllerContext } from '../message-controller';
+import type { AgentEvent } from '@shared/types';
+import { describe, expect, it, vi } from 'vitest';
 import { MAX_PENDING_MESSAGES } from '../constants';
+import { MessageController, type MessageControllerContext } from '../message-controller';
 import type { InternalSession } from '../types';
 import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
@@ -19,7 +20,7 @@ function internal(sessionId: string): InternalSession {
     threadId: sessionId,
     cwd: '/repo',
     thread: {},
-    pendingMessages: [],
+    pendingTurns: new CodexPendingTurnQueue(),
     currentTurn: null,
     currentTurnId: null,
     turnLoopRunning: true,
@@ -100,12 +101,12 @@ describe('MessageController handoff rollback recovery', () => {
       id: 'pending-1',
       text: 'first',
     });
-    expect(session.pendingMessages).toEqual(['second']);
-    expect(session.pendingDeferredUserEvents).toEqual([{
+    expect([...session.pendingTurns].map((entry) => entry.input)).toEqual(['second']);
+    expect([...session.pendingTurns].map((entry) => entry.deferredUserEvent)).toEqual([{
       text: 'second',
       turnCorrelationId: 'pending-2',
     }]);
-    expect(session.pendingHandOffMessages).toEqual([{ text: 'second' }]);
+    expect([...session.pendingTurns].map((entry) => entry.handOffMessage)).toEqual([{ text: 'second' }]);
     expect(controller.removePendingOutgoingMessage(sessionId, 'pending-1')).toBeNull();
     expect(emit).not.toHaveBeenCalled();
   });
@@ -127,7 +128,7 @@ describe('MessageController handoff rollback recovery', () => {
     });
 
     expect(emit).not.toHaveBeenCalled();
-    expect(session.pendingDeferredUserEvents).toEqual([{
+    expect([...session.pendingTurns].map((entry) => entry.deferredUserEvent)).toEqual([{
       text: 'internal prompt',
       turnCorrelationId: 'turn-1',
     }]);
@@ -230,7 +231,7 @@ describe('MessageController handoff rollback recovery', () => {
           await controller.steerTurn(sessionId, 'arrived during preflight');
         }
         expect(steer).not.toHaveBeenCalled();
-        expect(session.pendingMessages).toEqual(['arrived during preflight']);
+        expect([...session.pendingTurns].map((entry) => entry.input)).toEqual(['arrived during preflight']);
       } finally {
         worktreeToolInvocationRegistry.release(sessionId, 'enter-tool');
       }
@@ -315,7 +316,7 @@ describe('MessageController handoff rollback recovery', () => {
         sendAfterRecovery: expect.any(Function),
       }),
     );
-    expect(recovered.pendingDeferredUserEvents).toEqual([{
+    expect([...recovered.pendingTurns].map((entry) => entry.deferredUserEvent)).toEqual([{
       text: 'correlated recovery prompt',
       turnCorrelationId: 'recovered-turn-1',
     }]);
@@ -341,7 +342,7 @@ describe('MessageController handoff rollback recovery', () => {
     await expect(controller.enqueueMessage(sessionId, 'approve plan', [], options))
       .resolves.toBeUndefined();
 
-    expect(session.pendingMessages).toEqual(['approve plan']);
+    expect([...session.pendingTurns].map((entry) => entry.input)).toEqual(['approve plan']);
     expect(session.acceptedEnqueueFingerprints?.size).toBe(1);
     await expect(controller.enqueueMessage(sessionId, 'revise plan', [], options))
       .rejects.toThrow('different payload');
@@ -350,10 +351,10 @@ describe('MessageController handoff rollback recovery', () => {
   it('allows mandatory successor tails past ordinary pending queue backpressure', async () => {
     const sessionId = 'codex-successor-overflow';
     const session = internal(sessionId);
-    session.pendingMessages = Array.from(
+    session.pendingTurns = new CodexPendingTurnQueue(Array.from(
       { length: MAX_PENDING_MESSAGES },
-      (_, index) => `existing-${index}`,
-    );
+      (_, index) => ({ input: `existing-${index}` }),
+    ));
     const controller = createController({
       sessions: new Map([[sessionId, session]]),
       emit: vi.fn(),
@@ -368,8 +369,8 @@ describe('MessageController handoff rollback recovery', () => {
       { bypassQueueLimit: true },
     );
 
-    expect(session.pendingMessages).toHaveLength(MAX_PENDING_MESSAGES + 1);
-    expect(session.pendingHandOffMessages?.at(-1)).toEqual(
+    expect(session.pendingTurns).toHaveLength(MAX_PENDING_MESSAGES + 1);
+    expect(session.pendingTurns.at(-1)?.handOffMessage).toEqual(
       expect.objectContaining({ text: 'mandatory handoff tail' }),
     );
   });
@@ -387,12 +388,12 @@ describe('MessageController handoff rollback recovery', () => {
     const lease = handOffCutoverCoordinator.tryAcquire(sessionId)!;
 
     await controller.enqueueMessage(sessionId, 'redirected from an older owner');
-    expect(session.pendingMessages).toEqual([]);
+    expect([...session.pendingTurns].map((entry) => entry.input)).toEqual([]);
     expect(emit).toHaveBeenCalledTimes(1);
 
     lease.release();
     await vi.waitFor(() => {
-      expect(session.pendingMessages).toEqual(['redirected from an older owner']);
+      expect([...session.pendingTurns].map((entry) => entry.input)).toEqual(['redirected from an older owner']);
     });
     expect(emit).toHaveBeenCalledTimes(1);
   });
@@ -425,7 +426,7 @@ describe('MessageController handoff rollback recovery', () => {
 
     lease.release();
     await vi.waitFor(() => {
-      expect(recovered.pendingMessages).toEqual(['persisted before recovery']);
+      expect([...recovered.pendingTurns].map((entry) => entry.input)).toEqual(['persisted before recovery']);
     });
     expect(recoverAndSend).toHaveBeenCalledWith(
       sessionId,

@@ -314,7 +314,7 @@ describe('Relay client byte-stream bridge', () => {
 });
 
 describe('Relay client -> router -> local Worker integration', () => {
-  it('round-trips opaque Core frames above initial credit and forwards cancellation', () => {
+  it('round-trips opaque Core frames above initial credit and forwards cancellation', async () => {
     const metadata = new RelayMetadataStore();
     metadata.put('instances', {
       id: 'instance-a',
@@ -406,7 +406,11 @@ describe('Relay client -> router -> local Worker integration', () => {
     }
     const activeCoreOutput = coreOutput as CoreFrameOutput | null;
     if (!activeCoreOutput) throw new Error('Missing Core output');
-    activeCoreOutput.data(largeResponse);
+    for (let offset = 0; offset < largeResponse.byteLength; offset += activeCoreOutput.maxChunkBytes) {
+      expect(await activeCoreOutput.data(
+        largeResponse.subarray(offset, offset + activeCoreOutput.maxChunkBytes),
+      )).toBe(true);
+    }
     pumpToClient();
     pumpToWorker();
     pumpToClient();

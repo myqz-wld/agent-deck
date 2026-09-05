@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { CodexPendingTurnQueue } from '@main/adapters/codex-cli/sdk-bridge/pending-turn-queue';
 import type { AgentCwdTransition } from '@main/adapters/types';
-import type { InternalSession } from '../types';
+import { describe, expect, it, vi } from 'vitest';
 import { CodexCwdTransitionController } from '../cwd-transition-controller';
+import type { InternalSession } from '../types';
 
 function transition(): AgentCwdTransition {
   return {
@@ -23,9 +24,7 @@ function session(): InternalSession {
     thread: {
       updateWorkingDirectory: vi.fn(),
     },
-    pendingMessages: ['ordinary'],
-    pendingDeferredUserEvents: [null],
-    pendingHandOffMessages: [null],
+    pendingTurns: new CodexPendingTurnQueue([{ input: 'ordinary' }]),
     currentTurn: null,
     currentTurnId: null,
     turnLoopRunning: false,
@@ -55,9 +54,9 @@ describe('CodexCwdTransitionController', () => {
       '/repo/worktree',
     );
     expect(internal.cwd).toBe('/repo/worktree');
-    expect(internal.pendingMessages).toEqual(['continue', 'ordinary']);
-    expect(internal.pendingDeferredUserEvents).toEqual([null, null]);
-    expect(internal.pendingHandOffMessages).toEqual([null, null]);
+    expect([...internal.pendingTurns].map((entry) => entry.input)).toEqual(['continue', 'ordinary']);
+    expect([...internal.pendingTurns].map((entry) => entry.deferredUserEvent)).toEqual([null, null]);
+    expect([...internal.pendingTurns].map((entry) => entry.handOffMessage)).toEqual([null, null]);
     expect(runTurnLoop).not.toHaveBeenCalled();
 
     controller.release('session-a', 2);
@@ -96,15 +95,15 @@ describe('CodexCwdTransitionController', () => {
 
     expect(requestController.signal.aborted).toBe(true);
     expect(internal.submittingUserMessage).toBeNull();
-    expect(internal.pendingMessages).toEqual([
+    expect([...internal.pendingTurns].map((entry) => entry.input)).toEqual([
       'in-flight correction',
       'ordinary',
     ]);
-    expect(internal.pendingDeferredUserEvents).toEqual([
+    expect([...internal.pendingTurns].map((entry) => entry.deferredUserEvent)).toEqual([
       { text: 'in-flight correction', turnCorrelationId: 'steer-1' },
       null,
     ]);
-    expect(internal.pendingHandOffMessages).toEqual([
+    expect([...internal.pendingTurns].map((entry) => entry.handOffMessage)).toEqual([
       { text: 'in-flight correction' },
       null,
     ]);

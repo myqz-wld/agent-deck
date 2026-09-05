@@ -1,0 +1,17 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/desktop/existing.vitest.config.mjs
+
+
+ RUN  v2.1.9 <repo>
+
+ ✓ src/renderer/remote-host/use-remote-host-snapshot.test.tsx (11 tests) 17ms
+ ✓ src/renderer/components/SessionDetail/__tests__/use-file-changes.test.tsx (10 tests) 664ms
+   ✓ useFileChanges paging and request fencing > loads one summary page, appends load-more, and incrementally merges refreshes 413ms
+ ✓ src/main/browser-use/browser-presentation-controller.test.ts (10 tests) 8ms
+ ✓ src/hosts/electron/registry-lifecycle-races.test.ts (6 tests) 56ms
+
+ Test Files  4 passed (4)
+      Tests  37 passed (37)
+   Start at  18:54:29
+   Duration  2.19s (transform 301ms, setup 50ms, collect 457ms, tests 745ms, environment 254ms, prepare 104ms)

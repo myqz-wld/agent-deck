@@ -10,6 +10,7 @@ import type { EventEmitter } from 'node:events';
  */
 
 import { EventEmitter as NodeEventEmitter } from 'node:events';
+import type { BrowserShowRequest } from '@shared/browser-view';
 import type {
   AgentDeckMessageStatusChangedEvent,
   AgentDeckTeam,
@@ -25,6 +26,7 @@ import type {
 } from '@shared/types';
 
 export interface EventMap {
+  'browser-show-request': [BrowserShowRequest | null];
   'agent-event': [AgentEvent];
   'session-upserted': [SessionRecord];
   'session-removed': [string];

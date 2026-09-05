@@ -1,0 +1,17 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs scripts/deployment --maxWorkers\=2 --minWorkers\=1
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 <repo>
+
+ ✓ scripts/deployment/config.test.mjs (4 tests) 13ms
+ ✓ scripts/deployment/deployment.test.mjs (17 tests) 35ms
+ ✓ scripts/deployment/current-contracts.test.mjs (4 tests) 3ms
+ ✓ scripts/deployment/feishu-runtime-build.test.mjs (4 tests) 3ms
+
+ Test Files  4 passed (4)
+      Tests  29 passed (29)
+   Start at  18:49:59
+   Duration  558ms (transform 54ms, setup 62ms, collect 75ms, tests 53ms, environment 0ms, prepare 115ms)

@@ -1,10 +1,15 @@
 import { screen, type BrowserWindow, type WebContents } from 'electron';
 
+export interface BrowserTabShowTarget {
+  readonly ownerId: string;
+  readonly tabId: number;
+}
+
 export interface EngineTabSurface {
   readonly webContents: WebContents;
   isDestroyed(): boolean;
   loadURL(url: string): Promise<void>;
-  requestShow(): void;
+  requestShow(target?: BrowserTabShowTarget): void | boolean | Promise<boolean>;
   destroy(): void;
   deviceScaleFactor(): number;
   canSendInputEvents(): boolean;
@@ -32,10 +37,11 @@ export class BrowserWindowTabSurface implements EngineTabSurface {
     return this.window.loadURL(url).then(() => undefined);
   }
 
-  requestShow(): void {
-    if (this.isDestroyed()) return;
+  requestShow(): boolean {
+    if (this.isDestroyed()) return false;
     this.window.show();
     this.window.focus();
+    return this.canSendInputEvents();
   }
 
   destroy(): void {

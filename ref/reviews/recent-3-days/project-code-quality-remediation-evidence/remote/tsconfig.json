@@ -1,0 +1,10 @@
+{
+  "extends": "../../../../../tsconfig.node.json",
+  "compilerOptions": { "composite": false, "incremental": false },
+  "include": [
+    "../../../../../src/main/vite-env.d.ts",
+    "../../../../../src/hosts/local-worker/**/*.ts",
+    "../../../../../src/hosts/daemon/**/*.ts",
+    "../../../../../src/gateways/**/*.ts"
+  ]
+}

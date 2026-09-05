@@ -5,6 +5,8 @@ import {
   WSClient,
   type Logger,
 } from '@larksuiteoapi/node-sdk';
+import { FeishuGatewayError } from '@gateways/im/errors';
+import { stableToken } from '@gateways/im/validation';
 import type {
   FeishuOpenApiPort,
   FeishuSdkConnectionFactory,
@@ -14,6 +16,21 @@ import type {
 
 export class OfficialFeishuOpenApi implements FeishuOpenApiPort {
   constructor(private readonly client: Client) {}
+
+  async botOpenId(timeoutMs = 15_000): Promise<string> {
+    try {
+      // Use the authenticated Client, as the pinned SDK's own bot identity resolver does.
+      const result = await this.client.request<{ code?: number; bot?: { open_id?: unknown } }>({
+        url: '/open-apis/bot/v3/info',
+        method: 'GET',
+        timeout: timeoutMs,
+      });
+      if (result.code !== 0) throw new Error('Bot identity lookup failed');
+      return stableToken(result.bot?.open_id, 'bot.open_id');
+    } catch {
+      throw new FeishuGatewayError('lifecycle_failed', '无法获取飞书机器人身份', true);
+    }
+  }
 
   reply(input: {
     messageId: string;
@@ -58,6 +75,7 @@ export class OfficialFeishuOpenApi implements FeishuOpenApiPort {
 
 class OfficialFeishuSdkConnection implements FeishuSdkConnectionPort {
   private readonly client: WSClient;
+  private closed = false;
 
   constructor(
     appId: string,
@@ -66,6 +84,7 @@ class OfficialFeishuSdkConnection implements FeishuSdkConnectionPort {
     handshakeTimeoutMs: number,
     pingTimeoutSeconds: number,
     callbacks: Parameters<FeishuSdkConnectionFactory>[0],
+    private readonly prepare: () => Promise<void>,
   ) {
     this.client = new WSClient({
       appId,
@@ -84,6 +103,8 @@ class OfficialFeishuSdkConnection implements FeishuSdkConnectionPort {
   }
 
   async start(handlers: FeishuSdkEventHandlers): Promise<void> {
+    await this.prepare();
+    if (this.closed) return;
     const dispatcher = new EventDispatcher({
       logger: {
         error: () => undefined,
@@ -101,6 +122,7 @@ class OfficialFeishuSdkConnection implements FeishuSdkConnectionPort {
   }
 
   close(force: boolean): void {
+    this.closed = true;
     this.client.close({ force });
   }
 }
@@ -109,7 +131,7 @@ export function createOfficialFeishuOpenApi(
   appId: string,
   appSecret: string,
   logger: Logger,
-): FeishuOpenApiPort {
+): OfficialFeishuOpenApi {
   return new OfficialFeishuOpenApi(new Client({
     appId,
     appSecret,
@@ -125,6 +147,7 @@ export function createOfficialFeishuConnectionFactory(
   logger: Logger,
   handshakeTimeoutMs: number,
   pingTimeoutSeconds: number,
+  prepare: () => Promise<void>,
 ): FeishuSdkConnectionFactory {
   return (callbacks) => new OfficialFeishuSdkConnection(
     appId,
@@ -133,5 +156,6 @@ export function createOfficialFeishuConnectionFactory(
     handshakeTimeoutMs,
     pingTimeoutSeconds,
     callbacks,
+    prepare,
   );
 }

@@ -1,0 +1,14 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs src/main/store/__tests__/task-repo-delete.test.ts --maxWorkers\=1 --minWorkers\=1
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 <repo>
+
+ ✓ src/main/store/__tests__/task-repo-delete.test.ts (13 tests) 50ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  20:20:02
+   Duration  568ms (transform 90ms, setup 37ms, collect 91ms, tests 50ms, environment 0ms, prepare 37ms)

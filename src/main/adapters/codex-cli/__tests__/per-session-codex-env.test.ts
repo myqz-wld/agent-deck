@@ -1,3 +1,4 @@
+import { CodexPendingTurnQueue } from '@main/adapters/codex-cli/sdk-bridge/pending-turn-queue';
 /**
  * codex bridge per-session app-server client + token map integration 单测
  * （plan codex-handoff-team-alignment-20260518 P2 Step 2.10 / TC5-7b）。
@@ -18,9 +19,9 @@
  * client（不真 spawn codex 子进程）;sessionManager mock 模拟 renameSdkSession hook 派发;
  * mcpSessionTokenMap 是 module-level singleton 直接用真实模块。
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // 与 recovery test 同款 6 个入口模块 stub,绕过 vitest node 环境下 electron 模块的 'failed to install'
 vi.mock('@main/adapters/codex-cli/sdk-bridge/codex-binary', () => ({
@@ -60,11 +61,11 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
-import { sessionManager } from '@main/session/manager';
-import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
-import { emits, makeBridge } from './sdk-bridge/_setup';
 import type { CodexAppServerClient } from '@main/adapters/codex-cli/app-server/client';
 import type { InternalSession } from '@main/adapters/codex-cli/sdk-bridge/types';
+import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
+import { sessionManager } from '@main/session/manager';
+import { emits, makeBridge } from './sdk-bridge/_setup';
 
 beforeEach(() => {
   emits.length = 0;
@@ -91,7 +92,7 @@ function makeInternalSession(threadId: string | null = null): InternalSession {
     cwd: '/tmp/x',
     thread: {} as InternalSession['thread'],
     runtimeIdentity: null,
-    pendingMessages: [],
+    pendingTurns: new CodexPendingTurnQueue(),
     currentTurn: null,
     currentTurnId: null,
     turnLoopRunning: false,

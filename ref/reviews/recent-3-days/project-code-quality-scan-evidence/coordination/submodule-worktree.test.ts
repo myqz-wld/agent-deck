@@ -1,0 +1,32 @@
+import { it,expect } from 'vitest';
+import { mkdtempSync,mkdirSync,writeFileSync,existsSync } from 'node:fs';
+import { join,relative } from 'node:path';
+import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { prepareEnterWorktree,createPreparedWorktree } from '@main/agent-deck-mcp/tools/handlers/enter-worktree-impl';
+import { preflightStructuredWorktreeExit } from '@main/session/worktree-transition/git-cleanup';
+it('freezes the wrong repository HEAD when called from an ordinary initialized submodule',async()=>{
+ const root=mkdtempSync(join(tmpdir(),'submodule-fixture-'));
+ const empty=join(root,'empty');mkdirSync(empty);
+ const env={...process.env,GIT_CONFIG_GLOBAL:'/dev/null',GIT_CONFIG_NOSYSTEM:'1'};
+ const git=(cwd:string,args:string[])=>execFileSync('git',['-c','core.hooksPath='+empty,'-c','commit.gpgsign=false',...args],{cwd,env,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+ const init=(name:string,file:string)=>{
+  const cwd=join(root,name);mkdirSync(cwd);
+  git(cwd,['init','--template='+empty,'-b','main']);
+  git(cwd,['config','user.name','Fixture']);git(cwd,['config','user.email','fixture@example.invalid']);
+  writeFileSync(join(cwd,file),'fixture');git(cwd,['add',file]);git(cwd,['commit','-m','fixture']);return cwd;
+ };
+ const library=init('library','library.ts');const superproject=init('superproject','superproject.ts');
+ git(superproject,['-c','protocol.file.allow=always','submodule','add',library,'lib']);
+ git(superproject,['commit','-am','add fixture submodule']);
+ const callerCwd=join(superproject,'lib');const worktree=join(root,'created-worktree');
+ const libraryHead=git(callerCwd,['rev-parse','HEAD']);const superHead=git(superproject,['rev-parse','HEAD']);
+ const prepared=await prepareEnterWorktree({callerSessionId:'fixture-session',startPoint:'HEAD',worktreePathOverride:worktree},{callerCwd:()=>callerCwd,runGit:async(args,cwd)=>git(cwd,args)});
+ expect('error' in prepared).toBe(false);if('error' in prepared)return;
+ expect(prepared.startCommit).toBe(superHead);expect(prepared.startCommit).not.toBe(libraryHead);
+ await createPreparedWorktree(prepared,{runGit:async(args,cwd)=>git(cwd,args)});
+ console.log(JSON.stringify({callerCwd:relative(root,callerCwd),derivedMainRepo:relative(root,prepared.mainRepo),selectedSuperprojectHead:prepared.startCommit===superHead,selectedLibraryHead:prepared.startCommit===libraryHead,files:{superproject:existsSync(join(worktree,'superproject.ts')),library:existsSync(join(worktree,'library.ts'))}},null,2));
+ expect(existsSync(join(worktree,'superproject.ts'))).toBe(true);expect(existsSync(join(worktree,'library.ts'))).toBe(false);
+ await expect(preflightStructuredWorktreeExit({phase:'active',worktreePath:prepared.worktreePath,mainRepo:prepared.mainRepo} as any,{discardChanges:false})).rejects.toThrow('not leased main repo');
+ console.log('exit preflight rejects the wrong stored mainRepo');
+});

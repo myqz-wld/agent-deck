@@ -3,10 +3,7 @@ import {
   createCodexAppServerTranslateState,
   translateCodexAppServerNotification,
 } from '../app-server/translate';
-import {
-  getNotificationTurnId,
-  readTerminalError,
-} from '../app-server/notification-helpers';
+import { getNotificationTurnId, readTerminalError } from '../app-server/notification-helpers';
 import {
   clearCodexLiveTokenEstimateCore,
   handleCodexNotificationForLiveRateCore,
@@ -15,10 +12,7 @@ import {
 import type { CodexBridgeOptions, InternalSession } from './types';
 import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 import type { CodexHostSessionCommand } from '../session-commands';
-import {
-  completedSessionCommandText,
-  failedSessionCommandText,
-} from '@core/system-status-copy';
+import { completedSessionCommandText, failedSessionCommandText } from '@core/system-status-copy';
 
 export interface CodexSessionCommandContext {
   sessions: ReadonlyMap<string, InternalSession>;
@@ -58,7 +52,7 @@ export class CodexSessionCommandController {
     if (
       session.turnLoopRunning ||
       session.currentTurn ||
-      session.pendingMessages.length > 0 ||
+      session.pendingTurns.length > 0 ||
       session.activeControlCommand ||
       session.cwdTransitionGeneration != null ||
       session.retireAfterCurrentTurn
@@ -189,7 +183,7 @@ export class CodexSessionCommandController {
     if (
       this.context.sessions.get(session.applicationSid) === session &&
       !session.intentionallyClosed &&
-      session.pendingMessages.length > 0
+      session.pendingTurns.length > 0
     ) {
       void this.context.runTurnLoop(session, session.applicationSid);
     }

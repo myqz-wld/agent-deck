@@ -1,0 +1,178 @@
+{
+  "baseline_commit": "072dd7a284eebc2752dab7e5d5505aa2ee480b77",
+  "invocation_id": "2026-09-04-project-scan",
+  "sourceFixes": false,
+  "allWorkerResultsConsumed": true,
+  "allWorkerSessionsClosed": true,
+  "workers": {
+    "runtime": {
+      "sessionId": "01a06f3d-9f17-71f0-9dd5-cff9c2b5075e",
+      "adapter": "codex-cli",
+      "gateway": null,
+      "provider": null,
+      "teamId": null,
+      "teamName": null,
+      "agentName": null,
+      "displayName": "项目扫描 · 适配器运行时",
+      "spawnDepth": 1,
+      "spawnLimits": {
+        "depth": {
+          "current": 0,
+          "next": 1,
+          "max": 3
+        },
+        "fanOut": {
+          "current": 1,
+          "activeChildren": 1,
+          "inFlight": 0,
+          "max": 10
+        },
+        "rate": {
+          "current": 1,
+          "max": 20,
+          "windowMs": 60000,
+          "retryAfterMs": 0
+        }
+      },
+      "sentAt": 1788572704692,
+      "spawnPromptMessageId": "fb82d489-8617-4cb3-8200-0a6229d49a93",
+      "lifecycle": "closed",
+      "leadAcceptance": "accepted-after-source-check-and-isolated-reproduction-rerun",
+      "finalReport": "runtime/report.md"
+    },
+    "remote": {
+      "sessionId": "01a06f3d-dcf2-7603-bfaf-c6154fef41cc",
+      "adapter": "codex-cli",
+      "gateway": null,
+      "provider": null,
+      "teamId": null,
+      "teamName": null,
+      "agentName": null,
+      "displayName": "项目扫描 · 远程服务与协议",
+      "spawnDepth": 1,
+      "spawnLimits": {
+        "depth": {
+          "current": 0,
+          "next": 1,
+          "max": 3
+        },
+        "fanOut": {
+          "current": 4,
+          "activeChildren": 4,
+          "inFlight": 0,
+          "max": 10
+        },
+        "rate": {
+          "current": 4,
+          "max": 20,
+          "windowMs": 60000,
+          "retryAfterMs": 0
+        }
+      },
+      "sentAt": 1788572720516,
+      "spawnPromptMessageId": "eba4cc84-2ab7-43fe-9cfa-98ee39c3b25f",
+      "lifecycle": "closed",
+      "leadAcceptance": "accepted-after-source-check-and-isolated-reproduction-rerun",
+      "finalReport": "remote/report.md"
+    },
+    "desktop": {
+      "sessionId": "01a06f3d-dbcc-7570-ad23-8ec3b75bd39a",
+      "adapter": "codex-cli",
+      "gateway": null,
+      "provider": null,
+      "teamId": null,
+      "teamName": null,
+      "agentName": null,
+      "displayName": "项目扫描 · 桌面交互与 IPC",
+      "spawnDepth": 1,
+      "spawnLimits": {
+        "depth": {
+          "current": 0,
+          "next": 1,
+          "max": 3
+        },
+        "fanOut": {
+          "current": 3,
+          "activeChildren": 3,
+          "inFlight": 0,
+          "max": 10
+        },
+        "rate": {
+          "current": 3,
+          "max": 20,
+          "windowMs": 60000,
+          "retryAfterMs": 0
+        }
+      },
+      "sentAt": 1788572720245,
+      "spawnPromptMessageId": "374240d1-a2c5-4ab5-99db-c56fee9b65f1",
+      "lifecycle": "closed",
+      "leadAcceptance": "accepted-after-source-check-and-isolated-reproduction-rerun",
+      "finalReport": "desktop/report.md"
+    },
+    "coordination": {
+      "sessionId": "01a06f3d-da8d-7dc1-a9cc-070cecb74a20",
+      "adapter": "codex-cli",
+      "gateway": null,
+      "provider": null,
+      "teamId": null,
+      "teamName": null,
+      "agentName": null,
+      "displayName": "项目扫描 · 会话存储与 MCP",
+      "spawnDepth": 1,
+      "spawnLimits": {
+        "depth": {
+          "current": 0,
+          "next": 1,
+          "max": 3
+        },
+        "fanOut": {
+          "current": 2,
+          "activeChildren": 2,
+          "inFlight": 0,
+          "max": 10
+        },
+        "rate": {
+          "current": 2,
+          "max": 20,
+          "windowMs": 60000,
+          "retryAfterMs": 0
+        }
+      },
+      "sentAt": 1788572719923,
+      "spawnPromptMessageId": "da81ae5e-c26d-4142-8cc8-d6cc546092d8",
+      "lifecycle": "closed",
+      "finalReport": "coordination/report.md",
+      "leadAcceptance": "accepted-after-source-check-and-isolated-reproduction-rerun"
+    }
+  },
+  "taskIds": {
+    "runtime": "fc7caa0e-faa5-4576-9a1b-fc6c019dc735",
+    "coordination": "ef1db5aa-05b2-44a6-83ad-fdfc6926367d",
+    "desktop": "6f017114-186f-4eb6-896c-5b5a511e4b85",
+    "remote": "f6955d70-6932-4512-9728-e6f07ec9cefc",
+    "lead": "9cbf2dec-5eb7-4d0f-83e4-090177fd418c"
+  },
+  "coverage": {
+    "trackedSourceAndTests": 2646,
+    "primaryFilesDirectlyInspectedInPartOrFull": 425,
+    "wholeModuleReachable": 1602,
+    "testFixtureOrphans": 17
+  },
+  "findings": {
+    "high": 3,
+    "medium": 11,
+    "low": 4
+  },
+  "validation": {
+    "leadReproductionCases": 20,
+    "excludedSupplementalCases": 1,
+    "sqliteBindingUnchanged": true
+  },
+  "restrictions": [
+    "No native Windows execution",
+    "No live provider or Browser operation",
+    "No complete test suite or package build",
+    "Partial body/excerpt inspection; no whole-file coverage exemption"
+  ]
+}

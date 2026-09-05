@@ -37,7 +37,8 @@ describe('detached worktree preparation', () => {
     const startCommit = 'a'.repeat(40);
     const deps: EnterWorktreeDeps = {
       runGit: queuedGit(calls, [
-        '/repo/.git',
+        'worktree /repo\0HEAD main-head\0\0',
+        '/repo',
         startCommit,
         '',
       ]),
@@ -60,6 +61,7 @@ describe('detached worktree preparation', () => {
     expect(enterIsError(result)).toBe(false);
     if (enterIsError(result)) return;
     expect(result).toMatchObject({
+      mainRepo: '/repo',
       worktreePath: '/repo/.agent-deck/worktrees/agent-deck-caller-sid-1',
       startCommit,
     });
@@ -72,6 +74,7 @@ describe('detached worktree preparation', () => {
       '--end-of-options',
       'main~1^{commit}',
     ]);
+    expect(calls.find((call) => call.args.includes('main~1^{commit}'))?.cwd).toBe('/repo/src');
     expect(calls.map((c) => c.args)).toContainEqual([
       'worktree',
       'add',
@@ -88,7 +91,7 @@ describe('detached worktree preparation', () => {
     const result = await prepareEnterWorktree(
       { callerSessionId: 'caller-sid', startPoint: 'main branch' },
       {
-        runGit: queuedGit(calls, ['/repo/.git']),
+        runGit: queuedGit(calls, ['worktree /repo\0HEAD main-head\0\0', '/repo']),
         exists: async () => false,
         mkdir: async () => undefined,
         callerCwd: () => '/repo',
@@ -99,7 +102,8 @@ describe('detached worktree preparation', () => {
     if (!enterIsError(result)) return;
     expect(result.error).toContain('startPoint must be one non-empty Git revision');
     expect(calls.map((call) => call.args)).toEqual([
-      ['rev-parse', '--git-common-dir'],
+      ['worktree', 'list', '--porcelain', '-z'],
+      ['rev-parse', '--show-toplevel'],
     ]);
   });
 

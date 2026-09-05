@@ -1,0 +1,18 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs src/main/hook-server/server.test.ts src/main/agent-deck-mcp/__tests__/transport-http-extra-auth.test.ts src/main/agent-deck-mcp/__tests__/spoofing-attack-paths.test.ts src/main/notify/__tests__/sound-windows.test.ts scripts/install-local-macos.test.mjs --maxWorkers\=1 --minWorkers\=1
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 <repo>
+
+ ✓ src/main/agent-deck-mcp/__tests__/transport-http-extra-auth.test.ts (20 tests) 7ms
+ ✓ src/main/hook-server/server.test.ts (13 tests) 80ms
+ ✓ src/main/agent-deck-mcp/__tests__/spoofing-attack-paths.test.ts (5 tests) 2ms
+ ✓ scripts/install-local-macos.test.mjs (4 tests) 4ms
+ ✓ src/main/notify/__tests__/sound-windows.test.ts (6 tests) 10ms
+
+ Test Files  5 passed (5)
+      Tests  48 passed (48)
+   Start at  19:57:04
+   Duration  2.84s (transform 921ms, setup 58ms, collect 1.56s, tests 103ms, environment 0ms, prepare 174ms)

@@ -1,0 +1,182 @@
+{
+  "src/main/adapters/claude-code/sdk-bridge/permission-responder-core.test.ts": {
+    "sha256": "f8e93969a08f2afdd7dfe92b3a53d45dbf84af6de6a03f2fbd7d78a16804a523",
+    "lines": 181
+  },
+  "src/main/adapters/claude-code/sdk-bridge/permission-responder-core.ts": {
+    "sha256": "e2c4f00f2295d64c6663025ae739116625fac5ce715102779b2873a30cdb6ce0",
+    "lines": 354
+  },
+  "src/main/adapters/claude-code/sdk-bridge/send-validation.ts": {
+    "sha256": "91dcf4740ecb0ee32e6f5b980548b80f23211420bdaa32ae071a0b5b5a5ad06e",
+    "lines": 85
+  },
+  "src/main/adapters/claude-code/sdk-bridge/session-lifecycle-core.test.ts": {
+    "sha256": "2952d962e8727348279794e767bcdb15387c8fc0518fdec480090c84a305c554",
+    "lines": 69
+  },
+  "src/main/adapters/claude-code/sdk-bridge/session-lifecycle-core.ts": {
+    "sha256": "82c72d359243f3205ded338efce46cbd210c9f58349317da0051258d8be58380",
+    "lines": 241
+  },
+  "src/main/adapters/claude-code/sdk-bridge/session-rollback-core.test.ts": {
+    "sha256": "fecd79bfe07f9153dd7cb756c2b4d8dbf19a94652dc2de14c23842bec0407b4c",
+    "lines": 128
+  },
+  "src/main/adapters/claude-code/sdk-bridge/types.ts": {
+    "sha256": "1e20b18d13b729aa29444cf8e0f5e3b306c1895855e654d44a444aed4b10e43b",
+    "lines": 418
+  },
+  "src/main/adapters/claude-code/sdk-bridge/user-message-stream-core.ts": {
+    "sha256": "ef778aa35dc0174ccdae4d5f4bb908afbb92a787d6292f73a995154df014e9fb",
+    "lines": 140
+  },
+  "src/main/adapters/codex-cli/__tests__/consume-fork-fixture.ts": {
+    "sha256": "d1f7e0dac979ffcee58d7ca55145d98ba3a45099f90ff5f17f7f1f57d0615fcd",
+    "lines": 147
+  },
+  "src/main/adapters/codex-cli/__tests__/per-session-codex-env.test.ts": {
+    "sha256": "ac10eb078506a16a0ed41e25c33f883bacb5d833129d398b71e34db0a40e3858",
+    "lines": 319
+  },
+  "src/main/adapters/codex-cli/__tests__/sdk-bridge.consume-fork.test.ts": {
+    "sha256": "8a17be9a6720c3c27e42b357ca88e9fe4fb5b4784ff55ea9b8a573fcbd360473",
+    "lines": 179
+  },
+  "src/main/adapters/codex-cli/__tests__/sdk-bridge.restart.test.ts": {
+    "sha256": "092ec21aa08473195e9d8e8eb4487b9d4ee296b3603fcae4cb1c2d68d391656e",
+    "lines": 333
+  },
+  "src/main/adapters/codex-cli/__tests__/wire-prefix-e2e.test.ts": {
+    "sha256": "51dd0427a85e06545d1a37f37a130201f96553d558d518f2ff2b44b73e4a8f8b",
+    "lines": 476
+  },
+  "src/main/adapters/codex-cli/__tests__/wire-prefix-fixture.ts": {
+    "sha256": "1491adb9b17174418efc1c916a42831c87cba495adc17b6c60a412b78c4f43e1",
+    "lines": 54
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/__tests__/create-session-early-rollback.test.ts": {
+    "sha256": "cf71ec05310a7fc126cd2746710d7df76992db4091982a66eba64efd94b7db95",
+    "lines": 64
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/__tests__/create-session-fixture.ts": {
+    "sha256": "bce400e606a9a119096160a91c109cb59a3c28bef56218ddc33480edbe1a973d",
+    "lines": 308
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/__tests__/create-session-new-latency.test.ts": {
+    "sha256": "346a8f34d041dc8e6321e4ba369acc5ed25781f71ce37abbbab2a1097ceaf91f",
+    "lines": 326
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/__tests__/create-session-thread-id-init.test.ts": {
+    "sha256": "a6602cba9bcd51670fa3e3ab7604cabff799b3a90baffaa0860bec9f181d6c42",
+    "lines": 224
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/__tests__/cwd-transition-controller.test.ts": {
+    "sha256": "5439177757439529ab508e99ba9a44e6400e7b0932255f2139722d4a6bc2454c",
+    "lines": 112
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/__tests__/message-controller-handoff.test.ts": {
+    "sha256": "d454745187f663b505835004ea84c25f6c3be1ee1abcb005b7a46d8f43af16c7",
+    "lines": 442
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/__tests__/pending-turn-queue.test.ts": {
+    "sha256": "d580e6d3352026efa27f04fc7e99dc0a743ca998f0448ff8cb984afd0165e05e",
+    "lines": 122
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/__tests__/session-lifecycle-coordinator.test.ts": {
+    "sha256": "dde9b0d7222d0dac69974357080f5a4dc12fcd0307d2c8eb2d6f780bc382de5c",
+    "lines": 140
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/__tests__/session-retirement.test.ts": {
+    "sha256": "4fc1570f56488d71615b29c613020406f0f72cbc75d7c0dbda045d7d54cb92c2",
+    "lines": 349
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/__tests__/trusted-continuation-new.test.ts": {
+    "sha256": "cbef054960b4b1e2224780319c8bc7a6df06decf8bd2a24286487ccfc0db19ec",
+    "lines": 94
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/constants.ts": {
+    "sha256": "d1ec15625f2178d630762aa892cebbb446e9bebdbbecb852852e4d4eb9cbf5f5",
+    "lines": 22
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/create-session/create-session-impl.ts": {
+    "sha256": "87035718671d9da8476e8251325802d00ef9e3cd8336dff298432d00451b0476",
+    "lines": 276
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/create-session/create-session-validate.ts": {
+    "sha256": "c6bba2028c4a53f63c22aed3b2f05c3bb7a66bd2e96a7a29f98eba941d117185",
+    "lines": 68
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/cwd-transition-controller.ts": {
+    "sha256": "e2307fe1b33dfbd2d2d80f5d5c51bbd65b6c2fd48d3e57552dc1c5a446b29933",
+    "lines": 114
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/fork-session/create-forked-session-fixture.ts": {
+    "sha256": "91e6a303285f30e3294778f82281d91a3de87bdd1549bd5b27e369450ca7d35f",
+    "lines": 272
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/fork-session/create-forked-session.test.ts": {
+    "sha256": "06c53822beb8fe97389e20d4ad3e352a30cb485ec0848548fe4080b324f611f8",
+    "lines": 250
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/fork-session/create-forked-session.ts": {
+    "sha256": "51e85f452d6f4da09f88f4b607da52d23da5add6182f712b8d4b24585777333a",
+    "lines": 273
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/index.ts": {
+    "sha256": "c2c135af5921957f4126890a451c23a4afc34ed081eb48d41038881cf6858f7c",
+    "lines": 496
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/message-controller.ts": {
+    "sha256": "9c57d8934b4e6296a24205bbfe78eaf67c9d6f9bedf9853819781aa0a30414a8",
+    "lines": 448
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/pending-turn-queue.ts": {
+    "sha256": "2ab20e4c8f63088845e61730cb78998b8c45688ed518cc6535d26791c75b8500",
+    "lines": 54
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/resume-path-await.ts": {
+    "sha256": "d422d019be42f4b4349b493d1fc92f638914755859c629beaf920dd243d44901",
+    "lines": 204
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/session-command-controller.test.ts": {
+    "sha256": "974ab52cd9a54b806b09c99e655d612ae4a974585bae7abac0776e6d2956afb1",
+    "lines": 184
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/session-command-controller.ts": {
+    "sha256": "b9f3dc63b749ef3d64235acafc313a957da5231b94a4a5f42e395cb36bd1ac91",
+    "lines": 227
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/session-retirement.ts": {
+    "sha256": "90986e2d657bfa20ec06c0bbfb4f58a4029e2334995af635c3aeb1765e25ccc3",
+    "lines": 203
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/thread-loop.ts": {
+    "sha256": "09ec6d2ad61c619de6ccc22df1fc15f28e6dcbb79de8f0aad25409cdcd457c91",
+    "lines": 498
+  },
+  "src/main/adapters/codex-cli/sdk-bridge/types.ts": {
+    "sha256": "d1ce1d361469255248be3c1f416043b5115fbf1aed4d81867bbaaf9ed8597133",
+    "lines": 139
+  },
+  "src/main/adapters/grok-build/__tests__/pending-outgoing.test.ts": {
+    "sha256": "242b73f52e7389a0857d50100969cf8ff3d7f390bd0bdeb0eaebe27ee6987ca1",
+    "lines": 165
+  },
+  "src/main/adapters/grok-build/pending-outgoing.ts": {
+    "sha256": "62a10bb5aeff802b99bb9f15f0fef0359029b5a19a61bce156563ecd263ff4c7",
+    "lines": 66
+  },
+  "src/main/adapters/grok-build/runtime-types.ts": {
+    "sha256": "8f25f4858718ac86653920c97834e64ae07e622da51708071b4011dd63949d1f",
+    "lines": 95
+  },
+  "src/main/adapters/grok-build/transport-recovery.ts": {
+    "sha256": "b446611c2917227e3d81797ec36dbb9dbc9b27681a7aa8ee29cba51aa0f1e326",
+    "lines": 63
+  },
+  "src/main/adapters/grok-build/turn-queue.ts": {
+    "sha256": "f27399b6efcb05b2cf9c5687355798893432d7c78666449991ee1980dab2430e",
+    "lines": 462
+  }
+}

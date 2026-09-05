@@ -190,12 +190,9 @@ function discardPendingCodexInputs(
   internal.submittingUserMessage?.requestController?.abort();
   internal.submittingUserMessage = null;
   const orphanPaths = new Set<string>();
-  for (const input of internal.pendingMessages) {
+  for (const { input } of internal.pendingTurns.clear()) {
     for (const path of extractAttachmentPaths(input)) orphanPaths.add(path);
   }
-  internal.pendingMessages.length = 0;
-  if (internal.pendingDeferredUserEvents) internal.pendingDeferredUserEvents.length = 0;
-  if (internal.pendingHandOffMessages) internal.pendingHandOffMessages.length = 0;
   internal.acceptedEnqueueFingerprints?.clear();
   if (!deleteAttachments) return;
   for (const path of orphanPaths) {

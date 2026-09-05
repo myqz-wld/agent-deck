@@ -1,0 +1,14 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs scripts/install-local-macos.test.mjs --maxWorkers\=1 --minWorkers\=1
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 <repo>
+
+filter:  scripts/install-local-macos.test.mjs
+include: src/**/*.test.ts, src/**/*.test.tsx, scripts/deployment/**/*.test.mjs
+exclude:  **/node_modules/**, **/dist/**, **/cypress/**, **/.{idea,git,cache,output,temp}/**, **/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*
+
+No test files found, exiting with code 1
+ ELIFECYCLE  Test failed. See above for more details.

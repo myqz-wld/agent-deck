@@ -161,9 +161,7 @@ describe('transferHandOffResources', () => {
       'caller-sid',
       'successor-sid',
     );
-    expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid', {
-      policy: 'preserve-team',
-    });
+    expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid');
     expect(mocks.transaction).toHaveBeenCalledTimes(1);
     expect(mocks.retargetMessages).toHaveBeenCalledWith(
       'caller-sid',
@@ -218,9 +216,7 @@ describe('transferHandOffResources', () => {
     });
     expect(mocks.teamRepo.swapLead).not.toHaveBeenCalled();
     expect(mocks.transferTeammateMembership).not.toHaveBeenCalled();
-    expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid', {
-      policy: 'preserve-team',
-    });
+    expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid');
     expect(mocks.retargetMessages).toHaveBeenCalledWith(
       'caller-sid',
       'successor-sid',
@@ -302,13 +298,11 @@ describe('transferHandOffResources', () => {
       1,
       'caller-sid',
       'successor-sid',
-      { policy: 'preserve-team' },
     );
     expect(mocks.taskRepo.reassignOwner).toHaveBeenNthCalledWith(
       2,
       'successor-sid',
       'caller-sid',
-      { policy: 'preserve-team' },
     );
   });
 
@@ -357,9 +351,7 @@ describe('transferHandOffResources', () => {
       count: 0,
       error: 'team transfer failed',
     });
-    expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid', {
-      policy: 'preserve-team',
-    });
+    expect(mocks.taskRepo.reassignOwner).toHaveBeenCalledWith('caller-sid', 'successor-sid');
     expect(mocks.eventEmit).not.toHaveBeenCalled();
     expect(mocks.notifyTeamMembershipChanged).not.toHaveBeenCalled();
     expect(mocks.retargetMessages).not.toHaveBeenCalled();

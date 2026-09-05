@@ -1,0 +1,5 @@
+
+> agent-deck@0.1.0 check:deployment <repo>
+> node scripts/check-deployment-automation.mjs
+
+部署自动化静态检查已通过。

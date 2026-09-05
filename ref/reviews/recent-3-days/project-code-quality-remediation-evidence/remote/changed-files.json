@@ -1,0 +1,97 @@
+[
+  {
+    "path": "src/gateways/feishu/bot-identity.test.ts",
+    "lines": 74,
+    "sha256": "c5c0a8cf8ded70402a3015a1364b2f3b93ff6cee253ac36279ab8a8a23883a31"
+  },
+  {
+    "path": "src/gateways/feishu/mapper.ts",
+    "lines": 356,
+    "sha256": "a93c818203295946e6babdd02a52318cc5a2ce797cd86b34eaad7efb0c7013e9"
+  },
+  {
+    "path": "src/gateways/feishu/message-semantics.test.ts",
+    "lines": 155,
+    "sha256": "6b3f453681e2b07bdc71a165552fe18a32c73f3fe1812c372089c4f8de1dffc8"
+  },
+  {
+    "path": "src/gateways/feishu/runtime.ts",
+    "lines": 408,
+    "sha256": "17b2019738fbf6855acd381d8b034f813f0f5502063d073e931d6c3d991177ee"
+  },
+  {
+    "path": "src/gateways/feishu/sdk.ts",
+    "lines": 161,
+    "sha256": "ac75b9fe08540f2ca1f486e8fe50e1ee0372c8b6a30e833bf8336d36ddc3e154"
+  },
+  {
+    "path": "src/gateways/im/core-bounds.ts",
+    "lines": 77,
+    "sha256": "c2c69c37383cb5d49de473878da4ef1f7d7804146c1cd0543f9923fb2c13a176"
+  },
+  {
+    "path": "src/gateways/im/redaction.ts",
+    "lines": 82,
+    "sha256": "d48c623834f205879ad300ad8e0678c02aa9e55b3cefef304e9c013b4965e1e4"
+  },
+  {
+    "path": "src/gateways/im/text-policy.test.ts",
+    "lines": 52,
+    "sha256": "b8120db4e90548ad93e87723f902e7ccd007acfeed26d76c3073af6901c94618"
+  },
+  {
+    "path": "src/gateways/im/text-policy.ts",
+    "lines": 5,
+    "sha256": "e4863874d8350aaeea75fc673e797d6c2b535aa76a7d3f3b2dcab1fe29877870"
+  },
+  {
+    "path": "src/gateways/im/validation.ts",
+    "lines": 201,
+    "sha256": "03828d4a110199f9b96df877235b7afc2619ed8389b635ce08228b0ad5f150a5"
+  },
+  {
+    "path": "src/hosts/daemon/frame-writer.ts",
+    "lines": 179,
+    "sha256": "6d6a5354521a892ba34f384fafa58afee4c2c2fe1152660370413f11306e2d2f"
+  },
+  {
+    "path": "src/hosts/daemon/types.ts",
+    "lines": 118,
+    "sha256": "6f54362e0f4d608befdb04ad08452b0d8891a1b4859783ba4b599f1b2e286d48"
+  },
+  {
+    "path": "src/hosts/local-worker/daemon-frame-channels.test.ts",
+    "lines": 122,
+    "sha256": "e496bc47df9493a0ea70c157f207593c5936f235785cad6718e35b3ced5eb74a"
+  },
+  {
+    "path": "src/hosts/local-worker/daemon-frame-channels.ts",
+    "lines": 155,
+    "sha256": "45159dd08236b85ef16b0b2ede3730790d3fe940e27e5d97d36b390f721d8e2c"
+  },
+  {
+    "path": "src/hosts/local-worker/frame-bridge-types.ts",
+    "lines": 83,
+    "sha256": "6a342395a416fe569ac1406b19c2de0349100e3c53d9006e98ff1b289b4f1c3c"
+  },
+  {
+    "path": "src/hosts/local-worker/frame-bridge.test.ts",
+    "lines": 471,
+    "sha256": "8624a2e8213c745d32c6e9490d3e482bf3a0cff792e50682df9481cd9c50089f"
+  },
+  {
+    "path": "src/hosts/local-worker/frame-bridge.ts",
+    "lines": 389,
+    "sha256": "17704545ee3c2ebfe20ff0dd8067d4a8ed952ff7eb784ddfe6002973a3c9f3f7"
+  },
+  {
+    "path": "src/hosts/local-worker/frame-output-waiters.test.ts",
+    "lines": 88,
+    "sha256": "11863f4d89b277be1924a243be22a5f2b8a8f3fbded6ae720ed897f3b12e287a"
+  },
+  {
+    "path": "src/hosts/local-worker/relay-output-capacity.test.ts",
+    "lines": 198,
+    "sha256": "b60d365d785e53847c3347e47f86f3cb6ef9db6c630af75e15ef3e8ca856e846"
+  }
+]

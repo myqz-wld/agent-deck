@@ -12,12 +12,17 @@ import type {
   BrowserStateProjectionEvent,
   BrowserStateSnapshot,
   BrowserStateSource,
+  BrowserShowRequest,
 } from '@shared/browser-view';
 import { IpcEvent, IpcInvoke } from '@shared/ipc-channels';
 
 import { subscribe } from './_helpers';
 
 export const browserApi = {
+  getPendingBrowserShow: (): Promise<BrowserShowRequest | null> =>
+    ipcRenderer.invoke(IpcInvoke.BrowserShowPending),
+  onBrowserShowRequested: (callback: (request: BrowserShowRequest | null) => void): (() => void) =>
+    subscribe(IpcEvent.BrowserShowRequested, callback),
   getBrowserState: (source: BrowserStateSource): Promise<BrowserStateSnapshot | null> =>
     ipcRenderer.invoke(IpcInvoke.BrowserStateGet, source),
   beginBrowserPresentation: (

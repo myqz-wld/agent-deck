@@ -37,6 +37,7 @@ import {
 } from './SessionDetailShell';
 import { IabPanel } from './IabPanel';
 import { useBrowserState } from './use-browser-state';
+import { useBrowserShowTab } from '@renderer/hooks/use-browser-show';
 import {
   IabComposerBridgeProvider,
   unsupportedIabComposerTarget,
@@ -77,6 +78,9 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
     [session.id],
   );
   const browserState = useBrowserState(browserSource);
+  const browserPresentationKey = useBrowserShowTab(
+    session.id, browserState.snapshot, () => changeTab('browser'),
+  );
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
@@ -301,6 +305,7 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
           fullBleed: true,
           content: (
             <IabPanel
+              key={browserPresentationKey}
               source={browserSource}
               snapshot={browserState.snapshot}
             />

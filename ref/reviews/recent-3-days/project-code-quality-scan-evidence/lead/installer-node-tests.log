@@ -1,0 +1,48 @@
+TAP version 13
+# Subtest: local macOS install paths
+    # Subtest: selects the electron-builder output directory for each supported architecture
+    ok 1 - selects the electron-builder output directory for each supported architecture
+      ---
+      duration_ms: 0.555041
+      type: 'test'
+      ...
+    # Subtest: resolves the packaged app below build/dist
+    ok 2 - resolves the packaged app below build/dist
+      ---
+      duration_ms: 0.159625
+      type: 'test'
+      ...
+    1..2
+ok 1 - local macOS install paths
+  ---
+  duration_ms: 1.211375
+  type: 'suite'
+  ...
+# Subtest: local macOS CLI symlink detection
+    # Subtest: normalizes relative link targets
+    ok 1 - normalizes relative link targets
+      ---
+      duration_ms: 0.107875
+      type: 'test'
+      ...
+    # Subtest: recognizes an existing link to the installed wrapper
+    ok 2 - recognizes an existing link to the installed wrapper
+      ---
+      duration_ms: 1.797917
+      type: 'test'
+      ...
+    1..2
+ok 2 - local macOS CLI symlink detection
+  ---
+  duration_ms: 2.038
+  type: 'suite'
+  ...
+1..2
+# tests 4
+# suites 2
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 53.412542

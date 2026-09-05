@@ -1,21 +1,7 @@
-/**
- * Task Manager 持久层 delete 子模块（plan task-team-id-restore-20260525 v024）。
- *
- * 提供 delete method + 共享 cleanupBlocksReferences helper export。
- *
- * - **delete**：cascade BFS 按 blocks 链路向下扫,predicate 可挡跨 team cascade（tool 层
- *   写权限校验）;单 db.transaction() 内原子化两步:(1) chunked DELETE FROM tasks WHERE
- *   id IN (?)（CHUNK=500 防 SQLite IN 999 上限）(2) 调 cleanupBlocksReferences 清理
- *   survivors 的 blocks/blocked_by 引用
- * - **cleanupBlocksReferences**：export 让 handoff 子模块（applyHandOffSkipPolicy）共享
- *   同款 cleanup 逻辑 — handoff → delete 单向依赖（同 Step 4.3/4.4 的 index → recoverer
- *   单向 pattern）。**必须在 db.transaction() 内调**（不自开 tx,由 caller 保证原子性）
- *
- * F6 修法（deep-review Round 1 reviewer-codex LOW-1）:cleanup 内裸 JSON.parse 包 try/catch,
- * 避免脏 JSON survivor 让 cleanup 阶段抛错并整 tx 回滚。
- */
+/** Delete tasks and clean surviving dependency references in one transaction. */
 import type { Database } from 'better-sqlite3';
-import { type Row, getById, safeJsonArray } from './_deps';
+import { getById } from './_deps';
+import { cleanupBlocksReferences } from '../task-dependency-cleanup';
 import type { TaskRecord } from '@shared/types';
 
 export interface TaskDeleteOps {
@@ -29,49 +15,6 @@ export interface TaskDeleteOps {
       ) => boolean;
     },
   ): string[];
-}
-
-/**
- * 提取 cleanup blocks/blocked_by 引用为 helper,让 del() 与 applyHandOffSkipPolicy()
- * 共享同款 cleanup 逻辑（v024 plan §D4 + Step B1）。
- *
- * **必须在 db.transaction() 内调**（不自开 tx,由 caller 保证原子性）。
- * SELECT survivors → 过滤 blocks/blocked_by 引用 deletedIds 的项 → UPDATE 写回。
- *
- * **F6 修法**(deep-review Round 1 reviewer-codex LOW-1):裸 JSON.parse 包 try/catch,
- * 避免脏 JSON survivor 让 cleanup 阶段抛错并整 tx 回滚。
- */
-export function cleanupBlocksReferences(db: Database, deletedIds: Set<string>): void {
-  const survivors = db.prepare(`SELECT id, blocks, blocked_by FROM tasks`).all() as Array<
-    Pick<Row, 'id' | 'blocks' | 'blocked_by'>
-  >;
-  const cleanStmt = db.prepare(`UPDATE tasks SET blocks = ?, blocked_by = ? WHERE id = ?`);
-  for (const s of survivors) {
-    const blocks = safeJsonArray(s.blocks, 'blocks', s.id).filter((x) => !deletedIds.has(x));
-    const blockedBy = safeJsonArray(s.blocked_by, 'blocked_by', s.id).filter(
-      (x) => !deletedIds.has(x),
-    );
-    // 仅当真发生变化才 UPDATE,避免 N+1 写放大。
-    let origBlocks: unknown;
-    let origBlockedBy: unknown;
-    try {
-      origBlocks = JSON.parse(s.blocks);
-    } catch {
-      origBlocks = null; // 标 invalid → changedBlocks=true 写回 clean
-    }
-    try {
-      origBlockedBy = JSON.parse(s.blocked_by);
-    } catch {
-      origBlockedBy = null;
-    }
-    const changedBlocks =
-      !Array.isArray(origBlocks) || origBlocks.length !== blocks.length;
-    const changedBlockedBy =
-      !Array.isArray(origBlockedBy) || origBlockedBy.length !== blockedBy.length;
-    if (changedBlocks || changedBlockedBy) {
-      cleanStmt.run(JSON.stringify(blocks), JSON.stringify(blockedBy), s.id);
-    }
-  }
 }
 
 export function createDelete(db: Database): TaskDeleteOps {

@@ -1,0 +1,68 @@
+{
+  "src/main/session": {
+    "total": 217,
+    "production": 127,
+    "test_or_fixture": 90,
+    "directly_inspected": 27
+  },
+  "src/contracts": {
+    "total": 65,
+    "production": 36,
+    "test_or_fixture": 29,
+    "directly_inspected": 3
+  },
+  "src/main/store": {
+    "total": 139,
+    "production": 86,
+    "test_or_fixture": 53,
+    "directly_inspected": 23
+  },
+  "src/main/agent-deck-mcp": {
+    "total": 105,
+    "production": 65,
+    "test_or_fixture": 40,
+    "directly_inspected": 40
+  },
+  "src/shared": {
+    "total": 58,
+    "production": 50,
+    "test_or_fixture": 8,
+    "directly_inspected": 2
+  },
+  "src/main/plan-review": {
+    "total": 8,
+    "production": 4,
+    "test_or_fixture": 4,
+    "directly_inspected": 2
+  },
+  "src/main/teams": {
+    "total": 10,
+    "production": 6,
+    "test_or_fixture": 4,
+    "directly_inspected": 5
+  },
+  "src/composition": {
+    "total": 7,
+    "production": 5,
+    "test_or_fixture": 2,
+    "directly_inspected": 3
+  },
+  "src/core": {
+    "total": 6,
+    "production": 3,
+    "test_or_fixture": 3,
+    "directly_inspected": 2
+  },
+  "src/main/hook-server": {
+    "total": 13,
+    "production": 7,
+    "test_or_fixture": 6,
+    "directly_inspected": 5
+  },
+  "src/main/diff-review": {
+    "total": 2,
+    "production": 1,
+    "test_or_fixture": 1,
+    "directly_inspected": 2
+  }
+}

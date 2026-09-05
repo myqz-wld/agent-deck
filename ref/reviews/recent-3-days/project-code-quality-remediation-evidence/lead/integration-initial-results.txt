@@ -1,0 +1,12 @@
+First integrated run, before cross-scope fixture corrections:
+
+ FAIL  src/clients/relay/stream-client.test.ts > Relay client -> router -> local Worker integration > round-trips opaque Core frames above initial credit and forwards cancellation
+ FAIL  src/renderer/remote-host/RemoteIssuesPanel.test.tsx > RemoteIssuesPanel > reuses the Local board/detail while routing a stable retry intent only to Remote
+ FAIL  src/main/agent-deck-mcp/__tests__/enter-exit-worktree.handler.test.ts > structured automatic worktree handlers > accepts enter only after durable preparation and arms exact-result correlation
+ Test Files  3 failed | 1019 passed | 2 skipped (1024)
+      Tests  3 failed | 6332 passed | 3 skipped (6338)
+   Duration  348.53s (transform 9.83s, setup 6.42s, collect 50.79s, tests 77.82s, environment 19.45s, prepare 36.40s)
+
+The Relay client fixture and worktree handler fixture were corrected; their 23 focused cases passed.
+RemoteIssuesPanel retry feedback failed once at a synchronous DOM assertion. Its isolated 12 cases passed; the assertion now awaits the asynchronous inline error while retaining the request/retry checks.
+Complete raw initial output was temporary; its enormous byte-array diff was omitted from the durable summary.

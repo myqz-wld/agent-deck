@@ -8,13 +8,11 @@ import type {
   ContextRuntimeIdentityEvidence,
   PermissionRequest,
   PermissionResponse,
-  UploadedAttachmentRef,
 } from '@shared/types';
 import type { AdapterHookServerPort } from '@main/adapters/types/adapter-context';
 import type { CodexAppServerThread } from '../app-server/client';
 import type { CodexTokenUsageSnapshot } from '../app-server/token-usage-observation';
-import type { CodexInput } from './input-pack';
-import type { QueuedAgentMessage } from '@main/adapters/types';
+import type { CodexDeferredUserEvent, CodexPendingTurnQueue } from './pending-turn-queue';
 import type { TrustedContinuationAcceptanceController } from '@main/adapters/trusted-continuation';
 import type { CodexLiveTokenEstimateState } from './live-token-rate-core';
 import type { RecoveryContinuationHost } from '@main/session/continuation-context/recovery-types';
@@ -22,11 +20,7 @@ import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 
 export type { CodexLiveTokenEstimateState } from './live-token-rate-core';
 
-export interface CodexDeferredUserEvent {
-  text: string;
-  attachments?: UploadedAttachmentRef[];
-  turnCorrelationId?: string;
-}
+export type { CodexDeferredUserEvent } from './pending-turn-queue';
 
 export interface CodexSubmittingUserMessage {
   event: CodexDeferredUserEvent;
@@ -92,22 +86,10 @@ export interface InternalSession {
   runtimeIdentity: ContextRuntimeIdentityEvidence | null;
   /** Present only while the first trusted continuation turn crosses its native readiness boundary. */
   trustedContinuationAcceptance?: TrustedContinuationAcceptanceController;
-  /**
-   * 待发送 user message 串行队列（同 thread 不能并发 turn）。
-   *
-   * 元素类型 `CodexInput`（`string | CodexUserInput[]`）：
-   * - 纯文本消息：直接 push 字符串
-   * - 带 attachments：push `[{type:'local_image', path}, ..., {type:'text', text}]`
-   *   codex 子进程自己 fs 读 path（不像 Claude SDK 要主进程 readFile + base64 喂进队列），
-   *   所以 codex 这边天然没有「base64 常驻队列内存」问题
-   */
-  pendingMessages: CodexInput[];
-  /** User events intentionally emitted only when the corresponding queued turn is dequeued. */
-  pendingDeferredUserEvents?: Array<CodexDeferredUserEvent | null>;
+  /** Serialized turns retain lazy image paths, deferred user events and handoff metadata together. */
+  pendingTurns: CodexPendingTurnQueue;
   /** Queued turn submitted to app-server but not yet accepted by turn/start. */
   submittingUserMessage?: CodexSubmittingUserMessage | null;
-  /** Provider-neutral metadata kept in FIFO lockstep with production-enqueued pendingMessages. */
-  pendingHandOffMessages?: Array<QueuedAgentMessage | null>;
   /** Bounded in-memory acknowledgements for retry-safe internal provider turns. */
   acceptedEnqueueFingerprints?: Map<string, string>;
   /** 当前正在跑的 turn 的 AbortController；中断时调用 abort() */

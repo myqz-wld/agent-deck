@@ -13,6 +13,7 @@ import {
   assertWorktreeClean,
   assertWorktreeHeadIsReferenced,
 } from './git-safety';
+import { readGitCommonDirectory } from './git-repository';
 
 const WORKTREE_GIT_CHECK_TIMEOUT_MS = 30_000;
 const WORKTREE_REMOVE_TIMEOUT_MS = 10 * 60_000;
@@ -74,17 +75,6 @@ function assertOwnedPath(
   }
 }
 
-async function readWorktreeMainRepo(worktreePath: string): Promise<string> {
-  const common = await runGit(
-    ['rev-parse', '--git-common-dir'],
-    worktreePath,
-  );
-  const absolute = path.isAbsolute(common)
-    ? common
-    : path.resolve(worktreePath, common);
-  return path.dirname(absolute);
-}
-
 export async function preflightStructuredWorktreeExit(
   record: WorktreeTransitionRecord,
   input: {
@@ -101,13 +91,18 @@ export async function preflightStructuredWorktreeExit(
   if (!existsSyncDefault(record.worktreePath)) {
     return { exists: false };
   }
-  const actualMainRepo = await readWorktreeMainRepo(record.worktreePath);
+  const [actualRepository, leasedRepository, leasedCheckout] = await Promise.all([
+    readGitCommonDirectory(record.worktreePath, runGit),
+    readGitCommonDirectory(record.mainRepo, runGit),
+    runGit(['rev-parse', '--show-toplevel'], record.mainRepo),
+  ]);
   if (
-    normalizedPath(actualMainRepo) !==
-    normalizedPath(record.mainRepo)
+    normalizedPath(actualRepository) !==
+    normalizedPath(leasedRepository) ||
+    normalizedPath(leasedCheckout) !== normalizedPath(record.mainRepo)
   ) {
     throw new Error(
-      `worktree git common dir resolves to ${actualMainRepo}, not leased main repo ${record.mainRepo}.`,
+      `worktree repository ${actualRepository} does not match leased main repo ${record.mainRepo}.`,
     );
   }
   await assertWorktreeHeadIsReferenced(runGit, record.worktreePath);

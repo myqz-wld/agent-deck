@@ -1,0 +1,662 @@
+[
+  {
+    "path": "scripts/install-local-macos.test.mjs",
+    "lines": 57,
+    "sha256": "c32092d269460d91176d145c94d6920473096ca8c1894b3a592d742564938f02"
+  },
+  {
+    "path": "src/clients/relay/stream-client.test.ts",
+    "lines": 429,
+    "sha256": "e3695589fc43be87756f2224bd5ad16b6f0d5ee8054376d7d557de6ec4a5e73e"
+  },
+  {
+    "path": "src/gateways/feishu/bot-identity.test.ts",
+    "lines": 74,
+    "sha256": "c5c0a8cf8ded70402a3015a1364b2f3b93ff6cee253ac36279ab8a8a23883a31"
+  },
+  {
+    "path": "src/gateways/feishu/mapper.ts",
+    "lines": 356,
+    "sha256": "a93c818203295946e6babdd02a52318cc5a2ce797cd86b34eaad7efb0c7013e9"
+  },
+  {
+    "path": "src/gateways/feishu/message-semantics.test.ts",
+    "lines": 155,
+    "sha256": "6b3f453681e2b07bdc71a165552fe18a32c73f3fe1812c372089c4f8de1dffc8"
+  },
+  {
+    "path": "src/gateways/feishu/runtime.ts",
+    "lines": 408,
+    "sha256": "17b2019738fbf6855acd381d8b034f813f0f5502063d073e931d6c3d991177ee"
+  },
+  {
+    "path": "src/gateways/feishu/sdk.ts",
+    "lines": 161,
+    "sha256": "ac75b9fe08540f2ca1f486e8fe50e1ee0372c8b6a30e833bf8336d36ddc3e154"
+  },
+  {
+    "path": "src/gateways/im/core-bounds.ts",
+    "lines": 77,
+    "sha256": "c2c69c37383cb5d49de473878da4ef1f7d7804146c1cd0543f9923fb2c13a176"
+  },
+  {
+    "path": "src/gateways/im/redaction.ts",
+    "lines": 82,
+    "sha256": "d48c623834f205879ad300ad8e0678c02aa9e55b3cefef304e9c013b4965e1e4"
+  },
+  {
+    "path": "src/gateways/im/text-policy.test.ts",
+    "lines": 52,
+    "sha256": "b8120db4e90548ad93e87723f902e7ccd007acfeed26d76c3073af6901c94618"
+  },
+  {
+    "path": "src/gateways/im/text-policy.ts",
+    "lines": 5,
+    "sha256": "e4863874d8350aaeea75fc673e797d6c2b535aa76a7d3f3b2dcab1fe29877870"
+  },
+  {
+    "path": "src/gateways/im/validation.ts",
+    "lines": 201,
+    "sha256": "03828d4a110199f9b96df877235b7afc2619ed8389b635ce08228b0ad5f150a5"
+  },
+  {
+    "path": "src/hosts/daemon/frame-writer.ts",
+    "lines": 179,
+    "sha256": "6d6a5354521a892ba34f384fafa58afee4c2c2fe1152660370413f11306e2d2f"
+  },
+  {
+    "path": "src/hosts/daemon/types.ts",
+    "lines": 118,
+    "sha256": "6f54362e0f4d608befdb04ad08452b0d8891a1b4859783ba4b599f1b2e286d48"
+  },
+  {
+    "path": "src/hosts/local-worker/daemon-frame-channels.test.ts",
+    "lines": 122,
+    "sha256": "e496bc47df9493a0ea70c157f207593c5936f235785cad6718e35b3ced5eb74a"
+  },
+  {
+    "path": "src/hosts/local-worker/daemon-frame-channels.ts",
+    "lines": 155,
+    "sha256": "45159dd08236b85ef16b0b2ede3730790d3fe940e27e5d97d36b390f721d8e2c"
+  },
+  {
+    "path": "src/hosts/local-worker/frame-bridge-types.ts",
+    "lines": 82,
+    "sha256": "b60225cdd415f0c1b0be371f9633b9e4cee32aef02f661640a409eed21824bed"
+  },
+  {
+    "path": "src/hosts/local-worker/frame-bridge.test.ts",
+    "lines": 471,
+    "sha256": "8624a2e8213c745d32c6e9490d3e482bf3a0cff792e50682df9481cd9c50089f"
+  },
+  {
+    "path": "src/hosts/local-worker/frame-bridge.ts",
+    "lines": 389,
+    "sha256": "17704545ee3c2ebfe20ff0dd8067d4a8ed952ff7eb784ddfe6002973a3c9f3f7"
+  },
+  {
+    "path": "src/hosts/local-worker/frame-output-waiters.test.ts",
+    "lines": 88,
+    "sha256": "11863f4d89b277be1924a243be22a5f2b8a8f3fbded6ae720ed897f3b12e287a"
+  },
+  {
+    "path": "src/hosts/local-worker/relay-output-capacity.test.ts",
+    "lines": 198,
+    "sha256": "b60d365d785e53847c3347e47f86f3cb6ef9db6c630af75e15ef3e8ca856e846"
+  },
+  {
+    "path": "src/main/adapters/claude-code/sdk-bridge/permission-responder-core.test.ts",
+    "lines": 181,
+    "sha256": "f8e93969a08f2afdd7dfe92b3a53d45dbf84af6de6a03f2fbd7d78a16804a523"
+  },
+  {
+    "path": "src/main/adapters/claude-code/sdk-bridge/permission-responder-core.ts",
+    "lines": 354,
+    "sha256": "e2c4f00f2295d64c6663025ae739116625fac5ce715102779b2873a30cdb6ce0"
+  },
+  {
+    "path": "src/main/adapters/claude-code/sdk-bridge/send-validation.ts",
+    "lines": 85,
+    "sha256": "91dcf4740ecb0ee32e6f5b980548b80f23211420bdaa32ae071a0b5b5a5ad06e"
+  },
+  {
+    "path": "src/main/adapters/claude-code/sdk-bridge/session-lifecycle-core.test.ts",
+    "lines": 69,
+    "sha256": "2952d962e8727348279794e767bcdb15387c8fc0518fdec480090c84a305c554"
+  },
+  {
+    "path": "src/main/adapters/claude-code/sdk-bridge/session-lifecycle-core.ts",
+    "lines": 241,
+    "sha256": "82c72d359243f3205ded338efce46cbd210c9f58349317da0051258d8be58380"
+  },
+  {
+    "path": "src/main/adapters/claude-code/sdk-bridge/session-rollback-core.test.ts",
+    "lines": 128,
+    "sha256": "fecd79bfe07f9153dd7cb756c2b4d8dbf19a94652dc2de14c23842bec0407b4c"
+  },
+  {
+    "path": "src/main/adapters/claude-code/sdk-bridge/types.ts",
+    "lines": 418,
+    "sha256": "1e20b18d13b729aa29444cf8e0f5e3b306c1895855e654d44a444aed4b10e43b"
+  },
+  {
+    "path": "src/main/adapters/claude-code/sdk-bridge/user-message-stream-core.ts",
+    "lines": 140,
+    "sha256": "ef778aa35dc0174ccdae4d5f4bb908afbb92a787d6292f73a995154df014e9fb"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/__tests__/consume-fork-fixture.ts",
+    "lines": 147,
+    "sha256": "d1f7e0dac979ffcee58d7ca55145d98ba3a45099f90ff5f17f7f1f57d0615fcd"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/__tests__/per-session-codex-env.test.ts",
+    "lines": 319,
+    "sha256": "ac10eb078506a16a0ed41e25c33f883bacb5d833129d398b71e34db0a40e3858"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/__tests__/sdk-bridge.consume-fork.test.ts",
+    "lines": 179,
+    "sha256": "8a17be9a6720c3c27e42b357ca88e9fe4fb5b4784ff55ea9b8a573fcbd360473"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/__tests__/sdk-bridge.restart.test.ts",
+    "lines": 333,
+    "sha256": "092ec21aa08473195e9d8e8eb4487b9d4ee296b3603fcae4cb1c2d68d391656e"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/__tests__/wire-prefix-e2e.test.ts",
+    "lines": 476,
+    "sha256": "51dd0427a85e06545d1a37f37a130201f96553d558d518f2ff2b44b73e4a8f8b"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/__tests__/wire-prefix-fixture.ts",
+    "lines": 54,
+    "sha256": "1491adb9b17174418efc1c916a42831c87cba495adc17b6c60a412b78c4f43e1"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/__tests__/create-session-early-rollback.test.ts",
+    "lines": 64,
+    "sha256": "cf71ec05310a7fc126cd2746710d7df76992db4091982a66eba64efd94b7db95"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/__tests__/create-session-fixture.ts",
+    "lines": 308,
+    "sha256": "bce400e606a9a119096160a91c109cb59a3c28bef56218ddc33480edbe1a973d"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/__tests__/create-session-new-latency.test.ts",
+    "lines": 326,
+    "sha256": "346a8f34d041dc8e6321e4ba369acc5ed25781f71ce37abbbab2a1097ceaf91f"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/__tests__/create-session-thread-id-init.test.ts",
+    "lines": 224,
+    "sha256": "a6602cba9bcd51670fa3e3ab7604cabff799b3a90baffaa0860bec9f181d6c42"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/__tests__/cwd-transition-controller.test.ts",
+    "lines": 112,
+    "sha256": "5439177757439529ab508e99ba9a44e6400e7b0932255f2139722d4a6bc2454c"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/__tests__/message-controller-handoff.test.ts",
+    "lines": 442,
+    "sha256": "d454745187f663b505835004ea84c25f6c3be1ee1abcb005b7a46d8f43af16c7"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/__tests__/pending-turn-queue.test.ts",
+    "lines": 122,
+    "sha256": "d580e6d3352026efa27f04fc7e99dc0a743ca998f0448ff8cb984afd0165e05e"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/__tests__/session-lifecycle-coordinator.test.ts",
+    "lines": 140,
+    "sha256": "dde9b0d7222d0dac69974357080f5a4dc12fcd0307d2c8eb2d6f780bc382de5c"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/__tests__/session-retirement.test.ts",
+    "lines": 349,
+    "sha256": "4fc1570f56488d71615b29c613020406f0f72cbc75d7c0dbda045d7d54cb92c2"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/__tests__/trusted-continuation-new.test.ts",
+    "lines": 94,
+    "sha256": "cbef054960b4b1e2224780319c8bc7a6df06decf8bd2a24286487ccfc0db19ec"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/constants.ts",
+    "lines": 22,
+    "sha256": "d1ec15625f2178d630762aa892cebbb446e9bebdbbecb852852e4d4eb9cbf5f5"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/create-session/create-session-impl.ts",
+    "lines": 276,
+    "sha256": "87035718671d9da8476e8251325802d00ef9e3cd8336dff298432d00451b0476"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/create-session/create-session-validate.ts",
+    "lines": 68,
+    "sha256": "c6bba2028c4a53f63c22aed3b2f05c3bb7a66bd2e96a7a29f98eba941d117185"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/cwd-transition-controller.ts",
+    "lines": 114,
+    "sha256": "e2307fe1b33dfbd2d2d80f5d5c51bbd65b6c2fd48d3e57552dc1c5a446b29933"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/fork-session/create-forked-session-fixture.ts",
+    "lines": 272,
+    "sha256": "91e6a303285f30e3294778f82281d91a3de87bdd1549bd5b27e369450ca7d35f"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/fork-session/create-forked-session.test.ts",
+    "lines": 250,
+    "sha256": "06c53822beb8fe97389e20d4ad3e352a30cb485ec0848548fe4080b324f611f8"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/fork-session/create-forked-session.ts",
+    "lines": 273,
+    "sha256": "51e85f452d6f4da09f88f4b607da52d23da5add6182f712b8d4b24585777333a"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/index.ts",
+    "lines": 496,
+    "sha256": "c2c135af5921957f4126890a451c23a4afc34ed081eb48d41038881cf6858f7c"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/message-controller.ts",
+    "lines": 448,
+    "sha256": "9c57d8934b4e6296a24205bbfe78eaf67c9d6f9bedf9853819781aa0a30414a8"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/pending-turn-queue.ts",
+    "lines": 54,
+    "sha256": "2ab20e4c8f63088845e61730cb78998b8c45688ed518cc6535d26791c75b8500"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/resume-path-await.ts",
+    "lines": 204,
+    "sha256": "d422d019be42f4b4349b493d1fc92f638914755859c629beaf920dd243d44901"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/session-command-controller.test.ts",
+    "lines": 184,
+    "sha256": "974ab52cd9a54b806b09c99e655d612ae4a974585bae7abac0776e6d2956afb1"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/session-command-controller.ts",
+    "lines": 227,
+    "sha256": "b9f3dc63b749ef3d64235acafc313a957da5231b94a4a5f42e395cb36bd1ac91"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/session-retirement.ts",
+    "lines": 203,
+    "sha256": "90986e2d657bfa20ec06c0bbfb4f58a4029e2334995af635c3aeb1765e25ccc3"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/thread-loop.ts",
+    "lines": 498,
+    "sha256": "09ec6d2ad61c619de6ccc22df1fc15f28e6dcbb79de8f0aad25409cdcd457c91"
+  },
+  {
+    "path": "src/main/adapters/codex-cli/sdk-bridge/types.ts",
+    "lines": 139,
+    "sha256": "d1ce1d361469255248be3c1f416043b5115fbf1aed4d81867bbaaf9ed8597133"
+  },
+  {
+    "path": "src/main/adapters/grok-build/__tests__/pending-outgoing.test.ts",
+    "lines": 165,
+    "sha256": "242b73f52e7389a0857d50100969cf8ff3d7f390bd0bdeb0eaebe27ee6987ca1"
+  },
+  {
+    "path": "src/main/adapters/grok-build/pending-outgoing.ts",
+    "lines": 66,
+    "sha256": "62a10bb5aeff802b99bb9f15f0fef0359029b5a19a61bce156563ecd263ff4c7"
+  },
+  {
+    "path": "src/main/adapters/grok-build/runtime-types.ts",
+    "lines": 95,
+    "sha256": "8f25f4858718ac86653920c97834e64ae07e622da51708071b4011dd63949d1f"
+  },
+  {
+    "path": "src/main/adapters/grok-build/transport-recovery.ts",
+    "lines": 63,
+    "sha256": "b446611c2917227e3d81797ec36dbb9dbc9b27681a7aa8ee29cba51aa0f1e326"
+  },
+  {
+    "path": "src/main/adapters/grok-build/turn-queue.ts",
+    "lines": 462,
+    "sha256": "f27399b6efcb05b2cf9c5687355798893432d7c78666449991ee1980dab2430e"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/__tests__/enter-exit-worktree.handler.test.ts",
+    "lines": 419,
+    "sha256": "3cb05ffec802ab9db4ee17bcc7472c72d7e72e2a67633b8a7527fd6b4aed114e"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/__tests__/enter-exit-worktree.test.ts",
+    "lines": 219,
+    "sha256": "522c62e0201a694e6876dbf239604f8073ab5b2b6eb86b9a9e229dc1048a94ce"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/__tests__/hand-off-session.resource-transfer.test.ts",
+    "lines": 487,
+    "sha256": "1c8d862ffd8ca1a4fbac3365a7c41265418e3f982589e8fab186cd0ff323fdfe"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/__tests__/task-crud-delete.test.ts",
+    "lines": 144,
+    "sha256": "80477eb76fa5204d6ebae49ac68cdb2775ed6ebb10fd863e136a461a42966da1"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/__tests__/task-crud-read.test.ts",
+    "lines": 273,
+    "sha256": "42e5e38be231d46c5d20227e34d8bdfbc706d47e1b5f4b5ecdd1d51172e66cbe"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/__tests__/task-crud.fixture.ts",
+    "lines": 112,
+    "sha256": "954519ac1193d13221bd6938123576fd91a9315208467d3a2b5514750b8a63df"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/__tests__/task-crud.test.ts",
+    "lines": 375,
+    "sha256": "2a4ab08480444ea951f7d1a8e7c887850b9bb782eb145b121b9d67c413879adf"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/__tests__/transport-http-extra-auth.test.ts",
+    "lines": 383,
+    "sha256": "93498cc1ebe2a4296b052779f68e0b3d112da9ee23e354a6bc2cd554c8c415d7"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/__tests__/worktree-repository-identity.test.ts",
+    "lines": 115,
+    "sha256": "328048d4a3f53aa35d4acb586a3a1b961eee6d529fdff453c9b58f34aa00d6ed"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/tools/handlers/enter-worktree-impl.ts",
+    "lines": 277,
+    "sha256": "c2c03a47d9e34c1e1281071a29012ebe40dc19087adaacb463fd8b6762fb3f38"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/tools/handlers/hand-off-session/resource-transfer-coordinator.ts",
+    "lines": 435,
+    "sha256": "5c772113610caf85ef034301fc799673a03de37eae158aa4be623eeae8fcd8b2"
+  },
+  {
+    "path": "src/main/agent-deck-mcp/transport-http.ts",
+    "lines": 357,
+    "sha256": "9538003f8a2e837a3272d74974c5bb98f0f6ed767bb7d1483a6c686856e3d649"
+  },
+  {
+    "path": "src/main/browser-use/__tests__/show-fakes.ts",
+    "lines": 55,
+    "sha256": "6fccdc611b397344bccbbdc4374173cbce5a741e9e6b38f89c244c4d74d80dc8"
+  },
+  {
+    "path": "src/main/browser-use/browser-presentation-controller.ts",
+    "lines": 349,
+    "sha256": "fb72a832dc319175bb1af303a39988cb5a9d30bdb3bb390a16445abb07e4f545"
+  },
+  {
+    "path": "src/main/browser-use/browser-presentation-runtime.ts",
+    "lines": 22,
+    "sha256": "cf79d4f133ed14b4f4dda94f45542eb73d01ad73c5409e4e177a7c6689e80492"
+  },
+  {
+    "path": "src/main/browser-use/browser-show-controller.test.ts",
+    "lines": 191,
+    "sha256": "1cbd046788f809eb6f730dabed74a606fe4bdd49c14f460c1456f5cbebbcec2e"
+  },
+  {
+    "path": "src/main/browser-use/browser-show-controller.ts",
+    "lines": 124,
+    "sha256": "d4ff1077af8efbf483c8aa8f415727d835e958e396e9e59103a3b04ec264225c"
+  },
+  {
+    "path": "src/main/browser-use/browser-show-ipc.test.ts",
+    "lines": 47,
+    "sha256": "e41e575cbfada4d7ef488bd8e96eda87541949520959e74a973939f51784a6f4"
+  },
+  {
+    "path": "src/main/browser-use/browser-show-runtime.ts",
+    "lines": 22,
+    "sha256": "80a317587650990f867690d4c429ef8c84a4e79c1a0b2dc59928d8d06375bab2"
+  },
+  {
+    "path": "src/main/browser-use/engine/registry.ts",
+    "lines": 192,
+    "sha256": "60806986859db1152da0492040394f1a7be53648dde6b529a9a85ba3d9c069b6"
+  },
+  {
+    "path": "src/main/browser-use/engine/surface.ts",
+    "lines": 92,
+    "sha256": "ba6291713b407782c22847e9bbf1b09200bc761b861fab00b1452a8813b5815b"
+  },
+  {
+    "path": "src/main/browser-use/engine/tab.ts",
+    "lines": 283,
+    "sha256": "5a7747fa7babe8196b34892862a6145c2ee462eac5f9e0cb546f57c20725cc04"
+  },
+  {
+    "path": "src/main/browser-use/operation-executor.ts",
+    "lines": 385,
+    "sha256": "b6af81b5f1210da1929b8e64ef781f6a0ec1c0d817bcbe8694a36a2e613fe94a"
+  },
+  {
+    "path": "src/main/browser-use/view-host.ts",
+    "lines": 310,
+    "sha256": "83351ffe750b0f614f110fe5c7e38255edd7982ff4b29158e146e39b7efd6922"
+  },
+  {
+    "path": "src/main/event-bus.ts",
+    "lines": 127,
+    "sha256": "94d3b92a615af59b7815b42b977fc0ecca22c4b7b31c4b0a7387c8b81a58ee62"
+  },
+  {
+    "path": "src/main/hook-server/server.test.ts",
+    "lines": 179,
+    "sha256": "f74578a8bc9bd9707aa606f24f820351c40e3434d17dbb3e6bd17f4d8c5341f3"
+  },
+  {
+    "path": "src/main/hook-server/server.ts",
+    "lines": 263,
+    "sha256": "6d56754ab35acb3bddf1082ba5338b1bc1c6860f959cd8a6084891c088bc79e4"
+  },
+  {
+    "path": "src/main/index/__tests__/bootstrap-wiring-observability.test.ts",
+    "lines": 500,
+    "sha256": "cfdc64392709353dd4aec71eac5755238b5532e80568524d5d0b969e9981c02b"
+  },
+  {
+    "path": "src/main/index/__tests__/checkpoint-bootstrap-entry.test.ts",
+    "lines": 264,
+    "sha256": "8e555725174c0f97f060a3bee6db0329d55dac0bc6b90c936e88762e8da2ca15"
+  },
+  {
+    "path": "src/main/index/bootstrap-infra.ts",
+    "lines": 385,
+    "sha256": "48951d8a5a97bd31730c032a761db85250c789d4dd5cf0c968381b9189d7d6fc"
+  },
+  {
+    "path": "src/main/index/bootstrap-wiring.ts",
+    "lines": 280,
+    "sha256": "8a17e414e398062cd1e578aae99035f68ff157dfb6ccd5b775f8ef68db742b7a"
+  },
+  {
+    "path": "src/main/ipc/browser.ts",
+    "lines": 52,
+    "sha256": "7f93a7313fca9d45a1912d60165bd2e50da36536a6941a9618dfff9d7225eb72"
+  },
+  {
+    "path": "src/main/notify/__tests__/sound-windows.test.ts",
+    "lines": 49,
+    "sha256": "67bb0d6f27ea3a41cbd43ab3c04d66939e4ac60730d1c27c3fa3ca688c370280"
+  },
+  {
+    "path": "src/main/notify/sound.ts",
+    "lines": 201,
+    "sha256": "2eecc9874350a73f5ed5539f19e261a4f96f43706a310c382760c57be1c8af96"
+  },
+  {
+    "path": "src/main/session/worktree-transition/git-cleanup.ts",
+    "lines": 297,
+    "sha256": "ba1c226b60b32406fb7af051f058858736a10097ee188dc015032357170f61eb"
+  },
+  {
+    "path": "src/main/session/worktree-transition/git-repository.ts",
+    "lines": 34,
+    "sha256": "3480b35f1575461ee9b10beab523b19181132bf6bbd59c452175d1e3102c967b"
+  },
+  {
+    "path": "src/main/store/__tests__/session-task-dependencies.test.ts",
+    "lines": 125,
+    "sha256": "acc4e83d5fd3045e5605c5de1a75457092860df129363f6540e24329779fa51e"
+  },
+  {
+    "path": "src/main/store/__tests__/task-repo-delete.test.ts",
+    "lines": 218,
+    "sha256": "2e1019f1d85cd98707a92e1ef357a169e096835411fdf8305ba920f2845b66e4"
+  },
+  {
+    "path": "src/main/store/__tests__/task-repo-handoff.test.ts",
+    "lines": 98,
+    "sha256": "e611883909502da179c8028e1b9fe018665d2b554e22149c433e3e090de9929c"
+  },
+  {
+    "path": "src/main/store/__tests__/task-repo-team.test.ts",
+    "lines": 208,
+    "sha256": "aeaee25cf04d8dd857e29c22fcf8b199c2dd2b3b608fce6a9abb5e718fb12488"
+  },
+  {
+    "path": "src/main/store/__tests__/task-repo.fixture.ts",
+    "lines": 19,
+    "sha256": "ca39d497c6fcba069389a8bc54631e366af799a12b55eba36a93b094df96d49f"
+  },
+  {
+    "path": "src/main/store/__tests__/task-repo.test.ts",
+    "lines": 330,
+    "sha256": "a8d31c0d0117bbb15982b450517269e76d81d987b5fcf8b873496d0e9d577ab2"
+  },
+  {
+    "path": "src/main/store/session-repo/lifecycle.ts",
+    "lines": 242,
+    "sha256": "31995268abafa14c8c2cde1f356c932d5afabc2ae8521f33ca113b731f50e136"
+  },
+  {
+    "path": "src/main/store/session-repo/worktree-transition-delete.ts",
+    "lines": 37,
+    "sha256": "b2ceea567572173e0a6ee84d9ed59270a6f74e4fbe2fff4c9ac0cc13d142360f"
+  },
+  {
+    "path": "src/main/store/task-dependency-cleanup.ts",
+    "lines": 43,
+    "sha256": "e1dc55460d7a05199c70a006720220995593b6079f67729dbbf0235060016d99"
+  },
+  {
+    "path": "src/main/store/task-repo.ts",
+    "lines": 57,
+    "sha256": "25431041fbcab1d03099980c6ab4dc9ddbc9cd3e9d3919505f02c591e070eeab"
+  },
+  {
+    "path": "src/main/store/task-repo/_deps.ts",
+    "lines": 231,
+    "sha256": "e3cfa0c7ccbf2fda8a41d40f71d3e65fb64a675578d96b0c5e9e96e19f487b5d"
+  },
+  {
+    "path": "src/main/store/task-repo/task-repo-delete.ts",
+    "lines": 77,
+    "sha256": "1e8478a9b29e5580aa64003eff14ee78248773b5a39c7d1975596aadcca56bdb"
+  },
+  {
+    "path": "src/main/store/task-repo/task-repo-handoff.ts",
+    "lines": 15,
+    "sha256": "c72774f6f4805adb43182061910188ba468f2ab0673da992f17e9eab77ffa313"
+  },
+  {
+    "path": "src/preload/api/browser.ts",
+    "lines": 49,
+    "sha256": "2fc3c6f2b145332d9d4597faf19063787ca520c20044c0d615e54d1325adc51c"
+  },
+  {
+    "path": "src/renderer/App.tsx",
+    "lines": 483,
+    "sha256": "4077577aa61351e4230143c531e63f66ecab8020b5947dad99d0115a8976d5cb"
+  },
+  {
+    "path": "src/renderer/components/SessionDetail/RemoteDiffPanel.tsx",
+    "lines": 145,
+    "sha256": "7b953eff71363d2a219cf2e54223dad8335f89ed1fa7018fd7f6c56f37525c1e"
+  },
+  {
+    "path": "src/renderer/components/SessionDetail/__tests__/file-change-continuity.test.tsx",
+    "lines": 150,
+    "sha256": "35b90b8a6a50a486e310babbafc27f71462d50dc1303885e42680e91174b24a7"
+  },
+  {
+    "path": "src/renderer/components/SessionDetail/file-change-pages.ts",
+    "lines": 66,
+    "sha256": "8fcf6e9450641bddd1fd78c1cc7a6f08b0a0c547df101252f6eb0442af07fe15"
+  },
+  {
+    "path": "src/renderer/components/SessionDetail/index.tsx",
+    "lines": 361,
+    "sha256": "318d90b997505f3fbfa4927a444b9c3be1e722dd32c432d0ec7cdd5013682243"
+  },
+  {
+    "path": "src/renderer/components/SessionDetail/remote-diff-continuity.test.tsx",
+    "lines": 57,
+    "sha256": "fe9f2c9403101085fb1e15919f77feb2f9e4f23eaf886558771463a71ef334a2"
+  },
+  {
+    "path": "src/renderer/components/SessionDetail/use-file-change-pages.ts",
+    "lines": 100,
+    "sha256": "e424fdb7155d089f5b223a7bf07dd231439fe37f16c37bea0489917277b78699"
+  },
+  {
+    "path": "src/renderer/components/SessionDetail/use-file-changes.ts",
+    "lines": 42,
+    "sha256": "ea32f9bb84454c90e9c224bcf304d881a66ce253b9106c4bc5662e1c1bd307ed"
+  },
+  {
+    "path": "src/renderer/hooks/use-browser-show.test.tsx",
+    "lines": 122,
+    "sha256": "98353bf59f2a5a907ba6fabbe53c5b6afb3c932abd47cf41cabaa155bd83a446"
+  },
+  {
+    "path": "src/renderer/hooks/use-browser-show.ts",
+    "lines": 72,
+    "sha256": "db97d9bab3ebe8249afcbb0cdc96eda154e73da37f7e2eeee14e6506a0d8d8ee"
+  },
+  {
+    "path": "src/renderer/remote-host/RemoteIssuesPanel.test.tsx",
+    "lines": 478,
+    "sha256": "e28ac378474fda75f0ffa91036f4558613ecf3af6583f90767c8c2e62e1dec6d"
+  },
+  {
+    "path": "src/renderer/remote-host/source-selection-intents.test.tsx",
+    "lines": 101,
+    "sha256": "842e771021b6f8f1338213ea21585b1f64512b722434abc72c2cd6e34e8a5ab2"
+  },
+  {
+    "path": "src/renderer/remote-host/use-remote-host-snapshot.ts",
+    "lines": 388,
+    "sha256": "ec0c457cdf744244ffe3c03b1c9ac17b2dd1290c7fcc631b3778e6ab5c86c33d"
+  },
+  {
+    "path": "src/shared/browser-view.ts",
+    "lines": 120,
+    "sha256": "29c79bad5e2fac4e7be2e0e23338ab1c2d92e5304ef5ecff652cbb06cb732916"
+  },
+  {
+    "path": "src/shared/ipc-channels.ts",
+    "lines": 223,
+    "sha256": "83ed8093feb4e5cebf1517441883b7fe8be8cc4644f218d859dea166207f4511"
+  },
+  {
+    "path": "vitest.config.ts",
+    "lines": 35,
+    "sha256": "b0b1e39b826a243f19eaf925c33278b5c014985917200a38746156e0109a2fe5"
+  }
+]

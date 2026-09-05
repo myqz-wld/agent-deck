@@ -1,7 +1,6 @@
 import { FeishuGatewayError } from './errors';
 import type { FeishuGatewayLimits } from './types';
-
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+import { CONTROL_DATA_CHARACTERS, FORBIDDEN_TEXT_CHARACTERS } from './text-policy';
 
 function fail(field: string): never {
   throw new FeishuGatewayError(
@@ -37,7 +36,7 @@ export function assertBoundedCoreValue(
     if (typeof item === 'string') {
       if (
         new TextEncoder().encode(item).byteLength > limits.maxCoreFieldBytes ||
-        CONTROL.test(item)
+        FORBIDDEN_TEXT_CHARACTERS.test(item)
       ) {
         fail(field);
       }
@@ -61,7 +60,7 @@ export function assertBoundedCoreValue(
       if (
         key.length === 0 ||
         new TextEncoder().encode(key).byteLength > 128 ||
-        CONTROL.test(key)
+        CONTROL_DATA_CHARACTERS.test(key)
       ) {
         fail(field);
       }

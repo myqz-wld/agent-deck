@@ -56,10 +56,11 @@ export class HookServer {
     this.mcpTokenRawBuf = Buffer.from(mcpToken);
     this.app = Fastify({ logger: false });
 
-    // onRequest 是 fastify 最早的 hook，在路由处理前触发。
-    // 校验 /hook/ 与 /mcp 两类前缀路由（独立 token），其他路径（健康检查 / 未来扩展）不卡。
+    // Fastify matches encoded and absolute-form targets before onRequest. Use the registered
+    // route identity so equivalent request targets cannot select a different auth policy.
     this.app.addHook('onRequest', async (request, reply) => {
-      if (request.url.startsWith('/hook/')) {
+      const route = request.routeOptions.url ?? '';
+      if (route.startsWith('/hook/')) {
         this.checkAuth(
           request.headers['authorization'],
           this.expectedHookAuthBuf,
@@ -67,7 +68,7 @@ export class HookServer {
         );
         return;
       }
-      if (request.url.startsWith('/mcp')) {
+      if (route.startsWith('/mcp')) {
         this.checkMcpAuth(request, reply);
         return;
       }
@@ -76,7 +77,7 @@ export class HookServer {
     // Fastify rejects malformed JSON before an adapter handler runs. Normalize that boundary too,
     // so parser details and raw input never escape through the hook HTTP response.
     this.app.setErrorHandler((error, request, reply) => {
-      if (!request.url.startsWith('/hook/')) {
+      if (!request.routeOptions.url?.startsWith('/hook/')) {
         reply.send(error);
         return;
       }

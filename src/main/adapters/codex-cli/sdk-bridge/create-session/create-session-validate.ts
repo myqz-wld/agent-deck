@@ -42,7 +42,7 @@ export function validateCreateSessionOpts(
     throw new Error('首条消息不能为空：codex SDK 需要至少一条 prompt 才能启动 turn');
   }
   // REVIEW_4 M4：首条 prompt 也走 MAX_MESSAGE_LENGTH 上限。原版只 sendMessage 校验，
-  // pendingMessages: [opts.prompt] 直接进队列，让 cli.ts / 其他入口可绕过 cap。
+  // pendingTurns: [opts.prompt] 直接进队列，让 cli.ts / 其他入口可绕过 cap。
   // attachments 不算 text length（IPC 层 30MB 总附件独立校验）
   // REVIEW_24 HIGH-2 follow-up：byteLength → length 与 messageRepo cap 全局对齐
   const promptLen = opts.prompt.length;

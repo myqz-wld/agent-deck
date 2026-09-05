@@ -1,0 +1,40 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs src/main/store/__tests__/task-repo.test.ts src/main/store/__tests__/task-repo-delete.test.ts src/main/store/__tests__/task-repo-team.test.ts src/main/store/__tests__/task-repo-handoff.test.ts src/main/store/__tests__/session-task-dependencies.test.ts src/main/store/__tests__/worktree-transition-lifecycle.test.ts src/main/store/session-repo/__tests__/pin-lifecycle.test.ts src/main/agent-deck-mcp/__tests__/task-crud.test.ts src/main/agent-deck-mcp/__tests__/hand-off-session.resource-transfer.test.ts --maxWorkers\=1 --minWorkers\=1
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 <repo>
+
+ ✓ src/main/agent-deck-mcp/__tests__/task-crud.test.ts (44 tests) 13ms
+ ✓ src/main/agent-deck-mcp/__tests__/hand-off-session.resource-transfer.test.ts (10 tests) 6ms
+ ✓ src/main/store/__tests__/task-repo.test.ts (23 tests) 137ms
+ ✓ src/main/store/session-repo/__tests__/pin-lifecycle.test.ts (14 tests) 103ms
+ ✓ src/main/store/__tests__/worktree-transition-lifecycle.test.ts (6 tests) 27ms
+ ❯ src/main/store/__tests__/task-repo-delete.test.ts (13 tests | 1 failed) 51ms
+   × task-repo / cascade delete > F6 (deep-review Round 1 LOW-1):脏 JSON survivor 不让 delete cleanup 整 tx 回滚 7ms
+     → vi is not defined
+ ✓ src/main/store/__tests__/task-repo-team.test.ts (16 tests) 55ms
+ ✓ src/main/store/__tests__/session-task-dependencies.test.ts (8 tests) 38ms
+ ✓ src/main/store/__tests__/task-repo-handoff.test.ts (6 tests) 29ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/main/store/__tests__/task-repo-delete.test.ts > task-repo / cascade delete > F6 (deep-review Round 1 LOW-1):脏 JSON survivor 不让 delete cleanup 整 tx 回滚
+ReferenceError: vi is not defined
+ ❯ src/main/store/__tests__/task-repo-delete.test.ts:69:21
+     67|     // outer transaction 回滚,target 都没删成。修后 try/catch 兜底 + …
+     68|     // 让 cleanup 写回 clean JSON,target 正常删 + survivor 脏 JSON 被…
+     69|     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() =>…
+       |                     ^
+     70|     try {
+     71|       const dirty = repo.create({ subject: 'dirty-survivor', ownerSess…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 8 passed (9)
+      Tests  1 failed | 139 passed (140)
+   Start at  20:19:02
+   Duration  2.94s (transform 318ms, setup 81ms, collect 543ms, tests 457ms, environment 1ms, prepare 307ms)
+
+ ELIFECYCLE  Test failed. See above for more details.

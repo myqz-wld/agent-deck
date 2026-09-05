@@ -150,11 +150,14 @@ describe('bootstrap wiring observability', () => {
       'CommandOrControl+Alt+-',
     ]);
     expect(mocks.eventOn.mock.calls.map(([event]) => event)).toEqual(
-      ('agent-event|session-upserted|session-removed|session-renamed|summary-added|' +
+      ('agent-event|browser-show-request|session-upserted|session-removed|session-renamed|summary-added|' +
        'session-focus-request|task-changed|issue-changed|token-usage-changed|token-rate-tick|' +
        'caller-archive-failed|agent-deck-message-enqueued|' +
        'agent-deck-message-status-changed|agent-deck-message-purged').split('|'),
     );
+    const show = { requestId: 'show-1', source: { kind: 'local', sessionId: 'owner-a' }, tabId: 1 };
+    listener('browser-show-request')(show);
+    expect(mocks.safeSend).toHaveBeenCalledWith(IpcEvent.BrowserShowRequested, show);
   });
 
   it('rate-limits projection failure, summarizes at five minutes, and logs one recovery', async () => {

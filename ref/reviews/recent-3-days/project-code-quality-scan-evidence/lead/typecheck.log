@@ -1,0 +1,10 @@
+
+> agent-deck@0.1.0 typecheck <repo>
+> pnpm check:architecture && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json
+
+
+> agent-deck@0.1.0 check:architecture <repo>
+> node scripts/check-architecture-boundaries.mjs && node scripts/check-core-node-boundaries.mjs
+
+[architecture-boundaries] passed
+[core-node-boundaries] passed (121 candidate)

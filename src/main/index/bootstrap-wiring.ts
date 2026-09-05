@@ -139,6 +139,7 @@ export function initWiring(settings: AppSettings): void {
   // Window size toggles use this callback to keep renderer compact state synchronized.
   floating.emitCompactChanged = (compact) => safeSend(IpcEvent.CompactToggled, compact);
   eventBus.on('agent-event', (e) => safeSend(IpcEvent.AgentEvent, e));
+  eventBus.on('browser-show-request', (request) => safeSend(IpcEvent.BrowserShowRequested, request));
   // Team projection may touch storage, so failure is swallowed at the synchronous event boundary.
   eventBus.on('session-upserted', (s) => {
     try {

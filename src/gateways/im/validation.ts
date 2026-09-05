@@ -1,5 +1,6 @@
 import { isJsonValue, type JsonValue } from '@contracts/index';
 import { FeishuGatewayError } from './errors';
+import { CONTROL_DATA_CHARACTERS, FORBIDDEN_TEXT_CHARACTERS } from './text-policy';
 import type {
   EnrolledFeishuCredential,
   FeishuCardActionEvent,
@@ -9,7 +10,6 @@ import type {
 } from './types';
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@/$-]*$/;
-const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 const BASE_FIELDS = [
   'appId',
   'chatId',
@@ -93,7 +93,7 @@ function validateBase(object: Record<string, unknown>): void {
   }
   if (object.displayName !== undefined) {
     const name = boundedUtf8(object.displayName, 'displayName', 256);
-    if (CONTROL.test(name)) {
+    if (CONTROL_DATA_CHARACTERS.test(name)) {
       throw new FeishuGatewayError('invalid_event', 'displayName contains control characters');
     }
   }
@@ -194,7 +194,7 @@ export function parseFeishuInboundEvent(value: unknown, maximumBytes = 32_768): 
 
 export function requireBoundedText(text: string, maximumBytes: number): string {
   const bounded = boundedUtf8(text, 'text', maximumBytes);
-  if (CONTROL.test(bounded)) {
+  if (FORBIDDEN_TEXT_CHARACTERS.test(bounded)) {
     throw new FeishuGatewayError('invalid_command', 'Message contains forbidden control characters');
   }
   return bounded;

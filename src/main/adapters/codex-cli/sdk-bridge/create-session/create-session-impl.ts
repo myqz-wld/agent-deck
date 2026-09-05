@@ -50,6 +50,7 @@
  */
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
 import { packCodexInput } from '../input-pack';
+import { CodexPendingTurnQueue } from '../pending-turn-queue';
 import { buildCodexThreadOptions } from '../thread-options-builder';
 import { runCreateSessionRollback } from '../create-session-rollback';
 import type { InternalSession } from '../types';
@@ -58,12 +59,7 @@ import { validateCreateSessionOpts } from './create-session-validate';
 import { runCreateSessionResumePath } from './create-session-resume';
 import { runCreateSessionNewPath } from './create-session-new';
 import { resolveCodexCreateRuntime } from './runtime-selection';
-import type {
-  CreateSessionDeps,
-  CreateSessionOpts,
-  CreateSessionResult,
-  PreparedContext,
-} from './_deps';
+import type { CreateSessionDeps, CreateSessionOpts, CreateSessionResult, PreparedContext } from './_deps';
 import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { buildInitialEnqueueState } from '@main/adapters/enqueue-idempotency';
 
@@ -228,16 +224,16 @@ export async function createSessionImpl(
       thread,
       runtimeIdentity: null,
       trustedContinuationAcceptance: opts.trustedContinuationAcceptance,
-      pendingMessages: firstInput ? [firstInput] : [],
-      pendingDeferredUserEvents: firstInput ? [initialEnqueue.deferredUserEvent] : [],
-      pendingHandOffMessages: firstInput
-        ? [{
-            text: initialTurn.persistedUserText,
-            ...(opts.attachments && opts.attachments.length > 0
-              ? { attachments: opts.attachments.map((attachment) => ({ ...attachment })) }
-              : {}),
-          }]
-        : [],
+      pendingTurns: new CodexPendingTurnQueue(firstInput ? [{
+        input: firstInput,
+        deferredUserEvent: initialEnqueue.deferredUserEvent,
+        handOffMessage: {
+          text: initialTurn.persistedUserText,
+          ...(opts.attachments && opts.attachments.length > 0
+            ? { attachments: opts.attachments.map((attachment) => ({ ...attachment })) }
+            : {}),
+        },
+      }] : []),
       currentTurn: null,
       currentTurnId: null,
       turnLoopRunning: false,

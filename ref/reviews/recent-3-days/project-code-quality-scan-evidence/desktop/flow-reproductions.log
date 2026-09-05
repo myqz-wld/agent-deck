@@ -1,0 +1,18 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/desktop/vitest.config.mjs --reporter\=verbose
+
+
+ RUN  v2.1.9 <repo>
+
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/desktop/flow-reproductions.test.tsx > observes stale Diff data after leaving and reopening the same session tab
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/desktop/flow-reproductions.test.tsx > observes lost initial cursor when an incremental refresh supersedes first-page load
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/desktop/flow-reproductions.test.tsx > observes a prior Remote choice overwrite a newer Local choice through the actual App callback
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/desktop/flow-reproductions.test.tsx > observes an inaccessible revision after a supported 51-file event burst on an exhausted list
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/desktop/browser-show-reproduction.test.tsx > observes open(show=true) report visible while the production default keeps the view parked
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/desktop/windows-sound-reproduction.test.tsx > observes unescaped filename subexpression inside the Windows PowerShell command
+
+ Test Files  3 passed (3)
+      Tests  6 passed (6)
+   Start at  18:59:44
+   Duration  1.16s (transform 127ms, setup 45ms, collect 207ms, tests 20ms, environment 410ms, prepare 88ms)

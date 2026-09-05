@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { CodexPendingTurnQueue } from '../pending-turn-queue';
 import type { ForkedSessionHandle, ForkSessionSource } from '../../../types/fork-session';
 import type { CodexAppServerClient } from '../../app-server/client';
 import { resolveCodexThreadRuntimeIdentity } from '../../app-server/runtime-identity';
@@ -6,25 +7,12 @@ import type { CodexBridgeOptions, InternalSession } from '../types';
 import type { CreateSessionOpts } from '../create-session/_deps';
 import type { ThreadLoop } from '../thread-loop';
 import { AGENT_ID } from '../constants';
-import {
-  extractAttachmentPaths,
-  packCodexAppServerInput,
-  packCodexInput,
-} from '../input-pack';
+import { extractAttachmentPaths, packCodexAppServerInput, packCodexInput } from '../input-pack';
 import { persistSessionFields } from '../session-finalize';
 import { selectCodexForkBoundary } from './source-boundary';
-import {
-  buildForkedFirstTurnInput,
-  buildForkInstructionReset,
-} from './instruction-reset';
-import {
-  type CodexForkTargetRuntime,
-} from './target-runtime';
-import {
-  cleanupCodexFork,
-  type CodexForkCleanupState,
-  type CodexForkLifecycleOps,
-} from './rollback';
+import { buildForkedFirstTurnInput, buildForkInstructionReset } from './instruction-reset';
+import { type CodexForkTargetRuntime } from './target-runtime';
+import { cleanupCodexFork, type CodexForkCleanupState, type CodexForkLifecycleOps } from './rollback';
 import type { CodexBridgeRuntimeHost } from '../runtime-host-core';
 
 export type CodexForkFaultPhase =
@@ -146,8 +134,8 @@ export async function createCodexForkedSession(
         runtime.threadOptions,
         targetClient.baseConfig,
       ),
-      pendingMessages: [
-        packCodexAppServerInput(
+      pendingTurns: new CodexPendingTurnQueue([{
+        input: packCodexAppServerInput(
           buildForkedFirstTurnInput(
             boundary.currentUserInputs,
             target.prompt!,
@@ -155,13 +143,13 @@ export async function createCodexForkedSession(
           ),
           extractAttachmentPaths(delegatedInput),
         ),
-      ],
-      pendingHandOffMessages: [{
-        text: target.prompt!,
-        ...(target.attachments && target.attachments.length > 0
-          ? { attachments: target.attachments.map((attachment) => ({ ...attachment })) }
-          : {}),
-      }],
+        handOffMessage: {
+          text: target.prompt!,
+          ...(target.attachments && target.attachments.length > 0
+            ? { attachments: target.attachments.map((attachment) => ({ ...attachment })) }
+            : {}),
+        },
+      }]),
       currentTurn: null,
       currentTurnId: null,
       turnLoopRunning: false,

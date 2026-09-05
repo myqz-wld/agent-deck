@@ -8,6 +8,7 @@ import {
   type ClientHello,
 } from '@contracts/index';
 import { DaemonProtocolConnection, type DaemonCoreRuntime } from '@hosts/daemon';
+import { DAEMON_WRITE_PROGRESS_EVENT } from '@hosts/daemon/frame-writer';
 import type { RelayResetCode } from '@protocol/relay';
 
 import type {
@@ -33,6 +34,7 @@ class RelayDaemonStream extends Duplex {
   private terminal = false;
   private suppressOutputTerminal = false;
   private inputClosed = false;
+  private outputWriting = false;
 
   constructor(private readonly output: CoreFrameOutput) {
     super({ readableHighWaterMark: 4 * 1024 * 1024 });
@@ -49,11 +51,23 @@ class RelayDaemonStream extends Duplex {
       callback(new Error('Relay daemon stream is closed'));
       return;
     }
-    try {
-      this.output.data(Buffer.from(chunk));
-      callback();
-    } catch (error) {
-      callback(errorValue(error));
+    this.outputWriting = true;
+    void this.writeOutput(chunk).then(
+      () => { this.outputWriting = false; callback(); },
+      (error: unknown) => { this.outputWriting = false; callback(errorValue(error)); },
+    );
+  }
+
+  private async writeOutput(chunk: Buffer): Promise<void> {
+    // The daemon writer retains and accounts for the original frame until this write completes.
+    // Route frame/credit/queue limits bound each hand-off, including a full-size Core frame.
+    const maximum = this.output.maxChunkBytes;
+    if (!Number.isSafeInteger(maximum) || maximum <= 0) throw new Error('Invalid Relay chunk limit');
+    for (let offset = 0; offset < chunk.byteLength; offset += maximum) {
+      if (this.terminal || !await this.output.data(chunk.subarray(offset, offset + maximum))) {
+        throw new Error('Relay daemon output was cancelled');
+      }
+      this.emit(DAEMON_WRITE_PROGRESS_EVENT);
     }
   }
 
@@ -62,7 +76,8 @@ class RelayDaemonStream extends Duplex {
       this.terminal = true;
       if (!this.suppressOutputTerminal) {
         try {
-          if (error) this.output.reset('protocol_error');
+          // A destroyed in-flight frame cannot be completed by draining the admitted prefix.
+          if (error || this.outputWriting) this.output.reset('protocol_error');
           else this.output.close();
         } catch {
           // The frame bridge already owns terminal containment for this stream.

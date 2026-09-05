@@ -74,7 +74,7 @@ export async function awaitResumedThreadStart(args: AwaitResumedThreadStartArgs)
       if (cleaned) return;
       cleaned = true;
       internal.intentionallyClosed = true;
-      internal.pendingMessages.length = 0;
+      internal.pendingTurns.clear();
       try {
         internal.currentTurn?.abort();
       } catch {

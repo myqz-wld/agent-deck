@@ -56,7 +56,7 @@ export class ThreadLoop {
    * 2. 30s fallback → tempKey 顶上，emit error + finished
    * 3. earlyErr（spawn 立即失败）→ 同 fallback，但 errorText 用 SDK 抛的真实 stderr
    *
-   * 首条消息已由 caller push 进 `internal.pendingMessages`（避免重复传参）；
+   * 首条消息已由 caller push 进 `internal.pendingTurns`（避免重复传参）；
    * `promptText` + `attachments` 是给 emit message event 的 payload，
    * 让 UI 显示纯文本 + 附图缩略图（emit payload 不直接含 codex Input 形态）。
    */
@@ -246,7 +246,7 @@ export class ThreadLoop {
     });
   }
   /**
-   * 串行消费 pendingMessages 的 turn loop。同时刻只跑一个 turn（codex thread 限制）。
+   * 串行消费 pendingTurns 的 turn loop。同时刻只跑一个 turn（codex thread 限制）。
    *
    * @param key 最初登记到 sessions map 的 key（tempKey 或 resume 的 realId）
    * @param onFirstId 拿到第一条 thread.started 时回调（仅新建路径需要）
@@ -268,11 +268,9 @@ export class ThreadLoop {
       while (
         !internal.retireAfterCurrentTurn &&
         internal.cwdTransitionGeneration == null &&
-        internal.pendingMessages.length > 0
+        internal.pendingTurns.length > 0
       ) {
-        const input = internal.pendingMessages.shift()!;
-        const deferredUserEvent = internal.pendingDeferredUserEvents?.shift() ?? null;
-        internal.pendingHandOffMessages?.shift();
+        const { input, deferredUserEvent } = internal.pendingTurns.consume()!;
         const controller = new AbortController();
         internal.currentTurn = controller;
         const submittingUserMessage = deferredUserEvent
@@ -449,7 +447,7 @@ export class ThreadLoop {
           } else if (earlyErrCb) {
             // 第一个 turn 在拿到 thread.started 前就挂了（codex spawn 后立即 exit）。
             // 通知 startNewThreadAndAwaitId 用真实 stderr 立即结算外层 promise，
-            // 然后 break 出 while——已死的 thread 不再处理后续 pendingMessages。
+            // 然后 break 出 while——已死的 thread 不再处理后续 pendingTurns。
             earlyErrCb(msg);
             earlyErrCb = undefined;
             firstIdCb = undefined;

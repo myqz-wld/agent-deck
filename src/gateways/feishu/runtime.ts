@@ -21,6 +21,7 @@ import type { FeishuActionSecretDisposalPort } from './nonce';
 import { FeishuPairingEventHandler } from './pairing-event-handler';
 import { createFeishuCoreProbe } from './core-verification';
 import { createOfficialFeishuConnectionFactory, createOfficialFeishuOpenApi } from './sdk';
+import type { FeishuEventMapperOptions } from './mapper';
 import { FeishuSourceRegistry } from './source-registry';
 import { SqliteFeishuGatewayStore } from './sqlite-store';
 import { OfficialFeishuTransport } from './transport';
@@ -320,9 +321,12 @@ function buildWithSecrets(
       callbackWindowMs: config.callbackWindowMs,
       pendingPresentationLifetimeMs: config.pendingPresentationLifetimeMs,
     });
+    const mapper: FeishuEventMapperOptions = {
+      appId: config.appId, tenantKey: config.tenantKey, now: () => clock.now(),
+    };
     const events = new FeishuSdkEventAdapter(
       gateway,
-      { appId: config.appId, tenantKey: config.tenantKey, now: () => clock.now() },
+      mapper,
       sources,
       audit,
       pairing,
@@ -336,6 +340,7 @@ function buildWithSecrets(
         audit.sdkLogger,
         config.handshakeTimeoutMs,
         config.pingTimeoutSeconds,
+        async () => { mapper.botOpenId = await api.botOpenId(config.startupTimeoutMs); },
       ),
       handlers: events,
       health: store,

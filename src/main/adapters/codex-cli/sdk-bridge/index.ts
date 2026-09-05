@@ -21,10 +21,7 @@ import type {
   UploadedAttachmentRef,
 } from '@shared/types';
 import { SessionRecoverer } from './recoverer';
-import {
-  defaultCodexResumeJsonlExists,
-  defaultCwdExists,
-} from './recoverer/jsonl-discovery';
+import { defaultCodexResumeJsonlExists, defaultCwdExists } from './recoverer/jsonl-discovery';
 import { createSessionImpl } from './create-session/create-session-impl';
 import type { CreateSessionOpts } from './create-session/_deps';
 import { createCodexForkedSession } from './fork-session/create-forked-session';
@@ -51,7 +48,7 @@ export type { CodexSessionHandle, CodexBridgeOptions } from './types';
  *   复用 permission queue
  * - 无 setPermissionMode（同上）
  * - 无 hook 通道时序竞争（codex 无 hook），不调 sessionManager.expectSdkSession
- * - 同一 thread 不能并发 turn（codex CLI 共享 ~/.codex/sessions 文件），用 pendingMessages 串行
+ * - 同一 thread 不能并发 turn（codex CLI 共享 ~/.codex/sessions 文件），用 pendingTurns 串行
  * - interrupt = AbortController.abort() → SIGTERM 子进程；下条消息可继续同 thread
  */
 export class CodexSdkBridge {

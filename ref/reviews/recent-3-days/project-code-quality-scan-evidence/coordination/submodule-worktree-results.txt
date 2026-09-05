@@ -1,0 +1,29 @@
+
+> agent-deck@0.1.0 test .
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/coordination/vitest.config.cjs /tmp/agent-deck-scan/2026-09-04-project-scan/coordination/submodule-worktree.test.ts
+
+
+ RUN  v2.1.9 .
+
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/submodule-worktree.test.ts > freezes the wrong repository HEAD when called from an ordinary initialized submodule
+{
+  "callerCwd": "superproject/lib",
+  "derivedMainRepo": "../../../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/runtime-tmp/submodule-fixture-FS6hOi/superproject/.git/modules",
+  "selectedSuperprojectHead": true,
+  "selectedLibraryHead": false,
+  "files": {
+    "superproject": true,
+    "library": false
+  }
+}
+
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/submodule-worktree.test.ts > freezes the wrong repository HEAD when called from an ordinary initialized submodule
+exit preflight rejects the wrong stored mainRepo
+
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/submodule-worktree.test.ts (1 test) 1987ms
+   ✓ freezes the wrong repository HEAD when called from an ordinary initialized submodule 1986ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  19:08:20
+   Duration  3.94s (transform 502ms, setup 245ms, collect 507ms, tests 1.99s, environment 0ms, prepare 242ms)

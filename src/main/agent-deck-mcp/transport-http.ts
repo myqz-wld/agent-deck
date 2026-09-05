@@ -77,6 +77,14 @@ export function resolveAuthenticatedAdapterId(
   return agentId && isSessionAdapterId(agentId) ? agentId : null;
 }
 
+function hasAuthenticatedCaller(value: unknown): value is McpAuthInfo {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const auth = value as Partial<McpAuthInfo>;
+  if (auth.fallbackToGlobal === true) return auth.resolvedSid === null;
+  return auth.fallbackToGlobal === false &&
+    typeof auth.resolvedSid === 'string' && auth.resolvedSid.trim().length > 0;
+}
+
 /** Build a fresh SDK server and register the tools visible to the authenticated adapter. */
 export async function buildAgentDeckMcpServerForExternalTransport(
   transportName: 'http',
@@ -140,10 +148,14 @@ export async function registerAgentDeckMcpHttpRoutes(
     method: 'POST',
     url: '/mcp',
     handler: async (req, reply) => {
+      const authInfo = (req.raw as { auth?: unknown }).auth;
+      if (!hasAuthenticatedCaller(authInfo)) {
+        reply.code(401).send({ ok: false, error: 'unauthorized' });
+        return;
+      }
       const body = req.body as unknown;
       const observation = safeBeginObservation(observer, body);
 
-      const authInfo = (req.raw as { auth?: McpAuthInfo }).auth;
       const transport = new http.StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });

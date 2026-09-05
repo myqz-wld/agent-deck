@@ -265,7 +265,7 @@ describe('RemoteIssuesPanel', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /保存/u }));
     });
-    expect(screen.getByText('问题更新失败，请稍后重试。')).toBeTruthy();
+    expect(await screen.findByText('问题更新失败，请稍后重试。')).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /保存/u }));
     });

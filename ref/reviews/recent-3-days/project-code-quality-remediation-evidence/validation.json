@@ -1,0 +1,72 @@
+{
+  "reviewed_at": "2026-09-04",
+  "baseline_commit": "072dd7a284eebc2752dab7e5d5505aa2ee480b77",
+  "final_head": "072dd7a284eebc2752dab7e5d5505aa2ee480b77",
+  "typecheck": {
+    "command": "pnpm typecheck",
+    "exit_code": 0,
+    "architecture": "passed",
+    "core_node_boundary_candidates": 121,
+    "node_web_compilers": "passed"
+  },
+  "full_test": {
+    "command": "pnpm run test --maxWorkers=1 --minWorkers=1",
+    "exit_code": 0,
+    "files_passed": 1022,
+    "files_skipped": 2,
+    "tests_passed": 6335,
+    "tests_skipped": 3,
+    "seconds": 338.78
+  },
+  "skips": [
+    {
+      "file": "src/hosts/provider-session/live-colima-acceptance.test.ts",
+      "reason": "Opt-in live Provider/Colima acceptance was not requested."
+    },
+    {
+      "file": "src/main/session/continuation-context/__tests__/codex-live-smoke.test.ts",
+      "reason": "Opt-in live Codex smoke was not requested."
+    },
+    {
+      "file": "src/hosts/provider-session/node-transport-listener.test.ts",
+      "reason": "One Linux-only case is skipped on macOS."
+    }
+  ],
+  "build": {
+    "command": "pnpm build",
+    "exit_code": 0,
+    "outputs": [
+      "main",
+      "preload",
+      "renderer",
+      "build-info"
+    ],
+    "installed_or_deployed": false
+  },
+  "source_manifest": {
+    "files": 132,
+    "over_500_lines": 0,
+    "hashes_verified": true
+  },
+  "sqlite_binding": {
+    "before": "463d208825f4d2660f4ec14181563c4b2ddbfeb779584c9b3251f0d7aafb2c67",
+    "after": "463d208825f4d2660f4ec14181563c4b2ddbfeb779584c9b3251f0d7aafb2c67",
+    "unchanged": true,
+    "rebuilt": false
+  },
+  "source_entrypoints": {
+    "reachable_modules": 1613,
+    "test_only_fixtures_or_helpers": 18
+  },
+  "collaboration": {
+    "ordinary_workers": 3,
+    "all_results_accepted": true,
+    "all_workers_closed": true,
+    "deep_or_simple_review_skill_used": false
+  },
+  "scope_result": {
+    "defects_fixed": 14,
+    "low_items_addressed": 4,
+    "accepted_source_items_deferred": 0
+  }
+}

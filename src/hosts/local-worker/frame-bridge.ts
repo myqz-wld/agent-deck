@@ -5,84 +5,18 @@ import {
   type RelayRouteFrame,
 } from '@protocol/relay';
 import { resolveRelayOutputChunkBytes } from './frame-bridge-chunking';
-import type { RemoteOwnerGrantClaim } from '@contracts/index';
-
-export interface CoreFrameOutput {
-  data(payload: Uint8Array): void;
-  close(): void;
-  reset(code?: RelayResetCode): void;
-}
-
-export interface CoreFrameChannel {
-  write(payload: Uint8Array): boolean;
-  closeInput(): void;
-  reset(code: RelayResetCode): void;
-}
-
-export interface CoreFrameChannelFactory {
-  open(
-    streamId: string,
-    output: CoreFrameOutput,
-    access: CoreFrameAccessContext,
-  ): CoreFrameChannel;
-}
-
-export interface CoreFrameAccessContext {
-  readonly connectionScope: string;
-  readonly surface: 'desktop' | 'feishu';
-  readonly grant: RemoteOwnerGrantClaim;
-}
-
-export interface LocalWorkerFrameBridgeLimits {
-  initialCreditBytes: number;
-  maxCreditBytes: number;
-  maxOutputQueueBytesPerStream: number;
-  maxOutputQueueBytesTotal: number;
-  maxOutputQueueFramesPerStream: number;
-  maxOutputQueueFramesTotal: number;
-  maxFrameBytes: number;
-}
-
-export const DEFAULT_LOCAL_WORKER_BRIDGE_LIMITS: LocalWorkerFrameBridgeLimits = {
-  initialCreditBytes: 256 * 1024,
-  maxCreditBytes: 1024 * 1024,
-  maxOutputQueueBytesPerStream: 512 * 1024,
-  maxOutputQueueBytesTotal: 4 * 1024 * 1024,
-  maxOutputQueueFramesPerStream: 1024,
-  maxOutputQueueFramesTotal: 8192,
-  maxFrameBytes: 4 * 1024 * 1024,
-};
-
-interface BridgeStream {
-  streamId: string;
-  nextInboundSequence: number;
-  nextOutboundSequence: number;
-  inputCredit: number;
-  inputClosed: boolean;
-  outputCredit: number;
-  outputChunkBytes: number;
-  outputQueue: Uint8Array[];
-  outputQueueBytes: number;
-  closePending: boolean;
-  channel: CoreFrameChannel | null;
-}
-
-function assertLimits(limits: LocalWorkerFrameBridgeLimits): void {
-  for (const [name, value] of Object.entries(limits)) {
-    if (!Number.isSafeInteger(value) || value <= 0) {
-      throw new RangeError(`${name} must be a positive safe integer`);
-    }
-  }
-  if (limits.initialCreditBytes > limits.maxCreditBytes) {
-    throw new RangeError('initialCreditBytes cannot exceed maxCreditBytes');
-  }
-  if (limits.maxOutputQueueBytesPerStream > limits.maxOutputQueueBytesTotal) {
-    throw new RangeError('Per-stream output queue cannot exceed total output queue');
-  }
-  if (limits.maxOutputQueueFramesPerStream > limits.maxOutputQueueFramesTotal) {
-    throw new RangeError('Per-stream output frames cannot exceed total output frames');
-  }
-}
+import {
+  assertLimits,
+  DEFAULT_LOCAL_WORKER_BRIDGE_LIMITS,
+  type BridgeStream,
+  type CoreFrameChannelFactory,
+  type LocalWorkerFrameBridgeLimits,
+} from './frame-bridge-types';
+export { DEFAULT_LOCAL_WORKER_BRIDGE_LIMITS } from './frame-bridge-types';
+export type {
+  CoreFrameAccessContext, CoreFrameChannel, CoreFrameChannelFactory, CoreFrameOutput,
+  LocalWorkerFrameBridgeLimits,
+} from './frame-bridge-types';
 
 export class LocalWorkerFrameBridge {
   private readonly streams = new Map<string, BridgeStream>();
@@ -207,22 +141,24 @@ export class LocalWorkerFrameBridge {
       inputCredit: this.limits.initialCreditBytes,
       inputClosed: false,
       outputCredit: this.limits.initialCreditBytes,
-      outputChunkBytes: resolveRelayOutputChunkBytes({
+      outputChunkBytes: Math.min(this.limits.maxOutputQueueBytesPerStream, resolveRelayOutputChunkBytes({
         instanceId: this.instanceId,
         generation: this.generation,
         streamId: frame.streamId,
         initialCreditBytes: this.limits.initialCreditBytes,
         maxCreditBytes: this.limits.maxCreditBytes,
         maxFrameBytes: this.limits.maxFrameBytes,
-      }),
+      })),
       outputQueue: [],
       outputQueueBytes: 0,
       closePending: false,
+      outputWaiter: null,
       channel: null,
     };
     this.streams.set(stream.streamId, stream);
     try {
       const channel = this.channels.open(stream.streamId, {
+        maxChunkBytes: stream.outputChunkBytes,
         data: (payload) => this.onCoreData(stream, payload),
         close: () => this.onCoreClose(stream),
         reset: (code = 'protocol_error') => this.fail(stream, code),
@@ -245,49 +181,49 @@ export class LocalWorkerFrameBridge {
     }
   }
 
-  private onCoreData(stream: BridgeStream, payload: Uint8Array): void {
-    if (this.streams.get(stream.streamId) !== stream) return;
-    if (!(payload instanceof Uint8Array) || payload.byteLength === 0) {
+  private async onCoreData(stream: BridgeStream, payload: Uint8Array): Promise<boolean> {
+    if (this.streams.get(stream.streamId) !== stream) return false;
+    if (
+      !(payload instanceof Uint8Array) || payload.byteLength === 0 ||
+      payload.byteLength > stream.outputChunkBytes || stream.closePending
+    ) {
       this.fail(stream, 'protocol_error');
-      return;
+      return false;
     }
-    if (payload.byteLength > this.limits.maxFrameBytes) {
-      this.fail(stream, 'protocol_error');
-      return;
+    // One bounded chunk may wait per stream. Producers must await its admission.
+    if (stream.outputWaiter) {
+      this.fail(stream, 'backpressure');
+      return false;
     }
-    for (let offset = 0; offset < payload.byteLength; offset += stream.outputChunkBytes) {
-      if (this.streams.get(stream.streamId) !== stream) return;
-      this.bufferCoreChunk(
-        stream,
-        payload.subarray(offset, offset + stream.outputChunkBytes),
-      );
+    try {
+      while (this.streams.get(stream.streamId) === stream) {
+        if (stream.outputQueue.length === 0 && payload.byteLength <= stream.outputCredit) {
+          stream.outputCredit -= payload.byteLength;
+          return this.emitData(stream, payload);
+        }
+        if (
+          stream.outputQueueBytes + payload.byteLength <= this.limits.maxOutputQueueBytesPerStream &&
+          this.totalOutputQueueBytes + payload.byteLength <= this.limits.maxOutputQueueBytesTotal &&
+          stream.outputQueue.length < this.limits.maxOutputQueueFramesPerStream &&
+          this.totalOutputQueueFrames < this.limits.maxOutputQueueFramesTotal
+        ) {
+          stream.outputQueue.push(payload.slice());
+          stream.outputQueueBytes += payload.byteLength;
+          this.totalOutputQueueBytes += payload.byteLength;
+          this.totalOutputQueueFrames += 1;
+          return true;
+        }
+        await new Promise<void>((resolve) => { stream.outputWaiter = resolve; });
+        stream.outputWaiter = null;
+      }
+      return false;
+    } finally {
+      if (stream.closePending && this.streams.get(stream.streamId) === stream) this.flush(stream);
     }
   }
 
-  private bufferCoreChunk(stream: BridgeStream, payload: Uint8Array): void {
-    if (stream.outputQueue.length === 0 && payload.byteLength <= stream.outputCredit) {
-      stream.outputCredit -= payload.byteLength;
-      this.emitData(stream, payload);
-      return;
-    }
-    const nextStreamBytes = stream.outputQueueBytes + payload.byteLength;
-    const nextTotalBytes = this.totalOutputQueueBytes + payload.byteLength;
-    const nextStreamFrames = stream.outputQueue.length + 1;
-    const nextTotalFrames = this.totalOutputQueueFrames + 1;
-    if (
-      nextStreamBytes > this.limits.maxOutputQueueBytesPerStream ||
-      nextTotalBytes > this.limits.maxOutputQueueBytesTotal ||
-      nextStreamFrames > this.limits.maxOutputQueueFramesPerStream ||
-      nextTotalFrames > this.limits.maxOutputQueueFramesTotal
-    ) {
-      this.fail(stream, 'backpressure');
-      return;
-    }
-    const copy = payload.slice();
-    stream.outputQueue.push(copy);
-    stream.outputQueueBytes = nextStreamBytes;
-    this.totalOutputQueueBytes = nextTotalBytes;
-    this.totalOutputQueueFrames = nextTotalFrames;
+  private wakeOutputWriters(): void {
+    for (const stream of this.streams.values()) stream.outputWaiter?.();
   }
 
   private onCoreClose(stream: BridgeStream): void {
@@ -307,7 +243,8 @@ export class LocalWorkerFrameBridge {
       stream.outputCredit -= payload.byteLength;
       if (!this.emitData(stream, payload)) return;
     }
-    if (stream.closePending && stream.outputQueue.length === 0) {
+    this.wakeOutputWriters();
+    if (stream.closePending && !stream.outputWaiter && stream.outputQueue.length === 0) {
       const closeFrame: RelayRouteFrame = {
         instanceId: this.instanceId,
         generation: this.generation,
@@ -421,6 +358,8 @@ export class LocalWorkerFrameBridge {
     stream.outputQueue.length = 0;
     stream.outputQueueBytes = 0;
     this.streams.delete(stream.streamId);
+    stream.outputWaiter?.();
+    this.wakeOutputWriters();
   }
 
   dispose(code: RelayResetCode = 'worker_disconnected'): void {

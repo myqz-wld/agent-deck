@@ -1,0 +1,115 @@
+{
+  "method": "Static and literal dynamic imports/exports, including type imports and nodeWorker query imports. Computed dynamic imports and runtime registration need separate inspection. Reachability does not prove symbol use.",
+  "roots": [
+    "src/main/index.ts",
+    "src/preload/index.ts",
+    "src/renderer/main.tsx",
+    "src/hosts/server-core/entrypoint.ts",
+    "src/hosts/server-core/runtime-entrypoint.ts",
+    "src/hosts/server-core/host-bridge-entrypoint.ts",
+    "src/hosts/server-control/entrypoint.ts",
+    "src/hosts/relay/entrypoint.ts",
+    "src/hosts/local-worker/entrypoint.ts",
+    "src/hosts/local-worker/runtime-entrypoint.ts",
+    "src/hosts/provider-session/host-entrypoint.ts",
+    "src/hosts/provider-session/shim-entrypoint.ts",
+    "src/hosts/feishu/entrypoint.ts",
+    "src/hosts/instance-manager/entrypoint.ts"
+  ],
+  "allModules": 2686,
+  "productionModules": 1631,
+  "reachableProduction": 1613,
+  "orphans": [
+    {
+      "file": "src/main/adapters/codex-cli/sdk-bridge/fork-session/create-forked-session-fixture.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/contracts/session-console-capabilities.fixture.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/hosts/appliance/outer-ceiling.fixture.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/hosts/daemon/connection-test-helpers.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/hosts/instance-manager/fake-filesystem.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/hosts/instance-manager/test-fixtures.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/hosts/provider-session/live-colima-fake-upstream.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/hosts/server-core/mcp-server-test-client.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/hosts/server-core/mcp-server.test-fixture.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/hosts/server-core/mcp-session-spawn.test-fixtures.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/hosts/server-core/runtime-core.test-fixture.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/main/adapters/codex-cli/app-server/first-model-event-watchdog-fixture.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/main/remote-host/service.test-fixture.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/main/remote-host/test-connection-fixture.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/renderer/components/pending-rows/PlanDeepReviewDialog-test-fixture.tsx",
+      "testReachable": true
+    },
+    {
+      "file": "src/renderer/remote-host/remote-dialogs-test-fixture.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/renderer/remote-host/session-detail-source-shell-test-fixture.ts",
+      "testReachable": true
+    },
+    {
+      "file": "src/renderer/remote-host/use-remote-session-source-test-fixture.ts",
+      "testReachable": true
+    }
+  ],
+  "unresolvedProduction": [
+    {
+      "file": "src/main/store/schema.ts",
+      "line": 1,
+      "spec": "./schema.sql"
+    }
+  ],
+  "computedProduction": [
+    {
+      "file": "src/hosts/linux-runtime/runtime-module.ts",
+      "line": 31,
+      "expression": "import(url)"
+    },
+    {
+      "file": "src/hosts/local-worker/darwin-runtime-module.ts",
+      "line": 62,
+      "expression": "import(url)"
+    }
+  ]
+}
