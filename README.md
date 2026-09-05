@@ -31,6 +31,9 @@ Authenticate Claude Code, Codex CLI, and Grok Build through their normal CLI wor
 
 Bundled runtimes are selected by default. Configure an external runtime only when you need a different installation.
 
+The bundled Codex CLI is `0.153.4`, pinned by `pnpm-lock.yaml`. Rebuild and reinstall the app after
+updating its dependency to use the new runtime in the installed application.
+
 ## Basic Workflow
 
 1. Open a project and start a lead session.
