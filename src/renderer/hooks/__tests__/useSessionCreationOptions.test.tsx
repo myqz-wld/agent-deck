@@ -160,7 +160,7 @@ describe('useSessionCreationOptions request fencing', () => {
 
     hook.rerender({ cwd: '/repo/two' });
     await act(() => vi.advanceTimersByTimeAsync(120));
-    expect(hook.result.current.model).toBe('grok-4.5');
+    expect(hook.result.current.model).toBe('grok-4.6');
     expect(hook.result.current.configurationLoading).toBe(false);
   });
 

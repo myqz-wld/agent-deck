@@ -58,11 +58,11 @@ describe('bundled reviewer runtime contract', () => {
 
     const codex = parseCodexAgentToml(reviewerCodex);
     expect(codex.name).toBe('reviewer-codex');
-    expect(codex.model).toBe('gpt-5.6-sol');
+    expect(codex.model).toBe('gpt-6-astra');
     expect(codex.modelReasoningEffort).toBe('xhigh');
 
     const grok = parseFrontmatter(reviewerGrok);
-    expect(grok).toMatchObject({ name: 'reviewer-grok', model: 'grok-4.5', effort: 'high' });
+    expect(grok).toMatchObject({ name: 'reviewer-grok', model: 'grok-4.6', effort: 'high' });
     expect(String(grok.tools)).toContain('Bash');
   });
 

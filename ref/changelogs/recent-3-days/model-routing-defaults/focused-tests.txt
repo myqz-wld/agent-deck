@@ -1,0 +1,25 @@
+> agent-deck@0.1.0 test <agent-deck>
+> node scripts/test-electron.mjs src/main/agent-deck-mcp/tools/schemas/spawn-runtime-schema.test.ts src/main/agent-deck-mcp/__tests__/tools.test.ts src/main/adapters/session-creation-defaults-core.test.ts src/main/adapters/__tests__/session-creation-defaults.test.ts src/main/adapters/__tests__/session-creation-defaults-host.test.ts src/main/adapters/__tests__/session-creation-config-reader.test.ts src/hosts/server-core/session-create-catalog.test.ts src/hosts/provider-state/provider-session-projection.test.ts src/hosts/provider-session/shim-entrypoint.test.ts src/hosts/provider-session/shim-inference-proxy.test.ts src/renderer/hooks/__tests__/useSessionCreationOptions.test.tsx src/main/codex-config/__tests__/bundled-reviewer-runtime.test.ts --maxWorkers\=1 --minWorkers\=1
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 <agent-deck>
+
+ ✓ src/main/agent-deck-mcp/__tests__/tools.test.ts (96 tests) 1380ms
+   ✓ agent-deck-mcp current success contract > publishes an object output schema for every non-browser tool 1338ms
+ ✓ src/main/codex-config/__tests__/bundled-reviewer-runtime.test.ts (11 tests) 9ms
+ ✓ src/main/adapters/__tests__/session-creation-defaults.test.ts (11 tests) 443ms
+ ✓ src/hosts/provider-session/shim-inference-proxy.test.ts (3 tests) 68ms
+ ✓ src/hosts/provider-state/provider-session-projection.test.ts (2 tests) 136ms
+ ✓ src/main/adapters/__tests__/session-creation-config-reader.test.ts (6 tests) 10ms
+ ✓ src/hosts/provider-session/shim-entrypoint.test.ts (6 tests) 4ms
+ ✓ src/hosts/server-core/session-create-catalog.test.ts (4 tests) 54ms
+ ✓ src/main/agent-deck-mcp/tools/schemas/spawn-runtime-schema.test.ts (1 test) 52ms
+ ✓ src/main/adapters/session-creation-defaults-core.test.ts (3 tests) 4ms
+ ✓ src/main/adapters/__tests__/session-creation-defaults-host.test.ts (1 test) 113ms
+ ✓ src/renderer/hooks/__tests__/useSessionCreationOptions.test.tsx (5 tests) 21ms
+
+ Test Files  12 passed (12)
+      Tests  149 passed (149)
+   Start at  21:59:48
+   Duration  6.36s (transform 1.41s, setup 138ms, collect 983ms, tests 2.29s, environment 185ms, prepare 470ms)

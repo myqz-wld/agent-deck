@@ -94,7 +94,7 @@ function defaultEntry(
     adapterId,
     defaults: Object.freeze({
       ...baseDefaults(settings),
-      ...(adapterId === 'grok-build' ? { model: 'grok-4.5' } : {}),
+      ...(adapterId === 'grok-build' ? { model: 'grok-4.6' } : {}),
     }),
     providers: Object.freeze([]),
     providerProfiles: Object.freeze([]),

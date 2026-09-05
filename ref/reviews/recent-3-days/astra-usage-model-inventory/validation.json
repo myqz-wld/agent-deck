@@ -1,0 +1,51 @@
+{
+  "baseline_commit": "365dabc0eab9f328ac9fc0cbd6938ecef4ca5a7d",
+  "commands": [
+    {
+      "command": "pnpm typecheck",
+      "exit_code": 0,
+      "architecture": "passed",
+      "node_and_web": "passed"
+    },
+    {
+      "command": "pnpm run test --maxWorkers=1 --minWorkers=1",
+      "exit_code": 0,
+      "files_passed": 1024,
+      "files_skipped": 2,
+      "tests_passed": 6346,
+      "tests_skipped": 3,
+      "seconds": 348.67
+    },
+    {
+      "command": "pnpm build",
+      "exit_code": 0
+    }
+  ],
+  "focused": {
+    "files": 10,
+    "tests": 96,
+    "exit_code": 0
+  },
+  "skips": [
+    "Opt-in live Provider/Colima acceptance",
+    "Opt-in live Codex smoke",
+    "Linux-only listener case on macOS"
+  ],
+  "binding": {
+    "before": "463d208825f4d2660f4ec14181563c4b2ddbfeb779584c9b3251f0d7aafb2c67",
+    "after": "463d208825f4d2660f4ec14181563c4b2ddbfeb779584c9b3251f0d7aafb2c67",
+    "unchanged": true
+  },
+  "changed_source_files": 12,
+  "over_500_lines": 0,
+  "skill_market": {
+    "head": "eca6a1c99fcebc9903df2104942a3af20392e976",
+    "modified": false,
+    "standalone_skills": 15,
+    "plugin_skills": 30
+  },
+  "host_process_actions": false,
+  "live_provider_calls": false,
+  "commit_push": false,
+  "note": "Synthetic native account quota responses and fake renderer/host fixtures were used; no live Astra account response or symptom confirmation was obtained. The reproducible multi-quota loss was repaired; existing Astra token normalization was verified."
+}

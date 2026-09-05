@@ -54,7 +54,7 @@ describe('Server Core derived session creation catalog', () => {
     });
     expect(catalog.get('grok-build')).toMatchObject({
       providers: [],
-      defaults: { model: 'grok-4.5', sessionMode: 'default' },
+      defaults: { model: 'grok-4.6', thinking: 'high', sessionMode: 'default' },
     });
   });
 

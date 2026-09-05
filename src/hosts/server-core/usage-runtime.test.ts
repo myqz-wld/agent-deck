@@ -9,6 +9,7 @@ import {
 import type { DaemonCoreRuntime, DaemonRequestInput } from '@hosts/daemon';
 import type { AgentAdapter } from '@main/adapters/types';
 import { ServerCoreUsageRuntime } from './usage-runtime';
+import { buildCodexUsageSnapshot } from '@main/adapters/provider-usage';
 
 const desktop: AuthenticatedClientAccessContext = {
   kind: 'authenticated-client', topology: 'full', instanceId: 'instance-a',
@@ -96,6 +97,22 @@ describe('ServerCoreUsageRuntime', () => {
     expect(getUsageSnapshot).toHaveBeenCalledOnce();
     await runtime.execute(request('usage.providers.get', { force: true }));
     expect(getUsageSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it('serves all model quota windows through the Core provider endpoint', async () => {
+    const { runtime } = harness(async () => buildCodexUsageSnapshot({
+      rateLimits: { limitId: 'codex', primary: { usedPercent: 12 } },
+      rateLimitsByLimitId: {
+        astra: { limitId: 'gpt-6-astra', limitName: 'GPT-6 Astra', primary: { usedPercent: 75 } },
+      },
+    }));
+    const result = await runtime.execute(request('usage.providers.get', { force: true }));
+    expect(result.result).toMatchObject({ snapshots: expect.arrayContaining([
+      expect.objectContaining({ provider: 'codex-cli', windows: expect.arrayContaining([
+        expect.objectContaining({ id: 'current', usedPercent: 12 }),
+        expect.objectContaining({ id: 'current', quotaId: 'gpt-6-astra', usedPercent: 75 }),
+      ]) }),
+    ]) });
   });
 
   it('does not pre-empt a healthy cold provider probe at the former five-second fence', async () => {

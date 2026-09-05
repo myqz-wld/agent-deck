@@ -1,0 +1,62 @@
+[
+  {
+    "path": "resources/codex-config/agent-deck-plugin/agents/reviewer-codex.toml",
+    "lines": 90,
+    "sha256": "12044cda943e561be19c30c8d02daaffa5bcc09e89e570b081895eb9b8b9911d"
+  },
+  {
+    "path": "resources/grok-config/agent-deck-plugin/agents/reviewer-grok.md",
+    "lines": 92,
+    "sha256": "ac82bf1f72d68bac909ede23277e25cd4e1ce0e90f2f33610c47d6019d147365"
+  },
+  {
+    "path": "src/contracts/usage.test.ts",
+    "lines": 131,
+    "sha256": "2bb5190f8ca8f8dc4c1c4858969cd6522740f6d2a5cfa4183faeceab527d02f5"
+  },
+  {
+    "path": "src/contracts/usage.ts",
+    "lines": 294,
+    "sha256": "d2fa7f3f1b865db832ffec9cf48e7ae933d4a4e411bb9f8ce4fa4ac55b07940b"
+  },
+  {
+    "path": "src/hosts/server-core/usage-runtime.test.ts",
+    "lines": 160,
+    "sha256": "5df7fe3f3844d9455ec1b60ffbea715be119742ce6ef90a862d72e8cfe9658f6"
+  },
+  {
+    "path": "src/main/adapters/__tests__/provider-usage-codex-quotas.test.ts",
+    "lines": 96,
+    "sha256": "732761fad7dda124b486a351c104bf000835f965510f8d361f76a3acdf05b8f5"
+  },
+  {
+    "path": "src/main/adapters/provider-usage.ts",
+    "lines": 346,
+    "sha256": "31e32206ee07951fa0ade15d1495e2b4802c73844fb576eeb5c90cdca535ed63"
+  },
+  {
+    "path": "src/main/codex-config/__tests__/bundled-reviewer-runtime.test.ts",
+    "lines": 233,
+    "sha256": "d1ed8d12d53b893d847637668f81221720ca3e671bf6a87eaca90369507f0b40"
+  },
+  {
+    "path": "src/renderer/components/data-panel/DataPanelView.astra.test.tsx",
+    "lines": 69,
+    "sha256": "b4b216971b873c61cbf5ed76a2c006f782c2d04c58ad650d668776b44ca986d5"
+  },
+  {
+    "path": "src/renderer/components/data-panel/DataPanelView.tsx",
+    "lines": 325,
+    "sha256": "5dec02e272a106e4282144fcfbf4a75cbee61388fc4872ceac07964ed9fed1e6"
+  },
+  {
+    "path": "src/shared/__tests__/model-normalize.test.ts",
+    "lines": 213,
+    "sha256": "d2423076405698c89fbb38a29f3051dc680fb8795a5da75315b934404b61c156"
+  },
+  {
+    "path": "src/shared/types/provider-usage.ts",
+    "lines": 36,
+    "sha256": "94c127c5627c89c5cda9334eada424c3610ae75dbb0f224722c3a84feb347c55"
+  }
+]

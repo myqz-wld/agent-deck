@@ -253,7 +253,7 @@ async function resolveGrokDefaults(
   const configPath =
     deps.grokConfigPath ?? join(deps.userHome ?? host.userHome(), '.grok', 'config.toml');
   const content = await readConfigText(configPath, 'grok-config', deps);
-  const model = readTopLevelQuotedString(content, 'model') ?? 'grok-4.5';
+  const model = readTopLevelQuotedString(content, 'model') ?? 'grok-4.6';
   const configuredThinking = readTopLevelQuotedString(content, 'reasoning_effort');
   return {
     ...base,

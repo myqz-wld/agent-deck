@@ -1,0 +1,67 @@
+[
+  {
+    "path": "README.md",
+    "sha256": "c3868e6064020bf669d6c812baf12a5da4b7261a8734fc8570d96eb55d5c4c7b",
+    "lines": 136
+  },
+  {
+    "path": "src/main/agent-deck-mcp/tools/schemas/target-runtime.ts",
+    "sha256": "5bc1013b27f84b3e41a6ea0c4763b8f08a38b1db48d1ac0ccdc9c0541c0d8e47",
+    "lines": 193
+  },
+  {
+    "path": "src/main/agent-deck-mcp/tools/schemas/spawn.ts",
+    "sha256": "c20a422a421d83f498989798ec4b5bcc28bc961b6323be9f9bc3200e9f5c4735",
+    "lines": 290
+  },
+  {
+    "path": "src/main/agent-deck-mcp/__tests__/tools.test.ts",
+    "sha256": "d07c52086940475ce12e13ae0d9cfec9b5705fb3799f12daa3742d31d653c0c7",
+    "lines": 2787
+  },
+  {
+    "path": "src/main/agent-deck-mcp/tools/schemas/spawn-runtime-schema.test.ts",
+    "sha256": "783cef4200deee3200545e520b8071a22c8eb79355072263af91a359a338420c",
+    "lines": 72
+  },
+  {
+    "path": "src/main/adapters/session-creation-defaults-core.ts",
+    "sha256": "f0e692c893e0a80b418be04b0fd145715360fb9035c94cd2bf9756396e458688",
+    "lines": 413
+  },
+  {
+    "path": "src/hosts/provider-state/provider-session-projection.ts",
+    "sha256": "6fab1049d6a2b9e9149a3a8bfc1f857c0fea63d809075d117d98d29fb1daee32",
+    "lines": 376
+  },
+  {
+    "path": "src/hosts/server-core/session-create-catalog.ts",
+    "sha256": "cb17bf795204655d77875d7a895e1a0bb3726e451400effcc6e3564fe96b0296",
+    "lines": 259
+  },
+  {
+    "path": "src/hosts/provider-session/shim-entrypoint.ts",
+    "sha256": "cae5e3074b2e8d466d57bdffb0b94890ace026944e33e974143e228d76bf637a",
+    "lines": 359
+  },
+  {
+    "path": "src/renderer/hooks/useSessionCreationOptions.ts",
+    "sha256": "3263f47dffaf7513fbc378cf3d0c64834b7af84483be21accde19677283c1693",
+    "lines": 341
+  },
+  {
+    "path": "src/hosts/server-core/session-create-catalog.test.ts",
+    "sha256": "2abbf898198faceb614f2507d99d71714622aadb507787e36b008b83561fb5b7",
+    "lines": 143
+  },
+  {
+    "path": "src/hosts/provider-session/shim-entrypoint.test.ts",
+    "sha256": "deebe67c1ddf719a2317373c8c299a630a1812f3543deb440950268aa30629ca",
+    "lines": 134
+  },
+  {
+    "path": "src/renderer/hooks/__tests__/useSessionCreationOptions.test.tsx",
+    "sha256": "d2917ed1f9b02b37d522b481b9d26e60dba83f38c845aee5b70cf5d7b633f1b5",
+    "lines": 217
+  }
+]

@@ -278,7 +278,7 @@ function catalog(
     if (!bytes) return '';
     try { return bytes.toString('utf8'); } finally { bytes.fill(0); }
   })();
-  const grokModel = safeText(quotedTopLevel(grokContent, 'model'), 'grok-4.5');
+  const grokModel = safeText(quotedTopLevel(grokContent, 'model'), 'grok-4.6');
   const grokThinkingValue = quotedTopLevel(grokContent, 'reasoning_effort');
   return {
     schemaVersion: 3,

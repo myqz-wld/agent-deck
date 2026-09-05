@@ -1,6 +1,6 @@
 name = "reviewer-codex"
 description = "Codex CLI-side artifact reviewer for one complete batch in a confirmed two-type pair. Independently produces normal-path, evidence-backed plan/code/prompt findings or rebuttal verdicts; never orchestrates the review or edits reviewed targets."
-model = "gpt-5.6-sol"
+model = "gpt-6-astra"
 model_reasoning_effort = "xhigh"
 
 developer_instructions = '''

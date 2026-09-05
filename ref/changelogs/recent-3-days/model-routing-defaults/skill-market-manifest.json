@@ -1,0 +1,27 @@
+[
+  {
+    "path": "catalog/entries.json",
+    "sha256": "2df99da73438735c19c97de76210467c25e108b1d07c9ffda842da97efaed34e",
+    "lines": 297
+  },
+  {
+    "path": "skills/INDEX.md",
+    "sha256": "3e5a4016dab30b44410dc555a278a92d95faf748c3f7a3d0629c6e86e7b109ed",
+    "lines": 32
+  },
+  {
+    "path": "skills/claude/parallel-tasks/SKILL.md",
+    "sha256": "39b277c3c7ea0d82faef9eac6bb69f853f984b5445e7e6f1bacd29111731bd43",
+    "lines": 123
+  },
+  {
+    "path": "skills/codex/parallel-tasks/SKILL.md",
+    "sha256": "39b277c3c7ea0d82faef9eac6bb69f853f984b5445e7e6f1bacd29111731bd43",
+    "lines": 123
+  },
+  {
+    "path": "skills/grok/parallel-tasks/SKILL.md",
+    "sha256": "39b277c3c7ea0d82faef9eac6bb69f853f984b5445e7e6f1bacd29111731bd43",
+    "lines": 123
+  }
+]

@@ -14,6 +14,8 @@ export type ProviderUsageWindowId = 'current' | 'weekly';
 
 export interface ProviderUsageWindow {
   id: ProviderUsageWindowId;
+  /** Provider quota identity for model-specific limits; omitted for the default quota. */
+  quotaId?: string;
   label: string;
   usedPercent: number | null;
   resetsAt: string | null;

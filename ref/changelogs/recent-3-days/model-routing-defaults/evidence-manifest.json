@@ -1,0 +1,26 @@
+[
+  {
+    "path": "focused-tests.txt",
+    "sha256": "2a1da0c66b12b6d387d30ec35773826d4efe4c106ee31cce13618dc11cfcefd2"
+  },
+  {
+    "path": "skill-market-manifest.json",
+    "sha256": "34781f06fd49975387fff6303a7e27a3c771128f09cedf2e4322baeb168e47b7"
+  },
+  {
+    "path": "skill-market-validate.txt",
+    "sha256": "edb754bbf3d457cefb348cf560cc79eebdf293c463f2781a33c631327257bf2c"
+  },
+  {
+    "path": "source-manifest.json",
+    "sha256": "91539ad0f9ff9a32eac22106b60cc17a7a73b1b0103375ad1ea0cf040259afe9"
+  },
+  {
+    "path": "typecheck.txt",
+    "sha256": "5bb5677946d1c782c3d8f0d7d6652912962d1b73c28dc78770e999919626c0f6"
+  },
+  {
+    "path": "validation.md",
+    "sha256": "0bdddcd2e8cf9d9e3aa3f1aa168a1ecb9214777fe8992bfd634fda2664fcc836"
+  }
+]

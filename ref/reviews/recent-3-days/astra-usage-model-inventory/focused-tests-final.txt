@@ -1,0 +1,23 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs src/main/adapters/__tests__/provider-usage-codex-quotas.test.ts src/main/adapters/__tests__/provider-usage.test.ts src/contracts/usage.test.ts src/hosts/server-core/usage-runtime.test.ts src/renderer/components/data-panel/DataPanelView.astra.test.tsx src/renderer/components/__tests__/DataPanel.test.tsx src/shared/__tests__/model-normalize.test.ts src/main/codex-config/__tests__/bundled-reviewer-runtime.test.ts src/main/adapters/codex-cli/__tests__/usage-snapshot.test.ts src/main/adapters/codex-cli/usage-probe-store.test.ts --maxWorkers\=1 --minWorkers\=1
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 <repo>
+
+ ✓ src/renderer/components/__tests__/DataPanel.test.tsx (12 tests) 257ms
+ ✓ src/renderer/components/data-panel/DataPanelView.astra.test.tsx (2 tests) 59ms
+ ✓ src/main/codex-config/__tests__/bundled-reviewer-runtime.test.ts (11 tests) 8ms
+ ✓ src/main/adapters/codex-cli/__tests__/usage-snapshot.test.ts (6 tests) 6ms
+ ✓ src/shared/__tests__/model-normalize.test.ts (35 tests) 5ms
+ ✓ src/main/adapters/__tests__/provider-usage.test.ts (9 tests) 4ms
+ ✓ src/hosts/server-core/usage-runtime.test.ts (5 tests) 7ms
+ ✓ src/contracts/usage.test.ts (6 tests) 37ms
+ ✓ src/main/adapters/__tests__/provider-usage-codex-quotas.test.ts (6 tests) 13ms
+ ✓ src/main/adapters/codex-cli/usage-probe-store.test.ts (4 tests) 6ms
+
+ Test Files  10 passed (10)
+      Tests  96 passed (96)
+   Start at  21:14:27
+   Duration  4.15s (transform 800ms, setup 108ms, collect 1.22s, tests 404ms, environment 351ms, prepare 344ms)

@@ -125,7 +125,8 @@ describe('provider session shim entrypoint', () => {
 
   it('pins Grok 4.5 to the single broker-authorized Chat Completions route', () => {
     const config = providerSessionGrokConfig('http://127.0.0.1:43121/v1');
-    expect(config).toContain('model = "grok-4.5"');
+    expect(config).toContain('model = "grok-4.6"');
+    expect(config).toContain('name = "Grok 4.6"');
     expect(config).toContain('api_backend = "chat_completions"');
     expect(config).toContain('base_url = "http://127.0.0.1:43121/v1"');
     expect(config).not.toMatch(/auth\.json|bearer|credential|xai-[A-Za-z0-9]/i);

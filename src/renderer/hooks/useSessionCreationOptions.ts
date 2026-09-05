@@ -336,6 +336,6 @@ function mergeRemembered(
 
 function fallbackForAdapter(adapterId: string): SessionCreationDefaults {
   if (adapterId === 'claude-code') return { ...SAFE_FALLBACK, model: 'sonnet' };
-  if (adapterId === 'grok-build') return { ...SAFE_FALLBACK, model: 'grok-4.5' };
+  if (adapterId === 'grok-build') return { ...SAFE_FALLBACK, model: 'grok-4.6' };
   return { ...SAFE_FALLBACK };
 }

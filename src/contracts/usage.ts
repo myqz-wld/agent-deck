@@ -3,6 +3,7 @@ import { SessionConsoleContractError } from './session-console-common';
 export const USAGE_RATE_MAX_ITEMS = 256;
 export const USAGE_DAILY_MAX_ITEMS = 5_000;
 export const USAGE_PROVIDER_MAX_ITEMS = 3;
+export const USAGE_PROVIDER_MAX_WINDOWS = 64;
 // Leave headroom for the daemon response envelope inside the 4 MiB transport frame.
 export const USAGE_RESPONSE_MAX_BYTES = 3 * 1024 * 1024;
 
@@ -49,6 +50,7 @@ export type UsageProviderStatusDto =
 
 export interface UsageProviderWindowDto {
   id: 'current' | 'weekly';
+  quotaId?: string;
   label: string;
   usedPercent: number | null;
   resetsAt: string | null;
@@ -219,9 +221,9 @@ export function parseUsageTokenResult(value: unknown, dailyLimit: number): Usage
 
 function window(value: unknown, field: string): UsageProviderWindowDto {
   const raw = object(value, field);
-  const keys = Object.hasOwn(raw, 'windowMinutes')
-    ? ['id', 'label', 'resetsAt', 'usedPercent', 'windowMinutes']
-    : ['id', 'label', 'resetsAt', 'usedPercent'];
+  const keys = ['id', 'label', 'resetsAt', 'usedPercent'];
+  if (Object.hasOwn(raw, 'windowMinutes')) keys.push('windowMinutes');
+  if (Object.hasOwn(raw, 'quotaId')) keys.push('quotaId');
   exact(raw, keys, field);
   if (raw.id !== 'current' && raw.id !== 'weekly') fail(`${field}.id`);
   const resetsAt = raw.resetsAt === null
@@ -230,6 +232,9 @@ function window(value: unknown, field: string): UsageProviderWindowDto {
   if (resetsAt !== null && !Number.isFinite(Date.parse(resetsAt))) fail(`${field}.resetsAt`);
   return {
     id: raw.id,
+    ...(Object.hasOwn(raw, 'quotaId')
+      ? { quotaId: text(raw.quotaId, `${field}.quotaId`, 512, true) }
+      : {}),
     label: text(raw.label, `${field}.label`, 512, true),
     usedPercent: finite(raw.usedPercent, `${field}.usedPercent`),
     resetsAt,
@@ -253,9 +258,11 @@ function snapshot(value: unknown, field: string): UsageProviderSnapshotDto {
   ];
   if (!providers.includes(raw.provider as UsageProviderIdDto)) fail(`${field}.provider`);
   if (!statuses.includes(raw.status as UsageProviderStatusDto)) fail(`${field}.status`);
-  if (!Array.isArray(raw.windows) || raw.windows.length > 4) fail(`${field}.windows`);
+  if (!Array.isArray(raw.windows) || raw.windows.length > USAGE_PROVIDER_MAX_WINDOWS) {
+    fail(`${field}.windows`);
+  }
   const windows = raw.windows.map((item, index) => window(item, `${field}.windows[${index}]`));
-  if (new Set(windows.map((item) => item.id)).size !== windows.length) {
+  if (new Set(windows.map((item) => JSON.stringify([item.quotaId ?? null, item.id]))).size !== windows.length) {
     fail(`${field}.windows`);
   }
   return {

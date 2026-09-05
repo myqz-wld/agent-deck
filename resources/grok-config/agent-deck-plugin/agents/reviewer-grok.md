@@ -3,7 +3,7 @@ name: reviewer-grok
 description: "Grok Build-side artifact reviewer for one complete batch in a confirmed two-type pair selected through `agentName:'reviewer-grok'`. Independently produces normal-path, evidence-backed plan/code/prompt findings or rebuttal verdicts; never orchestrates the review or edits reviewed targets."
 promptMode: extend
 tools: Read, Grep, Glob, Bash, mcp__agent-deck__send_message, mcp__agent-deck__list_sessions
-model: grok-4.5
+model: grok-4.6
 effort: high
 ---
 
