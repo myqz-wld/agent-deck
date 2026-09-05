@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-09-04 | `CHANGELOG_641_codex-quota-visibility.md` | Hide Codex reserve and Spark quota windows in the Data panel |
 | 2026-09-04 | `CHANGELOG_640_model-routing-and-grok-defaults.md` | Refresh model suggestions, Grok defaults and Skill model tiers |
 | 2026-09-04 | `CHANGELOG_639_adapter-settings-copy.md` | Align adapter settings descriptions and names |
 | 2026-09-04 | `CHANGELOG_638_compatibility-dead-code-retirement.md` | Retire obsolete compatibility and production-dead code |

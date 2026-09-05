@@ -207,7 +207,16 @@ function DailyRow({ row }: { row: TokenDailyRow }): JSX.Element {
   );
 }
 
+const HIDDEN_CODEX_QUOTAS = new Set(['gpt-reserve', 'gpt-5.3-codex-spark']);
+
 function ProviderUsageCard({ snapshot }: { snapshot: ProviderUsageSnapshot }): JSX.Element {
+  const windows = snapshot.windows.filter((window) => {
+    if (snapshot.provider !== 'codex-cli') return true;
+    // Display names also identify quotas whose provider ID is opaque.
+    const quotaNames = [window.quotaId, window.label.split(' · ', 1)[0]];
+    return !quotaNames.some((name) => HIDDEN_CODEX_QUOTAS.has(name?.trim().toLowerCase() ?? ''));
+  });
+
   return (
     <div className="rounded bg-white/[0.04] px-2 py-2">
       <div className="flex items-center gap-2">
@@ -216,9 +225,9 @@ function ProviderUsageCard({ snapshot }: { snapshot: ProviderUsageSnapshot }): J
           {usageStatusText(snapshot.status)}
         </span>
       </div>
-      {snapshot.status === 'ok' ? (
+      {snapshot.status === 'ok' && windows.length > 0 ? (
         <div className="mt-2 space-y-1.5">
-          {snapshot.windows.map((window) => <ProviderUsageWindowRow
+          {windows.map((window) => <ProviderUsageWindowRow
             key={JSON.stringify([window.quotaId ?? null, window.id])}
             window={window}
           />)}
