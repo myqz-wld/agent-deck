@@ -6,6 +6,7 @@
 import type { ActivityState, LifecycleState, SessionRecord } from '@shared/types';
 import { getDb } from '../db';
 import { deleteSessionHandOffAliasesForSessionWithDb } from '../session-handoff-alias-repo';
+import { cleanupBlocksReferences, listSessionTaskIds } from '../task-dependency-cleanup';
 import { rowToRecord, type Row } from './types';
 
 export const LIFECYCLE_BATCH_SIZE = 100;
@@ -222,15 +223,19 @@ export function batchDeleteHistory(
   );
   const removed: HistoryLifecycleCandidate[] = [];
   const tx = db.transaction(() => {
+    const deletedTaskIds = new Set<string>();
     for (const candidate of candidates) {
+      const ownedTaskIds = listSessionTaskIds(db, candidate.id);
       deleteInputs.run(candidate.id, candidate.id);
       deleteSettledTransition.run(candidate.id);
       const result = del.run(candidate.id, threshold);
       if (result.changes === 1) {
+        for (const id of ownedTaskIds) deletedTaskIds.add(id);
         deleteSessionHandOffAliasesForSessionWithDb(db, candidate.id);
         removed.push(candidate);
       }
     }
+    cleanupBlocksReferences(db, deletedTaskIds);
   });
   tx();
   return removed;

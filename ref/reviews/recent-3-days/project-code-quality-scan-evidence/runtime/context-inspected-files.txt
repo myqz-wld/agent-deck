@@ -1,0 +1,11 @@
+src/hosts/server-core/runtime-core.ts
+src/hosts/server-core/runtime-pending.test.ts
+src/hosts/server-core/runtime-pending.ts
+src/hosts/server-core/runtime-provider-retirement.ts
+src/main/hook-server/route-diagnostics.ts
+src/main/index/lifecycle-hooks.ts
+src/main/ipc/adapters-outgoing.ts
+src/main/session/continuation-context/fresh-session-executor.ts
+src/main/session/hand-off/trusted-continuation-gate.ts
+src/renderer/components/pending-rows/PermissionRow.tsx
+src/shared/types/permission.ts

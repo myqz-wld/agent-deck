@@ -1,0 +1,109 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/coordination/vitest.config.cjs --reporter\=dot
+
+
+ RUN  v2.1.9 <repo>
+
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/auth-consequences.test.ts > persists production translated unclaimed CLI hook events, without a provider runtime
+hook consequence {"createdSource":"cli","persistedUserPayload":{"role":"user","text":"fixture forged user prompt","metadata":{"cwd":"/fixture/cwd"}},"finalLifecycle":"closed"}
+
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/auth-consequences.test.ts > missing HTTP auth can read metadata while all external-disallowed tools retain their guard
+MCP consequence {"identity":"__external__","metadata":{"sessionId":"metadata-fixture","adapter":"codex-cli","gateway":null,"provider":null,"cwd":"/fixture/private-project","lifecycle":"active","title":"confidential fixture title","lastEventAt":1788574685891,"teamName":null,"teams":[],"spawnedBy":null,"spawnDepth":0},"externalDisallowedGuards":16,"tasks":{"total":0,"hasMore":false,"tasks":[]}}
+
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/auth-consequences.test.ts (2 tests) 15ms
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/task-lifecycle.test.ts > session deletion cascades tasks but leaves dangling dependency UUIDs
+delete cascade {"upstreamExists":false,"survivingBlockedBy":["761bf14e-9ffe-426c-a040-fbdf7d0d4acc"]}
+
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/task-lifecycle.test.ts > history retention exposes a dangling dependency to the surviving active teammate
+retention cascade {"upstreamExists":false,"survivingOwnerLifecycle":"active","survivingBlockedBy":["b79543f6-dd51-4a97-ae59-426dfb995cac"],"visibleThrough":"task_get"}
+
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/task-lifecycle.test.ts (3 tests) 21ms
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/submodule-worktree.test.ts > freezes the wrong repository HEAD when called from an ordinary initialized submodule
+{
+  "callerCwd": "superproject/lib",
+  "derivedMainRepo": "../../../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/runtime-tmp/submodule-fixture-sHJk4x/superproject/.git/modules",
+  "selectedSuperprojectHead": true,
+  "selectedLibraryHead": false,
+  "files": {
+    "superproject": true,
+    "library": false
+  }
+}
+
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/submodule-worktree.test.ts > freezes the wrong repository HEAD when called from an ordinary initialized submodule
+exit preflight rejects the wrong stored mainRepo
+
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/submodule-worktree.test.ts (1 test) 551ms
+   ✓ freezes the wrong repository HEAD when called from an ordinary initialized submodule 550ms
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/auth-path.test.ts > coordination-01 raw request-target authentication probe > compares normal, encoded, and absolute targets with no auth token and no listening socket
+[
+  {
+    "target": "/hook/test",
+    "status": 401,
+    "body": {
+      "ok": false,
+      "error": "unauthorized"
+    }
+  },
+  {
+    "target": "/%68ook/test",
+    "status": 200,
+    "body": {
+      "executed": true,
+      "url": "/%68ook/test",
+      "auth": null
+    }
+  },
+  {
+    "target": "/h%6fok/test",
+    "status": 200,
+    "body": {
+      "executed": true,
+      "url": "/h%6fok/test",
+      "auth": null
+    }
+  },
+  {
+    "target": "http://localhost/hook/test",
+    "status": 200,
+    "body": {
+      "executed": true,
+      "url": "http://localhost/hook/test",
+      "auth": null
+    }
+  },
+  {
+    "target": "/mcp",
+    "status": 401,
+    "body": {
+      "ok": false,
+      "error": "unauthorized"
+    }
+  },
+  {
+    "target": "/%6dcp",
+    "status": 200,
+    "body": {
+      "executed": true,
+      "url": "/%6dcp",
+      "auth": null
+    }
+  },
+  {
+    "target": "http://localhost/mcp",
+    "status": 200,
+    "body": {
+      "executed": true,
+      "url": "http://localhost/mcp",
+      "auth": null
+    }
+  }
+]
+
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/auth-path.test.ts (1 test) 45ms
+
+ Test Files  4 passed (4)
+      Tests  7 passed (7)
+   Start at  19:18:05
+   Duration  2.10s (transform 388ms, setup 56ms, collect 619ms, tests 633ms, environment 0ms, prepare 151ms)

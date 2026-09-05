@@ -1,3 +1,4 @@
+import { CodexPendingTurnQueue } from '@main/adapters/codex-cli/sdk-bridge/pending-turn-queue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@main/session/manager', () => ({
@@ -11,9 +12,9 @@ vi.mock('@main/codex-config/toml-writer', () => ({
   readTopLevelModelReasoningEffortFromCodexConfig: vi.fn(() => null),
 }));
 
-import { runCreateSessionNewPath } from '../create-session/create-session-new';
 import { createTrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type { PreparedContinuationContext } from '@main/session/continuation-context/types';
+import { runCreateSessionNewPath } from '../create-session/create-session-new';
 import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 const prepared: PreparedContinuationContext = {
@@ -45,7 +46,7 @@ describe('Codex trusted continuation new-session split', () => {
       threadId: null,
       cwd: '/repo',
       thread: {},
-      pendingMessages: ['FULL CODEX PROVIDER CONTEXT'],
+      pendingTurns: new CodexPendingTurnQueue([{ input: 'FULL CODEX PROVIDER CONTEXT' }]),
       currentTurn: null,
       currentTurnId: null,
       turnLoopRunning: false,

@@ -154,13 +154,16 @@ async function executeOpen(
 ): Promise<BrowserOperationExecutionSuccess<'open'>> {
   const show = args.show === true;
   const tab = args.newTab === true
-    ? await owner.handle.openTab({ show })
-    : await owner.handle.ensureTab({ show });
-  if (show) tab.show();
+    ? await owner.handle.openTab({ show: false })
+    : await owner.handle.ensureTab({ show: false });
   await actions.armNetworkTracking(tab);
   const page = args.url == null ? actions.pageState(tab) : await actions.navigate(tab, args.url);
   owner.handle.markActive(tab.id);
-  return executionSuccess('open', pageData({ tabId: tab.id, ...page, visible: show }));
+  if (owner.projectionSource != null) {
+    getBrowserStateProjectionRegistry().publish(owner.projectionSource, owner.applicationSessionId);
+  }
+  const visible = show ? await tab.show() : false;
+  return executionSuccess('open', pageData({ tabId: tab.id, ...page, visible }));
 }
 
 async function executeInspect(

@@ -27,7 +27,7 @@ export interface RemoteHostSnapshotState {
   addProfile(draft: RemoteHostProfileDraftDto): Promise<void>;
   updateProfile(profileId: string, draft: RemoteHostProfileDraftDto): Promise<void>;
   removeProfile(profileId: string): Promise<void>;
-  selectProfile(profileId: string): Promise<void>;
+  selectProfile(profileId: string, options?: { activate: boolean }): Promise<void>;
   setSourceMode(mode: RemoteHostSourceMode): Promise<void>;
   connect(profileId: string): Promise<void>;
   disconnect(profileId: string): Promise<void>;
@@ -98,6 +98,7 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
   const autoConnectGeneration = useRef(0);
   const mutationTails = useRef(new Map<string, Promise<void>>());
   const mutationSequence = useRef(0);
+  const sourceSelectionSequence = useRef(0);
   const errorOwner = useRef<'refresh' | 'mutation' | null>(null);
 
   const apply = useCallback((next: RemoteHostSnapshotDto): void => {
@@ -316,12 +317,22 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
     });
   }, [mutate, selectedRemoteProfileId, selectedRemoteStatus]);
   const setSourceMode = useCallback(
-    (mode: RemoteHostSourceMode) => mutate(
-      SOURCE_SELECTION_MUTATION,
-      () => window.api.setRemoteHostSourceMode(mode),
-    ),
+    (mode: RemoteHostSourceMode) => {
+      sourceSelectionSequence.current += 1;
+      return mutate(SOURCE_SELECTION_MUTATION, () => window.api.setRemoteHostSourceMode(mode));
+    },
     [mutate],
   );
+  const selectProfile = useCallback((profileId: string, options?: { activate: boolean }) => {
+    const intent = ++sourceSelectionSequence.current;
+    // Queue the complete choice. A newer header or profile-manager choice also fences the
+    // optional activation before it reaches persistence, rather than just ignoring its snapshot.
+    return mutate(SOURCE_SELECTION_MUTATION, async () => {
+      const selected = await window.api.selectRemoteHostProfile(profileId);
+      if (!options?.activate || intent !== sourceSelectionSequence.current) return selected;
+      return window.api.setRemoteHostSourceMode('remote');
+    });
+  }, [mutate]);
 
   const mutations = projectMutationActivity(pendingMutations);
 
@@ -348,10 +359,7 @@ export function useRemoteHostSnapshot(): RemoteHostSnapshotState {
       PROFILE_REGISTRY_MUTATION,
       () => window.api.removeRemoteHostProfile(profileId),
     ),
-    selectProfile: (profileId) => mutate(
-      SOURCE_SELECTION_MUTATION,
-      () => window.api.selectRemoteHostProfile(profileId),
-    ),
+    selectProfile,
     setSourceMode,
     connect: (profileId) => {
       autoConnectAttempt.current = profileId;

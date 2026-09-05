@@ -1,0 +1,56 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs --config .ref/reviews/2026-09-04-project-scan/vitest-installer.config.mts scripts/install-local-macos.test.mjs --maxWorkers\=1 --minWorkers\=1
+
+
+ RUN  v2.1.9 <repo>
+
+TAP version 13
+# Subtest: local macOS install paths
+    # Subtest: selects the electron-builder output directory for each supported architecture
+    ok 1 - selects the electron-builder output directory for each supported architecture
+      ---
+      duration_ms: 2.249917
+      ...
+    # Subtest: resolves the packaged app below build/dist
+    ok 2 - resolves the packaged app below build/dist
+      ---
+      duration_ms: 0.159292
+      ...
+    1..2
+ok 1 - local macOS install paths
+  ---
+  duration_ms: 2.943333
+  type: 'suite'
+  ...
+# Subtest: local macOS CLI symlink detection
+    # Subtest: normalizes relative link targets
+    ok 1 - normalizes relative link targets
+      ---
+      duration_ms: 0.156792
+      ...
+    # Subtest: recognizes an existing link to the installed wrapper
+    ok 2 - recognizes an existing link to the installed wrapper
+      ---
+      duration_ms: 1.959666
+      ...
+    1..2
+ok 2 - local macOS CLI symlink detection
+  ---
+  duration_ms: 2.19325
+  type: 'suite'
+  ...
+ ❯ scripts/install-local-macos.test.mjs (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  scripts/install-local-macos.test.mjs [ scripts/install-local-macos.test.mjs ]
+Error: No test suite found in file <repo>/scripts/install-local-macos.test.mjs
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  18:50:13
+   Duration  311ms (transform 28ms, setup 27ms, collect 11ms, tests 0ms, environment 0ms, prepare 26ms)
+
+ ELIFECYCLE  Test failed. See above for more details.

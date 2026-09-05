@@ -1,0 +1,62 @@
+
+> agent-deck@0.1.0 test .
+> node scripts/test-electron.mjs src/main/adapters/claude-code/sdk-bridge/permission-responder-core.test.ts src/main/adapters/claude-code/sdk-bridge/session-rollback-core.test.ts src/main/adapters/claude-code/sdk-bridge/session-lifecycle-core.test.ts src/main/adapters/claude-code/sdk-bridge/session-lifecycle-host.test.ts src/main/adapters/claude-code/sdk-bridge/user-message-stream-core.test.ts src/main/adapters/claude-code/sdk-bridge/user-message-stream-host.test.ts src/main/adapters/claude-code/sdk-bridge/user-message-acceptance-core.test.ts src/main/adapters/claude-code/sdk-bridge/message-controller-core.test.ts src/main/adapters/claude-code/sdk-bridge/pending-outgoing-core.test.ts src/main/adapters/claude-code/sdk-bridge/pending-cancellation-core.test.ts src/main/adapters/claude-code/sdk-bridge/stream-finalize-core.test.ts src/main/adapters/claude-code/sdk-bridge/__tests__/stream-processor-retirement.test.ts src/main/adapters/claude-code/sdk-bridge/__tests__/stream-processor-user-message.test.ts src/main/adapters/grok-build/__tests__/pending-outgoing.test.ts src/main/adapters/grok-build/__tests__/turn-queue.test.ts src/main/adapters/grok-build/__tests__/runtime-lifecycle-coordinator.test.ts src/main/adapters/grok-build/__tests__/transport-recovery.test.ts src/main/adapters/grok-build/__tests__/cwd-transition-controller.test.ts src/main/adapters/grok-build/__tests__/provider-completion-recovery.test.ts src/main/adapters/grok-build/__tests__/first-model-event-watchdog.test.ts src/main/adapters/grok-build/session-command-feedback.test.ts src/main/adapters/codex-cli/sdk-bridge/__tests__ src/main/adapters/codex-cli/sdk-bridge/fork-session/create-forked-session.test.ts src/main/adapters/codex-cli/sdk-bridge/fork-session/two-client-fork.integration.test.ts src/main/adapters/codex-cli/sdk-bridge/session-command-controller.test.ts src/main/adapters/codex-cli/__tests__/sdk-bridge.consume-fork.test.ts src/main/adapters/codex-cli/__tests__/sdk-bridge.restart.test.ts src/main/adapters/codex-cli/__tests__/wire-prefix-e2e.test.ts src/main/adapters/codex-cli/__tests__/per-session-codex-env.test.ts --maxWorkers\=1 --minWorkers\=1
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 .
+
+ ✓ src/main/adapters/grok-build/__tests__/turn-queue.test.ts (26 tests) 2392ms
+   ✓ GrokTurnQueue active-turn delivery > flushes the assistant from live ACP prompt_complete when PromptResponse is lost 307ms
+   ✓ GrokTurnQueue active-turn delivery > finishes and recycles from the live extension turn_completed terminal 308ms
+   ✓ GrokTurnQueue active-turn delivery > does not let a bare successful extension terminal discard a missing assistant 405ms
+ ✓ src/main/adapters/codex-cli/__tests__/wire-prefix-e2e.test.ts (12 tests) 9ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/message-controller-handoff.test.ts (14 tests) 61ms
+ ✓ src/main/adapters/codex-cli/__tests__/per-session-codex-env.test.ts (12 tests) 6ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/session-retirement.test.ts (5 tests) 9ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/stream-processor-retirement.test.ts (6 tests) 162ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/create-session-new-latency.test.ts (7 tests) 21ms
+ ✓ src/main/adapters/codex-cli/__tests__/sdk-bridge.restart.test.ts (7 tests) 12ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/fork-session/create-forked-session.test.ts (11 tests) 18ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/permission-controller.test.ts (7 tests) 5ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/create-session-thread-id-init.test.ts (5 tests) 13ms
+ ✓ src/main/adapters/codex-cli/__tests__/sdk-bridge.consume-fork.test.ts (5 tests) 5ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/thread-options-builder.test.ts (12 tests) 3ms
+ ✓ src/main/adapters/grok-build/__tests__/pending-outgoing.test.ts (6 tests) 476ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/fork-session/two-client-fork.integration.test.ts (1 test) 4ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/pending-turn-queue.test.ts (3 tests) 6ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/permission-responder-core.test.ts (6 tests) 6ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/session-rollback-core.test.ts (6 tests) 7ms
+ ✓ src/main/adapters/grok-build/__tests__/cwd-transition-controller.test.ts (5 tests) 5ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/session-command-controller.test.ts (4 tests) 108ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/pending-outgoing-core.test.ts (5 tests) 5ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/approval-policy-controller.test.ts (4 tests) 11ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/pending-cancellation-core.test.ts (3 tests) 6ms
+ ✓ src/main/adapters/grok-build/__tests__/runtime-lifecycle-coordinator.test.ts (6 tests) 5ms
+ ✓ src/main/adapters/grok-build/session-command-feedback.test.ts (3 tests) 211ms
+ ✓ src/main/adapters/grok-build/__tests__/first-model-event-watchdog.test.ts (6 tests) 6ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/user-message-acceptance-core.test.ts (5 tests) 4ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/recoverer-jsonl-exists.test.ts (8 tests) 13ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/stream-finalize-core.test.ts (2 tests) 4ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/user-message-stream-core.test.ts (3 tests) 4ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/session-lifecycle-coordinator.test.ts (5 tests) 9ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/cwd-transition-controller.test.ts (3 tests) 4ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/trusted-continuation-observer.test.ts (4 tests) 2ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/trusted-continuation-new.test.ts (1 test) 3ms
+ ✓ src/main/adapters/grok-build/__tests__/transport-recovery.test.ts (2 tests) 4ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/session-finalize.test.ts (3 tests) 3ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/__tests__/stream-processor-user-message.test.ts (3 tests) 5ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/create-session-early-rollback.test.ts (2 tests) 6ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/reasoning-effort-resolve.test.ts (6 tests) 3ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/session-lifecycle-core.test.ts (2 tests) 3ms
+ ✓ src/main/adapters/grok-build/__tests__/provider-completion-recovery.test.ts (2 tests) 6ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/recovery-continuation-host-injection.test.ts (1 test) 3ms
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/trusted-continuation-validation.test.ts (1 test) 14ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/message-controller-core.test.ts (1 test) 3ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/session-lifecycle-host.test.ts (1 test) 5ms
+ ✓ src/main/adapters/claude-code/sdk-bridge/user-message-stream-host.test.ts (1 test) 4ms
+
+ Test Files  46 passed (46)
+      Tests  243 passed (243)
+   Start at  20:12:36
+   Duration  16.43s (transform 1.14s, setup 302ms, collect 3.67s, tests 3.68s, environment 4ms, prepare 1.60s)

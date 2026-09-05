@@ -1,0 +1,19 @@
+
+> agent-deck@0.1.0 test .
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/coordination/vitest.config.cjs /tmp/agent-deck-scan/2026-09-04-project-scan/coordination/task-lifecycle.test.ts
+
+
+ RUN  v2.1.9 .
+
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/task-lifecycle.test.ts > session deletion cascades tasks but leaves dangling dependency UUIDs
+delete cascade {"upstreamExists":false,"survivingBlockedBy":["b1bd1c1d-24d9-413f-85b9-7a7552daf1d5"]}
+
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/task-lifecycle.test.ts > history retention exposes a dangling dependency to the surviving active teammate
+retention cascade {"upstreamExists":false,"survivingOwnerLifecycle":"active","survivingBlockedBy":["df0a8bd7-6e13-4fda-b326-e3b88892bffd"],"visibleThrough":"task_get"}
+
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/task-lifecycle.test.ts (3 tests) 81ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  19:08:57
+   Duration  2.38s (transform 814ms, setup 119ms, collect 1.11s, tests 81ms, environment 0ms, prepare 133ms)

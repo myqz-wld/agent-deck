@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 const runtime = vi.hoisted(() => ({ claims: new Set<string>() }));
@@ -46,12 +46,13 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
-import { deleteUploadIfExists } from '@main/store/image-uploads';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { sessionManager } from '@main/session/manager';
+import { deleteUploadIfExists } from '@main/store/image-uploads';
 import { CodexSdkBridge } from '..';
 import type { CodexAppServerClient } from '../../app-server/client';
 import type { CodexInput } from '../input-pack';
+import { CodexPendingTurnQueue } from '../pending-turn-queue';
 import type { InternalSession } from '../types';
 
 interface BridgeInternals {
@@ -69,7 +70,7 @@ function bridgeInternals(bridge: CodexSdkBridge): BridgeInternals {
 function makeInternal(
   sessionId: string,
   thread: InternalSession['thread'],
-  pendingMessages: CodexInput[],
+  inputs: CodexInput[],
 ): InternalSession {
   return {
     applicationSid: sessionId,
@@ -77,7 +78,7 @@ function makeInternal(
     cwd: '/repo',
     thread,
     runtimeIdentity: null,
-    pendingMessages,
+    pendingTurns: new CodexPendingTurnQueue(inputs.map((input) => ({ input }))),
     currentTurn: null,
     currentTurnId: null,
     turnLoopRunning: false,
@@ -103,10 +104,10 @@ describe('Codex handoff source runtime retirement', () => {
       })),
     } as unknown as InternalSession['thread'];
     const internal = makeInternal(sessionId, thread, ['internal prompt']);
-    internal.pendingDeferredUserEvents = [{
-      text: 'internal prompt',
-      turnCorrelationId: 'turn-1',
-    }];
+    internal.pendingTurns = new CodexPendingTurnQueue([{
+      input: 'internal prompt',
+      deferredUserEvent: { text: 'internal prompt', turnCorrelationId: 'turn-1' },
+    }]);
     const emit = vi.fn();
     const runtimeHost = { ...codexBridgeTestRuntimeHost, refreshSessionBrowser: vi.fn() };
     const bridge = new CodexSdkBridge({
@@ -151,18 +152,16 @@ describe('Codex handoff source runtime retirement', () => {
       'current turn',
       [{ type: 'local_image', path: attachmentPath }],
     ]);
-    internal.pendingHandOffMessages = [
-      { text: 'current turn' },
+    internal.pendingTurns = new CodexPendingTurnQueue([
+      { input: 'current turn', handOffMessage: { text: 'current turn' } },
       {
-        text: 'queued image',
-        attachments: [{
-          kind: 'uploaded',
-          path: attachmentPath,
-          mime: 'image/png',
-          bytes: 4,
-        }],
+        input: [{ type: 'local_image', path: attachmentPath }],
+        handOffMessage: {
+          text: 'queued image',
+          attachments: [{ kind: 'uploaded', path: attachmentPath, mime: 'image/png', bytes: 4 }],
+        },
       },
-    ];
+    ]);
     const bridge = new CodexSdkBridge({
       recoveryContinuationHost: {} as never,
       runtimeHost: codexBridgeTestRuntimeHost,
@@ -184,7 +183,7 @@ describe('Codex handoff source runtime retirement', () => {
 
     const loopPromise = state.threadLoop.runTurnLoop(internal, sessionId);
     await vi.waitFor(() => expect(thread.runStreamed).toHaveBeenCalledTimes(1));
-    expect(internal.pendingHandOffMessages).toEqual([
+    expect([...internal.pendingTurns].map((entry) => entry.handOffMessage)).toEqual([
       expect.objectContaining({ text: 'queued image' }),
     ]);
     expect(bridge.snapshotQueuedMessagesForHandOff(sessionId)).toEqual([
@@ -203,8 +202,8 @@ describe('Codex handoff source runtime retirement', () => {
     expect(internal.currentTurn).toBe(activeController);
     expect(activeController?.signal.aborted).toBe(false);
     expect(internal.currentTurnId).toBe('turn-active');
-    expect(internal.pendingMessages).toEqual([]);
-    expect(internal.pendingHandOffMessages).toEqual([]);
+    expect([...internal.pendingTurns].map((entry) => entry.input)).toEqual([]);
+    expect([...internal.pendingTurns].map((entry) => entry.handOffMessage)).toEqual([]);
     expect(deleteUploadIfExists).not.toHaveBeenCalled();
     expect(state.sessions.get(sessionId)).toBe(internal);
     expect(dispose).not.toHaveBeenCalled();
@@ -244,15 +243,13 @@ describe('Codex handoff source runtime retirement', () => {
       [[{ type: 'local_image', path: attachmentPath }]],
     );
     internal.threadId = nativeId;
-    internal.pendingHandOffMessages = [{
-      text: 'idle image',
-      attachments: [{
-        kind: 'uploaded',
-        path: attachmentPath,
-        mime: 'image/png',
-        bytes: 4,
-      }],
-    }];
+    internal.pendingTurns = new CodexPendingTurnQueue([{
+      input: [{ type: 'local_image', path: attachmentPath }],
+      handOffMessage: {
+        text: 'idle image',
+        attachments: [{ kind: 'uploaded', path: attachmentPath, mime: 'image/png', bytes: 4 }],
+      },
+    }]);
     const bridge = new CodexSdkBridge({
       recoveryContinuationHost: {} as never,
       runtimeHost: codexBridgeTestRuntimeHost,
@@ -274,7 +271,7 @@ describe('Codex handoff source runtime retirement', () => {
 
     expect(internal.intentionallyClosed).toBe(false);
     expect(internal.retirementFinalized).toBe(true);
-    expect(internal.pendingMessages).toEqual([]);
+    expect([...internal.pendingTurns].map((entry) => entry.input)).toEqual([]);
     expect(deleteUploadIfExists).not.toHaveBeenCalled();
     expect([...state.sessions.values()]).not.toContain(internal);
     expect(state.codexBySession.has(sessionId)).toBe(false);

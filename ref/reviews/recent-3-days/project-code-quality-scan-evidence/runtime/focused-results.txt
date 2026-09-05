@@ -1,0 +1,53 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/runtime/focused.config.mjs --reporter\=verbose
+
+
+ RUN  v2.1.9 <repo>
+
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/permission-controller.test.ts > CodexPermissionController > maps a native command approval to allow-once and allow-for-session decisions
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/permission-controller.test.ts > CodexPermissionController > does not invent command decisions when app-server provides an explicit empty list
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/permission-controller.test.ts > CodexPermissionController > grants only the exact permission profile returned by app-server
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/permission-controller.test.ts > CodexPermissionController > routes MCP requestUserInput approvals through the permission queue
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/permission-controller.test.ts > CodexPermissionController > routes MCP approval elicitations and preserves session-scoped approval
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/permission-controller.test.ts > CodexPermissionController > cancels a pending request when app-server resolves it elsewhere
+ ✓ src/main/adapters/codex-cli/sdk-bridge/__tests__/permission-controller.test.ts > CodexPermissionController > leaves non-approval server requests to the app-server transport fallback
+ ✓ src/main/adapters/codex-cli/app-server/accepted-turn-cancellation.test.ts > Codex accepted-turn cancellation > does not start a dead client generation merely to send an interrupt
+ ✓ src/main/adapters/codex-cli/app-server/accepted-turn-cancellation.test.ts > Codex accepted-turn cancellation > recycles without an interrupt when aborted before any turn id is accepted
+ ✓ src/main/adapters/codex-cli/app-server/accepted-turn-cancellation.test.ts > Codex accepted-turn cancellation > covers the turn/start acceptance race with one native interrupt
+ ✓ src/main/adapters/codex-cli/app-server/accepted-turn-cancellation.test.ts > Codex accepted-turn cancellation > interrupts exactly once when aborted immediately after acceptance
+ ✓ src/main/adapters/codex-cli/app-server/accepted-turn-cancellation.test.ts > Codex accepted-turn cancellation > shares exactly one interrupt between streaming abort and the live controller
+ ✓ src/main/adapters/codex-cli/app-server/accepted-turn-cancellation.test.ts > Codex accepted-turn cancellation > interrupts and drains when run() rejects on maxOutputBytes overflow
+ ✓ src/main/adapters/codex-cli/app-server/accepted-turn-cancellation.test.ts > Codex accepted-turn cancellation > recycles immediately when the one interrupt write fails
+ ✓ src/main/adapters/codex-cli/app-server/accepted-turn-cancellation.test.ts > Codex accepted-turn cancellation > lets a synchronous terminal win the interrupt-versus-recycle race
+ ✓ src/main/adapters/codex-cli/app-server/accepted-turn-cancellation.test.ts > Codex accepted-turn cancellation > waits a bounded interval, recycles, and unsubscribes before consumer cleanup returns
+ ✓ src/main/adapters/grok-build/__tests__/runtime-lifecycle-coordinator.test.ts > Grok runtime lifecycle coordinator > cancels both the provider session and the pending prompt request
+ ✓ src/main/adapters/grok-build/__tests__/runtime-lifecycle-coordinator.test.ts > Grok runtime lifecycle coordinator > strictly stops the provider before releasing runtime ownership
+ ✓ src/main/adapters/grok-build/__tests__/runtime-lifecycle-coordinator.test.ts > Grok runtime lifecycle coordinator > rejects unsettled trusted readiness when rollback closes the runtime
+ ✓ src/main/adapters/grok-build/__tests__/runtime-lifecycle-coordinator.test.ts > Grok runtime lifecycle coordinator > rejects stop failure while retaining the process and runtime for retry
+ ✓ src/main/adapters/grok-build/__tests__/runtime-lifecycle-coordinator.test.ts > Grok runtime lifecycle coordinator > preserves ordinary close ordering and releases ownership before stop failure
+ ✓ src/main/adapters/grok-build/__tests__/runtime-lifecycle-coordinator.test.ts > Grok runtime lifecycle coordinator > rejects a missing strict target instead of silently releasing a database id
+ ✓ src/main/adapters/grok-build/__tests__/first-model-event-watchdog.test.ts > Grok first-model-event watchdog > does not count echoed input or configuration updates as model activity
+ ✓ src/main/adapters/grok-build/__tests__/first-model-event-watchdog.test.ts > Grok first-model-event watchdog > uses only positive model evidence for trusted continuation readiness
+ ✓ src/main/adapters/grok-build/__tests__/first-model-event-watchdog.test.ts > Grok first-model-event watchdog > rejects a prompt that never produces model activity
+ ✓ src/main/adapters/grok-build/__tests__/first-model-event-watchdog.test.ts > Grok first-model-event watchdog > disarms on model activity and leaves the normal prompt response authoritative
+ ✓ src/main/adapters/grok-build/__tests__/first-model-event-watchdog.test.ts > Grok first-model-event watchdog > crosses trusted readiness only for a model-derived update
+ ✓ src/main/adapters/grok-build/__tests__/first-model-event-watchdog.test.ts > Grok first-model-event watchdog > uses a distinct timeout error for bounded recovery handling
+ ✓ src/main/adapters/claude-code/sdk-bridge/user-message-stream-core.test.ts > Claude user message stream Core > materializes attachments through the host while retaining handoff metadata
+ ✓ src/main/adapters/claude-code/sdk-bridge/user-message-stream-core.test.ts > Claude user message stream Core > owns dequeue identity and submitting state
+ ✓ src/main/adapters/claude-code/sdk-bridge/user-message-stream-core.test.ts > Claude user message stream Core > keeps a failed deferred attachment queued and emits the host time
+ ✓ src/main/adapters/claude-code/sdk-bridge/permission-responder-core.test.ts > Claude permission responder Core > rolls back a failed hot switch and keeps diagnostics best-effort
+ ✓ src/main/adapters/claude-code/sdk-bridge/permission-responder-core.test.ts > Claude permission responder Core > owns permission timeout cancellation, messaging, and resolution
+ ✓ src/main/adapters/grok-build/__tests__/permission-controller.test.ts > GrokPermissionController > maps a user decision back to the matching ACP option
+ ✓ src/main/adapters/grok-build/__tests__/permission-controller.test.ts > GrokPermissionController > selects the persistent ACP option only for an explicit always-allow response
+ ✓ src/main/adapters/grok-build/__tests__/permission-controller.test.ts > GrokPermissionController > emits a cancellation event when interruption clears a pending request
+ ✓ src/main/adapters/grok-build/__tests__/permission-controller.test.ts > GrokPermissionController > cancels a stale request that races with an ACP sandbox restart
+ ✓ src/main/adapters/claude-code/sdk-bridge/session-lifecycle-core.test.ts > Claude session lifecycle Core > resolves all runtime identities and seals retirement input synchronously
+ ✓ src/main/adapters/claude-code/sdk-bridge/session-lifecycle-core.test.ts > Claude session lifecycle Core > serializes permission updates and rolls back a failed provider update
+ ✓ src/main/adapters/codex-cli/app-server/notification-helpers.test.ts > Codex app-server notification helpers > surfaces terminal provider errors and ignores retry progress
+ ✓ src/main/adapters/codex-cli/app-server/notification-helpers.test.ts > Codex app-server notification helpers > preserves the native structured error classification without inferring from text
+
+ Test Files  9 passed (9)
+      Tests  41 passed (41)
+   Start at  18:54:06
+   Duration  1.70s (transform 167ms, setup 0ms, collect 293ms, tests 31ms, environment 1ms, prepare 236ms)

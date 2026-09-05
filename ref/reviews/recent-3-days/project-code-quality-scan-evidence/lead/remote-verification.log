@@ -1,0 +1,22 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/remote/scan.config.mjs --no-cache --reporter\=dot
+
+
+ RUN  v2.1.9 <repo>
+
+stdout | ../../../../tmp/agent-deck-scan/2026-09-04-project-scan/remote/repro.test.ts > remote scan isolated reproductions (assert existing faulty behavior) > SDK group bot mention turns /unsubscribe into session.send
+MENTION {"command":{"kind":"send","text":"@_user_1 /unsubscribe"},"outcome":"accepted","actualMethod":"session.send"}
+
+stdout | ../../../../tmp/agent-deck-scan/2026-09-04-project-scan/remote/repro.test.ts > remote scan isolated reproductions (assert existing faulty behavior) > one normal multiline history entry rejects Feishu /history
+HISTORY {"text":"First line\nSecond line","outcome":"invalid_core_response","replyCount":0}
+
+stdout | ../../../../tmp/agent-deck-scan/2026-09-04-project-scan/remote/repro.test.ts > remote scan isolated reproductions (assert existing faulty behavior) > default Relay transport resets a valid 1 MiB event-list response before credit can return
+RELAY {"validResponseBytes":1037404,"eventCount":100,"reset":"backpressure","dataBytesEmitted":196608,"streamCount":0}
+
+ ✓ ../../../../tmp/agent-deck-scan/2026-09-04-project-scan/remote/repro.test.ts (3 tests) 116ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  19:03:45
+   Duration  3.97s (transform 1.42s, setup 198ms, collect 2.35s, tests 116ms, environment 0ms, prepare 193ms)

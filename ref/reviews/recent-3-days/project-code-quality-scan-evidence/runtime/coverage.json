@@ -1,0 +1,16 @@
+{
+  "baseline": "072dd7a284eebc2752dab7e5d5505aa2ee480b77",
+  "inventory": 601,
+  "test_named": 266,
+  "other_named": 335,
+  "direct_primary": 95,
+  "direct_context": 11,
+  "direct_primary_tests": 10,
+  "direct_by_area": {
+    "claude-code": 28,
+    "codex-cli": 34,
+    "shared": 6,
+    "grok-build": 25,
+    "project-trust": 2
+  }
+}

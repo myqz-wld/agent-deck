@@ -1,0 +1,2 @@
+rg -n "pendingMessages|pendingDeferredUserEvents|pendingHandOffMessages" src/main/adapters/codex-cli
+No matches (exit 1).

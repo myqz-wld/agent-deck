@@ -57,6 +57,7 @@ export class BrowserOwnerHandle {
     const tabId = this.tabs.allocateTabId();
     const surface = this.engine.createTabSurface(this.partition);
     const tab = new EngineTab({
+      ownerId: this.key.id,
       id: tabId,
       surface,
       onActivated: (id) => this.tabs.markActive(id),
@@ -65,7 +66,7 @@ export class BrowserOwnerHandle {
     this.tabs.register(tab);
 
     await tab.loadUrl(INITIAL_URL);
-    if (options.show ?? this.engine.showWindows) tab.show();
+    if (options.show ?? this.engine.showWindows) await tab.show();
     return tab;
   }
 

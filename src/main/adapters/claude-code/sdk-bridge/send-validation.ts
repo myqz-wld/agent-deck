@@ -64,6 +64,9 @@ export function validateSessionAcceptsMessageOrThrow(
   session: InternalSession,
   sessionId: string,
 ): void {
+  if (session.providerInputClosed) {
+    throw new Error(`会话 ${sessionId} 正在关闭，不再接收消息。`);
+  }
   if (session.retireRequested) {
     throw new Error(`会话 ${sessionId} 已完成交接，旧会话不再接收消息。`);
   }

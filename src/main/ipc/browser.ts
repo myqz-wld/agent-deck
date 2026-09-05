@@ -1,4 +1,5 @@
 import { getBrowserPresentationController } from '@main/browser-use/browser-presentation-runtime';
+import { getBrowserShowController } from '@main/browser-use/browser-show-runtime';
 import { getBrowserStateProjectionRegistry } from '@main/browser-use/browser-state-projection';
 import { makeSafeSend } from '@main/index/_deps';
 import { getFloatingWindow } from '@main/window';
@@ -24,6 +25,8 @@ export function registerBrowserIpc(): void {
 
   on(IpcInvoke.BrowserStateGet, (_event, value) =>
     controller.get(parseBrowserStateSource(value)));
+  on(IpcInvoke.BrowserShowPending, (event) =>
+    getBrowserShowController().getPending(event.sender.id));
   on(IpcInvoke.BrowserPresentationBegin, (event, value) => {
     const request = parseBrowserPresentationBegin(value);
     return controller.begin(event.sender.id, request.source, request.expectedRevision);

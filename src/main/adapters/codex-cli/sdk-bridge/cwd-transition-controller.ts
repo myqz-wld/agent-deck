@@ -49,9 +49,7 @@ export class CodexCwdTransitionController {
     ) {
       return;
     }
-    session.pendingMessages.unshift(packCodexInput(text));
-    (session.pendingDeferredUserEvents ??= []).unshift(null);
-    (session.pendingHandOffMessages ??= []).unshift(null);
+    session.pendingTurns.prepend({ input: packCodexInput(text) });
     rememberAcceptedEnqueue(
       accepted,
       transition.continuationKey,
@@ -63,7 +61,7 @@ export class CodexCwdTransitionController {
     const session = this.sessionsOrNull(sessionId);
     if (!session || session.cwdTransitionGeneration !== generation) return;
     session.cwdTransitionGeneration = null;
-    if (!session.turnLoopRunning && session.pendingMessages.length > 0) {
+    if (!session.turnLoopRunning && session.pendingTurns.length > 0) {
       void this.context.runTurnLoop(session, sessionId);
     }
   }
@@ -80,26 +78,15 @@ export class CodexCwdTransitionController {
     if (session.submittingUserMessage === submitting) {
       session.submittingUserMessage = null;
     }
-    const pendingCount = session.pendingMessages.length;
-    session.pendingMessages.unshift(
-      packCodexInput(submitting.event.text, submitting.event.attachments),
-    );
-    const deferred = (session.pendingDeferredUserEvents ??= Array.from(
-      { length: pendingCount },
-      () => null,
-    ));
-    while (deferred.length < pendingCount) deferred.push(null);
-    deferred.unshift({ ...submitting.event });
-    const handOff = (session.pendingHandOffMessages ??= Array.from(
-      { length: pendingCount },
-      () => null,
-    ));
-    while (handOff.length < pendingCount) handOff.push(null);
-    handOff.unshift({
-      text: submitting.event.text,
-      ...(submitting.event.attachments
-        ? { attachments: submitting.event.attachments.map((ref) => ({ ...ref })) }
-        : {}),
+    session.pendingTurns.prepend({
+      input: packCodexInput(submitting.event.text, submitting.event.attachments),
+      deferredUserEvent: { ...submitting.event },
+      handOffMessage: {
+        text: submitting.event.text,
+        ...(submitting.event.attachments
+          ? { attachments: submitting.event.attachments.map((ref) => ({ ...ref })) }
+          : {}),
+      },
     });
   }
 

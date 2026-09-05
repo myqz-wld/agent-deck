@@ -1,0 +1,14 @@
+{
+  "baseline": "072dd7a284eebc2752dab7e5d5505aa2ee480b77",
+  "files_inventoried": 726,
+  "files_directly_opened": 108,
+  "findings": {
+    "HIGH": 1,
+    "MEDIUM": 2
+  },
+  "existing_test_files": 6,
+  "existing_tests_passed": 41,
+  "isolated_reproductions_passed": 3,
+  "source_mutations": false,
+  "reference_check": "passed"
+}

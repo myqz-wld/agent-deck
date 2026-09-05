@@ -1,7 +1,8 @@
+import { CodexPendingTurnQueue } from '@main/adapters/codex-cli/sdk-bridge/pending-turn-queue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CodexAppServerClient } from '../../app-server/client';
-import type { InternalSession } from '../types';
 import { CodexSessionLifecycleCoordinator } from '../session-lifecycle-coordinator';
+import type { InternalSession } from '../types';
 import { codexBridgeTestRuntimeHost } from './runtime-host-fixture';
 
 function internal(): InternalSession {
@@ -12,9 +13,7 @@ function internal(): InternalSession {
     currentTurnId: null,
     turnLoopRunning: false,
     intentionallyClosed: false,
-    pendingMessages: [],
-    pendingDeferredUserEvents: [],
-    pendingHandOffMessages: [],
+    pendingTurns: new CodexPendingTurnQueue(),
     pendingPermissions: new Map(),
     acceptedEnqueueFingerprints: new Map(),
     submittingUserMessage: null,

@@ -4,21 +4,14 @@ import { AGENT_ID, MAX_MESSAGE_LENGTH, MAX_PENDING_MESSAGES } from './constants'
 import { packCodexInput, toCodexAppServerInput } from './input-pack';
 import type { CodexBridgeOptions, InternalSession } from './types';
 import { assertCodexSessionAcceptsInput } from './session-retirement';
-import type {
-  AgentEnqueueOptions,
-  PendingAgentMessage,
-  QueuedAgentMessage,
-} from '@main/adapters/types';
+import type { AgentEnqueueOptions, PendingAgentMessage, QueuedAgentMessage } from '@main/adapters/types';
 import {
   type AdapterRecoveryDeliveryOptions,
   enqueuePayloadFingerprint,
   isAcceptedEnqueueRetry,
   rememberAcceptedEnqueue,
 } from '@main/adapters/enqueue-idempotency';
-import {
-  acceptCodexSubmittingUserMessage,
-  pendingCodexUserMessage,
-} from './deferred-user-submission';
+import { acceptCodexSubmittingUserMessage, pendingCodexUserMessage } from './deferred-user-submission';
 import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 
 export interface MessageControllerContext {
@@ -201,19 +194,13 @@ export class MessageController {
       return;
     }
 
-    if (!allowQueueOverflow && session.pendingMessages.length >= MAX_PENDING_MESSAGES) {
+    if (!allowQueueOverflow && session.pendingTurns.length >= MAX_PENDING_MESSAGES) {
       throw new Error(`待发送队列已堆积 ${MAX_PENDING_MESSAGES} 条。请等当前 turn 跑完再继续发送。`);
     }
 
-    const pendingCountBefore = session.pendingMessages.length;
-    session.pendingMessages.push(packCodexInput(text, attachments));
-    const deferredUserEvents = (session.pendingDeferredUserEvents ??= Array.from(
-      { length: pendingCountBefore },
-      () => null,
-    ));
-    while (deferredUserEvents.length < pendingCountBefore) deferredUserEvents.push(null);
-    deferredUserEvents.push(
-      shouldEmitUserEvent && enqueueOptions?.deferUserEventUntilTurnStart
+    session.pendingTurns.append({
+      input: packCodexInput(text, attachments),
+      deferredUserEvent: shouldEmitUserEvent && enqueueOptions?.deferUserEventUntilTurnStart
         ? {
             text,
             ...(attachments && attachments.length > 0
@@ -224,17 +211,12 @@ export class MessageController {
               : {}),
           }
         : null,
-    );
-    const handOffMessages = (session.pendingHandOffMessages ??= Array.from(
-      { length: pendingCountBefore },
-      () => null,
-    ));
-    while (handOffMessages.length < pendingCountBefore) handOffMessages.push(null);
-    handOffMessages.push({
-      text,
-      ...(attachments && attachments.length > 0
-        ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
-        : {}),
+      handOffMessage: {
+        text,
+        ...(attachments && attachments.length > 0
+          ? { attachments: attachments.map((attachment) => ({ ...attachment })) }
+          : {}),
+      },
     });
     if (idempotencyKey && fingerprint) {
       rememberAcceptedEnqueue(
@@ -324,8 +306,8 @@ export class MessageController {
   listPendingOutgoingMessages(sessionId: string): PendingAgentMessage[] {
     const session = this.ctx.sessions.get(sessionId);
     if (!session) return [];
-    const queued = (session.pendingDeferredUserEvents ?? []).flatMap((deferred) => {
-      const pending = pendingCodexUserMessage(deferred);
+    const queued = [...session.pendingTurns].flatMap((entry) => {
+      const pending = pendingCodexUserMessage(entry.deferredUserEvent);
       return pending ? [pending] : [];
     });
     const submitting = session.submittingUserMessage;
@@ -338,7 +320,7 @@ export class MessageController {
   snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {
     const session = this.ctx.sessions.get(sessionId);
     if (!session) return [];
-    return (session.pendingHandOffMessages ?? []).flatMap((message) =>
+    return [...session.pendingTurns].flatMap(({ handOffMessage: message }) =>
       message
         ? [{
             text: message.text,
@@ -356,18 +338,8 @@ export class MessageController {
   ): PendingAgentMessage | null {
     const session = this.ctx.sessions.get(sessionId);
     if (!session) return null;
-    const deferredEvents = session.pendingDeferredUserEvents ?? [];
-    const index = deferredEvents.findIndex(
-      (deferred) => deferred?.turnCorrelationId === messageId,
-    );
-    if (index >= 0) {
-      const pending = pendingCodexUserMessage(deferredEvents[index]);
-      if (!pending) return null;
-      session.pendingMessages.splice(index, 1);
-      deferredEvents.splice(index, 1);
-      session.pendingHandOffMessages?.splice(index, 1);
-      return pending;
-    }
+    const removed = session.pendingTurns.remove(messageId);
+    if (removed) return pendingCodexUserMessage(removed.deferredUserEvent);
     const submitting = session.submittingUserMessage;
     const pending = pendingCodexUserMessage(submitting?.event);
     if (!submitting || submitting.cancelled || pending?.id !== messageId) return null;

@@ -1,0 +1,26 @@
+{
+  "baseline_commit": "072dd7a284eebc2752dab7e5d5505aa2ee480b77",
+  "branch": "main",
+  "source_files": 132,
+  "new_browser_ipc": {
+    "invoke": "browser:show-pending",
+    "event": "event:browser-show-requested",
+    "production_layers": [
+      "shared contract",
+      "main registration",
+      "event-bus/safeSend",
+      "preload",
+      "renderer"
+    ],
+    "regression": "src/main/browser-use/browser-show-ipc.test.ts"
+  },
+  "obsolete_handoff_symbols": [],
+  "codex_correlated_queue_arrays": [],
+  "remaining_test_only_modules": 18,
+  "source_line_limit_exceptions": [],
+  "sqlite_binding_sha256": "463d208825f4d2660f4ec14181563c4b2ddbfeb779584c9b3251f0d7aafb2c67",
+  "git_index_ref_commit_actions": false,
+  "host_process_actions": false,
+  "native_rebuild": false,
+  "closed_worker_sessions": 3
+}

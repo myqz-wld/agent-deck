@@ -135,26 +135,28 @@ function playFile(file: string, onError: () => void): void {
   }
 
   if (IS_WIN) {
-    // PresentationCore 的 MediaPlayer 支持 mp3/wav/aiff/m4a/wma 等格式（不像
-    // System.Media.SoundPlayer 只支持 wav）。注意 PowerShell 字符串里 ` 是转义符，
-    // " 在双引号字符串里要写成 ""。Windows 路径用 file:/// 前缀更稳。
+    // Keep the script independent of the filename. PowerShell expands subexpressions even
+    // inside double quotes; an environment value is passed to Uri as data without re-evaluation.
     //
     // 已知限制：PresentationCore 是 .NET Framework WPF 程序集，**Win Server Core /
     // 部分裁剪版 Win 镜像**可能未装；那种环境下 `Add-Type -AssemblyName PresentationCore`
     // 抛 FileNotFoundException → execFile err 不是 SIGTERM → 自动 fallback 到 system beep。
     // 主流消费者 Win 10/11（Pro / Home / Enterprise）默认装齐，不需要额外动作。
-    const uri = 'file:///' + file.replace(/\\/g, '/');
-    const escaped = uri.replace(/`/g, '``').replace(/"/g, '""');
     const psScript =
       'Add-Type -AssemblyName PresentationCore;' +
       '$p = New-Object System.Windows.Media.MediaPlayer;' +
-      `$p.Open([Uri]::new("${escaped}"));` +
+      '$p.Open([Uri]::new($env:AGENT_DECK_NOTIFICATION_SOUND_PATH));' +
       '$p.Play();' +
       `Start-Sleep -Milliseconds ${MAX_PLAY_MS};` +
       '$p.Stop();$p.Close()';
-    const proc = execFile('powershell', ['-NoProfile', '-Command', psScript], (err) => {
-      if (err && !isOurKill(err as ExecError)) onError();
-    });
+    const proc = execFile(
+      'powershell',
+      ['-NoProfile', '-NonInteractive', '-Command', psScript],
+      { env: { ...process.env, AGENT_DECK_NOTIFICATION_SOUND_PATH: file } },
+      (err) => {
+        if (err && !isOurKill(err as ExecError)) onError();
+      },
+    );
     trackPlayback(proc);
     return;
   }

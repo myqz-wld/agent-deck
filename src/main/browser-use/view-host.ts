@@ -9,7 +9,7 @@ import {
 
 import { registerWindowRole } from '../window/window-role-registry';
 
-import type { EngineTabSurface } from './engine/surface';
+import type { BrowserTabShowTarget, EngineTabSurface } from './engine/surface';
 import {
   BrowserViewHostCore,
   type BrowserViewBounds,
@@ -28,7 +28,9 @@ export interface BrowserViewHostOptions {
     options: BrowserWindowConstructorOptions,
   ) => BrowserWindow;
   readonly createView?: (options: WebContentsViewConstructorOptions) => WebContentsView;
-  readonly onShowRequested?: (surface: EngineTabSurface) => void;
+  readonly onShowRequested?: (
+    surface: EngineTabSurface, target?: BrowserTabShowTarget,
+  ) => void | boolean | Promise<boolean>;
   readonly workArea?: Electron.Rectangle;
   readonly displayScaleFactor?: (bounds: Electron.Rectangle) => number;
 }
@@ -100,8 +102,8 @@ class WebContentsViewTabSurface implements EngineTabSurface {
     return this.webContents.loadURL(url).then(() => undefined);
   }
 
-  requestShow(): void {
-    if (!this.isDestroyed()) this.host.requestShow(this);
+  async requestShow(target?: BrowserTabShowTarget): Promise<boolean> {
+    return !this.isDestroyed() && await this.host.requestShow(this, target);
   }
 
   destroy(): void {
@@ -179,14 +181,14 @@ export class BrowserViewHost {
   private readonly surfaces = new Set<WebContentsViewTabSurface>();
   private readonly observedPresentationWindows = new WeakSet<BrowserWindow>();
   private readonly unregisterParkingRole: () => void;
-  private showRequested: (surface: EngineTabSurface) => void;
+  private showRequested: NonNullable<BrowserViewHostOptions['onShowRequested']>;
   private readonly displayScaleFactor: (bounds: Electron.Rectangle) => number;
 
   constructor(options: BrowserViewHostOptions = {}) {
     const createParkingWindow = options.createParkingWindow ?? ((windowOptions) =>
       new BrowserWindow(windowOptions));
     this.createView = options.createView ?? ((viewOptions) => new WebContentsView(viewOptions));
-    this.showRequested = options.onShowRequested ?? (() => {});
+    this.showRequested = options.onShowRequested ?? (() => false);
     this.displayScaleFactor = options.displayScaleFactor ?? ((bounds) =>
       screen.getDisplayMatching(bounds).scaleFactor);
     this.parkingWindow = createParkingWindow(buildParkingWindowOptions(options.workArea));
@@ -217,12 +219,12 @@ export class BrowserViewHost {
     return surface;
   }
 
-  setShowRequested(listener: (surface: EngineTabSurface) => void): void {
+  setShowRequested(listener: NonNullable<BrowserViewHostOptions['onShowRequested']>): void {
     this.showRequested = listener;
   }
 
-  requestShow(surface: EngineTabSurface): void {
-    this.showRequested(surface);
+  async requestShow(surface: EngineTabSurface, target?: BrowserTabShowTarget): Promise<boolean> {
+    return await (target ? this.showRequested(surface, target) : this.showRequested(surface)) === true;
   }
 
   present(

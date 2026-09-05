@@ -1,10 +1,9 @@
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentEvent } from '@shared/types';
+import { respondToServerCorePending } from '@hosts/server-core/runtime-pending';
+import type { AgentAdapter } from '@main/adapters/types';
+import type { AgentEvent, PermissionResponse } from '@shared/types';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  PermissionResponderCore,
-  type ClaudePermissionResponderHost,
-} from './permission-responder-core';
+import { PermissionResponderCore, type ClaudePermissionResponderHost } from './permission-responder-core';
 import { makeInternalSession, type InternalSession } from './types';
 
 function makeInternal(): InternalSession {
@@ -38,6 +37,55 @@ function makeHost(overrides: Partial<ClaudePermissionResponderHost> = {}): {
 }
 
 describe('Claude permission responder Core', () => {
+  function permissionFixture() {
+    const internal = makeInternal();
+    const resolver = vi.fn();
+    const toolInput = { file_path: '/workspace/app.txt', old_string: 'before', new_string: 'after' };
+    internal.pendingPermissions.set('edit', {
+      payload: { type: 'permission-request', requestId: 'edit', toolName: 'Edit', toolInput },
+      resolver,
+      timer: null,
+    });
+    const responder = new PermissionResponderCore({
+      sessions: new Map([['session-core', internal]]), emit: vi.fn(), getPermissionTimeoutMs: () => 0,
+    }, vi.fn(), makeHost().host);
+    return { responder, internal, resolver, toolInput };
+  }
+
+  it('preserves the approved Edit arguments through the Server Core pending handler', async () => {
+    const { responder, internal, resolver, toolInput } = permissionFixture();
+    const adapter = {
+      listPending: (sid: string) => responder.listPending(sid),
+      respondPermission: async (sid: string, id: string, response: PermissionResponse) =>
+        responder.respondPermission(sid, id, response),
+    } as AgentAdapter;
+    await expect(respondToServerCorePending(adapter, {
+      sessionId: 'session-core', requestId: 'edit', action: 'approve',
+    }, { respond: () => null })).resolves.toBe('resolved');
+    expect(resolver).toHaveBeenCalledWith(expect.objectContaining({
+      behavior: 'allow', updatedInput: toolInput,
+    }));
+    expect(internal.pendingPermissions.size).toBe(0);
+    expect(internal.permissionMode).toBe('plan');
+  });
+
+  it.each([{ new_string: 'override' }, {}])('honors an explicit input override: %j', (updatedInput) => {
+    const { responder, resolver } = permissionFixture();
+    responder.respondPermission('session-core', 'edit', { decision: 'allow', updatedInput });
+    expect(resolver).toHaveBeenCalledWith(expect.objectContaining({ behavior: 'allow', updatedInput }));
+    responder.respondPermission('session-core', 'edit', { decision: 'deny' });
+    expect(resolver).toHaveBeenCalledOnce();
+  });
+
+  it('keeps denial separate from input and permission overrides', () => {
+    const { responder, resolver, internal } = permissionFixture();
+    responder.respondPermission('session-core', 'edit', {
+      decision: 'deny', message: 'declined', updatedInput: { new_string: 'ignored' },
+    });
+    expect(resolver).toHaveBeenCalledWith({ behavior: 'deny', message: 'declined', interrupt: false });
+    expect(internal.permissionMode).toBe('plan');
+  });
+
   it('rolls back a failed hot switch and keeps diagnostics best-effort', async () => {
     const internal = makeInternal();
     internal.query = {

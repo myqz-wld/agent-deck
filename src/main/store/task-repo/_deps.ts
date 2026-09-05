@@ -159,36 +159,13 @@ export interface TaskListOptions {
   offset?: number;
 }
 
-/**
- * v024 plan §D4 + Step B1:hand_off team_task_policy 'clear-team' / 'preserve-team' 两态
- * 走 reassignOwner 接口;'skip' 走独立 applyHandOffSkipPolicy helper（plan §不变量 11/12）。
- */
-export type ReassignOwnerPolicy = 'clear-team' | 'preserve-team';
-
-/**
- * v024 plan §D4 + Step B1:applyHandOffSkipPolicy helper return shape。
- * handler 端用 deletedTeamTaskIds 做后续 safeEmit task-changed deleted events;
- * count = deletedTeamTaskIds.length + reassignedPersonalCount 用于 ok return。
- */
-export interface ApplyHandOffSkipResult {
-  deletedTeamTaskIds: string[];
-  reassignedPersonalCount: number;
-}
-
 export interface TaskRepo {
   create(input: TaskCreateInput): TaskRecord;
   get(id: string): TaskRecord | null;
   list(opts?: TaskListOptions): TaskRecord[];
   /**
-   * 增量更新。patch 中**显式传 undefined** 的字段会被忽略（视为「不动」），
-   * 显式传 null 会被写入（用于把 description / activeForm / teamId 重置）。
-   *
-   * v024 新增:teamId 可通过 update 改（用于 hand_off clear-team SET team_id=NULL
-   * 但单条 task 路径,主路径走 reassignOwner({policy:'clear-team'}) 批量改）。
-   *
-   * **ownerSessionId 不能通过 update 改**：tool 层闭包锁设计上禁止跨 session 改
-   * owner（hand_off 走专用 reassignOwner / applyHandOffSkipPolicy 接口）。repo 层
-   * 在 patch 里出现 ownerSessionId key 时主动忽略（不抛错，避免破坏「Partial 接口宽容」）。
+   * Apply a partial content patch. Undefined fields are ignored; nullable fields
+   * accept null. Ownership changes only through reassignOwner, never this patch.
    */
   update(id: string, patch: Partial<TaskCreateInput>): TaskRecord | null;
   /**
@@ -213,72 +190,8 @@ export interface TaskRepo {
       ) => boolean;
     },
   ): string[];
-  /**
-   * v023/v024 plan §D3 + D4 hand_off 过继：把 oldSessionId 拥有的所有 task 原子改成
-   * newSessionId 拥有。单 SQL UPDATE，对应 hand_off_session tool 在 spawn 新
-   * session 之后、archive caller 之前调（不可有窗口让 caller 被 archive 后 task
-   * CASCADE 删但新 session 还没接管 — plan §不变量 4）。
-   *
-   * v024 plan §D4 加 policy 参数（HIGH-2 修法 + 不变量 12）:
-   * - `'clear-team'`（default semantic）:UPDATE owner + team_id=NULL（过继 ownership
-   *   同时清 team_id 变 personal,保最大兼容性 newSid 拿到的 task 都可写）
-   * - `'preserve-team'`:UPDATE owner 不动 team_id（caller 自负保证 adopt_teammates=true
-   *   让 newSid 接管 team 当 lead,否则撞 D3 写权限 reject — handler 加 policyWarning
-   *   暴露根因 plan §不变量 5）
-   * - **不含** `'skip'` — skip 走独立 applyHandOffSkipPolicy helper（不能放同 transaction:
-   *   skip 真删 + cleanup blocks/blocked_by + reassign personal 三件事原子性需 helper 单
-   *   transaction 收口）
-   *
-   * **不刷 updated_at**（v023 F5 修法,§不变量 11 沿用）:reassign 是 owner 换不是 task
-   * content 改,语义上不算用户「修改」task,保留原 updated_at 让 list 默认排序稳定。
-   *
-   * @returns 被改写的行数。0 = caller 没拥有任何 task。
-   */
-  reassignOwner(
-    oldSessionId: string,
-    newSessionId: string,
-    opts: { policy: ReassignOwnerPolicy },
-  ): number;
-  /**
-   * v024 plan §D4 + Step B1（Round 3 MED-1 + Round 4 MED-2/3 + Round 6 MED-1 收口）:
-   * hand_off team_task_policy='skip' 路径专用 helper — 单 db.transaction() 内原子化 4 步:
-   *   1. SELECT id FROM tasks WHERE owner_session_id=callerSid AND team_id IS NOT NULL
-   *      → 拿 deletedTeamTaskIds snapshot（handler 后续 safeEmit 用）
-   *   2. chunked DELETE FROM tasks WHERE id IN (?)（CHUNK=500 防 IN 999 上限,与现有
-   *      delete cascade 模式同款）
-   *   3. blocks/blocked_by 引用 cleanup（同 transaction 内 SELECT survivors → 过滤
-   *      引用 deletedTeamTaskIds 的项 → UPDATE 写回,与 delete cascade=false cleanup 同款）
-   *   4. UPDATE tasks SET owner_session_id=newSid WHERE owner_session_id=callerSid
-   *      AND team_id IS NULL → reassign 剩余 personal task
-   *
-   * 4 步在单个 db.transaction() 内,任一步 throw 整 tx 自动 ROLLBACK 保留原集（plan
-   * §不变量 4 + Step B2 case B 测试锁定）。
-   *
-   * Handler 端 commit 后须按 returned deletedTeamTaskIds 显式 safeEmit task-changed
-   * deleted events（per-id try/catch + console.warn + continue,沿用 hand-off-session.ts
-   * :754-763 现有 safeEmit pattern — plan §不变量 11 + Step D2 单一伪代码块 outer try）。
-   *
-   * **不**走 reassignOwner({policy:'skip'})（reassignOwner 不含 'skip',skip 是 helper 唯一入口）。
-   *
-   * @returns deletedTeamTaskIds（被删的 team task id 列表）+ reassignedPersonalCount
-   *          （被过继的 personal task 行数）;handler 拼 ok return.taskReassignment.count =
-   *          deletedTeamTaskIds.length + reassignedPersonalCount。
-   */
-  applyHandOffSkipPolicy(callerSid: string, newSid: string): ApplyHandOffSkipResult;
-  /**
-   * v024 plan §Step D2 preserve-team safety 算法 helper（Round 4 HIGH-1 修法支撑）:
-   * 返 caller (owner_session_id == callerSid) 拥有的 distinct non-null team_id 列表。
-   *
-   * hand_off `team_task_policy='preserve-team'` 路径用此 helper 拿 callerOwnedTeamIds
-   * 与新 sid handoff 后 active teams (adoptedTeamIds ∪ spawnData.teamId) 比对差集，
-   * 差集非空 → ok return.taskReassignment.policyWarning='preserve-team-unadopted-teams'
-   * + unadoptedTeamIds 字段暴露根因（plan §不变量 5 + Step D2）。
-   *
-   * 单 SQL DISTINCT 一次拿到（避免 list 拉全部 task 然后 caller 端 map distinct）。
-   *
-   * @returns caller 拥有 task 的 distinct non-null team_id 列表（personal task team_id IS NULL 被排除）
-   */
-  findOwnedDistinctTeamIds(callerSid: string): string[];
+  /** Transfer ownership atomically, preserving teams, edges and updated_at. */
+  reassignOwner(oldSessionId: string, newSessionId: string): number;
 }
 
 export const UPDATABLE_KEYS: ReadonlyArray<keyof TaskCreateInput> = [
@@ -290,9 +203,8 @@ export const UPDATABLE_KEYS: ReadonlyArray<keyof TaskCreateInput> = [
   'blocks',
   'blockedBy',
   'labels',
-  'teamId', // v024:允许 update 单条 task 改 teamId（hand_off 主路径走 reassignOwner 批量改）
-  // ownerSessionId 故意不在 UPDATABLE_KEYS：tool 层闭包锁禁止跨 session 改 owner
-  // （hand_off 走专用 reassignOwner / applyHandOffSkipPolicy 接口），repo 层主动忽略 patch.ownerSessionId。
+  'teamId',
+  // Ownership is intentionally excluded; handoff uses reassignOwner.
 ];
 
 export const COL_MAP: Record<keyof TaskCreateInput, string> = {

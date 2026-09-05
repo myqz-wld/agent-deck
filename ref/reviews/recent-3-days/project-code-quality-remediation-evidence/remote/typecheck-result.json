@@ -1,0 +1,6 @@
+{
+  "command": "pnpm exec tsc --pretty false --noEmit -p .ref/reviews/2026-09-04-quality-remediation/remote/tsconfig.json",
+  "exitCode": 0,
+  "diagnostics": 0,
+  "scope": "Remote-owned directories plus referenced dependencies and the existing main raw-import declaration; integrated validation remains lead-owned."
+}

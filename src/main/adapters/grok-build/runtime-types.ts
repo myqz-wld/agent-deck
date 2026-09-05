@@ -1,10 +1,5 @@
-import type {
-  PermissionOption,
-  RequestPermissionResponse,
-} from '@agentclientprotocol/sdk';
-import type {
-  PendingAgentMessage,
-} from '@main/adapters/types';
+import type { PermissionOption, RequestPermissionResponse } from '@agentclientprotocol/sdk';
+import type { PendingAgentMessage } from '@main/adapters/types';
 import type { TrustedContinuationInitialTurn } from '@main/session/continuation-context/initial-turn';
 import type {
   AdapterSessionMode,
@@ -35,6 +30,8 @@ export interface GrokSubmittingMessage {
   promptRequestIssued: boolean;
   kind: 'prompt' | 'interject';
   requestController?: AbortController;
+  /** Winning pre-echo deletion releases the local wait even if ACP never settles its RPC. */
+  cancelPromptRequest?: () => void;
 }
 
 export interface GrokPendingPermission {

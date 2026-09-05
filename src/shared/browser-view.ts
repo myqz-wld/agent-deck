@@ -3,6 +3,12 @@ export interface LocalBrowserStateSource {
   readonly sessionId: string;
 }
 
+export interface BrowserShowRequest {
+  readonly requestId: string;
+  readonly source: LocalBrowserStateSource;
+  readonly tabId: number;
+}
+
 export interface RemoteBrowserStateSource {
   readonly kind: 'remote';
   readonly profileId: string;

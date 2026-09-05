@@ -1,0 +1,14 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs src/renderer/remote-host/RemoteIssuesPanel.test.tsx --maxWorkers\=1 --minWorkers\=1
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 <repo>
+
+ ✓ src/renderer/remote-host/RemoteIssuesPanel.test.tsx (12 tests) 497ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  20:31:09
+   Duration  1.67s (transform 412ms, setup 38ms, collect 567ms, tests 497ms, environment 171ms, prepare 37ms)

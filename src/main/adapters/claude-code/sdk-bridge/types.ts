@@ -5,11 +5,7 @@
  * sdk-bridge.ts 仍 import 这些类型；class state 不动。
  */
 import type { PermissionResult, Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type {
-  ClaudeCodeEffortLevel,
-  PermissionMode,
-  QueuedAgentMessage,
-} from '@main/adapters/types';
+import type { ClaudeCodeEffortLevel, PermissionMode, QueuedAgentMessage } from '@main/adapters/types';
 import type {
   AgentEvent,
   AskUserQuestionAnswer,
@@ -222,6 +218,8 @@ export interface InternalSession {
   cwdTransitionGeneration?: number | null;
   /** The active provider turn emitted its result and the streaming input may now terminate. */
   retireBoundaryReached?: boolean;
+  /** Strict rollback seals input immediately, retaining runtime ownership until stream drain. */
+  providerInputClosed?: boolean;
   notify: (() => void) | null;
   /** 等待用户回应的权限请求：requestId → entry（payload + resolver + 超时定时器） */
   pendingPermissions: Map<string, PendingPermissionEntry>;

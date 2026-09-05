@@ -1,0 +1,25 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/runtime/vitest.config.mjs --reporter\=verbose
+
+
+ RUN  v2.1.9 /tmp/agent-deck-scan/2026-09-04-project-scan/runtime
+
+stdout | scan-repro.test.ts > scan evidence: source modules with isolated boundaries > reproduces Server Core approval replacing the Claude tool arguments with an empty object
+runtime-01 {"outcome":"resolved","originalInput":{"file_path":"/workspace/app.txt","old_string":"before","new_string":"after"},"nativeResponse":{"behavior":"allow","updatedInput":{}},"explicitInputCounterexample":{"behavior":"allow","updatedInput":{"file_path":"/workspace/app.txt","old_string":"before","new_string":"after"}}}
+
+stdout | scan-repro.test.ts > scan evidence: source modules with isolated boundaries > reproduces strict rollback waiting for the still-open Claude input stream before the cleanup that ends it
+runtime-02 {"result":{"error":"Claude rollback close could not prove provider stream termination for rollback-app"},"retainedRuntime":true,"cleanupCalls":0,"interruptCalls":1}
+runtime-02 counterexample: ordinary close removes runtime and wakes input stream successfully
+
+ ✓ scan-repro.test.ts > scan evidence: source modules with isolated boundaries > reproduces Server Core approval replacing the Claude tool arguments with an empty object
+ ✓ scan-repro.test.ts > scan evidence: source modules with isolated boundaries > reproduces strict rollback waiting for the still-open Claude input stream before the cleanup that ends it
+ ✓ scan-repro.test.ts > scan evidence: Grok pending cancellation > keeps a removed prompt RPC alive and later starts a second prompt on the same transport
+stdout | scan-repro.test.ts > scan evidence: Grok pending cancellation > keeps a removed prompt RPC alive and later starts a second prompt on the same transport
+runtime-03 {"cancelNotified":true,"originalRequestAborted":false,"promptCountAfterWatchdog":2,"closeCalls":0}
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  18:55:02
+   Duration  726ms (transform 357ms, setup 0ms, collect 526ms, tests 9ms, environment 0ms, prepare 34ms)

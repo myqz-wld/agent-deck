@@ -1,9 +1,6 @@
 import { errorText } from './protocol-utils';
 import type { GrokRuntime } from './runtime-types';
-import {
-  NOOP_GROK_BRIDGE_DIAGNOSTICS,
-  type GrokBridgeDiagnostics,
-} from './bridge-diagnostics-core';
+import { NOOP_GROK_BRIDGE_DIAGNOSTICS, type GrokBridgeDiagnostics } from './bridge-diagnostics-core';
 
 export interface GrokTransportRecoveryContext {
   diagnostics?: GrokBridgeDiagnostics;
@@ -53,7 +50,7 @@ export async function recycleGrokTransport(
     if (context.isCurrent(runtime) && !runtime.closed) {
       context.emitTerminalError(
         runtime.applicationSessionId,
-        `Grok 回复已从原生记录恢复，但 ACP 连接重建失败：${errorText(error)}。` +
+        `Grok ACP 连接重建失败：${errorText(error)}。` +
           '请重新发送下一条消息以恢复 session。',
       );
     }

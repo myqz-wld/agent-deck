@@ -55,6 +55,7 @@ export function hardenBrowserSession(browserSession: Session): void {
 }
 
 export interface EngineTabDeps {
+  ownerId?: string;
   id: number;
   surface?: EngineTabSurface;
   /** Compatibility seam for existing focused tests and fixtures. Production supplies surface. */
@@ -93,9 +94,11 @@ export class EngineTab {
   readonly cdp: CdpBridge;
   private readonly surface: EngineTabSurface;
   private readonly unsubscribe: Array<() => void>;
+  private readonly ownerId: string | undefined;
 
   constructor(deps: EngineTabDeps) {
     this.id = deps.id;
+    this.ownerId = deps.ownerId;
     if (deps.surface == null && deps.window == null) {
       throw new Error('EngineTab requires a Browser surface.');
     }
@@ -135,9 +138,15 @@ export class EngineTab {
     return this.isDestroyed() ? '' : this.surface.webContents.getTitle();
   }
 
-  show(): void {
-    if (this.isDestroyed()) return;
-    this.surface.requestShow();
+  async show(): Promise<boolean> {
+    if (this.isDestroyed()) return false;
+    return await this.surface.requestShow(this.ownerId == null ? undefined : {
+      ownerId: this.ownerId, tabId: this.id,
+    }) === true;
+  }
+
+  hasSurface(surface: EngineTabSurface): boolean {
+    return this.surface === surface;
   }
 
   close(): void {

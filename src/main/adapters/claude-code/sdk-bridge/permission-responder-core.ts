@@ -68,7 +68,7 @@ export class PermissionResponderCore {
     if (response.decision === 'allow') {
       entry.resolver({
         behavior: 'allow',
-        updatedInput: (response.updatedInput ?? {}) as Record<string, unknown>,
+        updatedInput: (response.updatedInput ?? entry.payload.toolInput) as Record<string, unknown>,
         updatedPermissions: response.updatedPermissions as PermissionResult extends {
           updatedPermissions?: infer U;
         }

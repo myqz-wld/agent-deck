@@ -220,6 +220,34 @@ class FakeRawResponse extends EventEmitter {
 }
 
 describe('MCP HTTP observability integration', () => {
+  it.each([
+    undefined,
+    {},
+    { resolvedSid: null, fallbackToGlobal: false },
+    { resolvedSid: 'spoofed-session', fallbackToGlobal: true },
+    { resolvedSid: '', fallbackToGlobal: false },
+  ])('rejects missing or inconsistent transport auth before building a server: %j', async (auth) => {
+    const routes: Array<Record<string, unknown>> = [];
+    const buildServer = vi.fn();
+    const observer = { begin: vi.fn(), beginOperation: vi.fn(), complete: vi.fn() };
+    await registerAgentDeckMcpHttpRoutes({
+      registerForAdapter: (_adapter: string, route: Record<string, unknown>) => routes.push(route),
+    } as never, {
+      loadSdk: async () => ({ http: { StreamableHTTPServerTransport: vi.fn() as never } }),
+      buildServer,
+      observer,
+    });
+    const handler = routes.find((route) => route.method === 'POST')!.handler as
+      (request: unknown, reply: unknown) => Promise<void>;
+    const send = vi.fn();
+    const code = vi.fn(() => ({ send }));
+    await handler({ raw: { auth }, body: { method: 'tools/list' } }, { code });
+    expect(code).toHaveBeenCalledWith(401);
+    expect(send).toHaveBeenCalledWith({ ok: false, error: 'unauthorized' });
+    expect(buildServer).not.toHaveBeenCalled();
+    expect(observer.begin).not.toHaveBeenCalled();
+  });
+
   it.each(['begin', 'complete'] as const)(
     'preserves auth, status, body, hijack, and close cleanup when observer %s throws',
     async (failurePoint) => {

@@ -38,7 +38,10 @@ const mocks = vi.hoisted(() => {
     browserCliShutdown: vi.fn(async () => {}),
     browserContextInit: vi.fn(),
     browserViewDispose: vi.fn(),
-    browserViewInit: vi.fn(() => ({ dispose: mocks.browserViewDispose })),
+    browserShow: vi.fn(async () => true),
+    browserShowReset: vi.fn(),
+    browserViewInit: vi.fn((_options: import('../../browser-use/view-host').BrowserViewHostOptions) =>
+      ({ dispose: mocks.browserViewDispose })),
     browserCliStart: vi.fn(async () => {
       calls.push('browser-cli.start');
       return {
@@ -187,6 +190,9 @@ vi.mock('../../browser-use/browser-runtime-context-host', () => ({
 vi.mock('../../browser-use/view-host', () => ({
   initializeBrowserViewHost: mocks.browserViewInit,
 }));
+vi.mock('../../browser-use/browser-show-runtime', () => ({
+  getBrowserShowController: () => ({ request: mocks.browserShow, reset: mocks.browserShowReset }),
+}));
 vi.mock('../../browser-use/screenshot-store', () => ({
   reapBrowserScreenshotsAtStartup: mocks.browserScreenshotReap,
 }));
@@ -247,5 +253,12 @@ describe('checkpoint refresh bootstrap entry', () => {
     expect(state.browserCliBrokerShutdown).toBe(mocks.browserCliShutdown);
     expect(mocks.browserViewInit).toHaveBeenCalledOnce();
     expect(state.browserViewHostDispose).toEqual(expect.any(Function));
+    const surface = {} as import('../../browser-use/engine/surface').EngineTabSurface;
+    const target = { ownerId: 'session-a', tabId: 1 };
+    expect(await mocks.browserViewInit.mock.calls[0]?.[0].onShowRequested?.(surface, target)).toBe(true);
+    expect(mocks.browserShow).toHaveBeenCalledWith(surface, target);
+    state.browserViewHostDispose?.();
+    expect(mocks.browserShowReset).toHaveBeenCalledOnce();
+    expect(mocks.browserViewDispose).toHaveBeenCalledOnce();
   });
 });

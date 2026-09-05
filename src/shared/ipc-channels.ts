@@ -78,6 +78,7 @@ export const IpcInvoke = {
 
   // Session-scoped in-app Browser state and native view presentation.
   BrowserStateGet: 'browser:state-get',
+  BrowserShowPending: 'browser:show-pending',
   BrowserPresentationBegin: 'browser:presentation-begin',
   BrowserPresentationUpdate: 'browser:presentation-update',
   BrowserPresentationClose: 'browser:presentation-close',
@@ -215,6 +216,7 @@ export const IpcEvent = {
 
   /** Source-qualified Browser tab metadata; never contains the private engine owner id. */
   BrowserStateChanged: 'event:browser-state-changed',
+  BrowserShowRequested: 'event:browser-show-requested',
 
   /** message 入队 / 状态变迁：聚合数组 payload，16ms debounce + per-message 累加。 */
   AgentDeckMessageChanged: 'event:agent-deck-message-changed',

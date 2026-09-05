@@ -53,7 +53,8 @@ describe('Local Worker daemon frame channels', () => {
       getWorkerGeneration: () => 4,
     });
     const channel = channels.open('stream-a', {
-      data: (payload) => writes.push(Buffer.from(payload)),
+      maxChunkBytes: 64 * 1024,
+      data: async (payload) => { writes.push(Buffer.from(payload)); return true; },
       close: () => { closes += 1; },
       reset: () => { resets += 1; },
     }, {

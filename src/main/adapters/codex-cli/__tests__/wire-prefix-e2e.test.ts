@@ -1,22 +1,23 @@
+import { makeActiveInternalSession, makeInternalSession } from './wire-prefix-fixture';
 /**
  * codex receiveTeammateMessage E2E wire prefix 端到端测试
  * （plan codex-handoff-team-alignment-20260518 P2 Step 2.11 / TC8）。
  *
  * 测试目标：universal-message-watcher.buildWireBody 构造的 cross-session message wire
  * prefix `[from <name> @ <adapter>][msg <id>][sid <senderSid>]\n<body>` 通过 codex
- * receiveTeammateMessage → bridge.sendMessage → pendingMessages 队列 → 发到 codex SDK
+ * receiveTeammateMessage → bridge.sendMessage → pendingTurns 队列 → 发到 codex SDK
  * 子进程的整条链路上**字节级保留**（codex 子进程 prompt 顶部能看到双锚点 wire prefix
  * 调 `mcp__agent-deck__send_message({reply_to_message_id: msgId, ...})` 回 lead）。
  *
  * 覆盖（plan §P2 Step 2.11）：
- * - TC8a: bridge.sendMessage(sid, wireBody) → pendingMessages 末位 = wireBody verbatim（plain
+ * - TC8a: bridge.sendMessage(sid, wireBody) → pendingTurns 末位 = wireBody verbatim（plain
  *   text Input 形态：codex SDK packCodexInput 不带 attachments 直接返回 string）
  * - TC8b: bridge.sendMessage emit kind='message' / payload.text=wireBody verbatim / role='user'
- * - TC8c: shared/wire-prefix.parseWirePrefix 端到端能从 pendingMessages entry / emit text 中
+ * - TC8c: shared/wire-prefix.parseWirePrefix 端到端能从 pendingTurns entry / emit text 中
  *   提取出 from / adapter / msgId / senderSessionId 四字段（与 buildWireBody 双向闭环）
  * - TC8d: 双锚点 regex `[msg <id>][sid <senderSid>]` charset 严格 lowercase hex + hyphen 36 字符
  *   （wire format invariant，与 app CLAUDE.md §wire format id invariant 对齐）
- * - TC8e: 多 codex teammate session 各自 pendingMessages 不串（隔离验证 — wire prefix 隔离 +
+ * - TC8e: 多 codex teammate session 各自 pendingTurns 不串（隔离验证 — wire prefix 隔离 +
  *   sessions Map 隔离双轨道）
  *
  * 测试策略：用 TestCodexBridge 强制访问 private sessions Map 注入 fake InternalSession
@@ -25,9 +26,9 @@
  * 是 thin wrapper（codex-cli/index.ts:122 `await this.bridge.sendMessage(sid, body)`），
  * bridge 行为正确即等价于 adapter 端到端正确。
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeSessionRepoMock } from '@main/__tests__/_shared/mocks/session-repo';
 import { makeSettingsStoreMock } from '@main/__tests__/_shared/mocks/settings-store';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // 与 recovery / consume-fork test 同款 6 个入口模块 stub,绕过 vitest node 环境下 electron 模块的
 // 'failed to install'（codex bridge index.ts top-level 导入链上有几条间接 import 'electron' 的路径）
@@ -68,11 +69,11 @@ vi.mock('@main/session/manager', () => ({
   },
 }));
 
-import { emits, makeBridge } from './sdk-bridge/_setup';
-import { parseWirePrefix } from '@shared/wire-prefix';
 import type { CodexInput } from '@main/adapters/codex-cli/sdk-bridge/input-pack';
 import type { InternalSession } from '@main/adapters/codex-cli/sdk-bridge/types';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
+import { parseWirePrefix } from '@shared/wire-prefix';
+import { emits, makeBridge } from './sdk-bridge/_setup';
 
 beforeEach(() => {
   emits.length = 0;
@@ -84,57 +85,8 @@ afterEach(() => {
 
 /**
  * 构造一个 fake Thread (runStreamed 不会被 sendMessage 路径直接调,但 turnLoop 会;此处
- * pendingMessages.push 后 turnLoopRunning=true 跳过启动 turn loop,fake thread 不真用)。
+ * pendingTurns.push 后 turnLoopRunning=true 跳过启动 turn loop,fake thread 不真用)。
  */
-function makeFakeThread(): InternalSession['thread'] {
-  return {
-    runStreamed: vi.fn(async () => {
-      throw new Error('not invoked in this test');
-    }),
-  } as unknown as InternalSession['thread'];
-}
-
-function makeInternalSession(threadId: string): InternalSession {
-  return {
-    applicationSid: threadId,
-    threadId,
-    cwd: '/tmp/codex-cwd',
-    thread: makeFakeThread() as unknown as InternalSession['thread'],
-    runtimeIdentity: null,
-    pendingMessages: [],
-    currentTurn: null,
-    currentTurnId: null,
-    // **关键**:turnLoopRunning=true → bridge.sendMessage 跳过 void runTurnLoop 启动
-    // (本 test 不验证 turn loop 行为,只关心 wire prefix 在 pendingMessages 与 emit 中的保留)
-    turnLoopRunning: true,
-    intentionallyClosed: false,
-    pendingPermissions: new Map(),
-  };
-}
-
-function makeActiveInternalSession(threadId: string): {
-  internal: InternalSession;
-  steer: ReturnType<typeof vi.fn>;
-} {
-  const steer = vi.fn(async () => undefined);
-  return {
-    internal: {
-      applicationSid: threadId,
-      threadId,
-      cwd: '/tmp/codex-cwd',
-      thread: { steer } as unknown as InternalSession['thread'],
-      runtimeIdentity: null,
-      pendingMessages: [],
-      currentTurn: new AbortController(),
-      currentTurnId: 'turn-active-1',
-      turnLoopRunning: true,
-      intentionallyClosed: false,
-      pendingPermissions: new Map(),
-    },
-    steer,
-  };
-}
-
 /**
  * 构造一条与 universal-message-watcher.buildWireBody 输出形态字节级对齐的 wire body
  * （buildWireBody 原文：`[from ${displayName} @ ${adapterId}][msg ${id}][sid ${fromSid}]\n${body}`）。
@@ -152,7 +104,7 @@ function buildClaudeLeadToCodexTeammateWireBody(opts: {
 }
 
 describe('TC8 codex receiveTeammateMessage E2E wire prefix（claude lead → codex teammate dispatch）', () => {
-  it('TC8a: bridge.sendMessage(sid, wireBody) → pendingMessages 末位 = wireBody verbatim（plain text Input 形态）', async () => {
+  it('TC8a: bridge.sendMessage(sid, wireBody) → pendingTurns 末位 = wireBody verbatim（plain text Input 形态）', async () => {
     const bridge = makeBridge();
     const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
     const sid = 'codex-teammate-1';
@@ -168,9 +120,9 @@ describe('TC8 codex receiveTeammateMessage E2E wire prefix（claude lead → cod
     await bridge.sendMessage(sid, wireBody);
 
     const internal = sessions.get(sid)!;
-    expect(internal.pendingMessages).toHaveLength(1);
+    expect(internal.pendingTurns).toHaveLength(1);
     // packCodexInput 纯文本路径直接返回 string（input-pack.ts:28 `if (!attachments) return text`）
-    const lastInput: CodexInput = internal.pendingMessages[0];
+    const lastInput: CodexInput = internal.pendingTurns.at(0)!.input;
     expect(typeof lastInput).toBe('string');
     expect(lastInput).toBe(wireBody);
     // 显式断言：wire prefix 三段 + 双锚点字段都 byte-level 一致
@@ -206,7 +158,7 @@ describe('TC8 codex receiveTeammateMessage E2E wire prefix（claude lead → cod
     expect(msg.agentId).toBe('codex-cli');
   });
 
-  it('TC8c: shared/wire-prefix.parseWirePrefix 端到端能从 pendingMessages entry / emit text 提取四字段（与 buildWireBody 双向闭环）', async () => {
+  it('TC8c: shared/wire-prefix.parseWirePrefix 端到端能从 pendingTurns entry / emit text 提取四字段（与 buildWireBody 双向闭环）', async () => {
     const bridge = makeBridge();
     const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
     const sid = 'codex-teammate-3';
@@ -222,9 +174,9 @@ describe('TC8 codex receiveTeammateMessage E2E wire prefix（claude lead → cod
 
     await bridge.sendMessage(sid, wireBody);
 
-    // 从 pendingMessages 提取（codex 子进程实际看到的形态）
+    // 从 pendingTurns 提取（codex 子进程实际看到的形态）
     const internal = sessions.get(sid)!;
-    const pendingText = internal.pendingMessages[0] as string;
+    const pendingText = internal.pendingTurns.at(0)!.input as string;
     const fromPending = parseWirePrefix(pendingText);
     expect(fromPending).not.toBeNull();
     expect(fromPending?.from).toBe(fixture.displayName);
@@ -237,7 +189,7 @@ describe('TC8 codex receiveTeammateMessage E2E wire prefix（claude lead → cod
     const messageEvents = emits.filter((e) => e.kind === 'message' && e.sessionId === sid);
     const emitText = (messageEvents[0].payload as { text: string }).text;
     const fromEmit = parseWirePrefix(emitText);
-    expect(fromEmit).toEqual(fromPending); // pendingMessages / emit 两条路径解析出同一个对象（双向闭环）
+    expect(fromEmit).toEqual(fromPending); // pendingTurns / emit 两条路径解析出同一个对象（双向闭环）
   });
 
   it('TC8d: 双锚点 charset 严格 lowercase hex + hyphen 36 字符（wire format id invariant，app CLAUDE.md 规约）', async () => {
@@ -255,7 +207,7 @@ describe('TC8 codex receiveTeammateMessage E2E wire prefix（claude lead → cod
 
     await bridge.sendMessage(sid, wireBody);
 
-    const pendingText = sessions.get(sid)!.pendingMessages[0] as string;
+    const pendingText = sessions.get(sid)!.pendingTurns.at(0)!.input as string;
     // app CLAUDE.md §wire format id invariant：messageId 是 v4 randomUUID；
     // senderSessionId 由 SDK / CLI 分配，不承诺 v4，但同为 lowercase hex + hyphen 36 字符。
     const ANCHOR_RE = /\[msg ([0-9a-f-]{36})\]\[sid ([0-9a-f-]{36})\]/;
@@ -268,7 +220,7 @@ describe('TC8 codex receiveTeammateMessage E2E wire prefix（claude lead → cod
     expect(sidMatch).toMatch(UUID_36_RE);
   });
 
-  it('TC8e: 多 codex teammate session 各自 pendingMessages 不串（wire prefix 隔离 + sessions Map 隔离双轨道）', async () => {
+  it('TC8e: 多 codex teammate session 各自 pendingTurns 不串（wire prefix 隔离 + sessions Map 隔离双轨道）', async () => {
     const bridge = makeBridge();
     const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
     const sidA = 'codex-teammate-A';
@@ -292,13 +244,13 @@ describe('TC8 codex receiveTeammateMessage E2E wire prefix（claude lead → cod
     await bridge.sendMessage(sidA, wireBodyA);
     await bridge.sendMessage(sidB, wireBodyB);
 
-    // 各自 pendingMessages 独立持自己 wireBody（不串）
+    // 各自 pendingTurns 独立持自己 wireBody（不串）
     const internalA = sessions.get(sidA)!;
     const internalB = sessions.get(sidB)!;
-    expect(internalA.pendingMessages).toHaveLength(1);
-    expect(internalB.pendingMessages).toHaveLength(1);
-    expect(internalA.pendingMessages[0]).toBe(wireBodyA);
-    expect(internalB.pendingMessages[0]).toBe(wireBodyB);
+    expect(internalA.pendingTurns).toHaveLength(1);
+    expect(internalB.pendingTurns).toHaveLength(1);
+    expect(internalA.pendingTurns.at(0)!.input).toBe(wireBodyA);
+    expect(internalB.pendingTurns.at(0)!.input).toBe(wireBodyB);
 
     // emit 也各自独立带 sessionId 区分（不会把 wireBodyA 误派发给 sidB）
     const messagesForA = emits.filter((e) => e.kind === 'message' && e.sessionId === sidA);
@@ -330,14 +282,14 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
 
     await bridge.sendMessage(sid, wireBody);
 
-    const pendingText = sessions.get(sid)!.pendingMessages[0] as string;
+    const pendingText = sessions.get(sid)!.pendingTurns.at(0)!.input as string;
     expect(pendingText).toBe(wireBody);
     const parsed = parseWirePrefix(pendingText);
     expect(parsed?.from).toBe(fixture.displayName);
     expect(parsed?.body).toBe(fixture.body);
   });
 
-  it('attachments 透传：bridge.sendMessage(sid, wireBody, [...refs]) → pendingMessages UserInput[] 形态（包 wireBody 为 type:text item）', async () => {
+  it('attachments 透传：bridge.sendMessage(sid, wireBody, [...refs]) → pendingTurns UserInput[] 形态（包 wireBody 为 type:text item）', async () => {
     const bridge = makeBridge();
     const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
     const sid = 'codex-teammate-attach';
@@ -356,8 +308,8 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
     await bridge.sendMessage(sid, wireBody, attachments);
 
     const internal = sessions.get(sid)!;
-    expect(internal.pendingMessages).toHaveLength(1);
-    const lastInput = internal.pendingMessages[0];
+    expect(internal.pendingTurns).toHaveLength(1);
+    const lastInput = internal.pendingTurns.at(0)!.input;
     // 带 attachments → packCodexInput 返 UserInput[]，[local_image, ..., text] 顺序（input-pack.ts:28-37）
     expect(Array.isArray(lastInput)).toBe(true);
     const items = lastInput as Array<{ type: string; text?: string; path?: string }>;
@@ -367,7 +319,7 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
     expect(items[1]).toMatchObject({ type: 'text', text: wireBody });
   });
 
-  it('active turn：bridge.sendMessage(sid, wireBody) 自动走 turn/steer，不进入 pendingMessages', async () => {
+  it('active turn：bridge.sendMessage(sid, wireBody) 自动走 turn/steer，不进入 pendingTurns', async () => {
     const bridge = makeBridge();
     const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
     const sid = 'codex-active-steer';
@@ -386,7 +338,7 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
       turnCorrelationId: 'steer-correlation-1',
     });
 
-    expect(internal.pendingMessages).toHaveLength(0);
+    expect(internal.pendingTurns).toHaveLength(0);
     expect(steer).toHaveBeenCalledWith(
       [{ type: 'text', text: wireBody, text_elements: [] }],
       'turn-active-1',
@@ -403,7 +355,7 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
     expect(bridge.listPendingOutgoingMessages(sid)).toEqual([]);
   });
 
-  it('active turn：bridge.enqueueMessage(sid, wireBody) 强制进入 pendingMessages，不调用 steer，并 emit user message', async () => {
+  it('active turn：bridge.enqueueMessage(sid, wireBody) 强制进入 pendingTurns，不调用 steer，并 emit user message', async () => {
     const bridge = makeBridge();
     const sessions = (bridge as unknown as { sessions: Map<string, InternalSession> }).sessions;
     const sid = 'codex-active-enqueue';
@@ -420,7 +372,7 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
     await bridge.enqueueMessage(sid, wireBody);
 
     expect(steer).not.toHaveBeenCalled();
-    expect(internal.pendingMessages).toEqual([wireBody]);
+    expect([...internal.pendingTurns].map((entry) => entry.input)).toEqual([wireBody]);
     const messageEvents = emits.filter((e) => e.kind === 'message' && e.sessionId === sid);
     expect(messageEvents).toHaveLength(1);
     expect(messageEvents[0].payload).toEqual({
@@ -448,7 +400,7 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
 
     await bridge.sendMessage(sid, wireBody, attachments);
 
-    expect(internal.pendingMessages).toHaveLength(0);
+    expect(internal.pendingTurns).toHaveLength(0);
     expect(steer).toHaveBeenCalledWith([
       { type: 'localImage', path: '/tmp/active.png' },
       { type: 'text', text: wireBody, text_elements: [] },
@@ -482,8 +434,8 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
     await bridge.enqueueMessage(sid, wireBody, attachments);
 
     expect(steer).not.toHaveBeenCalled();
-    expect(internal.pendingMessages).toHaveLength(1);
-    const items = internal.pendingMessages[0] as Array<{ type: string; text?: string; path?: string }>;
+    expect(internal.pendingTurns).toHaveLength(1);
+    const items = internal.pendingTurns.at(0)!.input as Array<{ type: string; text?: string; path?: string }>;
     expect(items).toEqual([
       { type: 'local_image', path: '/tmp/enqueue-active.png' },
       { type: 'text', text: wireBody },
@@ -508,12 +460,12 @@ describe('TC8 codex receiveTeammateMessage 边角', () => {
     try {
       await bridge.sendMessage(sid, 'late input during handoff');
       expect(steer).not.toHaveBeenCalled();
-      expect(internal.pendingMessages).toHaveLength(0);
+      expect(internal.pendingTurns).toHaveLength(0);
       expect(emits.filter((event) => event.kind === 'message' && event.sessionId === sid))
         .toHaveLength(1);
 
       lease.release();
-      await vi.waitFor(() => expect(internal.pendingMessages).toEqual(['late input during handoff']));
+      await vi.waitFor(() => expect([...internal.pendingTurns].map((entry) => entry.input)).toEqual(['late input during handoff']));
       expect(steer).not.toHaveBeenCalled();
       expect(emits.filter((event) => event.kind === 'message' && event.sessionId === sid))
         .toHaveLength(1);

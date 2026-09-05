@@ -1,0 +1,49 @@
+
+> agent-deck@0.1.0 test .
+> node scripts/test-electron.mjs src/main/browser-use src/renderer/components/SessionDetail/__tests__/use-file-changes.test.tsx src/renderer/components/SessionDetail/__tests__/file-change-continuity.test.tsx src/renderer/components/SessionDetail/RemoteDiffPanel.test.tsx src/renderer/components/SessionDetail/remote-diff-continuity.test.tsx src/renderer/components/SessionDetail/IabPanel.test.tsx src/renderer/hooks/use-browser-show.test.tsx src/renderer/remote-host/use-remote-host-snapshot.test.tsx src/renderer/remote-host/source-selection-intents.test.tsx src/renderer/components/RemoteHost/RemoteHostManagerDialog.test.tsx src/main/ipc/__tests__/browser.test.ts src/main/index/__tests__/checkpoint-bootstrap-entry.test.ts src/main/index/__tests__/bootstrap-wiring-observability.test.ts src/main/index/__tests__/bootstrap-wiring.test.ts --maxWorkers\=1 --minWorkers\=1
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 .
+
+ ✓ src/main/index/__tests__/bootstrap-wiring-observability.test.ts (15 tests) 117ms
+ ✓ src/main/browser-use/browser-presentation-controller.test.ts (10 tests) 11ms
+ ✓ src/main/browser-use/engine/__tests__/scripts.test.ts (10 tests) 78ms
+ ✓ src/main/index/__tests__/checkpoint-bootstrap-entry.test.ts (1 test) 4ms
+ ✓ src/main/browser-use/browser-cli-broker.test.ts (5 tests) 1067ms
+   ✓ Browser CLI private broker > executes the real session shim without any model-supplied session identity 966ms
+ ✓ src/main/browser-use/engine/__tests__/cdp.test.ts (11 tests) 57ms
+ ✓ src/main/browser-use/engine/__tests__/actions.test.ts (17 tests) 754ms
+ ✓ src/main/browser-use/browser-show-controller.test.ts (11 tests) 17ms
+ ✓ src/main/browser-use/engine/__tests__/registry.test.ts (14 tests) 10ms
+ ✓ src/main/browser-use/browser-runtime-context.test.ts (5 tests) 17ms
+ ✓ src/main/browser-use/view-host-core.test.ts (5 tests) 5ms
+ ✓ src/main/browser-use/browser-lease-registry-core.test.ts (7 tests) 4ms
+ ✓ src/main/browser-use/browser-cli-resource.test.ts (11 tests) 11ms
+ ✓ src/main/browser-use/view-host.test.ts (2 tests) 4ms
+ ✓ src/main/browser-use/__tests__/screenshot-store.test.ts (4 tests) 12ms
+ ✓ src/main/browser-use/__tests__/protocol.test.ts (7 tests) 4ms
+ ✓ src/main/index/__tests__/bootstrap-wiring.test.ts (7 tests) 4ms
+ ✓ src/main/browser-use/operation-contract.test.ts (10 tests) 8ms
+ ✓ src/main/browser-use/browser-state-projection.test.ts (5 tests) 5ms
+ ✓ src/main/browser-use/operation-executor.test.ts (3 tests) 86ms
+ ✓ src/main/ipc/__tests__/browser.test.ts (2 tests) 3ms
+ ✓ src/main/browser-use/browser-runtime-context-host.test.ts (5 tests) 3ms
+ ✓ src/main/browser-use/browser-show-ipc.test.ts (2 tests) 3ms
+ ✓ src/main/browser-use/engine/tab-collection-core.test.ts (2 tests) 3ms
+ ✓ src/main/browser-use/engine/registry-core.test.ts (2 tests) 3ms
+ ✓ src/renderer/remote-host/use-remote-host-snapshot.test.tsx (11 tests) 23ms
+ ✓ src/renderer/components/RemoteHost/RemoteHostManagerDialog.test.tsx (11 tests) 129ms
+ ✓ src/renderer/components/SessionDetail/__tests__/use-file-changes.test.tsx (10 tests) 667ms
+   ✓ useFileChanges paging and request fencing > loads one summary page, appends load-more, and incrementally merges refreshes 415ms
+ ✓ src/renderer/components/SessionDetail/IabPanel.test.tsx (6 tests) 79ms
+ ✓ src/renderer/components/SessionDetail/__tests__/file-change-continuity.test.tsx (8 tests) 21ms
+ ✓ src/renderer/hooks/use-browser-show.test.tsx (4 tests) 175ms
+ ✓ src/renderer/components/SessionDetail/RemoteDiffPanel.test.tsx (3 tests) 119ms
+ ✓ src/renderer/remote-host/source-selection-intents.test.tsx (4 tests) 77ms
+ ✓ src/renderer/components/SessionDetail/remote-diff-continuity.test.tsx (2 tests) 17ms
+
+ Test Files  34 passed (34)
+      Tests  232 passed (232)
+   Start at  20:19:53
+   Duration  13.85s (transform 595ms, setup 247ms, collect 2.02s, tests 3.60s, environment 1.50s, prepare 1.17s)

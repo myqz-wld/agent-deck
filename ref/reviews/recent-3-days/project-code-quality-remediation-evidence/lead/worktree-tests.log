@@ -1,0 +1,19 @@
+
+> agent-deck@0.1.0 test <repo>
+> node scripts/test-electron.mjs src/main/agent-deck-mcp/__tests__/enter-exit-worktree.test.ts src/main/agent-deck-mcp/__tests__/worktree-repository-identity.test.ts src/main/session/worktree-transition/__tests__/git-cleanup.test.ts src/main/session/worktree-transition/__tests__/git-cleanup-references.test.ts --maxWorkers\=1 --minWorkers\=1
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 <repo>
+
+ ✓ src/main/agent-deck-mcp/__tests__/enter-exit-worktree.test.ts (5 tests) 272ms
+ ✓ src/main/agent-deck-mcp/__tests__/worktree-repository-identity.test.ts (3 tests) 1217ms
+   ✓ worktree repository identity > creates the submodule HEAD and accepts its clean exit without selecting the superproject 582ms
+   ✓ worktree repository identity > freezes HEAD in the caller linked worktree while retaining the main checkout owner 366ms
+ ✓ src/main/session/worktree-transition/__tests__/git-cleanup-references.test.ts (6 tests) 3ms
+ ✓ src/main/session/worktree-transition/__tests__/git-cleanup.test.ts (3 tests) 549ms
+
+ Test Files  4 passed (4)
+      Tests  17 passed (17)
+   Start at  20:07:18
+   Duration  3.19s (transform 116ms, setup 53ms, collect 151ms, tests 2.04s, environment 0ms, prepare 139ms)

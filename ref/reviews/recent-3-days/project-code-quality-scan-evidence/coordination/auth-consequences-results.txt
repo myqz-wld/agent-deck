@@ -1,0 +1,19 @@
+
+> agent-deck@0.1.0 test .
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/coordination/vitest.config.cjs /tmp/agent-deck-scan/2026-09-04-project-scan/coordination/auth-consequences.test.ts
+
+
+ RUN  v2.1.9 .
+
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/auth-consequences.test.ts > persists production translated unclaimed CLI hook events, without a provider runtime
+hook consequence {"createdSource":"cli","persistedUserPayload":{"role":"user","text":"fixture forged user prompt","metadata":{"cwd":"/fixture/cwd"}},"finalLifecycle":"closed"}
+
+stdout | ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/auth-consequences.test.ts > missing HTTP auth can read metadata while all external-disallowed tools retain their guard
+MCP consequence {"identity":"__external__","metadata":{"sessionId":"metadata-fixture","adapter":"codex-cli","gateway":null,"provider":null,"cwd":"/fixture/private-project","lifecycle":"active","title":"confidential fixture title","lastEventAt":1788573713355,"teamName":null,"teams":[],"spawnedBy":null,"spawnDepth":0},"externalDisallowedGuards":16,"tasks":{"total":0,"hasMore":false,"tasks":[]}}
+
+ ✓ ../../../../private/tmp/agent-deck-scan/2026-09-04-project-scan/coordination/auth-consequences.test.ts (2 tests) 42ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  19:01:48
+   Duration  4.38s (transform 1.58s, setup 230ms, collect 2.14s, tests 42ms, environment 1ms, prepare 237ms)

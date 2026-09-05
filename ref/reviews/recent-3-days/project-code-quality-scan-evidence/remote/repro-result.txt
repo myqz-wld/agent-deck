@@ -1,0 +1,24 @@
+
+> agent-deck@0.1.0 test .
+> node scripts/test-electron.mjs --config /tmp/agent-deck-scan/2026-09-04-project-scan/remote/scan.config.mjs --no-cache --reporter\=verbose
+
+
+ RUN  v2.1.9 .
+
+stdout | ../../../../tmp/agent-deck-scan/2026-09-04-project-scan/remote/repro.test.ts > remote scan isolated reproductions (assert existing faulty behavior) > SDK group bot mention turns /unsubscribe into session.send
+MENTION {"command":{"kind":"send","text":"@_user_1 /unsubscribe"},"outcome":"accepted","actualMethod":"session.send"}
+
+stdout | ../../../../tmp/agent-deck-scan/2026-09-04-project-scan/remote/repro.test.ts > remote scan isolated reproductions (assert existing faulty behavior) > one normal multiline history entry rejects Feishu /history
+HISTORY {"text":"First line\nSecond line","outcome":"invalid_core_response","replyCount":0}
+
+ ✓ ../../../../tmp/agent-deck-scan/2026-09-04-project-scan/remote/repro.test.ts > remote scan isolated reproductions (assert existing faulty behavior) > SDK group bot mention turns /unsubscribe into session.send
+ ✓ ../../../../tmp/agent-deck-scan/2026-09-04-project-scan/remote/repro.test.ts > remote scan isolated reproductions (assert existing faulty behavior) > one normal multiline history entry rejects Feishu /history
+ ✓ ../../../../tmp/agent-deck-scan/2026-09-04-project-scan/remote/repro.test.ts > remote scan isolated reproductions (assert existing faulty behavior) > default Relay transport resets a valid 1 MiB event-list response before credit can return
+stdout | ../../../../tmp/agent-deck-scan/2026-09-04-project-scan/remote/repro.test.ts > remote scan isolated reproductions (assert existing faulty behavior) > default Relay transport resets a valid 1 MiB event-list response before credit can return
+RELAY {"validResponseBytes":1037404,"eventCount":100,"reset":"backpressure","dataBytesEmitted":196608,"streamCount":0}
+
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  18:58:11
+   Duration  827ms (transform 319ms, setup 31ms, collect 558ms, tests 48ms, environment 0ms, prepare 29ms)

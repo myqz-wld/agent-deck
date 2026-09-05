@@ -27,7 +27,7 @@ export default defineConfig({
     include: [
       'src/**/*.test.ts',
       'src/**/*.test.tsx',
-      'scripts/deployment/**/*.test.mjs',
+      'scripts/**/*.test.mjs',
     ],
     // Install deterministic application paths and shared Electron-only module mocks.
     setupFiles: ['./vitest-setup.ts'],

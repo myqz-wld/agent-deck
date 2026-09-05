@@ -79,7 +79,7 @@ export async function* createClaudeUserMessageStreamCore(
   host: ClaudeUserMessageStreamHost,
 ): AsyncIterable<SDKUserMessage> {
   while (true) {
-    if (internal.retireBoundaryReached) return;
+    if (internal.providerInputClosed || internal.retireBoundaryReached) return;
     if (
       !internal.retireRequested &&
       internal.cwdTransitionGeneration == null &&
@@ -109,6 +109,7 @@ export async function* createClaudeUserMessageStreamCore(
         });
         continue;
       }
+      if (internal.providerInputClosed) return;
       if (internal.pendingUserMessages[0] !== thunk) continue;
       host.refreshBrowserRuntime?.(internal.applicationSid);
       internal.pendingUserMessages.shift();
@@ -133,7 +134,7 @@ export async function* createClaudeUserMessageStreamCore(
       internal.notify = resolve;
     });
     internal.notify = null;
-    if (internal.retireBoundaryReached) return;
+    if (internal.providerInputClosed || internal.retireBoundaryReached) return;
     if (ctx.sessions.get(internal.applicationSid) !== internal) return;
   }
 }

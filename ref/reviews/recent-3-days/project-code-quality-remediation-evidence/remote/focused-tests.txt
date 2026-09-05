@@ -1,0 +1,46 @@
+
+> agent-deck@0.1.0 test .
+> node scripts/test-electron.mjs src/hosts/local-worker/frame-bridge.test.ts src/hosts/local-worker/daemon-frame-channels.test.ts src/hosts/local-worker/relay-output-capacity.test.ts src/hosts/local-worker/frame-output-waiters.test.ts src/hosts/local-worker/attachment.test.ts src/hosts/local-worker/attachment-retirement.test.ts src/hosts/daemon/frame-writer.test.ts src/hosts/daemon/connection.test.ts src/hosts/daemon/connection-backpressure.test.ts src/hosts/daemon/connection-identifiers.test.ts src/gateways/im src/gateways/feishu/message-semantics.test.ts src/gateways/feishu/bot-identity.test.ts src/gateways/feishu/mapper-transport.test.ts src/gateways/feishu/sdk.test.ts src/gateways/feishu/event-adapter.test.ts src/gateways/feishu/runtime-shutdown.test.ts src/gateways/feishu/health.test.ts --maxWorkers\=1 --minWorkers\=1 --no-cache --reporter\=dot
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+ RUN  v2.1.9 .
+
+ ✓ src/gateways/im/gateway.test.ts (17 tests) 34ms
+ ✓ src/hosts/local-worker/frame-bridge.test.ts (13 tests) 11ms
+ ✓ src/hosts/daemon/connection.test.ts (10 tests) 16ms
+ ✓ src/hosts/local-worker/attachment.test.ts (12 tests) 62ms
+ ✓ src/gateways/im/audit-bounds-binding-runtime.test.ts (10 tests) 33ms
+ ✓ src/gateways/im/audit-fencing.test.ts (10 tests) 44ms
+ ✓ src/gateways/feishu/mapper-transport.test.ts (13 tests) 11ms
+ ✓ src/gateways/feishu/runtime-shutdown.test.ts (8 tests) 112ms
+ ✓ src/gateways/im/security-and-delivery.test.ts (12 tests) 47ms
+ ✓ src/gateways/im/audit-validation.test.ts (7 tests) 41ms
+ ✓ src/gateways/im/audit-store-mutation.test.ts (11 tests) 20ms
+ ✓ src/gateways/im/audit-stream-generation.test.ts (5 tests) 40ms
+ ✓ src/hosts/local-worker/relay-output-capacity.test.ts (6 tests) 477ms
+ ✓ src/gateways/feishu/message-semantics.test.ts (13 tests) 18ms
+ ✓ src/gateways/im/audit-resync-shutdown.test.ts (5 tests) 42ms
+ ✓ src/hosts/daemon/connection-identifiers.test.ts (6 tests) 17ms
+ ✓ src/gateways/im/audit-subscription-lifecycle.test.ts (6 tests) 26ms
+ ✓ src/hosts/local-worker/attachment-retirement.test.ts (6 tests) 60ms
+ ✓ src/gateways/im/delivery-hardening.test.ts (4 tests) 7ms
+ ✓ src/gateways/im/notification-exhaustion.test.ts (2 tests) 27ms
+ ✓ src/gateways/im/group-egress.test.ts (4 tests) 16ms
+ ✓ src/gateways/im/audit-crash-hello.test.ts (9 tests) 11ms
+ ✓ src/hosts/daemon/frame-writer.test.ts (6 tests) 6ms
+ ✓ src/hosts/daemon/connection-backpressure.test.ts (3 tests) 10ms
+ ✓ src/gateways/feishu/health.test.ts (17 tests) 5ms
+ ✓ src/gateways/feishu/event-adapter.test.ts (4 tests) 6ms
+ ✓ src/gateways/im/audit-exhaustion-approval.test.ts (4 tests) 15ms
+ ✓ src/gateways/feishu/bot-identity.test.ts (9 tests) 6ms
+ ✓ src/hosts/local-worker/frame-output-waiters.test.ts (2 tests) 5ms
+ ✓ src/gateways/im/core-output-contract.test.ts (7 tests) 5ms
+ ✓ src/hosts/local-worker/daemon-frame-channels.test.ts (1 test) 5ms
+ ✓ src/gateways/im/text-policy.test.ts (13 tests) 6ms
+ ✓ src/gateways/feishu/sdk.test.ts (1 test) 3ms
+
+ Test Files  33 passed (33)
+      Tests  256 passed (256)
+   Start at  20:08:52
+   Duration  11.13s (transform 742ms, setup 230ms, collect 3.09s, tests 1.24s, environment 3ms, prepare 1.17s)

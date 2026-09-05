@@ -1,14 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { CodexPendingTurnQueue } from '@main/adapters/codex-cli/sdk-bridge/pending-turn-queue';
 import type { AgentEvent } from '@shared/types';
-import type { InternalSession } from './types';
+import { describe, expect, it, vi } from 'vitest';
 import { CodexSessionCommandController } from './session-command-controller';
+import type { InternalSession } from './types';
 
 function session(thread: Record<string, unknown>): InternalSession {
   return {
     applicationSid: 'app-session',
     threadId: 'native-old',
     thread,
-    pendingMessages: [],
+    pendingTurns: new CodexPendingTurnQueue(),
     pendingPermissions: new Map(),
     currentTurn: null,
     currentTurnId: null,
@@ -119,7 +120,7 @@ describe('Codex session command controller', () => {
 
     await controller.execute('app-session', 'compact');
     expect(internal.activeControlCommand).toBe('compact');
-    internal.pendingMessages.push('follow-up');
+    internal.pendingTurns.append({ input: 'follow-up' });
     await vi.waitFor(() => expect(internal.activeControlCommand).toBeNull());
 
     expect(events).toHaveLength(2);

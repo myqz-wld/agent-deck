@@ -9,6 +9,7 @@ import {
   assertWorktreeClean,
   assertWorktreeHeadIsReferenced,
 } from '@main/session/worktree-transition/git-safety';
+import { readGitMainWorktree } from '@main/session/worktree-transition/git-repository';
 
 const FULL_GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const ENTER_GIT_CHECK_TIMEOUT_MS = 30_000;
@@ -79,26 +80,19 @@ async function resolveMainRepo(
   deps: Required<EnterWorktreeDeps>,
 ): Promise<string | EnterWorktreeError> {
   try {
-    const gitCommonDir = await deps.runGit(
-      ['rev-parse', '--git-common-dir'],
-      callerCwd,
-      { timeoutMs: ENTER_GIT_CHECK_TIMEOUT_MS },
-    );
-    const commonDirAbs = path.isAbsolute(gitCommonDir)
-      ? gitCommonDir
-      : path.resolve(callerCwd, gitCommonDir);
-    return path.dirname(commonDirAbs);
+    return await readGitMainWorktree(callerCwd, (args, cwd) =>
+      deps.runGit(args, cwd, { timeoutMs: ENTER_GIT_CHECK_TIMEOUT_MS }));
   } catch (e) {
     return {
       error: `caller cwd is not inside a git repo: ${callerCwd}`,
-      hint: `enter_worktree derives the main repo from the caller session cwd with git rev-parse --git-common-dir. Start from a git repo session or pass worktree operations through a session whose cwd is in the repo.`,
+      hint: 'Start from a Git repository session whose git worktree list --porcelain -z reports a valid main worktree. The caller repository owns revision resolution and worktree creation.',
     };
   }
 }
 
 async function resolveStartCommit(
   startPoint: string,
-  mainRepo: string,
+  callerCwd: string,
   deps: Required<EnterWorktreeDeps>,
 ): Promise<string | EnterWorktreeError> {
   if (!isValidStartPoint(startPoint)) {
@@ -120,7 +114,7 @@ async function resolveStartCommit(
           '--end-of-options',
           `${startPoint}^{commit}`,
         ],
-        mainRepo,
+        callerCwd,
         { timeoutMs: ENTER_GIT_CHECK_TIMEOUT_MS },
       )
     ).trim();
@@ -213,7 +207,7 @@ export async function prepareEnterWorktree(
   if (isError(mainRepo)) return mainRepo;
   const startCommit = await resolveStartCommit(
     input.startPoint,
-    mainRepo,
+    callerCwd,
     deps,
   );
   if (isError(startCommit)) return startCommit;

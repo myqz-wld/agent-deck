@@ -316,9 +316,7 @@ function transferTasks(
   newSessionId: string,
 ): HandOffResourceTransferResult['tasks'] {
   try {
-    const count = taskRepo.reassignOwner(callerSessionId, newSessionId, {
-      policy: 'preserve-team',
-    });
+    const count = taskRepo.reassignOwner(callerSessionId, newSessionId);
     return { status: 'ok', count };
   } catch (e) {
     return { status: 'failed', count: 0, error: errorMessage(e) };
@@ -350,9 +348,7 @@ function rollbackTasks(
 ): HandOffResourceTransferResult['tasks'] {
   if (result.status !== 'ok' || result.count === 0) return failedTasks(reason);
   try {
-    taskRepo.reassignOwner(newSessionId, callerSessionId, {
-      policy: 'preserve-team',
-    });
+    taskRepo.reassignOwner(newSessionId, callerSessionId);
     return failedTasks(reason);
   } catch (e) {
     return {

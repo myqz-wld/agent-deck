@@ -1,0 +1,51 @@
+src/main/store/task-repo.ts:11: * - 通过 `createTaskRepo(db)` 工厂注入 db，让测试用 in-memory 数据库独立跑
+src/main/store/task-repo.ts:23: *     applyHandOffSkipPolicy, findOwnedDistinctTeamIds }（hand_off_session 三方法）
+src/main/store/task-repo.ts:25: * 子模块 import 关系:`handoff → delete`（applyHandOffSkipPolicy 复用 cleanupBlocksReferences）
+src/main/store/task-repo.ts:29: * createTaskRepo + taskRepo singleton,所有测试 import 零改动。
+src/main/store/task-repo.ts:38: * - hand_off team_task_policy 三态（D4）:clear-team（默认） / preserve-team / skip
+src/main/store/task-repo.ts:41: *   - skip: applyHandOffSkipPolicy 单 transaction 4 步原子化(SELECT 团 task → DELETE → cleanup → reassign personal)
+src/main/store/task-repo.ts:71:export function createTaskRepo(db: Database): TaskRepo {
+src/main/store/task-repo.ts:83:    applyHandOffSkipPolicy: handoff.applyHandOffSkipPolicy,
+src/main/store/task-repo.ts:84:    findOwnedDistinctTeamIds: handoff.findOwnedDistinctTeamIds,
+src/main/store/task-repo.ts:94:  if (!_defaultRepo) _defaultRepo = createTaskRepo(getDb());
+src/main/store/task-repo.ts:105:  applyHandOffSkipPolicy: (callerSid, newSid) =>
+src/main/store/task-repo.ts:106:    defaultRepo().applyHandOffSkipPolicy(callerSid, newSid),
+src/main/store/task-repo.ts:107:  findOwnedDistinctTeamIds: (callerSid) => defaultRepo().findOwnedDistinctTeamIds(callerSid),
+src/main/store/__tests__/task-repo.test.ts:33:import { createTaskRepo, type TaskRepo } from '../task-repo';
+src/main/store/__tests__/task-repo.test.ts:45:  return { db, repo: createTaskRepo(db), sid: DEFAULT_SID };
+src/main/store/__tests__/task-repo.test.ts:525:      const repo1 = createTaskRepo(db1);
+src/main/store/__tests__/task-repo.test.ts:533:      const repo2 = createTaskRepo(db2);
+src/main/store/__tests__/task-repo.test.ts:824:describe.skipIf(!bindingAvailable)('task-repo v024 / applyHandOffSkipPolicy 三 case (B1 + D4)', () => {
+src/main/store/__tests__/task-repo.test.ts:845:    const result = repo.applyHandOffSkipPolicy(sid, 'sess-new');
+src/main/store/__tests__/task-repo.test.ts:866:    const result = repo.applyHandOffSkipPolicy(sid, 'sess-new');
+src/main/store/__tests__/task-repo.test.ts:877:    const result = repo.applyHandOffSkipPolicy('sess-empty', 'sess-new');
+src/main/store/__tests__/task-repo.test.ts:902:    const result = repo.applyHandOffSkipPolicy(sid, 'sess-new');
+src/main/store/__tests__/task-repo.test.ts:933:    expect(() => repo.applyHandOffSkipPolicy(sid, 'sess-new')).toThrow();
+src/main/store/__tests__/task-repo.test.ts:942:describe.skipIf(!bindingAvailable)('task-repo v024 / findOwnedDistinctTeamIds (D2 preserve-team safety)', () => {
+src/main/store/__tests__/task-repo.test.ts:965:    const result = repo.findOwnedDistinctTeamIds(sid);
+src/main/store/__tests__/task-repo.test.ts:973:    expect(repo.findOwnedDistinctTeamIds(sid)).toEqual([]);
+src/main/store/__tests__/task-repo.test.ts:978:    expect(repo.findOwnedDistinctTeamIds('sess-empty')).toEqual([]);
+src/main/agent-deck-mcp/__tests__/task-crud.test.ts:43:    applyHandOffSkipPolicy: vi.fn(),
+src/main/agent-deck-mcp/__tests__/task-crud.test.ts:44:    findOwnedDistinctTeamIds: vi.fn(() => [] as string[]),
+src/main/store/task-repo/task-repo-handoff.ts:8: * - **applyHandOffSkipPolicy**：'skip' policy 专用 helper — 单 db.transaction() 内
+src/main/store/task-repo/task-repo-handoff.ts:12: * - **findOwnedDistinctTeamIds**：preserve-team safety 算法 helper — 单 SQL DISTINCT
+src/main/store/task-repo/task-repo-handoff.ts:32:  applyHandOffSkipPolicy(callerSid: string, newSid: string): ApplyHandOffSkipResult;
+src/main/store/task-repo/task-repo-handoff.ts:33:  findOwnedDistinctTeamIds(callerSid: string): string[];
+src/main/store/task-repo/task-repo-handoff.ts:58:    // 'skip' 不在本接口走（plan §不变量 12）— skip 走 applyHandOffSkipPolicy 单 tx 4 步。
+src/main/store/task-repo/task-repo-handoff.ts:70:  function applyHandOffSkipPolicy(
+src/main/store/task-repo/task-repo-handoff.ts:126:  function findOwnedDistinctTeamIds(callerSid: string): string[] {
+src/main/store/task-repo/task-repo-handoff.ts:140:  return { reassignOwner, applyHandOffSkipPolicy, findOwnedDistinctTeamIds };
+src/main/store/task-repo/task-repo-crud.ts:12: * `task-repo.ts` 装配进 createTaskRepo 主 factory。create/update 不依赖其他子模块,
+src/main/store/task-repo/task-repo-delete.ts:10: * - **cleanupBlocksReferences**：export 让 handoff 子模块（applyHandOffSkipPolicy）共享
+src/main/store/task-repo/task-repo-delete.ts:35: * 提取 cleanup blocks/blocked_by 引用为 helper,让 del() 与 applyHandOffSkipPolicy()
+src/main/store/task-repo/_deps.ts:81: * 跨子模块共享的 task 单条查询(原 createTaskRepo 内 `get(id)` 同款实现)。
+src/main/store/task-repo/_deps.ts:163: * v024 plan §D4 + Step B1:hand_off team_task_policy 'clear-team' / 'preserve-team' 两态
+src/main/store/task-repo/_deps.ts:164: * 走 reassignOwner 接口;'skip' 走独立 applyHandOffSkipPolicy helper（plan §不变量 11/12）。
+src/main/store/task-repo/_deps.ts:169: * v024 plan §D4 + Step B1:applyHandOffSkipPolicy helper return shape。
+src/main/store/task-repo/_deps.ts:190:   * owner（hand_off 走专用 reassignOwner / applyHandOffSkipPolicy 接口）。repo 层
+src/main/store/task-repo/_deps.ts:228:   * - **不含** `'skip'` — skip 走独立 applyHandOffSkipPolicy helper（不能放同 transaction:
+src/main/store/task-repo/_deps.ts:244:   * hand_off team_task_policy='skip' 路径专用 helper — 单 db.transaction() 内原子化 4 步:
+src/main/store/task-repo/_deps.ts:267:  applyHandOffSkipPolicy(callerSid: string, newSid: string): ApplyHandOffSkipResult;
+src/main/store/task-repo/_deps.ts:272:   * hand_off `team_task_policy='preserve-team'` 路径用此 helper 拿 callerOwnedTeamIds
+src/main/store/task-repo/_deps.ts:281:  findOwnedDistinctTeamIds(callerSid: string): string[];
+src/main/store/task-repo/_deps.ts:295:  // （hand_off 走专用 reassignOwner / applyHandOffSkipPolicy 接口），repo 层主动忽略 patch.ownerSessionId。

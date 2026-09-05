@@ -4,6 +4,7 @@ const CLOSE_STREAM_DRAIN_TIMEOUT_MS = 1_000;
 
 export interface ClaudeLifecycleQuery {
   interrupt(): Promise<unknown>;
+  close(): void;
   setPermissionMode(mode: PermissionMode): Promise<void>;
 }
 
@@ -14,6 +15,8 @@ export interface ClaudeLifecycleSession {
   streamDrained: Promise<void>;
   expectedClose?: boolean;
   retireRequested?: boolean;
+  providerInputClosed?: boolean;
+  notify: (() => void) | null;
   pendingUserMessages: unknown[];
   acceptedEnqueueFingerprints?: { clear(): void };
   permissionMode: PermissionMode;
@@ -136,12 +139,18 @@ export async function closeClaudeSessionForRollbackCore<
   const { internal, key } = resolved;
   const expectedCloseBefore = internal.expectedClose;
   internal.expectedClose = true;
+  // Interrupt only stops a turn: a reusable SDK query otherwise waits for more input forever.
+  // Seal input without releasing its runtime/claims, then use Query.close() to terminate it.
+  internal.providerInputClosed = true;
+  const notify = internal.notify;
+  internal.notify = null;
+  try { notify?.(); } catch { /* Wakeup cannot prevent provider termination. */ }
   try {
-    await internal.query.interrupt();
+    internal.query.close();
   } catch (error) {
     warnWithoutThrow(
       host,
-      `[sdk-bridge] strict interrupt during close failed: ${input.sessionId}`,
+      `[sdk-bridge] strict query close failed: ${input.sessionId}`,
       error,
     );
   }

@@ -1,7 +1,8 @@
 import { isSensitiveJsonKey, type JsonObject, type JsonValue } from '@contracts/index';
+import { FORBIDDEN_TEXT_CHARACTERS } from './text-policy';
 
 const SECRET_VALUE = /(?:-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+[A-Za-z0-9._~+/=-]{8,}|\b(?:gh[pousr]|sk|xox[baprs])[-_][A-Za-z0-9_-]{16,})/i;
-const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/g;
+const CONTROL = new RegExp(FORBIDDEN_TEXT_CHARACTERS.source, 'gu');
 
 export interface RedactionLimits {
   maxDepth: number;

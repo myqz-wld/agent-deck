@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { deleteSessionHandOffAliasesForSessionWithDb } from '../session-handoff-alias-repo';
+import { cleanupBlocksReferences, listSessionTaskIds } from '../task-dependency-cleanup';
 
 /** Delete one session without orphaning an unsettled worktree lease. */
 export function deleteSessionWithWorktreeGuard(
@@ -28,7 +29,9 @@ export function deleteSessionWithWorktreeGuard(
       `DELETE FROM worktree_cwd_transitions
        WHERE session_id = ? AND phase = 'cleared'`,
     ).run(sessionId);
+    const deletedTaskIds = listSessionTaskIds(db, sessionId);
     db.prepare(`DELETE FROM sessions WHERE id = ?`).run(sessionId);
+    cleanupBlocksReferences(db, new Set(deletedTaskIds));
     deleteSessionHandOffAliasesForSessionWithDb(db, sessionId);
   })();
 }
