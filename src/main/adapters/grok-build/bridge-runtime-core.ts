@@ -52,6 +52,7 @@ export interface GrokHandOffIngressArgs {
   sourceSessionId: string;
   text: string;
   attachments?: UploadedAttachmentRef[];
+  turnCorrelationId?: string;
   emit: (event: AgentEvent) => void;
   replay: (sourceSessionId: string) => Promise<void>;
   bypassWorktreeTransition?: boolean;

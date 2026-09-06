@@ -48,6 +48,7 @@ export class MessageController {
           this.enqueuePersistedMessage(sourceSessionId, text, attachments),
         bypassWorktreeTransition:
           options?.bypassWorktreeTransitionGuard === true,
+        turnCorrelationId: options?.turnCorrelationId,
       })
     ) {
       return;
@@ -82,6 +83,7 @@ export class MessageController {
           this.enqueuePersistedMessage(sourceSessionId, text, attachments),
         bypassWorktreeTransition:
           options?.bypassWorktreeTransitionGuard === true,
+        turnCorrelationId: options?.turnCorrelationId,
       })
     ) {
       return;
