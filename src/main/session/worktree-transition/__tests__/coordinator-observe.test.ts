@@ -248,6 +248,31 @@ describe('WorktreeTransitionCoordinator provider observation', () => {
     expect(coordinator.observe(event('context-usage', { used: 12 }))).toBe(true);
   });
 
+  it.each(['enter', 'exit'] as const)(
+    'retains accepted user input while fencing the interrupted %s turn',
+    (direction) => {
+      const coordinator = new WorktreeTransitionCoordinator();
+      harness.record = transition({
+        direction,
+        phase: direction === 'enter' ? 'interrupting_enter_turn' : 'interrupting_exit_turn',
+      });
+      const userMessage = event('message', {
+        text: 'keep this correction',
+        role: 'user',
+        turnCorrelationId: 'outgoing-1',
+        worktreeTransitionBuffered: { generation: 4, sequence: 1 },
+        attachments: [{ kind: 'uploaded', path: '/uploads/correction.png', mime: 'image/png', bytes: 5 }],
+      });
+
+      expect(coordinator.observe(userMessage)).toBe(true);
+      expect(coordinator.observe(event('message', { role: 'assistant', text: 'stale output' })))
+        .toBe(false);
+      expect(coordinator.observe(event('tool-use-start', { toolName: 'Bash', toolUseId: 'stale' })))
+        .toBe(false);
+      expect(harness.interrupt).not.toHaveBeenCalled();
+    },
+  );
+
   it('marks the expected terminal and finalizes the next cwd before releasing the gate', async () => {
     const coordinator = new WorktreeTransitionCoordinator();
     harness.record = transition({ phase: 'interrupting_enter_turn' });

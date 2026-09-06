@@ -191,6 +191,9 @@ export class WorktreeTransitionCoordinator {
       record.phase === 'interrupting_enter_turn' ||
       record.phase === 'interrupting_exit_turn'
     ) {
+      // Adapter-owned user acknowledgements share this SDK sink with provider output. They may
+      // already be durable transition inputs whose replay suppresses a second history event.
+      if (event.kind === 'message' && value.role === 'user') return true;
       if (event.kind === 'finished') {
         event.payload = {
           ...value,

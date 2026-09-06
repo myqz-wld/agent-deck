@@ -50,6 +50,34 @@ beforeEach(() => {
 });
 
 describe('worktree transition ingress guard', () => {
+  it('projects accepted input with its outgoing correlation and attachments', () => {
+    const attachments = [
+      { kind: 'uploaded' as const, path: '/uploads/correction.png', mime: 'image/png', bytes: 5 },
+    ];
+    harness.append.mockReturnValue({ sequence: 2, createdAt: 100 });
+
+    expect(guardWorktreeTransitionIngress({
+      sessionId: 'session-a',
+      agentId: 'codex-cli',
+      text: 'keep this correction',
+      attachments,
+      turnCorrelationId: 'outgoing-1',
+      emit: harness.emit,
+    })).toBe(true);
+    expect(harness.append).toHaveBeenCalledOnce();
+    expect(harness.emit).toHaveBeenCalledOnce();
+    expect(harness.emit).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'message',
+      payload: {
+        role: 'user',
+        text: 'keep this correction',
+        attachments,
+        turnCorrelationId: 'outgoing-1',
+        worktreeTransitionBuffered: { generation: 3, sequence: 2 },
+      },
+    }));
+  });
+
   it('falls through to the live adapter when the buffer seals after its optimistic read', () => {
     harness.append.mockImplementation(() => {
       throw new WorktreeTransitionInputClosedError('session-a', 3);

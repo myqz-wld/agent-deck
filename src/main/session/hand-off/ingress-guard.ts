@@ -12,6 +12,7 @@ export interface HandOffIngressGuardInput {
   agentId: SessionAdapterId;
   text: string;
   attachments?: UploadedAttachmentRef[];
+  turnCorrelationId?: string;
   emit: (event: AgentEvent) => void;
   replay: (sourceSessionId: string) => Promise<void>;
   bypassWorktreeTransition?: boolean;
@@ -26,6 +27,7 @@ export function guardHandOffSourceIngress(input: HandOffIngressGuardInput): bool
       agentId: input.agentId,
       text: input.text,
       attachments: input.attachments,
+      turnCorrelationId: input.turnCorrelationId,
       emit: input.emit,
     })
   ) {

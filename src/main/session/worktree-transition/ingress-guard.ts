@@ -20,6 +20,7 @@ export interface WorktreeTransitionIngressInput {
   agentId: SessionAdapterId;
   text: string;
   attachments?: UploadedAttachmentRef[];
+  turnCorrelationId?: string;
   emit: (event: AgentEvent) => void;
 }
 
@@ -64,6 +65,9 @@ export function guardWorktreeTransitionIngress(
       payload: {
         text: input.text,
         role: 'user',
+        ...(input.turnCorrelationId
+          ? { turnCorrelationId: input.turnCorrelationId }
+          : {}),
         worktreeTransitionBuffered: {
           generation: transition.generation,
           sequence: queued.sequence,

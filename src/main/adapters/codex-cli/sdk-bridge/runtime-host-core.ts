@@ -86,6 +86,7 @@ export interface CodexHandOffIngressArgs {
   agentId: SessionAdapterId;
   text: string;
   attachments?: UploadedAttachmentRef[];
+  turnCorrelationId?: string;
   emit: (event: AgentEvent) => void;
   replay: (sourceSessionId: string) => Promise<void>;
   bypassWorktreeTransition?: boolean;

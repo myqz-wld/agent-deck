@@ -47,6 +47,7 @@ export interface ClaudeMessageControllerHost {
     agentId: 'claude-code';
     text: string;
     attachments?: UploadedAttachmentRef[];
+    turnCorrelationId?: string;
     emit: (event: AgentEvent) => void;
     replay: (sourceSessionId: string) => Promise<void>;
     bypassWorktreeTransition?: boolean;
@@ -98,6 +99,7 @@ export async function sendClaudeMessageCore(
         ),
       bypassWorktreeTransition:
         input.enqueueOptions?.bypassWorktreeTransitionGuard === true,
+      turnCorrelationId: input.enqueueOptions?.turnCorrelationId,
     })
   ) {
     return;

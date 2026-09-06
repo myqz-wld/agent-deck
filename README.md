@@ -1,22 +1,16 @@
 # Agent Deck
 
-Agent Deck is a desktop workspace for coordinating Claude Code, Codex CLI, and Grok Build on the same project. It keeps agent sessions, collaboration, reviews, and project state in one place.
+Agent Deck is a desktop workspace for coordinating Claude Code, Codex CLI, and Grok Build
+on the same project. Keep agent sessions, collaboration, reviews, and project state in one place.
 
 ## Highlights
 
-- Follow live sessions, messages, results, Git branches, and context usage.
-- Track provider quotas and token usage in the Data panel; Codex `gpt-reserve` and
-  `GPT-5.3-Codex-Spark` quota windows are hidden.
-- Reactivate closed sessions from History, and attach images from either composer size when the
-  selected runtime supports them.
-- Start teammates, form teams, assign tasks, and hand work to another session.
-- Review plans and diffs before important changes continue.
-- Track tasks and issues alongside the sessions doing the work.
-- Isolate changes in Git worktrees when parallel work should stay separate.
-- Browse bundled Agents and Skills and manage application conventions from the Assets Library.
-- Use a private, session-scoped Browser with an in-app view and screenshot annotation.
-- Discover and run the slash commands supported by the active adapter from either Local or Remote
-  message composers.
+- Follow live sessions, revisit history, and track context and provider usage.
+- Coordinate teammates, tasks, issues, and session handoffs.
+- Review plans and diffs, and isolate changes in Git worktrees.
+- Use bundled Agents and Skills from the Assets Library.
+- Browse pages in a private session Browser and annotate screenshots.
+- Work with local projects or connected remote environments.
 
 ## Quick Start
 
@@ -27,110 +21,53 @@ pnpm install
 pnpm dev
 ```
 
-Authenticate Claude Code, Codex CLI, and Grok Build through their normal CLI workflows before creating sessions. Agent Deck uses their existing local configuration and does not store provider credentials.
+Authenticate the agents you plan to use through their normal CLI workflows. Agent Deck uses
+their existing configuration and does not store provider credentials. Bundled runtimes are
+selected by default; Settings can point to an external installation.
 
-Bundled runtimes are selected by default. Configure an external runtime only when you need a different installation.
-
-The bundled Codex CLI is `0.153.4`, pinned by `pnpm-lock.yaml`. Rebuild and reinstall the app after
-updating its dependency to use the new runtime in the installed application.
-
-## Basic Workflow
-
-1. Open a project and start a lead session.
-2. Create teammate sessions for independent work or specialist checks.
-3. Follow progress through messages, tasks, issues, and session results.
-4. Approve or revise proposed plans and diffs.
-5. Continue in place, hand the work to another agent, or finish the task.
-
-Each session keeps its agent's own model, permission, approval, and sandbox settings. Coordination never widens the access granted to that runtime.
-
-Grok defaults to `grok-4.6` when no model is configured. Explicit model selections and native user configuration keep their existing precedence. Spawn and handoff accept free-text model names; their suggestions include `gpt-6-astra` and `grok-4.6`.
+Open a project, start a session, and describe the task. Add teammates for independent work,
+follow their progress, and approve or revise proposed plans and diffs.
 
 ## Runtime Configuration
 
-### Slash Commands
+Each session keeps its agent's own model, permissions, approvals, and sandbox settings.
+Collaboration does not widen that access. Claude and Codex support native Gateway profiles;
+see [runtime configuration](resources/README.md) for setup and adapter differences.
 
-Type `/` in a Local or Remote message composer to discover commands supported by the active
-adapter. Click a suggestion or press Tab to complete it, then press Enter to execute it.
+Type `/` in the message composer to discover supported commands.
 
-Claude Code and Grok Build publish their available commands from their live runtimes. Codex CLI
-currently exposes `/clear` and `/compact`: clearing starts a fresh native conversation while keeping
-the Agent Deck activity timeline, and compacting uses Codex's native app-server compaction flow.
-Native commands that do not produce a model reply report their final outcome as one compact system
-status using the same `<adapter> /<command> completed-or-failed` copy pattern, without decorative
-icons or terminal punctuation. They also retain the ordinary finished-turn event. Unknown
-slash-prefixed text remains an ordinary message.
+Browser tabs are private to the session, open in the background by default, and
+close with the session or handoff lifecycle. You can capture an annotated PNG into the message composer
+when the active runtime accepts image input.
 
-### Gateway Profiles
+## Remote Work and Deployment
 
-Gateway profiles remain adapter-native:
+Choose **Local** for this machine or **Remote** for a connected workspace. Switching data
+sources does not stop remote sessions, and unsupported remote controls never use local data.
 
-| Adapter | Gateway configuration |
-| --- | --- |
-| Claude Code | `~/.claude/gateways/<id>.json`, passed to the SDK session as its settings file |
-| Codex CLI | `${CODEX_HOME:-~/.codex}/gateways/<id>.toml`, applied as a complete native Codex configuration |
-| Grok Build | No Agent Deck Gateway selector; Grok keeps its native ACP/provider configuration |
+- **Full:** a Linux appliance hosts repositories, providers, and session state.
+- **Relay:** an always-on Worker hosts repositories and providers; the server relays traffic.
 
-For Claude and Codex, the filename stem is the Gateway id and an empty selection delegates to the adapter's normal native configuration. Agent Deck reads these profiles without writing them or carrying a Gateway choice across adapters. See [resources/README.md](resources/README.md) for the exact runtime contracts.
+Use the deployment guides for prerequisites, commands, verification, and rollback. Server
+release actions require a clean, committed, pushed, and upstream-aligned checkout.
 
-### Browser and In-App View
-
-Interactive sessions can use the bundled `agent-deck-browser` CLI. Browser tabs are private to the session, open in the background by default, and close with the session or handoff lifecycle. The in-app Browser view can capture an annotated PNG into the message composer when the active runtime accepts image input.
-
-## Data Sources and Server Topologies
-
-The desktop supports two data sources:
-
-| Source | Meaning |
-| --- | --- |
-| Local | Data, repositories, providers, and sessions stay on this machine. |
-| Remote | The selected remote profile supplies supported workspace data through restricted SSH. Switching away does not stop its sessions. |
-
-Remote profiles connect to one of two server topologies:
-
-| Topology | Meaning |
-| --- | --- |
-| Full | An isolated Linux appliance owns Core, repositories, providers, and session state. |
-| Relay | An always-on local Worker owns repositories and providers; the server forwards bounded opaque traffic and metadata only. |
-
-Remote capabilities are explicit. Unsupported pages or controls are disabled, hidden, or read-only and never fall back to Local data. SSH uses pinned host keys, dedicated credentials, forced commands, and no general shell, PTY, forwarding, or tunnel surface.
+- [Relay deployment](deploy/linux/relay/README.snippet.md)
+- [Full deployment](deploy/linux/full/README.snippet.md)
+- [Feishu gateway](deploy/linux/feishu/README.md)
+- [Configuration examples](deploy/examples)
 
 ## Development
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm dev` | Start the development app |
 | `pnpm typecheck` | Run architecture and TypeScript checks |
 | `pnpm test` | Run the Electron-compatible test suite |
 | `pnpm build` | Build main, preload, and renderer bundles |
-| `pnpm logger:check` | Check renderer and main-process logging rules |
-| `pnpm verify:linux-headless` | Build and verify isolated Linux headless roles |
 | `pnpm dist:mac`, `pnpm dist:win`, `pnpm dist:linux` | Build an installer on the matching host OS |
 | `pnpm install:local:mac` | Build, verify, and install the macOS app locally |
 
-Installer builds contain platform-specific agent runtimes, so cross-platform packaging is not supported.
-
-## Server Deployment
-
-Deployment automation is available for Relay Server, Relay Worker, and Full Server:
-
-- [Relay deployment](deploy/linux/relay/README.snippet.md)
-- [Full deployment](deploy/linux/full/README.snippet.md)
-- [Feishu gateway](deploy/linux/feishu/README.md)
-- [Deployment configuration examples](deploy/examples)
-
-Server release actions require a clean, committed, pushed, and upstream-aligned checkout. Follow the linked deployment contract for prerequisites, exact commands, verification, rollback, and credential handling.
-
-## Architecture and Security
-
-- `src/contracts/` defines JSON-safe product and transport contracts.
-- `src/core/` contains host-neutral application ports.
-- `src/protocol/` contains bridge admission and wire protocols.
-- `src/composition/` selects concrete host implementations.
-- `src/clients/` contains transport clients.
-- `src/hosts/` contains Electron, daemon, SSH bridge, Relay, Worker, and appliance boundaries.
-
-Local IPC methods do not implicitly acquire Remote or Feishu authority. Remote paths remain Workspace-relative, provider credentials stay host-owned, and every selected directory is revalidated beneath its authoritative Workspace.
+Quit Agent Deck before a local install. Build installers on the matching host OS; cross-platform
+packaging is not supported. See [CLAUDE.md](CLAUDE.md) for the full development workflow.
 
 ## Documentation
 

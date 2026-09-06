@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-06 | `PLAN_51_worktree-user-message-projection.md` | completed | Preserve worktree input and simplify project documentation | REVIEW_271 |
 | 2026-09-04 | `PLAN_50_model-routing-and-grok-defaults.md` | completed | Apply requested model defaults and table-only tier edits | CHANGELOG_640 |
 | 2026-09-04 | `PLAN_49_astra-usage-and-model-inventory.md` | completed | Preserve quota groups and inventory model defaults | REVIEW_270 |
 | 2026-09-04 | `PLAN_48_project-code-quality-remediation.md` | completed | Implement and validate all accepted scan findings | REVIEW_269 |
