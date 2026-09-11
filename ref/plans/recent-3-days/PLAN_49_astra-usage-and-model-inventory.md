@@ -27,5 +27,5 @@ Completion below covers the implemented generic quota projection, reviewer defau
 - Focused 10 files / 96 tests passed; complete suite 1,024 files / 6,346 tests passed with three existing platform/opt-in skips.
 - Typecheck, architecture boundaries and production build passed. Twelve changed source/test/assets remain below 500 lines; SQLite binding unchanged.
 - No source changes in Skill Market, no user database/provider-transcript access, live provider calls, host process actions, dependency installation, commit/push or deployment.
-- Final implementation and inventory: [REVIEW_270](../../reviews/recent-3-days/REVIEW_270_astra-usage-and-model-inventory.md), [model-name inventory](../../reviews/recent-3-days/astra-usage-model-inventory/model-name-inventory.md).
+- Final implementation and inventory: [REVIEW_270](../../reviews/recent-week/REVIEW_270_astra-usage-and-model-inventory.md), [model-name inventory](../../reviews/recent-3-days/astra-usage-model-inventory/model-name-inventory.md).
 - Remaining product decisions: desired spawn model suggestions, generic Grok defaults and shim catalog, and each Skill Market tier reference. Await the user's concrete modification instructions for these inspection-only areas.

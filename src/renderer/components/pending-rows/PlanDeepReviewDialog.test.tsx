@@ -480,6 +480,7 @@ describe('PlanDeepReviewDialog', () => {
     expect(await screen.findByText(
       '无法创建隔离的审阅会话。请稍后重试。',
     )).toBeTruthy();
+    expect(screen.getByText('审阅会话创建失败，问题尚未发送，请稍后重试。')).toBeTruthy();
     expect((question as HTMLTextAreaElement).value).toBe('Trigger the fork.');
     expect(screen.queryByText(/contextMode "fresh"/)).toBeNull();
   });

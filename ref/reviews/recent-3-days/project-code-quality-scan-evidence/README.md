@@ -1,6 +1,6 @@
 # Project scan evidence
 
-This directory supports [REVIEW_268](../REVIEW_268_project-code-quality-scan.md), against source baseline `072dd7a284eebc2752dab7e5d5505aa2ee480b77`.
+This directory supports [REVIEW_268](../../recent-week/REVIEW_268_project-code-quality-scan.md), against source baseline `072dd7a284eebc2752dab7e5d5505aa2ee480b77`.
 
 - `runtime/`, `coordination/`, `desktop/`, `remote/`: original bounded worker reports, exact directly inspected file lists, disposable reproduction sources/configuration, and selected validation output.
 - `lead/`: independent reproduction reruns, an additional real Hook-route probe, integrated static checks, native installer test evidence and earlier bounded adjudication notes. Earlier notes describe their point-in-time state; the final review and accepted ledger govern the completed result.

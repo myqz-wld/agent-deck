@@ -75,5 +75,5 @@ requires an explicitly approved restart before it can use this source state.
 
 ## Related records
 
-- `ref/reviews/recent-3-days/REVIEW_267_compatibility-dead-code-audit.md`
+- `ref/reviews/recent-week/REVIEW_267_compatibility-dead-code-audit.md`
 - `ref/plans/recent-3-days/PLAN_46_compatibility-dead-code-cleanup.md`

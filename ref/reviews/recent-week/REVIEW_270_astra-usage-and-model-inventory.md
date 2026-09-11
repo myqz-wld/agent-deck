@@ -9,7 +9,7 @@ expiry_reason: "Scoped uncommitted implementation verification and read-only mod
 
 # Multiple Codex quota groups and model-name inventory
 
-Codex account quota projection now preserves all quota groups supplied by the provider alongside the default Codex quota. This generic capability does not establish a separate Astra allowance. Bundled reviewer defaults are `gpt-6-astra` / `xhigh` and `grok-4.6` / `high`; only their model values changed. The requested model-name inventory is [available here](astra-usage-model-inventory/model-name-inventory.md), and [PLAN_49](../../plans/recent-3-days/PLAN_49_astra-usage-and-model-inventory.md) records the completed scope.
+Codex account quota projection now preserves all quota groups supplied by the provider alongside the default Codex quota. This generic capability does not establish a separate Astra allowance. Bundled reviewer defaults are `gpt-6-astra` / `xhigh` and `grok-4.6` / `high`; only their model values changed. The requested model-name inventory is [available here](../recent-3-days/astra-usage-model-inventory/model-name-inventory.md), and [PLAN_49](../../plans/recent-3-days/PLAN_49_astra-usage-and-model-inventory.md) records the completed scope.
 
 ## Quota clarification after user feedback
 
@@ -31,7 +31,7 @@ The raw symptom clarification was not answered during implementation. Source ins
 
 - `reviewer-codex.toml`: `gpt-5.6-sol` → `gpt-6-astra`, `model_reasoning_effort = "xhigh"` preserved.
 - `reviewer-grok.md`: `grok-4.5` → `grok-4.6`, `effort: high` preserved.
-- Reviewer bodies and Claude counterpart are unchanged. Explicit runtime arguments and user overrides retain their existing precedence. [Prompt backup/validation evidence](astra-usage-model-inventory/prompt-asset-validation.md) records the authorized scope and original hashes.
+- Reviewer bodies and Claude counterpart are unchanged. Explicit runtime arguments and user overrides retain their existing precedence. [Prompt backup/validation evidence](../recent-3-days/astra-usage-model-inventory/prompt-asset-validation.md) records the authorized scope and original hashes.
 - Spawn/handoff suggestion text and the separate example array still list the three GPT 5.6 variants and Grok 4.5. Actual model arguments remain free text. Generic Grok 4.5 defaults and the shim's real model catalog are enumerated in the inventory, without modification.
 - The sibling Skill Market checkout was read-only. Of 15 standalone and 30 plugin Skills, only the three byte-identical `parallel-tasks` bodies prescribe concrete model reference targets. Related generic model boundaries and template placeholders are documented separately. No deep-review/simple-review Skill or reviewer delegation was used.
 
@@ -42,7 +42,7 @@ The raw symptom clarification was not answered during implementation. Source ins
 - `pnpm run test --maxWorkers=1 --minWorkers=1`: 1,024 files / 6,346 tests passed; two files / three platform or opt-in cases skipped. No new skipped test or native rebuild.
 - `pnpm build`: main/preload/renderer and build metadata generation passed. The installed/running application was not changed.
 - All 12 changed source/test/assets remain below 500 lines. The existing SQLite binding SHA-256 was unchanged. A test-only ambiguous UI text query was corrected before the final focused/full runs.
-- [Validation metadata](astra-usage-model-inventory/validation.json), [source manifest](astra-usage-model-inventory/source-manifest.json), and sanitized logs in the same directory preserve exact evidence.
+- [Validation metadata](../recent-3-days/astra-usage-model-inventory/validation.json), [source manifest](../recent-3-days/astra-usage-model-inventory/source-manifest.json), and sanitized logs in the same directory preserve exact evidence.
 
 ```review-scope
 resources/codex-config/agent-deck-plugin/agents/reviewer-codex.toml
