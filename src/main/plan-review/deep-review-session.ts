@@ -140,14 +140,20 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
           : '计划深度审阅',
         ...(source.model ? { model: source.model } : {}),
         ...(thinking ? { thinking } : {}),
-        ...(isSelectablePermissionMode(source.permissionMode)
+        ...(source.agentId === 'claude-code' && isSelectablePermissionMode(source.permissionMode)
           ? { permissionMode: source.permissionMode }
-          : source.permissionMode === 'dontAsk'
+          : source.agentId === 'claude-code' && source.permissionMode === 'dontAsk'
             ? { permissionMode: 'default' as const }
             : {}),
-        ...(source.codexSandbox ? { codexSandbox: source.codexSandbox } : {}),
-        ...(source.claudeCodeSandbox ? { claudeCodeSandbox: source.claudeCodeSandbox } : {}),
-        ...(source.grokSandbox ? { grokSandbox: source.grokSandbox } : {}),
+        ...(source.agentId === 'codex-cli' && source.codexApprovalPolicy
+          ? { approvalPolicy: source.codexApprovalPolicy }
+          : {}),
+        ...(source.agentId === 'codex-cli' && source.codexSandbox
+          ? { codexSandbox: source.codexSandbox }
+          : {}),
+        ...(source.agentId === 'claude-code' && source.claudeCodeSandbox
+          ? { claudeCodeSandbox: source.claudeCodeSandbox }
+          : {}),
         ...(source.extraAllowWrite?.length
           ? { extraAllowWrite: [...source.extraAllowWrite] }
           : {}),
@@ -159,10 +165,12 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
       }, {
         suppressLeadContext: true,
         hideFromHistory: true,
-        codexRuntimeAccess: {
-          networkAccessEnabled: source.networkAccessEnabled ?? undefined,
-          additionalDirectories: source.additionalDirectories ?? undefined,
-        },
+        ...(source.agentId === 'codex-cli'
+          ? { codexRuntimeAccess: {
+              networkAccessEnabled: source.networkAccessEnabled ?? undefined,
+              additionalDirectories: source.additionalDirectories ?? undefined,
+            } }
+          : {}),
       });
     } catch (error) {
       logger.warn(

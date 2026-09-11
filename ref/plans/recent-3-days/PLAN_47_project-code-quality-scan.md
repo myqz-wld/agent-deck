@@ -37,7 +37,7 @@ The inventories cover all 2,646 tracked source/test files. Direct body/excerpt i
 
 ## Validation and handoff
 
-[REVIEW_268](../../reviews/recent-3-days/REVIEW_268_project-code-quality-scan.md) contains the complete findings, locations, practical consequences, repair directions and validation limits. Its [evidence directory](../../reviews/recent-3-days/project-code-quality-scan-evidence/README.md) preserves reports, exact coverage, probes, outputs and provenance.
+[REVIEW_268](../../reviews/recent-week/REVIEW_268_project-code-quality-scan.md) contains the complete findings, locations, practical consequences, repair directions and validation limits. Its [evidence directory](../../reviews/recent-3-days/project-code-quality-scan-evidence/README.md) preserves reports, exact coverage, probes, outputs and provenance.
 
 Final result: **3 HIGH, 11 MEDIUM, 4 LOW accepted items**. The implementation is unchanged and these findings remain open. No full-suite run, package build, live provider/Browser operation, restart or deployment was performed. The final SQLite probe left the native binding hash unchanged.
 

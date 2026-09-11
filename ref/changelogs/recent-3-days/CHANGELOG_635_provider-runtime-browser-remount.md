@@ -85,4 +85,4 @@ Browser contract, so no workflow or setup documentation change was required.
 
 ## Related review
 
-- `ref/reviews/recent-3-days/REVIEW_266_browser-runtime-remount.md`
+- `ref/reviews/recent-week/REVIEW_266_browser-runtime-remount.md`

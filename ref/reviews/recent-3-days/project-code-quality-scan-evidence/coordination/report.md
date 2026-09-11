@@ -123,7 +123,7 @@ Searches covered ownership/caller/session/team relationships, named and computed
 
 **Retained boundaries and exclusions**
 
-- Revalidated against `ref/reviews/recent-3-days/REVIEW_267_compatibility-dead-code-audit.md`; no deleted Image MCP, retired Local Browser front, or removed module is reported here.
+- Revalidated against `ref/reviews/recent-week/REVIEW_267_compatibility-dead-code-audit.md`; no deleted Image MCP, retired Local Browser front, or removed module is reported here.
 - Handoff aliases, latest-owner issue checks, runtime identity/recovery, preserved worktree leases, and provider-observed tool correlation remain necessary current behavior.
 - Message delivery's startup handling of uncertain `delivering` rows is an explicit fail-closed/at-most-once recovery choice with tests. It is not classified as obsolete or as an accidental retry defect.
 - Plan/diff late-decision ownership and current task preserve-team transfer remain live; their regression tests passed.

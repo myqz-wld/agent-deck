@@ -9,7 +9,7 @@ baseline_commit: 072dd7a284eebc2752dab7e5d5505aa2ee480b77
 
 - Status: completed; all accepted source items implemented and validated.
 - Baseline: `072dd7a284eebc2752dab7e5d5505aa2ee480b77` on `main`.
-- Source of findings: `ref/reviews/recent-3-days/REVIEW_268_project-code-quality-scan.md` and its evidence directory.
+- Source of findings: `ref/reviews/recent-week/REVIEW_268_project-code-quality-scan.md` and its evidence directory.
 - Existing worktree changes: only the previous scan's final records, evidence and index rebucketing. Preserve all of them. Baseline diff/status captured in this invocation's ignored review workspace.
 - Goal: fix all 14 accepted functional/security defects, retire the one obsolete handoff implementation family, address the two bounded queue/Diff architecture opportunities, and include the four installer tests in the default suite.
 - User preference: ordinary sessions; do not use deep-review or simple-review skills or reviewer Agents. Continue the established parallel workflow with disjoint write areas. No native or recursive delegation by workers.
@@ -67,4 +67,4 @@ Workers append implementation/outcome evidence to their own task file; the lead 
 
 ## Final handoff and archive routing
 
-This delivery consists of review-driven fixes and internal refactors. The final remediation is [REVIEW_269](../../reviews/recent-3-days/REVIEW_269_project-code-quality-remediation.md) and this completed plan is PLAN_48, with supplemental evidence under `ref/reviews/recent-3-days/project-code-quality-remediation-evidence/`. Root routing rules place debug/security/review-driven fixes in reviews; no separate changelog or README change is needed. Numbered maxima and every plan/review date bucket were checked before finalization; no further rebucketing was required.
+This delivery consists of review-driven fixes and internal refactors. The final remediation is [REVIEW_269](../../reviews/recent-week/REVIEW_269_project-code-quality-remediation.md) and this completed plan is PLAN_48, with supplemental evidence under `ref/reviews/recent-3-days/project-code-quality-remediation-evidence/`. Root routing rules place debug/security/review-driven fixes in reviews; no separate changelog or README change is needed. Numbered maxima and every plan/review date bucket were checked before finalization; no further rebucketing was required.

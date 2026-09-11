@@ -34,6 +34,8 @@ vi.mock('@main/ipc/adapters-message-dispatch', () => ({
 import { eventBus } from '@main/event-bus';
 import log from 'electron-log/main';
 import { DefaultPlanReviewSessionCoordinator } from '../deep-review-session';
+import { validateSpawnRuntimeControls } from '@main/agent-deck-mcp/tools/handlers/spawn-runtime-controls';
+import type { SpawnSessionArgs } from '@main/agent-deck-mcp/tools/schemas';
 
 const planReviewLogger = log.scope('plan-review-session') as unknown as {
   warn: ReturnType<typeof vi.fn>;
@@ -55,6 +57,7 @@ function source(): SessionRecord {
     model: 'gpt-test',
     thinking: 'high',
     permissionMode: 'bypassPermissions',
+    codexApprovalPolicy: 'on-request',
     codexSandbox: 'danger-full-access',
     networkAccessEnabled: false,
     additionalDirectories: ['/tmp', '/shared'],
@@ -77,11 +80,15 @@ beforeEach(() => {
   mocks.enqueue.mockReset().mockResolvedValue(undefined);
   mocks.dispatch.mockReset().mockResolvedValue(undefined);
   planReviewLogger.warn.mockReset();
-  mocks.spawn.mockResolvedValue({
-    content: [{ type: 'text', text: JSON.stringify({
-      sessionId: 'child',
-      adapter: 'codex-cli',
-    }) }],
+  mocks.spawn.mockImplementation(async (args: SpawnSessionArgs) => {
+    // Keep the production boundary: a permissive spawn mock hid incompatible fork controls.
+    const invalid = validateSpawnRuntimeControls(args);
+    return invalid
+      ? { isError: true, content: [{ type: 'text', text: JSON.stringify(invalid) }] }
+      : { content: [{ type: 'text', text: JSON.stringify({
+          sessionId: 'child',
+          adapter: args.adapter,
+        }) }] };
   });
 });
 
@@ -102,7 +109,9 @@ describe('DefaultPlanReviewSessionCoordinator', () => {
       model: 'gpt-test',
       thinking: 'high',
       codexSandbox: 'danger-full-access',
+      approvalPolicy: 'on-request',
     });
+    expect(args).not.toHaveProperty('permissionMode');
     expect(args.prompt).toContain('Work read-mostly');
     expect(args.prompt).toContain('current plan-owning session in Agent Deck');
     expect(args.prompt).not.toContain('the original session');
@@ -116,6 +125,52 @@ describe('DefaultPlanReviewSessionCoordinator', () => {
         additionalDirectories: ['/tmp', '/shared'],
       },
     });
+  });
+
+  it.each(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'dontAsk'] as const)(
+    'forks Codex despite a stored Claude permission mode of %s',
+    async (permissionMode) => {
+      mocks.sessions.set('source', {
+        ...source(), permissionMode, claudeCodeSandbox: 'strict', grokSandbox: 'read-only',
+      });
+      const coordinator = new DefaultPlanReviewSessionCoordinator();
+
+      await expect(coordinator.start({ sourceSessionId: 'source', request })).resolves.toEqual({
+        sessionId: 'child', agentId: 'codex-cli',
+      });
+      const [args] = mocks.spawn.mock.calls[0];
+      expect(args).toMatchObject({
+        approvalPolicy: 'on-request', codexSandbox: 'danger-full-access',
+      });
+      expect(args).not.toHaveProperty('permissionMode');
+      expect(args).not.toHaveProperty('claudeCodeSandbox');
+      expect(args).not.toHaveProperty('grokSandbox');
+    },
+  );
+
+  it.each([
+    ['bypassPermissions', 'bypassPermissions'],
+    ['dontAsk', 'default'],
+  ] as const)('forks Claude with its own %s permission and sandbox controls', async (
+    permissionMode, expectedMode,
+  ) => {
+    mocks.sessions.set('source', {
+      ...source(), agentId: 'claude-code', permissionMode,
+      claudeCodeSandbox: 'strict', grokSandbox: 'read-only', extraAllowWrite: ['/shared'],
+    });
+    const coordinator = new DefaultPlanReviewSessionCoordinator();
+
+    await expect(coordinator.start({ sourceSessionId: 'source', request })).resolves.toEqual({
+      sessionId: 'child', agentId: 'claude-code',
+    });
+    const [args, , options] = mocks.spawn.mock.calls[0];
+    expect(args).toMatchObject({
+      permissionMode: expectedMode, claudeCodeSandbox: 'strict', extraAllowWrite: ['/shared'],
+    });
+    expect(args).not.toHaveProperty('approvalPolicy');
+    expect(args).not.toHaveProperty('codexSandbox');
+    expect(args).not.toHaveProperty('grokSandbox');
+    expect(options).not.toHaveProperty('codexRuntimeAccess');
   });
 
   it('surfaces a native-fork failure without retrying as fresh', async () => {

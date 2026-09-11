@@ -37,5 +37,5 @@ The full suite passed 6,354 tests, with three intentional skips. Typecheck, prod
 13 focused continuity tests, and four subsequent Browser documentation tests passed. The SQLite
 binding remained unchanged. The installed application was not updated or restarted.
 
-See [REVIEW_271](../../reviews/recent-3-days/REVIEW_271_worktree-user-message-projection.md) for
+See [REVIEW_271](../../reviews/recent-week/REVIEW_271_worktree-user-message-projection.md) for
 evidence, the prompt-asset audit, cleanup authorization, and remaining installed-app validation.

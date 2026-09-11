@@ -67,7 +67,7 @@ The lead reran the repository review-expiry inventory, checked the new boundarie
 
 ## Evidence and exact changed scope
 
-The [evidence index](project-code-quality-remediation-evidence/README.md) links the accepted worker handoffs, focused checks, final full-suite/typecheck/build logs, source manifest and integrated validation metadata. Scope is the changed code and related regression contracts; `expired: true` prevents this uncommitted, bounded delivery from granting whole-file review exemptions.
+The [evidence index](../recent-3-days/project-code-quality-remediation-evidence/README.md) links the accepted worker handoffs, focused checks, final full-suite/typecheck/build logs, source manifest and integrated validation metadata. Scope is the changed code and related regression contracts; `expired: true` prevents this uncommitted, bounded delivery from granting whole-file review exemptions.
 
 ```review-scope
 scripts/install-local-macos.test.mjs

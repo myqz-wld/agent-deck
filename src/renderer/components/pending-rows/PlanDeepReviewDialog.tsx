@@ -209,7 +209,9 @@ export function PlanDeepReviewDialog({
         ...(!forkReady
           ? { startError: '无法创建隔离的审阅会话。请稍后重试。' }
           : {}),
-        questionError: '问题发送失败，请确认计划仍在等待审阅后重试。',
+        questionError: forkReady
+          ? '问题发送失败，请稍后重试。'
+          : '审阅会话创建失败，问题尚未发送，请稍后重试。',
       });
     } finally {
       finishOperation('question');

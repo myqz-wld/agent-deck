@@ -4,7 +4,7 @@
 - Baseline and inspected HEAD: `072dd7a284eebc2752dab7e5d5505aa2ee480b77` (`main`). The tracked worktree was clean at entry and remained clean after validation.
 - Primary inventory: `ref/reviews/recent-3-days/project-code-quality-scan-evidence/scopes/remote-scope.txt`: 726 tracked files / 121,495 lines; 256 test files and 470 other source/support files. The latter count includes active test fixtures and is not a production-module count.
 - Read-only source/Git scan. All evidence files are under `/tmp/agent-deck-scan/2026-09-04-project-scan/remote/`. No live credentials, databases, provider transcripts, unrelated sessions, service processes, or installed applications were accessed or changed.
-- Read `CLAUDE.md`, `AGENTS.md`, packaged Codex/Claude conventions, the invocation plan, and `ref/reviews/recent-3-days/REVIEW_267_compatibility-dead-code-audit.md`. Findings below refer to existing HEAD code, not deleted compatibility paths.
+- Read `CLAUDE.md`, `AGENTS.md`, packaged Codex/Claude conventions, the invocation plan, and `ref/reviews/recent-week/REVIEW_267_compatibility-dead-code-audit.md`. Findings below refer to existing HEAD code, not deleted compatibility paths.
 
 ## Findings
 

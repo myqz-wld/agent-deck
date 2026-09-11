@@ -25,7 +25,7 @@ The source baseline is unchanged. This delivery adds only scan records, evidence
 | Remote hosts, clients, gateways and protocol | 726 | 108 | 6 files / 41 tests passed |
 | Lead build/resource/deployment checks | 156 additional tracked inputs inventoried | Selected scripts, entrypoints, contracts and finding locations | 29 deployment tests and 4 native installer tests passed |
 
-The primary inventory covers all **2,646 tracked source/test files**. Direct inspection covered selected bodies or excerpts in **425 primary files**, plus cross-track context and lead checks. It is not line-by-line or exhaustive dynamic verification. Exact inventories, direct-read lists, original worker reports, reproduction sources and validation logs are preserved in the [evidence directory](project-code-quality-scan-evidence/README.md). `expired: true` intentionally prevents this broad scan from exempting partially inspected files from later reviews.
+The primary inventory covers all **2,646 tracked source/test files**. Direct inspection covered selected bodies or excerpts in **425 primary files**, plus cross-track context and lead checks. It is not line-by-line or exhaustive dynamic verification. Exact inventories, direct-read lists, original worker reports, reproduction sources and validation logs are preserved in the [evidence directory](../recent-3-days/project-code-quality-scan-evidence/README.md). `expired: true` intentionally prevents this broad scan from exempting partially inspected files from later reviews.
 
 The following locations carry the accepted findings and their immediate contracts. Broader inspection scope and gaps are recorded separately in each worker report.
 
@@ -115,7 +115,7 @@ The production graph reaches 1,602 modules from Electron main/preload/renderer a
 - The lead reran **19 worker reproduction cases** and added one independent production Hook case: **20 probes passed by observing the current behavior**. One synthetic desktop race is deliberately excluded from the findings.
 - Real SQLite probes used in-memory databases under the Electron-compatible wrapper. The native binding hash was unchanged before/after the final SQLite verification.
 - The file-level review-expiry script was run before inspection. Existing typed plan/review buckets were recalculated for 2026-09-04; REVIEW_215 moved to the inclusive 30-day bucket. Policies and root routing indexes did not change.
-- All four worker sessions were closed after their required results were consumed and verified. Their ids, anchors and acceptance records are in [provenance.json](project-code-quality-scan-evidence/provenance.json).
+- All four worker sessions were closed after their required results were consumed and verified. Their ids, anchors and acceptance records are in [provenance.json](../recent-3-days/project-code-quality-scan-evidence/provenance.json).
 - No full build, complete suite, live provider/Browser smoke, native Windows run or deployment was performed. Exact coverage gaps and counter-evidence remain in the four worker reports.
 
 ## Fixes landed and handoff
