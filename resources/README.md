@@ -70,7 +70,7 @@ Grok Build uses this root through the ACP v1 `session/new` / `session/load` meta
 - `agent-deck-plugin/`: Contains `reviewer-grok` and the review Skills. Because Grok accepts a whole Plugin directory, the independent Agent and Skill switches select subdirectories for an app-owned mirror under `<userData>/grok-plugin-profiles/`; ACP receives that mirror through `_meta.pluginDirs`.
 - `spawn_session(agentName=...)` resolves Grok's bundled, project (`.grok/agents`), user (`~/.grok/agents`), and native Plugin Agents. Plugin selectors use `<plugin>:<agent>`; the selected native profile and Plugin root are passed through ACP `_meta.agentProfile` / `_meta.pluginDirs`.
 - The mirror and editable application-convention copy contain only Agent Deck-owned resources. Agent Deck does not write `~/.grok/config.toml`, `~/.grok/AGENTS.md`, or user plugins.
-- The Grok binary is not part of `extraResources`; Settings may point to an installed binary, otherwise the adapter resolves `grok` from the user shell `PATH`.
+- Grok ships through the `@xai-official/grok` dependency and its matching platform package. Settings may select an external executable; otherwise the adapter uses the bundled runtime and materializes a compressed payload into an app-owned executable cache when needed. macOS packaging also copies Grok into the Worker provider binaries.
 
 ## Paired Boundaries
 

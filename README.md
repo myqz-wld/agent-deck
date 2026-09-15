@@ -25,6 +25,10 @@ Authenticate the agents you plan to use through their normal CLI workflows. Agen
 their existing configuration and does not store provider credentials. Bundled runtimes are
 selected by default; Settings can point to an external installation.
 
+The bundled dependencies are Claude Agent SDK `0.3.272`, Anthropic SDK `0.125.0`, Codex CLI
+`0.154.0`, and Grok `1.0.30`. Dependency upgrades require rebuilding and reinstalling the app
+to refresh its embedded runtimes, including the macOS Worker provider binaries.
+
 Open a project, start a session, and describe the task. Add teammates for independent work,
 follow their progress, and approve or revise proposed plans and diffs.
 
