@@ -30,8 +30,9 @@ changed_at: 2026-09-16
 ## History cleanup
 
 The user also authorized historical path/IP removal. A private external bundle and complete Git
-directory backup preserve recovery data and the existing stash. Historical rewrite verification and
-publication state are tracked in `REVIEW_274_privacy-and-compatibility-cleanup.md` and the active plan.
+directory backup preserve recovery data and the existing stash. All 1,400 commits were preserved, 1,387 IDs changed, the stash survived, and origin/main was
+updated with an exact lease. The current code tree was identical across rewriting. Verification is
+recorded in `REVIEW_274_privacy-and-compatibility-cleanup.md` and the archived final plan.
 
 ## Related record
 

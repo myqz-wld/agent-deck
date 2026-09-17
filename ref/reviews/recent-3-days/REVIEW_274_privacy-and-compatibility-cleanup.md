@@ -79,7 +79,9 @@ unreachable original objects pruned only after complete external backups were ve
 
 Structured repository baseline fields and same-repository commit URLs were remapped. Historical
 prose reporting observed installed/runtime release IDs remains unchanged; the complete commit map
-is retained in the private external backup. Remote publication is the remaining step.
+is retained in the private external backup. The sole remote main branch was updated with the exact observed lease and independently verified.
+The complete remaining local object store, including unreachable objects, was scanned: zero
+confirmed private-literal matches. The stash remains listed and usable.
 
 ## Residual risk
 
@@ -93,3 +95,7 @@ is retained in the private external backup. Remote publication is the remaining 
 ## Related record
 
 - `ref/changelogs/recent-3-days/CHANGELOG_644_privacy-and-compatibility-cleanup.md`
+
+## Final plan
+
+- `ref/plans/recent-3-days/PLAN_53_privacy-and-compatibility-cleanup.md`
