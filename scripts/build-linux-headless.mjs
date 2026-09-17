@@ -6,6 +6,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 
+import { verifyLocalWorkerBundle } from './check-local-worker-bundle.mjs';
+
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outputRoot = resolve(repoRoot, 'build/linux-headless');
 const roles = Object.freeze({
@@ -39,7 +41,7 @@ async function buildAllRoles() {
       cacheDir: resolve(outputRoot, '.vite-cache', role),
       logLevel: 'warn',
       resolve: { alias: aliases },
-      ssr: role === 'feishu' || role === 'server-core-runtime' || role === 'local-worker-runtime'
+      ssr: ['feishu', 'server-core-runtime', 'local-worker-runtime', 'local-worker'].includes(role)
         ? { external: ['better-sqlite3'], noExternal: true }
         : { external: ['better-sqlite3'] },
       build: {
@@ -49,7 +51,7 @@ async function buildAllRoles() {
         emptyOutDir: true,
         minify: false,
         sourcemap: true,
-        commonjsOptions: role === 'feishu'
+        commonjsOptions: role === 'feishu' || role === 'local-worker'
           ? { transformMixedEsModules: true, strictRequires: true }
           : undefined,
         rollupOptions: {
@@ -97,4 +99,5 @@ if (JSON.stringify(first) !== JSON.stringify(second)) {
   const changed = Object.keys(first).filter((path) => first[path] !== second[path]);
   throw new Error(`Linux headless build is not reproducible: ${changed.join(', ')}`);
 }
+verifyLocalWorkerBundle();
 process.stdout.write('Linux 无界面 Node 构建与可复现性校验已完成。\n');

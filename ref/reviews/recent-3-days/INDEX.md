@@ -15,4 +15,4 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-09-10 | `REVIEW_272_plan-review-question-runtime-controls.md` | Plan-review question creation and retry | 1 MEDIUM fixed / 1 LOW fixed |
+| 2026-09-16 | `REVIEW_273_relay-worker-packaged-startup.md` | Relay live checks and Worker packaging | 1 HIGH fixed in source / installed acceptance pending |

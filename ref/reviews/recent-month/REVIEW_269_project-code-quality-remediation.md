@@ -9,7 +9,7 @@ expiry_reason: "Bounded uncommitted implementation verification; no whole-file e
 
 # Project code quality remediation
 
-All **14 functional/security defects and four LOW items** accepted in [REVIEW_268](REVIEW_268_project-code-quality-scan.md) are implemented. Final typecheck, full tests and production build passed. The completed execution plan is [PLAN_48](../../plans/recent-3-days/PLAN_48_project-code-quality-remediation.md).
+All **14 functional/security defects and four LOW items** accepted in [REVIEW_268](REVIEW_268_project-code-quality-scan.md) are implemented. Final typecheck, full tests and production build passed. The completed execution plan is [PLAN_48](../../plans/recent-month/PLAN_48_project-code-quality-remediation.md).
 
 This is a code delivery and bounded implementation verification, not a new exhaustive project audit. Three ordinary Codex workers owned disjoint areas; the lead implemented security/storage fixes and integrated all four tracks. The deep-review and simple-review skills were not used.
 

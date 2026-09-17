@@ -13,7 +13,7 @@ The scan identified **3 HIGH and 11 MEDIUM functional/security defects**, plus *
 
 The user requested concurrent inspection of defects, architecture costs, compatibility and dead code, and explicitly excluded the deep/simple review skills. Four ordinary fresh Codex sessions performed independent, non-overlapping primary scans. The lead inspected build/resource/deployment entrypoints, checked source evidence, and reran every supplied reproduction. No source fixes, dependency changes, Git index/ref/commit changes, live provider calls, application restarts, installed-bundle changes or deployments occurred.
 
-The source baseline is unchanged. This delivery adds only scan records, evidence and archive-index maintenance. The completed execution plan is [PLAN_47](../../plans/recent-3-days/PLAN_47_project-code-quality-scan.md).
+The source baseline is unchanged. This delivery adds only scan records, evidence and archive-index maintenance. The completed execution plan is [PLAN_47](../../plans/recent-month/PLAN_47_project-code-quality-scan.md).
 
 ## Scope and confidence
 

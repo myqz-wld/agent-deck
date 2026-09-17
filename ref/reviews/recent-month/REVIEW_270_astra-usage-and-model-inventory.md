@@ -9,7 +9,7 @@ expiry_reason: "Scoped uncommitted implementation verification and read-only mod
 
 # Multiple Codex quota groups and model-name inventory
 
-Codex account quota projection now preserves all quota groups supplied by the provider alongside the default Codex quota. This generic capability does not establish a separate Astra allowance. Bundled reviewer defaults are `gpt-6-astra` / `xhigh` and `grok-4.6` / `high`; only their model values changed. The requested model-name inventory is [available here](../recent-3-days/astra-usage-model-inventory/model-name-inventory.md), and [PLAN_49](../../plans/recent-3-days/PLAN_49_astra-usage-and-model-inventory.md) records the completed scope.
+Codex account quota projection now preserves all quota groups supplied by the provider alongside the default Codex quota. This generic capability does not establish a separate Astra allowance. Bundled reviewer defaults are `gpt-6-astra` / `xhigh` and `grok-4.6` / `high`; only their model values changed. The requested model-name inventory is [available here](../recent-3-days/astra-usage-model-inventory/model-name-inventory.md), and [PLAN_49](../../plans/recent-month/PLAN_49_astra-usage-and-model-inventory.md) records the completed scope.
 
 ## Quota clarification after user feedback
 

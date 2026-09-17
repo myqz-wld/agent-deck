@@ -59,4 +59,4 @@ must be restarted only after explicit user approval because main and preload cod
 ## Related final records
 
 - `ref/changelogs/recent-month/CHANGELOG_638_compatibility-dead-code-retirement.md`
-- `ref/reviews/recent-week/REVIEW_267_compatibility-dead-code-audit.md`
+- `ref/reviews/recent-month/REVIEW_267_compatibility-dead-code-audit.md`

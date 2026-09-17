@@ -56,7 +56,7 @@ Unconfigured Grok creation defaults use `grok-4.6`. The sibling Skill Market's t
   binaries rebuilt. This bounded follow-up did not repeat the earlier full app suite/build and does
   not claim a live provider or installed-host smoke test.
 - [Validation evidence](model-routing-defaults/validation.md) records commands, source hashes,
-  prompt-asset checks, and the local proposal provenance. [PLAN_50](../../plans/recent-3-days/PLAN_50_model-routing-and-grok-defaults.md)
+  prompt-asset checks, and the local proposal provenance. [PLAN_50](../../plans/recent-month/PLAN_50_model-routing-and-grok-defaults.md)
   records the completed authorized scope.
 
 ## Do Not Split Protection
