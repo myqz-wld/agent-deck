@@ -4,7 +4,7 @@ title: archive-failure-ux-upthrow caller archive 失败 UX 上抛三轮异构对
 created_at: 2026-05-15
 plan_id: archive-failure-ux-upthrow-20260515
 worktree_path: ./.claude/worktrees/archive-failure-ux-upthrow-20260515
-base_commit: b7ba2b2
+base_commit: 2d6efeb
 final_commit: 67365e7
 parent_review_id: REVIEW_39
 heterogeneous_dual_completed: true

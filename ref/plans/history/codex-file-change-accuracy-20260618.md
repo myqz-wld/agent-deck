@@ -2,7 +2,7 @@
 plan_id: codex-file-change-accuracy-20260618
 created_at: 2026-06-18
 status: completed
-base_commit: fdb9c55ccc692c392c3dcda8ec0d4e165d28cae7
+base_commit: 5a93d5caa1287bd9e25d66ab9ff9b9687f915872
 worktree_path: .
 ---
 

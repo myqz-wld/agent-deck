@@ -6,7 +6,7 @@ created_at: 2026-07-29
 updated_at: 2026-07-29
 completed_at: 2026-07-29
 base_branch: codex/whole-project-quality-refresh-20260728
-base_commit: d081621118c2870911e77e5bf7f6f625c1273dd7
+base_commit: a5e5fd658cdc942a126206f65d527813def67227
 completed_head: b60223507b80ae7bc2ca3c4da535c8b7ee1093f9
 related_changelog: CHANGELOG_412
 related_review: REVIEW_188

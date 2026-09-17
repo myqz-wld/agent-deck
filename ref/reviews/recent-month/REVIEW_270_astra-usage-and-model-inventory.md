@@ -1,7 +1,7 @@
 ---
 review_id: 270
 reviewed_at: 2026-09-04
-baseline_commit: 365dabc0eab9f328ac9fc0cbd6938ecef4ca5a7d
+baseline_commit: 5a8057b5aaef7bbdcca65d376799ec2b3eae3ad9
 coverage_kind: bounded-bug-fix-and-model-inventory
 expired: true
 expiry_reason: "Scoped uncommitted implementation verification and read-only model inventory; no project-wide or whole-file exemption."

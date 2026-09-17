@@ -3,7 +3,7 @@ plan_id: provider-usage-cache-refresh-20260615
 status: completed
 created: 2026-06-15
 completed: 2026-06-15
-base_commit: 1bd4ae1005cbf6553be0f3fc98b53242b750c9fd
+base_commit: 489541a35e570996a4fa0034e45f8cc7b27f7625
 branch: main
 workspace: .
 changelog: ref/changelogs/CHANGELOG_261.md

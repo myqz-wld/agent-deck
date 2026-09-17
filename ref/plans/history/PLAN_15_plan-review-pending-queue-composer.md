@@ -6,7 +6,7 @@ created_at: 2026-07-21
 updated_at: 2026-07-21
 completed_at: 2026-07-21
 base_branch: main
-base_commit: d9fc8e1d4c7adef93bef2f78b1faf03b94f4567a
+base_commit: cb765092562caeee719c9ac6ab1447b21543ee82
 related_review: REVIEW_165
 ---
 

@@ -2,7 +2,7 @@
 plan_id: cursor-cli-acp-investigation-20260617
 created_at: 2026-06-17T00:00:00+08:00
 status: completed
-base_commit: ec495b1
+base_commit: 6682ce3
 base_branch: main
 worktree_path: .
 motivation_source: user requested Cursor CLI ACP investigation before implementation

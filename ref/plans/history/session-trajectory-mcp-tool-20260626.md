@@ -3,7 +3,7 @@ plan_id: session-trajectory-mcp-tool-20260626
 created_at: 2026-06-26
 worktree_path: .
 status: completed
-base_commit: fe85c9ca45579b662b91a76dc8b275f3d99900fd
+base_commit: 946d3fc60740c3edd6d81dc505356bc94442eca7
 base_branch: main
 related_changelog: CHANGELOG_328
 completed_at: 2026-06-26

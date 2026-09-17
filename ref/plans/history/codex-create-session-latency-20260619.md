@@ -2,7 +2,7 @@
 plan_id: codex-create-session-latency-20260619
 status: completed
 created_at: 2026-06-19
-base_commit: d50c906
+base_commit: 0bc9a70
 worktree_path: .
 ---
 

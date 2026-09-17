@@ -4,7 +4,7 @@ title: archive-plan-content-overwritten-fix step 8b post-ff-merge invariant carr
 created_at: 2026-05-15
 plan_id: archive-plan-content-overwritten-fix-20260515
 worktree_path: ./.claude/worktrees/archive-plan-content-overwritten-fix-20260515
-base_commit: 33381fc
+base_commit: 59ebc00
 final_commit: fa0f0ec
 parent_review_id: REVIEW_43
 heterogeneous_dual_completed: true

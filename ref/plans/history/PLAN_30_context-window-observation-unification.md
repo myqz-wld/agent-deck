@@ -7,7 +7,7 @@ updated_at: 2026-08-03
 approved_at: 2026-08-03
 completed_at: 2026-08-03
 base_branch: main
-base_commit: 027fa817e32ab72faddb878bcf1d9b8bb506e9c3
+base_commit: c680b0cfd522747bef68d1240c5cbfdf939d4549
 worktree_path: ./.agent-deck/worktrees/agent-deck-019fc66e-45c-mscy450g
 implementation_branch: codex/context-window-observation-unification
 agent_deck_task_id: 48ee75bd-b117-410f-a7b8-8bfb83197842

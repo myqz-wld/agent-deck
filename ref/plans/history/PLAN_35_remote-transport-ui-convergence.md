@@ -5,7 +5,7 @@ status: closed-at-user-request
 created_at: 2026-08-11
 updated_at: 2026-08-11
 completed_at: 2026-08-11
-base_commit: 012306082ea33db399d642cadf3ba922391183ce
+base_commit: c8d0e10b19cbb204464bd022069fc9cfe5249019
 package_commit: 8b67c4a9324938cfd78bc35a1705951b3f2bddf5
 related_changelog: CHANGELOG_591
 related_review: REVIEW_232

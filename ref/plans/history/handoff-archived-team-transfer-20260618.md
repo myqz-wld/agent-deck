@@ -2,7 +2,7 @@
 plan_id: handoff-archived-team-transfer-20260618
 created_at: 2026-06-18
 status: completed
-base_commit: 7a1b850bcd71b8cd645b218f20284c2923cefaca
+base_commit: 577bd1ccb261e86ab33bcfd6c145721da2e659d9
 worktree_path: .
 ---
 

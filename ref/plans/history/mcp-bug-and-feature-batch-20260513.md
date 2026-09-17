@@ -3,7 +3,7 @@ plan_id: mcp-bug-and-feature-batch-20260513
 created_at: 2026-05-13
 worktree_path: ./.claude/worktrees/mcp-bug-and-feature-batch-20260513
 status: completed
-base_commit: bfccc10
+base_commit: d621f56
 base_branch: main
 last_session: H6 (completed 2026-05-13, 收口 + 归档)
 latest_commit: 5a44e34

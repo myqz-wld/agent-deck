@@ -3,7 +3,7 @@ plan_id: deep-review-flow-fix-20260512
 created_at: 2026-05-12
 worktree_path: ./.claude/worktrees/deep-review-flow-fix-20260512
 status: completed
-base_commit: 8f4f7c70800b4daa507637de0f399d9df3de5401
+base_commit: aa7ef97ecaac68cd690f947aba6e53a98ede7609
 completed_at: 2026-05-12
 completed_phases: [A, T1, B (D1+D3), C]
 followup: [B-D2 inherit_caller_permissions, B-D4 wait_reply finished/waiting-for-user 区分]

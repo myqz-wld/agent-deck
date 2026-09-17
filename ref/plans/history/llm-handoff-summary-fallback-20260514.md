@@ -3,7 +3,7 @@ plan_id: "llm-handoff-summary-fallback-20260514"
 created_at: "2026-05-14"
 worktree_path: "./.claude/worktrees/llm-handoff-summary-fallback-20260514"
 status: "completed"
-base_commit: "6273545"
+base_commit: "68bad86"
 final_commit: "6f23a069f598e92bafa150d6c5cad7f95554e3b5"
 completed_at: "2026-05-14"
 ---

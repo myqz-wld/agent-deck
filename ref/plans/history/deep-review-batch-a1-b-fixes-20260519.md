@@ -3,7 +3,7 @@ plan_id: deep-review-batch-a1-b-fixes-20260519
 created_at: 2026-05-19T11:50:00+08:00
 worktree_path: ./.claude/worktrees/deep-review-batch-a1-b-fixes-20260519
 status: completed
-base_commit: 7d059e8e7246abffa647b6b3811d388064d4be5b
+base_commit: 89947f722ff3d4d7730ca9df2caa3d2b5750d649
 base_branch: main
 final_commit: a02cb9c009d08c89aabd6536f2443bee624d74d9
 completed_at: 2026-05-19T13:55:00+08:00

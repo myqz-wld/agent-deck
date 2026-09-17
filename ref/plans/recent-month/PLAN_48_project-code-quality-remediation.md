@@ -2,7 +2,7 @@
 plan_id: 48
 completed_at: 2026-09-04
 status: completed
-baseline_commit: 072dd7a284eebc2752dab7e5d5505aa2ee480b77
+baseline_commit: 9346954f7b120db56b7e84e2593cb47d7255399a
 ---
 
 # Verified quality finding remediation

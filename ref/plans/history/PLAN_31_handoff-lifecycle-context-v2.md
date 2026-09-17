@@ -6,7 +6,7 @@ created_at: 2026-08-07
 updated_at: 2026-08-08
 completed_at: 2026-08-08
 base_branch: main
-base_commit: 30fd1c98eaeed829af82dddef5f295489ce42871
+base_commit: 1ccc9355c87ee0057e3b33490cba1306022adc5c
 review_invocation: hnd-0807-30fd
 related_changelog: CHANGELOG_436
 related_review: REVIEW_216

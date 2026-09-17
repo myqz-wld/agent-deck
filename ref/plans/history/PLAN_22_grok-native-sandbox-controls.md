@@ -6,7 +6,7 @@ created_at: 2026-07-27
 updated_at: 2026-07-27
 completed_at: 2026-07-27
 base_branch: main
-base_commit: ebfc62ff3fb9cd16a6f8bdb16c6de7332544d716
+base_commit: 92dc3ba012574110a629b314b0e007a64752185a
 related_changelog: CHANGELOG_406
 ---
 

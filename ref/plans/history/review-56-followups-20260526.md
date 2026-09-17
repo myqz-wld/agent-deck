@@ -2,7 +2,7 @@
 plan_id: "review-56-followups-20260526"
 created_at: "2026-05-26"
 status: "completed"
-base_commit: "3eb9da4a518aae5ce23a076ded9271835160e6f6"
+base_commit: "34885c9202b52531b57ac3623a9fe64d3edc6665"
 base_branch: "main"
 worktree_path: "./.claude/worktrees/review-56-followups-20260526"
 final_commit: "68bc6f15bed3f465e14520f0bbf5bb79e6d06137"

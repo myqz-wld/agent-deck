@@ -1,7 +1,7 @@
 ---
 review_id: 274
 reviewed_at: 2026-09-16
-baseline_commit: db7e2a5591ef6fe553b7dd0199d57f3a6039707d
+baseline_commit: 5b151bd0f016958e4400c1b520fd31bd81e56834
 expired: false
 ---
 
@@ -71,8 +71,15 @@ heads, and original local log. Rewrite all historical blobs/messages containing 
 values and preserve the existing stash. Verify rewritten tree content and reachable objects before
 adopting new local refs. The remote currently exposes one main branch and no tags.
 
-At this source-validation checkpoint, history preparation is pending. The final local rewrite,
-commit-reference repair, and remote publication outcome will be recorded after verification.
+The local rewrite is complete: all 1,400 commits were preserved and 1,387 received new IDs.
+Scanning 18,157 historical blobs and every reachable commit found zero confirmed private-literal
+matches. The rewritten current tree was byte-for-byte identical to the validated cleanup tree.
+Stash parent structure and its reflog entry were preserved. Old local reflogs were expired and
+unreachable original objects pruned only after complete external backups were verified.
+
+Structured repository baseline fields and same-repository commit URLs were remapped. Historical
+prose reporting observed installed/runtime release IDs remains unchanged; the complete commit map
+is retained in the private external backup. Remote publication is the remaining step.
 
 ## Residual risk
 

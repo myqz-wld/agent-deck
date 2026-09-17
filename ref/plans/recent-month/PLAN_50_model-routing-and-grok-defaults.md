@@ -2,7 +2,7 @@
 plan_id: 50
 completed_at: 2026-09-04
 status: completed
-baseline_commit: 365dabc0eab9f328ac9fc0cbd6938ecef4ca5a7d
+baseline_commit: 5a8057b5aaef7bbdcca65d376799ec2b3eae3ad9
 ---
 
 # Model routing and Grok defaults

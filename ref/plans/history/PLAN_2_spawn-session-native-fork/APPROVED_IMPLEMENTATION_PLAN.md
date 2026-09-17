@@ -2,7 +2,7 @@
 plan_id: spawn-session-native-fork-20260709
 status: approved
 created_at: 2026-07-09
-base_commit: c509d95b14c93d484100df269a6c829927dec373
+base_commit: 5870d92b8fceab11067c643da12ae37929be561f
 worktree_path: ./.agent-deck/worktrees/feat__spawn-session-native-fork-20260709
 work_branch: feat/spawn-session-native-fork-20260709
 approved_at: 2026-07-09

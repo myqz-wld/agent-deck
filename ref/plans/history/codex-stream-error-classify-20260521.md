@@ -3,7 +3,7 @@ plan_id: codex-stream-error-classify-20260521
 created_at: 2026-05-21T08:50:00+08:00
 completed_at: 2026-05-21T17:05:00+08:00
 status: completed
-base_commit: 30574d5d2df090220242a056e16e9c4193fe0c9e
+base_commit: 21a21f96184944b830fb387d696d27adc57adb91
 base_branch: main
 worktree_path: null  # 轻 plan 不进 worktree（用户 RFC 第 3 问选项）
 ---

@@ -3,7 +3,7 @@ plan_id: diff-present-tool-and-walkthrough-skill-20260622
 created_at: 2026-06-22
 worktree_path: .
 status: completed
-base_commit: 25ab300
+base_commit: fb8845c
 ---
 
 # Diff Presentation Tool And Walkthrough Skill

@@ -3,7 +3,7 @@ plan_id: spawn-session-model-thinking-20260611
 created_at: 2026-06-11
 worktree_path: .
 status: in_progress
-base_commit: 9cf68a9
+base_commit: abfd3de
 ---
 
 # spawn_session Model And Thinking Parameters

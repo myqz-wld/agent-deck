@@ -2,7 +2,7 @@
 plan_id: codex-mid-turn-steering-20260610
 created_at: 2026-06-10T00:20:00+08:00
 status: completed
-base_commit: 2c8cf870dd87b3b1c052046f4908551153232b42
+base_commit: 17fabf84e8744f654d09a89fc9ee774614a393b3
 base_branch: main
 worktree_path: ../agent-deck-worktrees/codex-mid-turn-steering-20260610
 work_branch: codex-mid-turn-steering-20260610

@@ -4,7 +4,7 @@ title: Claude Code CLI v2.1.112 EnterWorktree builtin 默认 base 用 origin/<de
 created_at: 2026-05-15
 plan_id: worktree-stale-base-bug-20260515
 worktree_path: ./.claude/worktrees/worktree-stale-base-bug-20260515
-base_commit: 91c4568
+base_commit: b9505f4
 final_commit: TBD
 heterogeneous_dual_completed: true
 ---

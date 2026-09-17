@@ -2,7 +2,7 @@
 plan_id: "mcp-tool-camelcase-migration-20260529"
 created_at: "2026-05-29T17:40:00+08:00"
 status: "completed"
-base_commit: "f0c790b0fdde8af718e4e5ceeac52bfd9336e7e5"
+base_commit: "49fec26fdea5d9513ee833ce3397c8cfdc4551b8"
 base_branch: "main"
 worktree_path: "./.claude/worktrees/mcp-tool-camelcase-migration-20260529"
 parent_task_id: "26181f20-a772-434d-9ee5-bc4fe768e432"

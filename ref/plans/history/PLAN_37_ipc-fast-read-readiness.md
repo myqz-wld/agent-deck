@@ -6,7 +6,7 @@ updated_at: 2026-08-12
 completed_at: 2026-08-12
 related_changelog: CHANGELOG_598
 related_review: REVIEW_238
-base_commit: 082f2ef27eb231091dc516f13f739fb11641f9c8
+base_commit: 6e0e53281d25b56c5e7d8bdf1a9c90684cdad164
 ---
 
 # PLAN_37_ipc-fast-read-readiness: IPC Fast-Read Readiness Repair

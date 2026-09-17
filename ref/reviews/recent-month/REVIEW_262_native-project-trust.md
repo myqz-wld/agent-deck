@@ -1,7 +1,7 @@
 ---
 review_id: 262
 reviewed_at: 2026-08-24
-baseline_commit: e4482dd584f5afddd19fdd0a67d159eb1927566f
+baseline_commit: 0afc344184dfcff78eb74886548bb1e7668a4eb2
 related_changelog: CHANGELOG_628
 expired: false
 skipped_expired:

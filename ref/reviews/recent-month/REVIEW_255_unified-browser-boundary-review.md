@@ -1,7 +1,7 @@
 ---
 review_id: 255
 reviewed_at: 2026-08-18
-baseline_commit: 8a89c27033bdad938155646d34ea2f26ad9a0b84
+baseline_commit: 6725288cf05c78dfeaa6b427a50a764dccc34587
 expired: false
 skipped_expired:
   - file: "ref/**"

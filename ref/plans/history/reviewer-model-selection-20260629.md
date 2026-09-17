@@ -3,7 +3,7 @@ plan_id: reviewer-model-selection-20260629
 created_at: 2026-06-29
 worktree_path: .
 status: completed
-base_commit: 353492797ed5b03c653f9ba34a30b0b2b826ac30
+base_commit: 092f8628761a81d59c55538c383a4e6e47b88cd9
 base_branch: main
 ---
 

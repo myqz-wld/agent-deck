@@ -3,7 +3,7 @@ plan_id: "cross-adapter-sandbox-inherit-20260515"
 created_at: "2026-05-15"
 worktree_path: "./.claude/worktrees/cross-adapter-sandbox-inherit-20260515"
 status: "in_progress"
-base_commit: "a6dbbe07a3ffb35f41c6f04eb444e4446fab33c3"
+base_commit: "08898b8a4d1c370ecb7c93c469746bcdc88e64e6"
 base_branch: "main"
 parent_rfc_id: "adapter-architecture-rfc-20260515"
 parent_rfc_chapter: 2

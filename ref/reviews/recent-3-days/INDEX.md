@@ -15,5 +15,5 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-09-16 | `REVIEW_274_privacy-and-compatibility-cleanup.md` | Privacy and obsolete compatibility cleanup | Source fixes validated / history preparation pending |
+| 2026-09-16 | `REVIEW_274_privacy-and-compatibility-cleanup.md` | Privacy and obsolete compatibility cleanup | Source and local history verified / remote publication pending |
 | 2026-09-16 | `REVIEW_273_relay-worker-packaged-startup.md` | Relay live checks and Worker packaging | 1 HIGH fixed in source / installed acceptance pending |

@@ -2,7 +2,7 @@
 plan_id: team-cohesion-fix-20260513
 created_at: 2026-05-13
 worktree_path: ./.claude/worktrees/team-cohesion-fix-20260513
-base_commit: 059327fba07cf156da6f986f7a45a082f0856c2e
+base_commit: 73e8b4f91af3330b5986d2d96d79be1bf2cf681a
 status: completed
 ---
 

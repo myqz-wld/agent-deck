@@ -2,7 +2,7 @@
 plan_id: 43
 completed_at: 2026-08-18
 status: completed
-base_commit: 7834daeabf453a9a5f38e0e0008873d807255382
+base_commit: bcdf57609da37bded511eb485d6327474ef96b47
 ---
 
 # PLAN_43_unified-browser-skill-cli-iab: Unified Browser skill, CLI, and IAB

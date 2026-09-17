@@ -3,7 +3,7 @@ plan_id: mcp-handoff-fix-and-skill-timer-20260514
 created_at: 2026-05-14
 worktree_path: ./.claude/worktrees/mcp-handoff-fix-and-skill-timer-20260514
 status: completed
-base_commit: 5db9844
+base_commit: c4577e1
 base_branch: main
 final_commit: 4723fe5
 completed_at: 2026-05-14

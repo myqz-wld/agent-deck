@@ -3,7 +3,7 @@ plan_id: prompt-assets-broad-optimize-20260610
 created_at: 2026-06-10
 status: completed
 base_branch: main
-base_commit: c056bbf
+base_commit: be43bac
 worktree_path: null
 ---
 

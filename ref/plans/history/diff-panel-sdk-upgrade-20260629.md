@@ -3,7 +3,7 @@ plan_id: diff-panel-sdk-upgrade-20260629
 created_at: 2026-06-29
 worktree_path: .
 status: completed
-base_commit: 0a8f715593b0b7b821d4ce8c419fe5cf0f2668e1
+base_commit: 2186a5a2e1c9f63ab8d035476b3e764d94477b44
 ---
 
 # Diff Panel Bottom Padding and SDK Upgrade

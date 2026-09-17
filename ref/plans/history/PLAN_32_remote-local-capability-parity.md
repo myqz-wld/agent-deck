@@ -6,7 +6,7 @@ created_at: 2026-08-06
 updated_at: 2026-08-09
 completed_at: 2026-08-09
 base_branch: feature/linux-remote-core-ssh-im
-base_commit: 523a5b56c61178b341b9e7650a74f9569b0246a3
+base_commit: 4a58f972d111e6fe98d24d1613fc10eb4648dc01
 final_commit: 02b16ecbcf8c8d572dea5c4f5b71a12a3867dc57
 merged_main_commit: a2097eea4a84c3117a823da26f2a85d6908e9d32
 predecessor: ref/plans/recent-3-days/PLAN_31_linux-remote-core-foundation.md

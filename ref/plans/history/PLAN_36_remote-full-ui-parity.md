@@ -6,7 +6,7 @@ updated_at: 2026-08-12
 completed_at: 2026-08-12
 related_changelog: CHANGELOG_592
 related_review: REVIEW_233
-base_commit: 3ec408aff18c85bdbd4ebb839d4e63a9dbf056e4
+base_commit: fd8e2b02371660597de4c44f8aae16e65be5a9f9
 delivery_branch: main
 delivery_commit: dc4943bb0d620d2ec7dd6013a33c62a32e6ec12a
 ---

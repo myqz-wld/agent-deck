@@ -7,7 +7,7 @@ updated_at: 2026-07-12
 completed_at: 2026-07-12
 owner_task_id: 89806703-1c24-44be-a245-e88f9ee60ec5
 base_branch: main
-base_commit: 4ca882199ff04cb7e9cca761a8566488c7ac6f5d
+base_commit: c927ddf332940bc4c09be54174a976314574af01
 related_changelog: CHANGELOG_362
 related_review: REVIEW_153
 ---

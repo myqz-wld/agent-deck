@@ -2,7 +2,7 @@
 plan_id: claude-session-create-lag-20260622
 status: completed
 created_at: 2026-06-22
-base_commit: 4fb6987
+base_commit: 05c44ba
 worktree_path: .
 ---
 

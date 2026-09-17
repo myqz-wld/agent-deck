@@ -6,7 +6,7 @@ created_at: 2026-07-27
 updated_at: 2026-07-27
 completed_at: 2026-07-27
 base_branch: main
-base_commit: abc9f8180a9e1e4b828a06c7ae5fff99a6af47a2
+base_commit: dbbc87bb2f0acc367c308ee6788a3612c35d25a7
 implementation_commits: 53830804, 28074a89, e4db8ffd, f965b127, 506a20d9, 29d06fc2, 7ca304b5
 related_plan: PLAN_19
 related_changelog: CHANGELOG_403

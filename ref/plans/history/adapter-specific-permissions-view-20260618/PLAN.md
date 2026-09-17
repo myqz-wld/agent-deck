@@ -2,7 +2,7 @@
 plan_id: adapter-specific-permissions-view-20260618
 status: complete
 created: 2026-06-18
-base_commit: a303197
+base_commit: 8fb7b16
 worktree: .
 ---
 

@@ -3,7 +3,7 @@ plan_id: list-sessions-related-default-20260619
 created_at: 2026-06-19
 worktree_path: .
 status: completed
-base_commit: 8c8066b754419f8f9310495275c799ba8bc96d92
+base_commit: 02f10b63300fd1c69916b428e3ef9253ff442a7a
 base_branch: main
 related_changelog: CHANGELOG_303
 ---

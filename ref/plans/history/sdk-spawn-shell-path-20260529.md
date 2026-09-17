@@ -2,7 +2,7 @@
 plan_id: "sdk-spawn-shell-path-20260529"
 created_at: "2026-05-29T08:30:00+08:00"
 status: "completed"
-base_commit: "e1fbc6e75c59b7d8c3943fac9dfb93ff894f14b1"
+base_commit: "c37e5a1ae2051a468248697b3908ca82819d7e71"
 base_branch: "main"
 worktree_path: "./.claude/worktrees/sdk-spawn-shell-path-20260529"
 final_commit: "e5b023f7d4235ebb4d68de0dcbad5b9d75658cda"

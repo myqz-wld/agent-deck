@@ -4,7 +4,7 @@ title: archive-toctou-fix K3/baton archive helper TOCTOU race + reasonKind 'prob
 created_at: 2026-05-15
 plan_id: archive-toctou-fix-20260515
 worktree_path: ./.claude/worktrees/archive-toctou-fix-20260515
-base_commit: 1456824
+base_commit: dde70ba
 final_commit: ddea608
 parent_review_id: REVIEW_42
 heterogeneous_dual_completed: true

@@ -3,7 +3,7 @@ plan_id: "mcp-handoff-worktree-redesign-20260609"
 created_at: "2026-06-09T12:38:00+08:00"
 worktree_path: "./.claude/worktrees/mcp-handoff-worktree-redesign-20260609"
 status: "in_progress"
-base_commit: "9427fb781dd176b85241bca60b559e1970999858"
+base_commit: "7b948901884f114f4834d66e294c3bd50a8799ee"
 base_branch: "main"
 ---
 

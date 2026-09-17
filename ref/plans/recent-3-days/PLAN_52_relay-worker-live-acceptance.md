@@ -5,7 +5,7 @@ status: completed with installed acceptance pending
 created_at: 2026-09-16
 updated_at: 2026-09-16
 completed_at: 2026-09-16
-base_commit: 540c3319c7f7065b256adc76e019d00295b43b38
+base_commit: 6d7dbbcbb90c78ef7571ac780387071dae39f9a0
 related_review: REVIEW_273
 ---
 

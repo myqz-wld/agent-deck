@@ -5,7 +5,7 @@ worktree_path: ./.claude/worktrees/ref-layout-full-migration-20260526
 status: completed
 final_commit: eb379b6ec4bba2f3ba94e3a1db9dea808188d125
 completed_at: 2026-05-26T12:47:19Z
-base_commit: ef167940809bd22904a8f1bdd810f0cf8d02ace4
+base_commit: 1922ae85078c0001799bb0430dfb4a3f8cc653e7
 base_branch: main
 ---
 

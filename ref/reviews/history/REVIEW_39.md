@@ -4,7 +4,7 @@ title: hand_off_session 不传 team_name 但 UI 渲染 ↳ teammate badge bug R1
 created_at: 2026-05-15
 plan_id: hand-off-mcp-teammate-bug-20260515
 worktree_path: ./.claude/worktrees/hand-off-mcp-teammate-bug-20260515
-base_commit: 91c4568
+base_commit: b9505f4
 heterogeneous_dual_completed: true
 ---
 

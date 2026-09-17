@@ -4,7 +4,7 @@ title: sandbox + resume + hand-off 真实生效性 + 项目优化空间深度 re
 created_at: 2026-05-14
 plan_id: null
 worktree_path: null
-base_commit: e6ffce4
+base_commit: 0329ec5
 final_commit: TBD
 heterogeneous_dual_completed: true
 ---

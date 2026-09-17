@@ -4,7 +4,7 @@ title: cross-adapter-parity 单轮异构对抗 review × 3 MED fix(reviewer-clau
 created_at: 2026-05-15
 plan_id: cross-adapter-parity-20260515
 worktree_path: ./.claude/worktrees/cross-adapter-parity-20260515
-base_commit: d635dad
+base_commit: 0c66cb3
 final_commit: 779a050
 parent_review_id: REVIEW_40
 heterogeneous_dual_completed: false

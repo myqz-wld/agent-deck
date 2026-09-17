@@ -2,7 +2,7 @@
 plan_id: codex-app-server-unification-20260610
 created_at: 2026-06-10T03:22:00+08:00
 status: completed
-base_commit: b89a691
+base_commit: dba58e2
 base_branch: main
 worktree_path: .
 motivation_source: user requested authoritative tok/s and removal of remaining Codex SDK runtime paths

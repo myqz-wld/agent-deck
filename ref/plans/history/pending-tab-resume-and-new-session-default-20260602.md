@@ -3,7 +3,7 @@ plan_id: pending-tab-resume-and-new-session-default-20260602
 created_at: 2026-06-02
 worktree_path: ./.claude/worktrees/pending-tab-resume-and-new-session-default-20260602
 status: completed
-base_commit: 0d2bb1d
+base_commit: 37824c7
 base_branch: main
 final_commit: c9509c4
 completed_at: 2026-06-02T20:00:00+08:00

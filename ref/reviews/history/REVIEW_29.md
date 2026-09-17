@@ -91,7 +91,7 @@ src/renderer/global.d.ts
 
 ## 修复（本 review 直接落地）
 
-### HIGH-1：refractor v5 import 路径 + ambient shim 适配（[`c3d843b`](https://github.com/myqz-wld/agent-deck/commit/c3d843b)）
+### HIGH-1：refractor v5 import 路径 + ambient shim 适配（[`c3d843b`](https://github.com/myqz-wld/agent-deck/commit/783af88)）
 
 **diff 范围**：
 
@@ -99,7 +99,7 @@ src/renderer/global.d.ts
 - [package.json](../../package.json)：把 `refractor: "^5.0.0"` 从「react-syntax-highlighter 传递依赖」提为直接依赖（pnpm strict isolation 不会把传递依赖暴露到 root `node_modules`，production rollup 严格 resolve 找不到）
 - [src/renderer/global.d.ts](../../src/renderer/global.d.ts)：ambient shim pattern 同步改 `declare module 'refractor/*'`（兜 TS `moduleResolution: "node"` 不识别 conditional exports 的 TS2307 报错），注释完整说明「dev / prod / TS 三套 resolver 行为分歧」
 
-### HIGH-2：v014 DROP COLUMN team_name 前先 DROP partial index（[`5120ad8`](https://github.com/myqz-wld/agent-deck/commit/5120ad8)）
+### HIGH-2：v014 DROP COLUMN team_name 前先 DROP partial index（[`5120ad8`](https://github.com/myqz-wld/agent-deck/commit/28a184e)）
 
 **diff 范围**：
 

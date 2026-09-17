@@ -3,7 +3,7 @@ plan_id: spawn-session-custom-model-20260625
 created_at: 2026-06-25
 worktree_path: .
 status: completed
-base_commit: 915e8a6ad875d16c3c1115270282ee578b02f25a
+base_commit: 5f2c3cc0039fc5e578fcf87439a049d149c1d6da
 base_branch: main
 related_changelog: CHANGELOG_327
 ---

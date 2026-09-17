@@ -1,7 +1,7 @@
 ---
 review_id: 268
 reviewed_at: 2026-09-04
-baseline_commit: 072dd7a284eebc2752dab7e5d5505aa2ee480b77
+baseline_commit: 9346954f7b120db56b7e84e2593cb47d7255399a
 coverage_kind: bounded-project-scan
 expired: true
 expiry_reason: "Breadth includes inventory and selected excerpts; this scan grants no whole-file exemption from future review."

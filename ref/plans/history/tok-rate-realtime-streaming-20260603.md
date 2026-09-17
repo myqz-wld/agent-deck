@@ -3,7 +3,7 @@ plan_id: tok-rate-realtime-streaming-20260603
 created_at: 2026-06-03T09:55:00Z
 worktree_path: ./.claude/worktrees/tok-rate-realtime-streaming-20260603
 status: completed
-base_commit: 9afbf68
+base_commit: 0caf5b4
 base_branch: main
 final_commit: 8961b77
 completed_at: 2026-06-03T20:15:00Z

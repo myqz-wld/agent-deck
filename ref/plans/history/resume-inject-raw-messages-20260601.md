@@ -2,7 +2,7 @@
 plan_id: "resume-inject-raw-messages-20260601"
 created_at: "2026-06-01T18:30:00+08:00"
 status: "completed"
-base_commit: "6084f7d9d99d0fc9afa18752a7d97a438e4f3c56"
+base_commit: "52da4b7906e8030fcc905e062a49c67e9160f7d9"
 base_branch: "main"
 worktree_path: "./.claude/worktrees/resume-inject-raw-messages-20260601"
 final_commit: "4713300f3827e031c54e12df3ee5b281be65e054"

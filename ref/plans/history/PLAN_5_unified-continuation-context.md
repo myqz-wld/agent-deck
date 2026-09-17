@@ -7,7 +7,7 @@ updated_at: 2026-07-11
 completed_at: 2026-07-11
 owner_task_id: e6d82a0a-2f5a-4f8e-b742-ec8fabe2aed9
 base_branch: main
-base_commit: e4729c31a11942a0bb9788f682f25e08a498a541
+base_commit: 0536b821bbc7d1bc1690ef76714d618f7eb20af0
 implementation_worktree: ./.agent-deck/worktrees/codex__unified-continuation-context
 implementation_branch: codex/unified-continuation-context
 implementation_baseline_commit: 92382b43aae51875531c7f56a08550acdc9dad9e
