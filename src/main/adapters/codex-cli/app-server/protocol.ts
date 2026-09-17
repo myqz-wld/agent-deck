@@ -96,5 +96,5 @@ export interface CodexAppServerOptions {
 export interface JsonRpcResponse {
   id: number | string;
   result?: unknown;
-  error?: { message?: string; code?: number; data?: unknown } | string;
+  error?: { message?: string; code?: number; data?: unknown };
 }

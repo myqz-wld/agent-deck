@@ -110,6 +110,7 @@
     "files": [
       "build/**/*",
       "!build/dist/**",
+      "!build/**/*.log",
       "resources/icon.png"
     ],
     "extraResources": [

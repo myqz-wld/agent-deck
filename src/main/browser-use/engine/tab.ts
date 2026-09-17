@@ -1,26 +1,24 @@
 /**
- * One engine tab = one isolated Electron window plus its CDP bridge.
+ * One engine tab owns one isolated Electron surface and its CDP bridge.
  *
  * Window options are the security contract and must not be relaxed: a non-persistent per-owner
  * partition, sandboxing, context isolation, no Node integration, web security on, and denied
  * window-open requests.
  *
- * Only `loadURL`, `show`, `focus`, `close`, `destroy`, `isDestroyed`, the `focus`/`closed` events,
- * and `webContents.{debugger,getTitle,getURL,setWindowOpenHandler}` are used on the creation path,
- * so a lightweight window double is enough for protocol-level tests. Semantic actions reach for
+ * Tests implement the same EngineTabSurface contract as the production WebContentsView host.
+ * Semantic actions reach for
  * `executeJavaScript`, `capturePage`, and `sendInputEvent` lazily and report a clear error when a
  * window double does not provide them.
  */
 
 import {
   type BrowserWindow,
-  type BrowserWindowConstructorOptions,
   type Session,
 } from 'electron';
 
 import { CdpBridge, withTimeout } from './cdp';
-import { CDP_TIMEOUT_MS, DEFAULT_WINDOW_TITLE, INITIAL_URL, type TabInfo } from './types';
-import { BrowserWindowTabSurface, type EngineTabSurface } from './surface';
+import { CDP_TIMEOUT_MS, INITIAL_URL, type TabInfo } from './types';
+import type { EngineTabSurface } from './surface';
 
 const hardenedBrowserSessions = new WeakSet<Session>();
 
@@ -57,36 +55,9 @@ export function hardenBrowserSession(browserSession: Session): void {
 export interface EngineTabDeps {
   ownerId?: string;
   id: number;
-  surface?: EngineTabSurface;
-  /** Compatibility seam for existing focused tests and fixtures. Production supplies surface. */
-  window?: BrowserWindow;
+  surface: EngineTabSurface;
   onActivated: (tabId: number) => void;
   onClosed: (tabId: number) => void;
-}
-
-export function buildTabWindowOptions(
-  partition: string,
-  title = DEFAULT_WINDOW_TITLE,
-): BrowserWindowConstructorOptions {
-  return {
-    width: 1280,
-    height: 900,
-    show: false,
-    // Background tabs are the default, so the renderer must still paint for screenshots and layout
-    // reads to work while the window was never shown. Electron defaults this to true; pinning it
-    // documents the dependency.
-    paintWhenInitiallyHidden: true,
-    autoHideMenuBar: true,
-    title,
-    webPreferences: {
-      partition,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      backgroundThrottling: false,
-    },
-  };
 }
 
 export class EngineTab {
@@ -99,10 +70,7 @@ export class EngineTab {
   constructor(deps: EngineTabDeps) {
     this.id = deps.id;
     this.ownerId = deps.ownerId;
-    if (deps.surface == null && deps.window == null) {
-      throw new Error('EngineTab requires a Browser surface.');
-    }
-    this.surface = deps.surface ?? new BrowserWindowTabSurface(deps.window!);
+    this.surface = deps.surface;
     this.cdp = new CdpBridge(() => this.surface.webContents.debugger);
 
     hardenBrowserSession(this.surface.webContents.session);

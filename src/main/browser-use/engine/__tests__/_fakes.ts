@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events';
 
-import type { BrowserWindow, Session } from 'electron';
+import type { Session, WebContents } from 'electron';
 import { vi } from 'vitest';
+import type { EngineTabSurface } from '../surface';
 
 /**
  * Window and debugger doubles for engine tests.
@@ -120,37 +121,48 @@ export class FakeWindow extends EventEmitter {
     this.emit('closed');
   });
 
-  asBrowserWindow(): BrowserWindow {
-    return this as unknown as BrowserWindow;
+  asSurface(): EngineTabSurface {
+    return {
+      webContents: this.webContents as unknown as WebContents,
+      isDestroyed: this.isDestroyed,
+      loadURL: this.loadURL,
+      requestShow: () => {
+        if (this.destroyed) return false;
+        this.show();
+        this.focus();
+        return true;
+      },
+      destroy: this.destroy,
+      deviceScaleFactor: () => 1,
+      canSendInputEvents: () => this.isVisible() && this.isFocused(),
+      onActivated: (listener) => {
+        this.on('focus', listener);
+        return () => { this.removeListener('focus', listener); };
+      },
+      onClosed: (listener) => {
+        this.on('closed', listener);
+        return () => { this.removeListener('closed', listener); };
+      },
+      viewportRevision: () => 1,
+      zoomFactor: () => 1,
+      present: () => null,
+      park: () => false,
+    };
   }
 }
 
-/** Window factory that records every created window. */
+/** Surface factory backed by strict window doubles. */
 export function fakeWindowFactory(): {
   windows: FakeWindow[];
-  createWindow: (options: unknown) => BrowserWindow;
-  optionsSeen: unknown[];
+  createSurface: (options: { partition: string; title: string }) => EngineTabSurface;
   sessions: Map<string, FakeSession>;
 } {
   const windows: FakeWindow[] = [];
-  const optionsSeen: unknown[] = [];
   const sessions = new Map<string, FakeSession>();
   return {
     windows,
-    optionsSeen,
     sessions,
-    createWindow: (options: unknown) => {
-      optionsSeen.push(options);
-      const record =
-        options != null && typeof options === 'object'
-          ? (options as Record<string, unknown>)
-          : {};
-      const webPreferences =
-        record.webPreferences != null && typeof record.webPreferences === 'object'
-          ? (record.webPreferences as Record<string, unknown>)
-          : {};
-      const partition =
-        typeof webPreferences.partition === 'string' ? webPreferences.partition : 'default';
+    createSurface: ({ partition }) => {
       let browserSession = sessions.get(partition);
       if (browserSession == null) {
         browserSession = new FakeSession();
@@ -158,7 +170,7 @@ export function fakeWindowFactory(): {
       }
       const window = new FakeWindow(browserSession);
       windows.push(window);
-      return window.asBrowserWindow();
+      return window.asSurface();
     },
   };
 }

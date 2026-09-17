@@ -6,10 +6,8 @@
  * sessions share one Electron process.
  */
 
-import { BrowserWindow, type BrowserWindowConstructorOptions } from 'electron';
-
-import { EngineTab, buildTabWindowOptions } from './tab';
-import { BrowserWindowTabSurface, type EngineTabSurface } from './surface';
+import { EngineTab } from './tab';
+import type { EngineTabSurface } from './surface';
 import { getBrowserViewHost } from '../view-host';
 import {
   DEFAULT_WINDOW_TITLE,
@@ -24,10 +22,6 @@ import {
   ownerPartition,
 } from './registry-core';
 import { BrowserTabCollectionCore } from './tab-collection-core';
-
-const defaultWindowFactory = (
-  windowOptions: BrowserWindowConstructorOptions,
-): BrowserWindow => new BrowserWindow(windowOptions);
 
 export {
   ownerCacheKey,
@@ -125,12 +119,10 @@ export class BrowserOwnerHandle {
 export class BrowserEngine {
   readonly showWindows: boolean;
   readonly windowTitle: string;
-  readonly createWindow: (options: BrowserWindowConstructorOptions) => BrowserWindow;
   private readonly configuredCreateSurface: BrowserEngineOptions['createSurface'];
   private readonly ownership: BrowserOwnershipRegistryCore<BrowserOwnerHandle>;
 
   constructor(options: BrowserEngineOptions = {}) {
-    this.createWindow = options.createWindow ?? defaultWindowFactory;
     this.configuredCreateSurface = options.createSurface;
     this.showWindows = options.showWindows ?? false;
     this.windowTitle = options.windowTitle ?? DEFAULT_WINDOW_TITLE;
@@ -144,11 +136,6 @@ export class BrowserEngine {
   createTabSurface(partition: string): EngineTabSurface {
     if (this.configuredCreateSurface) {
       return this.configuredCreateSurface({ partition, title: this.windowTitle });
-    }
-    if (this.createWindow !== defaultWindowFactory) {
-      return new BrowserWindowTabSurface(
-        this.createWindow(buildTabWindowOptions(partition, this.windowTitle)),
-      );
     }
     return getBrowserViewHost().createSurface({ partition, title: this.windowTitle });
   }

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { readTerminalError } from './notification-helpers';
+import { formatRpcError, readTerminalError } from './notification-helpers';
 
 describe('Codex app-server notification helpers', () => {
+  it('formats structured JSON-RPC failures and treats obsolete string payloads as malformed', () => {
+    expect(formatRpcError({ code: -32602, message: 'Invalid params' }))
+      .toBe('Invalid params (code -32602)');
+    expect(formatRpcError(undefined)).toBe('Unknown Codex app-server error');
+    const obsolete = 'unstructured failure' as unknown as Parameters<typeof formatRpcError>[0];
+    expect(formatRpcError(obsolete)).toBe('Unknown Codex app-server error');
+  });
+
   it('surfaces terminal provider errors and ignores retry progress', () => {
     expect(readTerminalError({
       method: 'error',

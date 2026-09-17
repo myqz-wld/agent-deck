@@ -6,7 +6,6 @@
  * boundaries. Keeping this file protocol-free makes one browser usable from every adapter.
  */
 
-import type { BrowserWindow, BrowserWindowConstructorOptions } from 'electron';
 import type { EngineTabSurface } from './surface';
 
 export interface BrowserOwnerKey {
@@ -27,9 +26,7 @@ export interface CreateTabOptions {
 }
 
 export interface BrowserEngineOptions {
-  /** Window factory seam for tests. Production uses `new BrowserWindow(...)`. */
-  createWindow?: (options: BrowserWindowConstructorOptions) => BrowserWindow;
-  /** Production WebContentsView surface factory. Tests may retain createWindow during migration. */
+  /** Surface factory shared by production WebContentsView hosting and test doubles. */
   createSurface?: (options: {
     partition: string;
     title: string;

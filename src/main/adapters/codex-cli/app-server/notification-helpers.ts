@@ -130,7 +130,6 @@ function asObject(value: unknown): Record<string, unknown> | null {
 
 export function formatRpcError(error: JsonRpcResponse['error']): string {
   if (!error) return 'Unknown Codex app-server error';
-  if (typeof error === 'string') return error;
   const message = error.message ?? 'Unknown Codex app-server error';
   return error.code == null ? message : `${message} (code ${error.code})`;
 }
