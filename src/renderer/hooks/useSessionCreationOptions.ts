@@ -40,6 +40,8 @@ export interface SessionCreationOptionsState {
   grokSandbox: GrokSandboxChoice;
   provider: string;
   model: string;
+  /** Display only: retain the prior model while a Gateway default is being read. */
+  modelPresentation: string;
   thinking: SessionThinkingChoice;
   projectTrust: ProjectTrustDescriptor;
   /**
@@ -77,6 +79,7 @@ const SAFE_FALLBACK: SessionCreationDefaults = {
 interface SelectionState {
   identity: string;
   value: SessionCreationDefaults;
+  retainedModel?: string;
   projectTrust: ProjectTrustDescriptor;
   trustAuthoritative: boolean;
 }
@@ -239,6 +242,10 @@ export function useSessionCreationOptions({
         ...(previous.identity === selectionIdentity ? previous.value : initial),
         ...patch,
       },
+      retainedModel: patch.provider !== undefined
+        ? (previous.identity === selectionIdentity ? previous.retainedModel : undefined) ?? current.model
+        : patch.model !== undefined || previous.identity !== selectionIdentity
+          ? undefined : previous.retainedModel,
       projectTrust: previous.identity === selectionIdentity
         ? previous.projectTrust
         : UNAVAILABLE_PROJECT_TRUST,
@@ -258,6 +265,9 @@ export function useSessionCreationOptions({
     grokSandbox: current.grokSandbox,
     provider: current.provider,
     model: current.model,
+    modelPresentation: selection.identity === selectionIdentity
+      ? selection.retainedModel ?? current.model
+      : current.model,
     thinking: current.thinking as SessionThinkingChoice,
     projectTrust,
     projectTrustPresentation,
@@ -290,6 +300,10 @@ export function useSessionCreationOptions({
       setLastDefaults(adapterId, { grokSandbox: value });
     },
     setProvider: (value) => {
+      if (value === current.provider) return;
+      defaultsRequestGeneration.current += 1;
+      // Gateway choices are discrete: do not spend the presentation grace on input debounce.
+      resolvedSelectionIdentity.current = null;
       patchSelection({ provider: value, model: '' });
       setLastDefaults(adapterId, { provider: value, model: '' });
       setSelectionRevision((current) => current + 1);

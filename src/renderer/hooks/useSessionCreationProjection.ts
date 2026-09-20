@@ -38,7 +38,7 @@ export function useSessionCreationProjection<TAdapter>({
   const target: SessionCreationProjection<TAdapter> = {
     adapterId,
     adapter,
-    options,
+    options: { ...options, model: options.modelPresentation },
     deferred: false,
   };
   const lastVisible = useRef(target);

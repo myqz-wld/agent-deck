@@ -292,7 +292,7 @@ export function RemoteSessionRuntimeControls({
             model: modelDescriptor?.disabledReason,
             thinking: thinkingDescriptor?.disabledReason,
           },
-          onProviderChange: (next) => updateSelection({ provider: next, model: '' }, true),
+          onProviderChange: (next) => updateSelection({ provider: next }, true),
           onModelChange: (next) => updateSelection({ model: next }, false),
           onModelBlur: flushSelection,
           onThinkingChange: (next) => updateSelection({ thinking: next }, true),

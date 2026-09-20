@@ -36,6 +36,7 @@ interface AuthoringState {
   adapterId: string;
   options: SessionConsoleCreateOptions;
   overrides: readonly SessionConsoleCreateOptionKey[];
+  retainedModel?: string | null;
 }
 
 interface CapabilitySnapshot {
@@ -104,8 +105,9 @@ function capabilityRequestKey(
   adapterId: string,
   provider: string,
   workingDirectory: string,
+  revision: number,
 ): string {
-  return `${scopeKey}\u0000${adapterId}\u0000${provider}\u0000${workingDirectory}`;
+  return `${scopeKey}\u0000${adapterId}\u0000${provider}\u0000${workingDirectory}\u0000${revision}`;
 }
 
 function acceptsValue(
@@ -168,6 +170,8 @@ export function useRemoteSessionCreation({
   const authoring = authoringState.scopeKey === scopeKey
     ? authoringState
     : emptyAuthoring(scopeKey);
+  const authoringRef = useRef(authoring);
+  authoringRef.current = authoring;
   const provider = authoring.options.provider ?? '';
   const normalizedDirectory = normalizeWorkingDirectory(workingDirectory);
   const requestKey = capabilityRequestKey(
@@ -175,6 +179,7 @@ export function useRemoteSessionCreation({
     authoring.adapterId,
     provider,
     normalizedDirectory,
+    requestRevision,
   );
   const sameScopeSnapshot = snapshot?.scopeKey === scopeKey ? snapshot : null;
   const descriptor = sameScopeSnapshot?.requestKey === requestKey
@@ -203,7 +208,7 @@ export function useRemoteSessionCreation({
     : authoring.adapterId;
   const presentationOptions = presentCommittedAdapter
     ? sameScopeSnapshot!.options
-    : authoring.options;
+    : { ...authoring.options, model: authoring.retainedModel ?? authoring.options.model };
   const error = !active || !source
     ? null
     : !canRead
@@ -224,10 +229,11 @@ export function useRemoteSessionCreation({
         workingDirectory: requestDirectory,
       }).then((result) => {
         if (generation.current !== currentGeneration) return;
-        const responseAuthoring = authoring.scopeKey === scopeKey && (
-          authoring.adapterId.length === 0 || authoring.adapterId === result.selectedAdapterId
+        const latest = authoringRef.current;
+        const responseAuthoring = latest.scopeKey === scopeKey && (
+          latest.adapterId.length === 0 || latest.adapterId === result.selectedAdapterId
         )
-          ? { ...authoring, adapterId: result.selectedAdapterId }
+          ? { ...latest, adapterId: result.selectedAdapterId }
           : { ...emptyAuthoring(scopeKey), adapterId: result.selectedAdapterId };
         const committedOptions = reconcileOptions(responseAuthoring, result);
         const resolvedProvider = committedOptions.provider ?? '';
@@ -236,10 +242,12 @@ export function useRemoteSessionCreation({
           result.selectedAdapterId,
           resolvedProvider,
           requestDirectory,
+          requestRevision,
         );
         setAuthoringState({
           ...responseAuthoring,
           options: committedOptions,
+          retainedModel: undefined,
         });
         setSnapshot({
           scopeKey,
@@ -253,6 +261,7 @@ export function useRemoteSessionCreation({
         setFailure(null);
       }).catch((reason: unknown) => {
         if (generation.current !== currentGeneration) return;
+        setAuthoringState((current) => ({ ...current, retainedModel: undefined }));
         settledAdapterIdentity.current = `${scopeKey}\u0000${authoring.adapterId}`;
         setFailure({
           requestKey,
@@ -314,7 +323,11 @@ export function useRemoteSessionCreation({
     setOption: (key, value) => {
       const schema = presentationDescriptor?.create.options[key];
       if (!schema?.enabled) return;
-      if (key === 'provider') generation.current += 1;
+      if (key === 'provider') {
+        if (value === provider) return;
+        generation.current += 1;
+        settledAdapterIdentity.current = null;
+      }
       setAuthoringState((current) => {
         const scoped = current.scopeKey === scopeKey ? current : authoring;
         const overrides = new Set(scoped.overrides);
@@ -328,6 +341,9 @@ export function useRemoteSessionCreation({
             ...(key === 'provider' ? { model: '' } : {}),
           },
           overrides: [...overrides],
+          retainedModel: key === 'provider'
+            ? scoped.retainedModel ?? scoped.options.model
+            : key === 'model' ? undefined : scoped.retainedModel,
         };
       });
       if (key === 'provider') {

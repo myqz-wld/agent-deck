@@ -601,7 +601,7 @@ describe('ComposerSdk unified input routing', () => {
     await waitFor(() => {
       expect(setSessionModelOptions).toHaveBeenCalledWith('codex-cli', 'sess-1', {
         provider: 'openai-custom',
-        model: null,
+        model: 'gpt-old',
         thinking: 'low',
       });
     });

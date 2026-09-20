@@ -135,6 +135,74 @@ describe('useRemoteSessionCreation authority projection', () => {
     expect(hook.result.current.options.model).toBe('custom-model');
   });
 
+  it('reads a Gateway immediately while retaining only the displayed model', async () => {
+    vi.useFakeTimers();
+    const next = deferred<SessionConsoleCapabilitiesResult>();
+    const read = vi.fn().mockResolvedValueOnce(descriptor('default-provider'))
+      .mockReturnValueOnce(next.promise);
+    const hook = renderHook(() => useRemoteSessionCreation({
+      active: true, scopeKey: 'dialog-a', source: source(read), workingDirectory: '.',
+    }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    act(() => hook.result.current.setOption('provider', 'team-provider'));
+    expect(hook.result.current.options.model).toBe('');
+    expect(hook.result.current.presentationOptions.model).toBe('gpt-5');
+    expect(hook.result.current.presentationOptions.provider).toBe('team-provider');
+    expect(hook.result.current.ready).toBe(false);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(read).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'team-provider' }));
+    await act(() => vi.advanceTimersByTimeAsync(150));
+    expect(hook.result.current.presentationOptions.model).toBe('gpt-5');
+    const result = descriptor('team-provider');
+    result.create.options = { ...result.create.options, model: {
+      ...result.create.options.model, defaultValue: 'team-model',
+    } };
+    await act(async () => next.resolve(result));
+    expect(hook.result.current.options.model).toBe('team-model');
+    expect(hook.result.current.presentationOptions.model).toBe('team-model');
+    expect(hook.result.current.ready).toBe(true);
+  });
+
+  it('preserves newer explicit model edits when a pending Gateway result arrives', async () => {
+    vi.useFakeTimers();
+    const next = deferred<SessionConsoleCapabilitiesResult>();
+    const read = vi.fn().mockResolvedValueOnce(descriptor('default-provider'))
+      .mockReturnValueOnce(next.promise);
+    const hook = renderHook(() => useRemoteSessionCreation({
+      active: true, scopeKey: 'dialog-a', source: source(read), workingDirectory: '.',
+    }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    act(() => hook.result.current.setOption('provider', 'team-provider'));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    act(() => hook.result.current.setOption('model', 'custom-model'));
+    await act(async () => next.resolve(descriptor('team-provider')));
+    expect(hook.result.current.options.model).toBe('custom-model');
+    expect(hook.result.current.presentationOptions.model).toBe('custom-model');
+  });
+
+  it('retains the model across rapid choices including a return to the original Gateway', async () => {
+    vi.useFakeTimers();
+    const first = deferred<SessionConsoleCapabilitiesResult>();
+    const second = deferred<SessionConsoleCapabilitiesResult>();
+    const read = vi.fn().mockResolvedValueOnce(descriptor('default-provider'))
+      .mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const hook = renderHook(() => useRemoteSessionCreation({
+      active: true, scopeKey: 'dialog-a', source: source(read), workingDirectory: '.',
+    }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    act(() => hook.result.current.setOption('provider', 'team-provider'));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    act(() => hook.result.current.setOption('provider', 'default-provider'));
+    expect(hook.result.current.ready).toBe(false);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(hook.result.current.presentationOptions.model).toBe('gpt-5');
+    await act(async () => first.resolve(descriptor('team-provider')));
+    expect(hook.result.current.presentationOptions.provider).toBe('default-provider');
+    await act(async () => second.resolve(descriptor('default-provider')));
+    expect(hook.result.current.ready).toBe(true);
+    expect(hook.result.current.options.model).toBe('gpt-5');
+  });
+
   it('keeps the prior adapter projection intact until the new adapter commits atomically', async () => {
     vi.useFakeTimers();
     const next = deferred<SessionConsoleCapabilitiesResult>();

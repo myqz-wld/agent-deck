@@ -15,4 +15,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-09-10 | `REVIEW_272_plan-review-question-runtime-controls.md` | Plan-review question creation and retry | 1 MEDIUM fixed / 1 LOW fixed |

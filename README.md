@@ -14,7 +14,7 @@ on the same project. Keep agent sessions, collaboration, reviews, and project st
 
 ## Quick Start
 
-Agent Deck requires Node.js 18+ and pnpm.
+Install Node.js and pnpm, then start Agent Deck:
 
 ```bash
 pnpm install
@@ -24,10 +24,6 @@ pnpm dev
 Authenticate the agents you plan to use through their normal CLI workflows. Agent Deck uses
 their existing configuration and does not store provider credentials. Bundled runtimes are
 selected by default; Settings can point to an external installation.
-
-The bundled dependencies are Claude Agent SDK `0.3.272`, Anthropic SDK `0.125.0`, Codex CLI
-`0.154.0`, and Grok `1.0.30`. Dependency upgrades require rebuilding and reinstalling the app
-to refresh its embedded runtimes, including the macOS Worker provider binaries.
 
 Open a project, start a session, and describe the task. Add teammates for independent work,
 follow their progress, and approve or revise proposed plans and diffs.
@@ -72,6 +68,10 @@ release actions require a clean, committed, pushed, and upstream-aligned checkou
 
 Quit Agent Deck before a local install. Build installers on the matching host OS; cross-platform
 packaging is not supported. See [CLAUDE.md](CLAUDE.md) for the full development workflow.
+
+After updating bundled agent dependencies, rebuild and reinstall Agent Deck to refresh the
+app and macOS Worker runtimes. Dependency versions are recorded in [package.json](package.json)
+and [pnpm-lock.yaml](pnpm-lock.yaml).
 
 ## Documentation
 

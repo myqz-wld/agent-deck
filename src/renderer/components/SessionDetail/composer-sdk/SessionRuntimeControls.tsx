@@ -199,7 +199,7 @@ export function SessionRuntimeControls({ session }: { session: SessionRecord }):
         provider,
         model,
         thinking,
-        onProviderChange: (next) => updateSelection({ provider: next, model: '' }, true),
+        onProviderChange: (next) => updateSelection({ provider: next }, true),
         onModelChange: (next) => updateSelection({ model: next }, false),
         onThinkingChange: (next) => updateSelection({ thinking: next }, true),
       }}
