@@ -55,9 +55,9 @@ const CLOSED_WORLD = new Set<DesktopBrokerBrowserOperation>([
 function description(operation: DesktopBrokerBrowserOperation): string {
   switch (operation) {
     case 'browser_open':
-      return 'Open this remote session\'s isolated Agent Deck browser on the connected desktop. Prefer local development URLs and keep it hidden unless the user asks to watch.';
+      return 'Open a session-owned Agent Deck browser tab on the connected desktop, reusing its shared persistent website login state. Prefer local development URLs and keep it hidden unless the user asks to watch.';
     case 'browser_tabs':
-      return 'List only the browser tabs owned by this remote session. Tabs, cookies, and storage are isolated from Local and other Remote sessions.';
+      return 'List only the browser tabs owned by this remote session. Local and Remote sessions on this desktop share persistent website cookies and storage; logging out or switching accounts affects those sessions.';
     case 'browser_navigate':
       return 'Navigate or reload one tab on the connected desktop, then take a fresh snapshot before using element references.';
     case 'browser_wait':

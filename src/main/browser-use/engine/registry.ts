@@ -19,25 +19,22 @@ import {
 } from './types';
 import {
   BrowserOwnershipRegistryCore,
-  ownerPartition,
+  SHARED_BROWSER_PARTITION,
 } from './registry-core';
 import { BrowserTabCollectionCore } from './tab-collection-core';
 
 export {
   ownerCacheKey,
-  ownerPartition,
 } from './registry-core';
 
 export class BrowserOwnerHandle {
-  readonly partition: string;
+  readonly partition = SHARED_BROWSER_PARTITION;
   private readonly tabs = new BrowserTabCollectionCore<EngineTab>();
 
   constructor(
     readonly key: BrowserOwnerKey,
     private readonly engine: BrowserEngine,
-  ) {
-    this.partition = ownerPartition(key);
-  }
+  ) {}
 
   get isDisposed(): boolean {
     return this.tabs.isDisposed;

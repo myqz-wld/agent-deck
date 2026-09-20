@@ -1,9 +1,9 @@
 /**
- * One engine tab owns one isolated Electron surface and its CDP bridge.
+ * One engine tab owns one Electron surface and its CDP bridge.
  *
- * Window options are the security contract and must not be relaxed: a non-persistent per-owner
- * partition, sandboxing, context isolation, no Node integration, web security on, and denied
- * window-open requests.
+ * Website storage uses the desktop's shared persistent Browser partition. Each tab still keeps
+ * sandboxing, context isolation, no Node integration, web security on, and denied window-open
+ * requests.
  *
  * Tests implement the same EngineTabSurface contract as the production WebContentsView host.
  * Semantic actions reach for

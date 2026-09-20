@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   BrowserOwnershipRegistryCore,
-  ownerPartition,
   type BrowserOwnerResource,
 } from './registry-core';
 
@@ -19,16 +18,16 @@ function resource(): BrowserOwnerResource & { tabs: number } {
 }
 
 describe('browser ownership registry Core', () => {
-  it('isolates session partitions and reuses one live owner', () => {
+  it('reuses one live owner and keeps separate ownership handles per session', () => {
     const createHandle = vi.fn(() => resource());
     const registry = new BrowserOwnershipRegistryCore({ createHandle });
     const owner = { kind: 'session', id: 'same' } as const;
 
-    expect(registry.acquire(owner)).toBe(registry.acquire(owner));
+    const first = registry.acquire(owner);
+    expect(registry.acquire(owner)).toBe(first);
     expect(createHandle).toHaveBeenCalledOnce();
-    expect(ownerPartition(owner)).not.toBe(
-      ownerPartition({ kind: 'session', id: 'other' }),
-    );
+    expect(registry.acquire({ kind: 'session', id: 'other' })).not.toBe(first);
+    expect(createHandle).toHaveBeenCalledTimes(2);
   });
 
   it('enforces per-owner and total caps without creating extra owners', () => {

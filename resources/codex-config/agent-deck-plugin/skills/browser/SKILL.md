@@ -1,6 +1,6 @@
 ---
 name: browser
-description: "Control Agent Deck's session-private in-app Browser through the agent-deck-browser CLI. Use when the user asks to open, navigate, inspect, interact with, debug, or visually verify a web page or local web UI, including Browser/IAB requests."
+description: "Control Agent Deck's in-app Browser through the session-scoped agent-deck-browser CLI. Use when the user asks to open, navigate, inspect, interact with, debug, or visually verify a web page or local web UI, including Browser/IAB requests."
 ---
 
 # Agent Deck Browser
@@ -20,8 +20,10 @@ Use this skill for browser work owned by the current interactive Agent Deck sess
   is absent or the CLI returns `browser_context_unavailable`, explain that Browser is unavailable
   for this session and stop. Ask the user to enable Skills and start or restart an interactive
   session. Do not fall back to another Browser surface.
-- Browser tabs, cookies, and storage are private to this session. They are not shared with other
-  sessions and are closed by the session or handoff lifecycle.
+- Browser tabs belong to this session and close with its session or handoff lifecycle. Local and
+  Remote sessions using the same desktop share one persistent Browser profile, including website
+  cookies and persistent storage. Login, logout, and account changes apply across those sessions;
+  website expiry rules still apply. Closing tabs retains the shared website data.
 - Keep Browser work in the background. Omit `--show` unless the user explicitly asks to watch the
   page. Starting Browser work must not focus, raise, or resize the Agent Deck window.
 

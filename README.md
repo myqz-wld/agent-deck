@@ -9,7 +9,7 @@ on the same project. Keep agent sessions, collaboration, reviews, and project st
 - Coordinate teammates, tasks, issues, and session handoffs.
 - Review plans and diffs, and isolate changes in Git worktrees.
 - Use bundled Agents and Skills from the Assets Library.
-- Browse pages in a private session Browser and annotate screenshots.
+- Browse pages in session-owned tabs with shared website logins and annotate screenshots.
 - Work with local projects or connected remote environments.
 
 ## Quick Start
@@ -37,7 +37,12 @@ see [runtime configuration](resources/README.md) for setup and adapter differenc
 Type `/` in the message composer to discover supported commands.
 
 Browser tabs are private to the session, open in the background by default, and
-close with the session or handoff lifecycle. You can capture an annotated PNG into the message composer
+close with the session or handoff lifecycle. Local and Remote sessions using the same desktop
+share one persistent Browser profile: log in to a website once in IAB and later sessions reuse
+that login while it remains valid. Persistent cookies and website storage survive app restarts;
+website expiry rules and session-only cookies still apply. Logging out or switching accounts on
+a website affects other sessions using that profile.
+You can capture an annotated PNG into the message composer
 when the active runtime accepts image input.
 
 ## Remote Work and Deployment

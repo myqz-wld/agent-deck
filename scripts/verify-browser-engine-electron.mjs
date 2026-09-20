@@ -8,7 +8,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,8 @@ const fixturePath = resolve(repoRoot, 'scripts/fixtures/browser-engine-electron.
 const compilerPath = require.resolve('typescript/bin/tsc');
 const electronPath = require('electron');
 const outputRoot = mkdtempSync(join(tmpdir(), 'agent-deck-browser-electron-'));
+const profileRoot = join(outputRoot, 'browser-profile');
+mkdirSync(profileRoot);
 
 let exitCode = 1;
 try {
@@ -54,15 +56,22 @@ try {
       outputRoot,
       'scripts/fixtures/browser-engine-electron.js',
     );
-    const electronEnv = { ...process.env };
+    const electronEnv = {
+      ...process.env,
+      AGENT_DECK_BROWSER_FIXTURE_USER_DATA: profileRoot,
+    };
     delete electronEnv.ELECTRON_RUN_AS_NODE;
-    const run = spawnSync(electronPath, [compiledFixture], {
-      cwd: repoRoot,
-      stdio: 'inherit',
-      env: electronEnv,
-    });
-    if (run.error) throw run.error;
-    exitCode = run.status ?? 1;
+    // A second fresh Electron process proves login survives an application restart.
+    for (const args of [[], ['--restore-browser-login']]) {
+      const run = spawnSync(electronPath, [compiledFixture, ...args], {
+        cwd: repoRoot,
+        stdio: 'inherit',
+        env: electronEnv,
+      });
+      if (run.error) throw run.error;
+      exitCode = run.status ?? 1;
+      if (exitCode !== 0) break;
+    }
   }
 } finally {
   rmSync(outputRoot, { recursive: true, force: true });

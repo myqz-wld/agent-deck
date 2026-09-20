@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import {
   BrowserTabLimitError,
   DEFAULT_MAX_TABS_PER_OWNER,
@@ -27,13 +25,8 @@ export function ownerCacheKey(owner: BrowserOwnerKey): string {
   return `${owner.kind}:${owner.id}`;
 }
 
-export function ownerPartition(owner: BrowserOwnerKey): string {
-  const digest = createHash('sha256')
-    .update(ownerCacheKey(owner))
-    .digest('hex')
-    .slice(0, 20);
-  return `agent-deck-browser-${digest}`;
-}
+/** Website login state belongs to the desktop Browser, independently of tab ownership. */
+export const SHARED_BROWSER_PARTITION = 'persist:agent-deck-browser';
 
 /** Provider-neutral ownership, lease, disposal, and capacity state machine. */
 export class BrowserOwnershipRegistryCore<Handle extends BrowserOwnerResource> {

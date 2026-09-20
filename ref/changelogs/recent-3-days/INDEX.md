@@ -15,5 +15,4 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
-| 2026-09-16 | `CHANGELOG_644_privacy-and-compatibility-cleanup.md` | Remove identifying paths and retired Browser/RPC compatibility |
-| 2026-09-15 | `CHANGELOG_643_provider-runtime-bundle-refresh.md` | Refresh Claude, Codex, Grok dependencies and macOS bundled runtimes |
+| 2026-09-20 | `CHANGELOG_645_shared-iab-login.md` | Share persistent IAB website login across sessions |

@@ -19,6 +19,12 @@ import {
 } from '../../src/main/browser-use/engine/actions';
 import { EngineTab } from '../../src/main/browser-use/engine/tab';
 import { BrowserViewHost } from '../../src/main/browser-use/view-host';
+import { verifySharedBrowserLogin } from './browser-login-electron';
+
+const profileRoot = process.env.AGENT_DECK_BROWSER_FIXTURE_USER_DATA;
+if (profileRoot == null) throw new Error('Run this fixture through test:browser-electron');
+app.setPath('userData', profileRoot);
+app.setPath('sessionData', profileRoot);
 
 interface RealTab {
   tab: EngineTab;
@@ -85,6 +91,10 @@ async function main(): Promise<void> {
   app.on('browser-window-focus', () => { focusedWindows += 1; });
   viewHost = new BrowserViewHost();
   try {
+    const restoreLogin = process.argv.includes('--restore-browser-login');
+    await verifySharedBrowserLogin(viewHost, restoreLogin);
+    if (restoreLogin) return;
+
     const primary = createTab();
     await primary.tab.loadUrl(`http://127.0.0.1:${port}/`);
 

@@ -1,18 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { BrowserEngine, ownerPartition } from '../registry';
+import { BrowserEngine } from '../registry';
 import { BrowserTabLimitError } from '../types';
 
 import { fakeWindowFactory } from './_fakes';
 
 describe('BrowserEngine ownership', () => {
-  it('isolates owners by partition', () => {
-    const firstPartition = ownerPartition({ kind: 'session', id: 'sid-1' });
-    const secondPartition = ownerPartition({ kind: 'session', id: 'sid-2' });
+  it('shares one persistent website session across separate tab owners', async () => {
+    const factory = fakeWindowFactory();
+    const engine = new BrowserEngine(factory);
+    const first = engine.acquire({ kind: 'session', id: 'sid-1' });
+    const second = engine.acquire({ kind: 'session', id: 'sid-2' });
+    await first.openTab();
+    await second.openTab();
 
-    expect(firstPartition).toMatch(/^agent-deck-browser-[a-f0-9]{20}$/);
-    expect(secondPartition).toMatch(/^agent-deck-browser-[a-f0-9]{20}$/);
-    expect(firstPartition).not.toBe(secondPartition);
+    expect(first.partition).toMatch(/^persist:/);
+    expect(second.partition).toBe(first.partition);
+    expect(factory.sessions.size).toBe(1);
+    expect(factory.windows[0]?.browserSession).toBe(factory.windows[1]?.browserSession);
+    expect(first.listTabs()[0]).not.toBe(second.listTabs()[0]);
   });
 
   it('returns the same handle for one owner and separate handles per owner', () => {
@@ -66,13 +72,14 @@ describe('BrowserEngine ownership', () => {
     expect(factory.windows[1]?.focused).toBe(true);
   });
 
-  it('installs one deny-by-default permission policy per owner partition', async () => {
+  it('installs one deny-by-default permission policy across owners sharing the partition', async () => {
     const factory = fakeWindowFactory();
     const engine = new BrowserEngine(factory);
     const handle = engine.acquire({ kind: 'session', id: 'sid-permissions' });
 
     await handle.openTab();
     await handle.openTab();
+    await engine.acquire({ kind: 'session', id: 'sid-other' }).openTab();
 
     const browserSession = factory.sessions.get(handle.partition);
     expect(browserSession).toBeDefined();
@@ -181,6 +188,10 @@ describe('BrowserEngine disposal', () => {
 
     await engine.disposeOwner({ kind: 'session', id: 'alice' });
     expect(factory.windows[0]?.destroy).toHaveBeenCalledOnce();
+
+    await engine.acquire({ kind: 'session', id: 'later-session' }).openTab();
+    expect(factory.windows[2]?.browserSession).toBe(factory.windows[0]?.browserSession);
+    expect(factory.windows[1]?.destroyed).toBe(false);
   });
 
   it('disposes every owner on shutdown', async () => {
