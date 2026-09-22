@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import {
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type JSX,
+} from 'react';
 
 import {
   browserStateSourceIdentity,
@@ -10,6 +12,8 @@ import {
   type BrowserViewBounds,
 } from '@shared/browser-view';
 import { StableButtonContent } from '../StableButtonContent';
+import { useBrowserShowRequest } from '@renderer/hooks/use-browser-show';
+import { hasExpandableLayers, subscribeExpandableLayers } from '../expandable-content/layer-manager';
 import { IabAnnotationCanvas } from './IabAnnotationCanvas';
 import { useIabComposerTarget } from './iab-composer-bridge';
 
@@ -51,9 +55,11 @@ export function IabPanel({
   source: BrowserStateSource;
   snapshot: BrowserStateSnapshot;
 }): JSX.Element {
+  const presentationBlocked = useSyncExternalStore(subscribeExpandableLayers, hasExpandableLayers);
   const sourceIdentity = browserStateSourceIdentity(source);
   const activeId = snapshot.tabs.find((tab) => tab.active)?.id ?? snapshot.tabs[0]?.id ?? null;
   const [selectedTabId, setSelectedTabId] = useState<number | null>(activeId);
+  const showRequestId = useBrowserShowRequest(source, selectedTabId);
   const [leaseId, setLeaseId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -109,14 +115,15 @@ export function IabPanel({
   }, [sourceIdentity]);
 
   useEffect(() => {
-    if (leaseRef.current != null || beginRevisionRef.current === snapshot.revision) return;
+    if (presentationBlocked || hasExpandableLayers() ||
+      leaseRef.current != null || beginRevisionRef.current === snapshot.revision) return;
     let cancelled = false;
     beginRevisionRef.current = snapshot.revision;
     void window.api.beginBrowserPresentation({
       source: sourceRef.current,
       expectedRevision: snapshot.revision,
     }).then((lease) => {
-      if (cancelled) {
+      if (cancelled || hasExpandableLayers()) {
         void window.api.parkBrowserPresentation({ leaseId: lease.leaseId });
         return;
       }
@@ -127,15 +134,24 @@ export function IabPanel({
       if (!cancelled) setError('IAB 状态刚刚发生变化，正在等待下一次刷新。');
     });
     return () => { cancelled = true; };
-  }, [snapshot.revision, sourceIdentity]);
+  }, [snapshot.revision, sourceIdentity, presentationBlocked]);
 
-  useEffect(() => () => {
-    captureRequestRef.current += 1;
-    const lease = leaseRef.current;
-    leaseRef.current = null;
-    placementRequestRef.current = null;
-    if (lease != null) void window.api.parkBrowserPresentation({ leaseId: lease.leaseId });
-  }, [sourceIdentity]);
+  // Native views sit above DOM dialogs regardless of z-index. Release their placement
+  // while a modal owns the UI, then reacquire even if the Browser revision is unchanged.
+  useLayoutEffect(() => {
+    beginRevisionRef.current = null;
+    lastPlacementRef.current = null;
+    setLeaseId(null);
+    setCaptureBusy(false);
+    setPlacementReady(false);
+    return () => {
+      captureRequestRef.current += 1;
+      const lease = leaseRef.current;
+      leaseRef.current = null;
+      placementRequestRef.current = null;
+      if (lease != null) void window.api.parkBrowserPresentation({ leaseId: lease.leaseId });
+    };
+  }, [sourceIdentity, presentationBlocked]);
 
   useEffect(() => {
     if (annotation == null) return;
@@ -164,11 +180,12 @@ export function IabPanel({
 
   useEffect(() => {
     const element = viewportRef.current;
-    if (element == null || leaseId == null || selectedTabId == null) return;
+    if (presentationBlocked || element == null || leaseId == null || selectedTabId == null) return;
     let disposed = false;
     let frame = 0;
     const place = (): void => {
       frame = 0;
+      if (hasExpandableLayers()) return;
       const bounds = integerBounds(element);
       if (bounds == null) {
         setPlacementReady(false);
@@ -180,7 +197,7 @@ export function IabPanel({
         }
         return;
       }
-      const placementKey = JSON.stringify([leaseId, selectedTabId, bounds, placementEpoch]);
+      const placementKey = JSON.stringify([leaseId, selectedTabId, bounds, placementEpoch, showRequestId]);
       if (placementKey === lastPlacementRef.current) {
         const request = placementRequestRef.current;
         if (request == null || request.key !== placementKey || !request.pending) {
@@ -221,7 +238,8 @@ export function IabPanel({
       window.removeEventListener('resize', schedule);
       if (frame !== 0) cancelAnimationFrame(frame);
     };
-  }, [annotation, leaseId, placementEpoch, restorePresentation, selectedTabId]);
+  }, [annotation, leaseId, placementEpoch, presentationBlocked, restorePresentation, selectedTabId,
+    showRequestId]);
 
   const selectTab = (tabId: number): void => {
     if (tabId !== selectedTabId && annotation != null) {

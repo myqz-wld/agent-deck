@@ -49,4 +49,4 @@ Worker and its configured Provider supervisor through the official Worker deploy
 Warn that stopping Desktop can interrupt the current session. Do not upgrade the remote Relay
 implicitly. Then verify the real connection, session creation, message round trips, and reconnect.
 
-Evidence: [Worker packaged startup](../../reviews/recent-3-days/REVIEW_273_relay-worker-packaged-startup.md).
+Evidence: [Worker packaged startup](../../reviews/recent-week/REVIEW_273_relay-worker-packaged-startup.md).

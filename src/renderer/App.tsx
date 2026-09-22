@@ -32,7 +32,6 @@ import { remoteSessionActivityCounts } from './remote-host/session-summary-prese
 import { RemoteHostManagerDialog } from './components/RemoteHost/RemoteHostManagerDialog';
 import { appSourceAuthority } from './source-authority';
 import { useLocalSessionFocus } from './hooks/use-local-session-focus';
-import { useBrowserShowFocus } from './hooks/use-browser-show';
 registerBuiltinDiffRenderers();
 const logger = log.scope('renderer-app');
 const EMPTY_LOCAL_SESSIONS = new Map<string, SessionRecord>();
@@ -78,14 +77,6 @@ export function App(): JSX.Element {
   const [assetsLibraryOpen, setAssetsLibraryOpen] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [remoteProfilesOpen, setRemoteProfilesOpen] = useState(false);
-  const focusBrowserSession = useCallback((sessionId: string): void => {
-    setSettingsOpen(false);
-    setAssetsLibraryOpen(false);
-    setNewSessionOpen(false);
-    setRemoteProfilesOpen(false);
-    focusLocalSession(sessionId);
-  }, [focusLocalSession]);
-  useBrowserShowFocus(localMode, remoteHosts.setSourceMode, focusBrowserSession);
   const [pinned, setPinned] = useState(true);
   const [windowTransparent, setWindowTransparent] = useState(true);
   const [compact, setCompact] = useState(false);

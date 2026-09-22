@@ -15,6 +15,5 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-09-22 | `REVIEW_276_iab-modal-interruption.md` | Manual IAB navigation and dialog protection | 2 MEDIUM fixed |
 | 2026-09-19 | `REVIEW_275_gateway-model-presentation.md` | Gateway model continuity and live selection | 3 MEDIUM fixed |
-| 2026-09-16 | `REVIEW_274_privacy-and-compatibility-cleanup.md` | Privacy and obsolete compatibility cleanup | Source, local history, and remote history verified |
-| 2026-09-16 | `REVIEW_273_relay-worker-packaged-startup.md` | Relay live checks and Worker packaging | 1 HIGH fixed in source / installed acceptance pending |

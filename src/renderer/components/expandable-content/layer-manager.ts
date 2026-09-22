@@ -79,6 +79,10 @@ export function isTopExpandableLayer(token: symbol): boolean {
   return layers.at(-1)?.token === token;
 }
 
+export function hasExpandableLayers(): boolean {
+  return layers.length > 0;
+}
+
 export function subscribeExpandableLayers(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

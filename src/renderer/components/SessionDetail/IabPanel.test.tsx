@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 
 import type { BrowserAnnotationCapture, BrowserStateSnapshot } from '@shared/browser-view';
 import { IabPanel } from './IabPanel';
+import { useModalFocus } from '../use-modal-focus';
 import {
   IabComposerBridgeProvider,
   unsupportedIabComposerTarget,
@@ -66,6 +67,12 @@ function RegisterTarget({ addPng }: { addPng: (file: File) => Promise<boolean> }
   }), [addPng]);
   useRegisterIabComposerTarget(target);
   return null;
+}
+
+function Dialog() {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus({ dialogRef, onClose: () => {} });
+  return <div ref={dialogRef} role="dialog" tabIndex={-1}>New session</div>;
 }
 
 async function clickReadyAnnotation(): Promise<void> {
@@ -226,6 +233,45 @@ describe('IabPanel annotation handoff', () => {
 
     expect(await screen.findByText('暂不可标注：当前轮次只支持文字。')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '标注' })).toBeNull();
+  });
+
+  it('preserves an annotation draft through a modal and restores browsing after cancellation', async () => {
+    let leaseNumber = 0;
+    const begin = vi.fn(async () => ({ leaseId: `lease-${++leaseNumber}`, source, snapshot }));
+    const update = vi.fn(async () => ({ snapshot, appliedBounds: capture.presentationBounds }));
+    const park = vi.fn(async () => true);
+    const addPng = vi.fn(async () => true);
+    window.api = {
+      beginBrowserPresentation: begin,
+      updateBrowserPresentation: update,
+      captureBrowserAnnotation: vi.fn(async () => capture),
+      parkBrowserPresentation: park,
+    } as unknown as typeof window.api;
+    const content = (modalOpen: boolean) => (
+      <IabComposerBridgeProvider>
+        <RegisterTarget addPng={addPng} />
+        <IabPanel source={source} snapshot={snapshot} />
+        {modalOpen && <Dialog />}
+      </IabComposerBridgeProvider>
+    );
+    const view = render(content(false));
+    await clickReadyAnnotation();
+    const canvas = await screen.findByTestId('annotation-canvas');
+
+    view.rerender(content(true));
+    await waitFor(() => expect(park).toHaveBeenCalledWith({ leaseId: 'lease-1' }));
+    expect(screen.getByTestId('annotation-canvas')).toBe(canvas);
+    view.rerender(content(false));
+    await waitFor(() => expect(begin).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('annotation-canvas')).toBe(canvas);
+    expect(update).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole('button', { name: '取消测试标注' }));
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(update).toHaveBeenLastCalledWith({
+      leaseId: 'lease-2', tabId: 1, bounds: capture.presentationBounds,
+    });
+    expect(addPng).not.toHaveBeenCalled();
   });
 
   it('invalidates a frozen draft after navigation', async () => {
