@@ -1,9 +1,7 @@
 # CLAUDE.md
 
-> Shared repository workflow for the agent-deck repo. Extra engineering or review skills, when present, are enhancement layers.
-> Keep shared rules here; the Codex counterpart entry `AGENTS.md` records only entry-point or tool differences.
->
-> **In app SDK sessions**, `resources/claude-config/CLAUDE.md` is loaded in addition to this file for Agent Deck protocol conventions.
+> Shared repository workflow. Keep Codex entry-point and tool differences in `AGENTS.md`.
+> In-app SDK sessions also load `resources/claude-config/CLAUDE.md` for Agent Deck protocol conventions.
 
 ## Repository Baseline
 
@@ -12,10 +10,8 @@
 
 ## Host Runtime Safety
 
-Treat every existing Agent Deck app instance, Electron process, development server, listener, and
-installed app bundle as live user-owned state. Agent Deck may already be running while this
-repository is edited, and the current agent session may be hosted by that same application or one
-of its managed runtimes.
+Treat Agent Deck app instances, Electron processes, development servers, listeners, and installed
+bundles as live user-owned state; they may host this session.
 
 - Never stop, kill, restart, relaunch, replace, or install over an Agent Deck-related process or
   application unless the user explicitly approves the exact target and action in the current
@@ -32,7 +28,7 @@ of its managed runtimes.
 
 Create or maintain files in this structure. Do not create parallel directories for the same file type unless the project already has a stronger project rule.
 
-- `CLAUDE.md`: shared workflow for repository baseline, directory structure, after-change requirements, plan/review lifecycle, review expiry, file-size guardrail, project-specific triggers, archived reference materials, validation, and packaging.
+- `CLAUDE.md`: shared repository workflow, record lifecycle, validation, and packaging rules.
 - `AGENTS.md`: Codex entry and tool differences; it references and follows the shared rules in `CLAUDE.md`.
 - `UI_COPY_LANGUAGE.md`: SSOT for user-facing UI/CLI copy language and locale mode.
 - `README.md`: user and maintainer instructions for setup, usage, validation, and structure.
@@ -48,7 +44,7 @@ Create or maintain files in this structure. Do not create parallel directories f
 
 ## Path Privacy
 
-- Treat the repository root as the base for all recorded in-project paths. Use repository-relative paths and never persist a repository/worktree absolute prefix, home-directory path, or username. For known external tools or configuration, use portable environment-variable references such as `$HOME` or `$CODEX_HOME`; otherwise use a non-identifying logical label.
+- Record project paths relative to the repository root, without absolute repository/worktree prefixes, home paths, or usernames. Use portable variables such as `$HOME` or `$CODEX_HOME` for known external tools/configuration; otherwise use a non-identifying logical label.
 
 ## Required After Changes
 
@@ -83,15 +79,15 @@ Repeated design decisions to keep in mind before making changes:
 
 ### Linux Deployment Automation
 
-When a task deploys or verifies Relay Server, Relay Worker, or Full Server, use
-`pnpm deploy:relay-server`, `pnpm deploy:relay-worker`, or `pnpm deploy:full-server`; do not replace
-these entrypoints with ad hoc SSH, Podman, or service mutations.
+Deploy or verify Relay Server, Relay Worker, and Full Server through `pnpm deploy:relay-server`,
+`pnpm deploy:relay-worker`, and `pnpm deploy:full-server`, respectively. Do not substitute ad hoc
+SSH, Podman, or service mutations.
 
 - Start from the matching file under `deploy/examples/`. Keep live configs, SSH identities,
   credentials, and provider auth outside the repository in mode-0600 files.
 - Before server `--check`, `--dry-run`, `--deploy`, `--upgrade`, or `--rollback`, fix any confirmed
   source issue, run the required validation, commit the exact release, and push it to the configured
-  upstream. The server scripts reject dirty, unpushed, or upstream-diverged releases.
+  upstream; scripts reject dirty, unpushed, or upstream-diverged releases.
 - Run server lifecycle work in this order: `--check`, `--dry-run`, one exact mutation, then
   `--verify`. Use `--rollback` only through the server instance manager's recorded generation.
 - Use `--verify` for existing unmanaged instances. Do not silently adopt them; stop and request an
@@ -105,7 +101,7 @@ these entrypoints with ad hoc SSH, Podman, or service mutations.
 - Remote Grok Provider supervisor provisioning and its dedicated credential remain optional,
   separately managed lifecycles in both topologies.
 
-The concise command sequence is in `README.md`; topology-specific prerequisites and recovery are in
+Command sequences are in `README.md`; topology-specific prerequisites and recovery are in
 `deploy/linux/relay/README.snippet.md` and `deploy/linux/full/README.snippet.md`.
 
 ### Authentication And Session Boundaries
@@ -123,23 +119,23 @@ The concise command sequence is in `README.md`; topology-specific prerequisites 
 
 ### Bundled Asset Self-Containment Principle (Important)
 
-Agent Deck internal assets must be self-contained inside the Agent Deck bundle (core design principle): `resources/claude-config/`, `resources/codex-config/`, bundled `agent-deck-plugin` agents/skills, and MCP tool descriptions injected into SDK sessions must be coherent and effective inside the Agent Deck baseline without depending on any extra installation.
+Keep `resources/claude-config/`, `resources/codex-config/`, bundled `agent-deck-plugin` agents/skills, and injected MCP tool descriptions coherent and self-contained inside the Agent Deck bundle, without extra installations.
 
-The root `README.md`, `CLAUDE.md`, `AGENTS.md`, and `resources/README.md` are also long-lived prompt assets. When modifying them, audit self-containment, trigger conditions, boundaries, and local links by the same principle. The general prompt-asset inventory, backup, deduplication, and review workflow is owned by the maintenance workflow and must not be written into the Agent Deck runtime baseline.
+Apply the same self-containment, trigger, boundary, and local-link checks when modifying `README.md`, `CLAUDE.md`, `AGENTS.md`, or `resources/README.md`. Keep prompt-asset inventory, backup, deduplication, and review procedures in the maintenance workflow, outside the runtime baseline.
 
-External extensions may only enhance this repository workflow; they must not carry built-in Agent Deck behavior. When splitting out weakly related content, either delete it from bundled assets or keep a self-contained minimal rule. **Do not** replace required behavior with a pointer to an external asset. Agent Deck's own internal agents / skills / resources that ship with the app may reference one another as an internal closed loop, but the referencing asset must still keep the minimum information needed to execute: trigger conditions, boundaries, failure actions, and similar rules.
+External extensions may enhance repository workflows but must not own built-in behavior. Remove weakly related bundled content or retain a self-contained minimum; never replace required behavior with an external pointer. Bundled assets may reference one another, but each caller must retain executable triggers, boundaries, and failure actions.
 
 ### Main-Process Module Communication / IPC Boundaries
 
-- Expose module singletons through `setX` / `getX` (for example `getLifecycleScheduler()`); do not directly import instance objects in each handler file under `src/main/ipc/` because that creates cycle / timing problems.
+- Expose module singletons through `setX` / `getX` (e.g. `getLifecycleScheduler()`), not direct instance imports in `src/main/ipc/` handlers, to avoid cycle/timing problems.
 - Cross-process events must go through `event-bus.ts` + `safeSend` with an `isDestroyed` fallback; do not call `webContents.send` directly.
-- The `SettingsSet` handler in `src/main/ipc/settings.ts` is the **change-and-apply-immediately** transit point: whenever adding a setting, add its dispatch logic here, or the setting will be editable but ineffective.
+- Add each new setting's dispatch logic to `SettingsSet` in `src/main/ipc/settings.ts` so edits take effect immediately.
 - `shared/types.ts` may only use standard-library types; do not import Electron / Node APIs.
 - preload `window.api` is the strongly typed facade; use `window.electronIpc.invoke()` as the fallback for dynamic channels.
 
 ## Review Expiry And Minimum Re-Review Scope
 
-Use this section to determine the minimum scope for the next review. `ref/reviews/` records expiring coverage; it is not a permanent exemption list.
+`ref/reviews/` records expiring coverage, not permanent exemptions.
 
 The next review's minimum scope is:
 
@@ -184,45 +180,38 @@ pnpm test            # required for behavior or structural changes
 pnpm build           # required for large changes
 ```
 
-After changing main / preload, report that a development restart is required and request explicit
-user approval under **Host Runtime Safety**. Do not stop or restart a process automatically. If the
-user approves, resolve the exact target with read-only inspection, act only on that target, and
-start `pnpm dev` only when the approved action includes starting it.
+After main/preload changes, report the required development restart and request approval under
+**Host Runtime Safety**. Resolve the approved target by read-only inspection; start `pnpm dev`
+only if that action is also approved.
 
-After changing renderer -> wait for HMR to push automatically; no restart is needed.
+Renderer-only changes use HMR; no restart is needed.
 
 ---
 
 ## Packaging And Local Install (macOS)
 
-Use the local installer only after read-only inspection confirms that no Agent Deck instance is
-running. If one is running, ask the user to quit it or obtain approval for a separate exact stop
-action, then confirm it has exited before invoking the installer:
+Before local installation, confirm by read-only inspection that no Agent Deck instance is running.
+Otherwise ask the user to quit or approve a separate exact stop action, then verify exit:
 
 ```bash
 pnpm install:local:mac
 ```
 
-The command contains its own process-stop fallback, so permission to build or validate is not
-permission to run it against a live instance. It packages and checks the app before installation,
-installs through hidden staging and backup bundles, rolls back the previous app when installation
-validation fails, reuses an already-correct CLI symlink, and validates the installed signature and
-build metadata. After success it removes `build/dist/mac-*/Agent Deck.app` so macOS indexes only
-the installed app; the DMG and block map remain in `build/dist`.
+The installer has a process-stop fallback; build/validation permission does not authorize running
+it against a live instance. It validates packaging, installs through hidden staging/backup bundles,
+rolls back on installation validation failure, reuses a correct CLI symlink, and checks the installed
+signature and metadata. On success it removes `build/dist/mac-*/Agent Deck.app` to prevent duplicate
+macOS indexing, retaining the DMG and block map.
 
 ### Packaging Configuration Rules
 
 - `mac.icon: "resources/icon.png"` must be configured explicitly; `extraResources` must copy `resources/bin` into the .app `bin`.
 - Packaging scripts must generate `build/build-info.json` before `electron-builder` and ship it as bundled `build-info.json`. The metadata must include package/app name, semantic version when available, full git commit, short commit, branch when available, dirty flag when determinable, and build timestamp.
 - Installed wrappers must expose human-readable version/status output and a machine-checkable freshness check (`agent-deck --version` and `agent-deck --check-installed`). The freshness check compares installed metadata with the current source checkout commit, may compare local `origin/main`, must not fetch remotes, and must report missing metadata separately from a commit mismatch.
-- Ad-hoc re-signing and unpacking SDK / Codex native binaries are required. Stopping a running app
-  is governed separately by **Host Runtime Safety** and is never an implicit build or validation
-  step.
-- Do not run `pnpm install:local:mac` while an Agent Deck instance is running. Obtain explicit
-  approval for a separate exact stop action or wait for the user to quit, confirm no instance
-  remains, and only then install. Without approval, or when the user asks not to kill, run
-  `pnpm dist:mac` only when packaging is in scope and do not delete or overwrite the installed
-  bundle.
+- Ad-hoc re-signing and unpacking SDK / Codex native binaries are required. Follow **Host Runtime
+  Safety** for process actions; building or validating never authorizes stopping the app.
+- If the app must keep running or stop approval is absent, use `pnpm dist:mac` only when packaging
+  is in scope; preserve the installed bundle.
 - Before validating the wrapper, always `unset ELECTRON_RUN_AS_NODE`; if the binary behaves like Node or parses `new` as a script, the validation environment is polluted. Do not change the wrapper / packaging config for that.
 - Before and after real vitest SQLite tests, protect the better-sqlite3 binding (evidence: CHANGELOG_42). If Electron reports `NODE_MODULE_VERSION 115 vs 130`, clear the npm prebuild cache and binding build directory, then force rebuild:
   ```bash
