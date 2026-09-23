@@ -15,5 +15,5 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-09-23 | `REVIEW_277_enter-worktree-preparation-timeout.md` | Bound filesystem waits before worktree creation | 2 MEDIUM fixed / historical attribution pending |
 | 2026-09-22 | `REVIEW_276_iab-modal-interruption.md` | Manual IAB navigation and dialog protection | 2 MEDIUM fixed |
-| 2026-09-19 | `REVIEW_275_gateway-model-presentation.md` | Gateway model continuity and live selection | 3 MEDIUM fixed |

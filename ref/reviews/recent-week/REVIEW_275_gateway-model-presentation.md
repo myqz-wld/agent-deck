@@ -62,4 +62,4 @@ src/renderer/components/__tests__/NewSessionDialog.gateway.test.tsx
 No additional source change is required for this defect. Development renderer changes use HMR;
 an installed build receives the fix through the normal later packaging/update workflow.
 
-Related plan: `ref/plans/recent-3-days/PLAN_54_gateway-model-presentation.md`.
+Related plan: `ref/plans/recent-week/PLAN_54_gateway-model-presentation.md`.

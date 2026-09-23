@@ -40,4 +40,4 @@ contracts to Local and Remote controls using the existing 150 ms progress policy
 - No unresolved decisions or implementation tasks remain. Installed-app visual acceptance was
   outside this renderer source repair.
 
-Final debug record: `ref/reviews/recent-3-days/REVIEW_275_gateway-model-presentation.md`.
+Final debug record: `ref/reviews/recent-week/REVIEW_275_gateway-model-presentation.md`.

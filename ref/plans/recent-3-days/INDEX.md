@@ -15,5 +15,5 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-23 | `PLAN_56_enter-worktree-preparation-timeout.md` | completed | Bound enter preparation and preserve late-result safety | REVIEW_277 |
 | 2026-09-22 | `PLAN_55_grok-native-model-selection.md` | completed | Delegate Grok selection and discovery to the CLI | CHANGELOG_648 |
-| 2026-09-19 | `PLAN_54_gateway-model-presentation.md` | completed | Preserve live models and stabilize Gateway default reads | REVIEW_275 |

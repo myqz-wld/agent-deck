@@ -18,7 +18,9 @@ import {
   prepareEnterWorktree,
   rollbackPreparedWorktree,
   _internalIsError,
+  type EnterWorktreeError,
   type EnterWorktreeDeps,
+  type PreparedEnterWorktree,
 } from './enter-worktree-impl';
 
 /**
@@ -91,15 +93,24 @@ export const enterWorktreeHandler = withMcpGuard(
         'The tool must be invoked from the active in-app provider turn so Agent Deck can correlate its exact tool result.',
       );
     }
-    const prepared = await prepareEnterWorktree(
-      {
-        callerSessionId,
-        startPoint: args.startPoint,
-        worktreePathOverride: args.worktreePath,
-        worktreeRootOverride: args.worktreeRoot,
-      },
-      mergedDeps,
-    );
+    let prepared: PreparedEnterWorktree | EnterWorktreeError;
+    try {
+      prepared = await prepareEnterWorktree(
+        {
+          callerSessionId,
+          startPoint: args.startPoint,
+          worktreePathOverride: args.worktreePath,
+          worktreeRootOverride: args.worktreeRoot,
+        },
+        mergedDeps,
+      );
+    } catch (error) {
+      worktreeTransitionCoordinator.releaseToolInvocation(callerSessionId, toolUseId);
+      return err(
+        `enter_worktree preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+        'No Git worktree was created and the session cwd is unchanged. Check access to the worktree parent directory before retrying; an empty parent directory may remain.',
+      );
+    }
     if (_internalIsError(prepared)) {
       worktreeTransitionCoordinator.releaseToolInvocation(
         callerSessionId,

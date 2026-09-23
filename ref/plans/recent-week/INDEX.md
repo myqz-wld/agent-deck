@@ -15,5 +15,6 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-19 | `PLAN_54_gateway-model-presentation.md` | completed | Preserve live models and stabilize Gateway default reads | REVIEW_275 |
 | 2026-09-16 | `PLAN_53_privacy-and-compatibility-cleanup.md` | completed | Scrub private history and retire obsolete compatibility | REVIEW_274 |
 | 2026-09-16 | `PLAN_52_relay-worker-live-acceptance.md` | completed with installed acceptance pending | Verify Relay and repair packaged Worker startup | REVIEW_273 |

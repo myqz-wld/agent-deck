@@ -13,6 +13,7 @@ import { readGitMainWorktree } from '@main/session/worktree-transition/git-repos
 
 const FULL_GIT_OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 const ENTER_GIT_CHECK_TIMEOUT_MS = 30_000;
+const ENTER_FILESYSTEM_TIMEOUT_MS = 30_000;
 const ENTER_WORKTREE_MUTATION_TIMEOUT_MS = 10 * 60_000;
 
 export interface EnterWorktreeInput {
@@ -73,6 +74,29 @@ function isValidStartPoint(value: string): boolean {
 
 function slugForPath(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/g, '-');
+}
+
+/**
+ * Bound each filesystem await, not the entire preparation chain: a late completion must
+ * never resume preparation into Git creation. A timed-out mkdir may still leave an empty
+ * parent directory, but cannot create the worktree or change the session cwd.
+ */
+async function withFilesystemTimeout<T>(
+  operation: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${operation} timed out after ${ENTER_FILESYSTEM_TIMEOUT_MS}ms`));
+    }, ENTER_FILESYSTEM_TIMEOUT_MS);
+    timer.unref();
+  });
+  try {
+    return await Promise.race([run(), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function resolveMainRepo(
@@ -140,7 +164,18 @@ async function rollbackCreatedWorktree(input: {
   mainRepo: string;
   worktreePath: string;
 }): Promise<string[]> {
-  if (!(await input.deps.exists(input.worktreePath))) return [];
+  try {
+    if (!(await withFilesystemTimeout(
+      'worktree rollback path check',
+      () => input.deps.exists(input.worktreePath),
+    ))) return [];
+  } catch (error) {
+    return [
+      `worktree was retained because its path check failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    ];
+  }
   const checkedRunGit = (args: string[], cwd: string) =>
     input.deps.runGit(
       args,
@@ -221,14 +256,17 @@ export async function prepareEnterWorktree(
   const worktreePath =
     input.worktreePathOverride ??
     path.join(worktreeRoot, worktreeName);
-  if (await deps.exists(worktreePath)) {
+  if (await withFilesystemTimeout('worktree path check', () => deps.exists(worktreePath))) {
     return {
       error: `worktreePath already exists: ${worktreePath}`,
       hint:
         'Choose a different worktreePath or omit it to derive a new session/time-based path. The tool never attaches to or overwrites an existing directory.',
     };
   }
-  await deps.mkdir(path.dirname(worktreePath));
+  await withFilesystemTimeout(
+    'worktree parent directory creation',
+    () => deps.mkdir(path.dirname(worktreePath)),
+  );
   return {
     callerSessionId: input.callerSessionId,
     originalCwd: callerCwd,
