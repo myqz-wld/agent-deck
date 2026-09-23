@@ -72,6 +72,7 @@ export function createProductionServerCoreProviderInference(
       {
         adapterId: 'grok-build',
         origin: GROK_CHAT_UPSTREAM_ORIGIN,
+        method: 'POST',
         paths: [GROK_CHAT_UPSTREAM_PATH],
         providerId: 'xai',
         upstreamId: GROK_UPSTREAM_ID,
@@ -79,7 +80,17 @@ export function createProductionServerCoreProviderInference(
       {
         adapterId: 'grok-build',
         origin: GROK_RESPONSES_UPSTREAM_ORIGIN,
+        method: 'POST',
         paths: [GROK_RESPONSES_UPSTREAM_PATH],
+        providerId: 'xai',
+        upstreamId: GROK_UPSTREAM_ID,
+      },
+      {
+        adapterId: 'grok-build',
+        // Core owns a Grok CLI OAuth credential, so use the CLI's session-auth catalog.
+        origin: GROK_CHAT_UPSTREAM_ORIGIN,
+        method: 'GET',
+        paths: ['/v1/models'],
         providerId: 'xai',
         upstreamId: GROK_UPSTREAM_ID,
       },

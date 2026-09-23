@@ -2,7 +2,6 @@ import {
   lstat,
   mkdir,
   realpath,
-  writeFile,
 } from 'node:fs/promises';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { isAbsolute, normalize, relative, resolve } from 'node:path';
@@ -12,6 +11,7 @@ import { pathToFileURL } from 'node:url';
 import type { SessionConsoleSandboxAccess } from '@contracts/index';
 
 import { ProviderSessionShimInferenceProxy } from './shim-inference-proxy';
+import { GROK_INFERENCE_ROUTES } from './grok-inference-routes';
 import { ProviderSessionMultiplexConnection } from './multiplex';
 import type { ProviderSessionInferenceTransport } from './types';
 import {
@@ -25,12 +25,13 @@ const CONTAINER_HOME = '/state/home';
 const CONTAINER_BROKER = '/run/agent-deck/inference.sock';
 const GROK_BINARY = '/opt/agent-deck/providers/grok/grok';
 const BROKER_MARKER = 'agent-deck-session-broker';
-const GROK_UPSTREAM_PATHS = Object.freeze(['/v1/chat/completions', '/v1/responses']);
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,159}$/;
 
 export interface ProviderSessionShimArgs {
   readonly access: SessionConsoleSandboxAccess;
   readonly adapter: 'grok-build';
   readonly projectTrusted: boolean;
+  readonly defaultModel?: string;
 }
 
 export interface ProviderSessionShimLaunchSpec {
@@ -65,15 +66,17 @@ function sandbox(access: SessionConsoleSandboxAccess, nativeSandbox: boolean): s
 }
 
 export function parseProviderSessionShimArgs(argv: readonly string[]): ProviderSessionShimArgs {
-  if (argv.length !== 6 || argv[0] !== '--adapter' || argv[1] !== 'grok-build' ||
+  if (![6, 8].includes(argv.length) || argv[0] !== '--adapter' || argv[1] !== 'grok-build' ||
       argv[2] !== '--access' || !ACCESS.has(argv[3] as SessionConsoleSandboxAccess) ||
-      argv[4] !== '--project-trusted' || !['true', 'false'].includes(argv[5] ?? '')) {
+      argv[4] !== '--project-trusted' || !['true', 'false'].includes(argv[5] ?? '') ||
+      (argv.length === 8 && (argv[6] !== '--default-model' || !MODEL_ID.test(argv[7] ?? '')))) {
     throw new Error('provider session shim argv is invalid');
   }
   return Object.freeze({
     access: argv[3] as SessionConsoleSandboxAccess,
     adapter: 'grok-build',
     projectTrusted: argv[5] === 'true',
+    ...(argv.length === 8 ? { defaultModel: argv[7]! } : {}),
   });
 }
 
@@ -114,41 +117,6 @@ async function requireExecutable(path: string): Promise<void> {
   }
 }
 
-export function providerSessionGrokConfig(proxyBaseUrl: string): string {
-  if (!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}\/v1$/.test(proxyBaseUrl)) {
-    throw new Error('provider session Grok config proxy is invalid');
-  }
-  return [
-    '[models]',
-    'default = "agent-deck-broker"',
-    '',
-    '[model.agent-deck-broker]',
-    'model = "grok-4.6"',
-    `base_url = "${proxyBaseUrl}"`,
-    'name = "Grok 4.6"',
-    'env_key = "XAI_API_KEY"',
-    'api_backend = "chat_completions"',
-    '',
-    '[cli]',
-    'auto_update = false',
-    '',
-  ].join('\n');
-}
-
-async function writeGrokConfig(proxyBaseUrl: string, owner: number): Promise<void> {
-  const path = `${CONTAINER_HOME}/.grok/config.toml`;
-  await writeFile(path, providerSessionGrokConfig(proxyBaseUrl), {
-    encoding: 'utf8',
-    flag: 'wx',
-    mode: 0o600,
-  });
-  const stat = await lstat(path);
-  if (!stat.isFile() || stat.isSymbolicLink() || await realpath(path) !== path ||
-      stat.uid !== owner || (stat.mode & 0o777) !== 0o600) {
-    throw new Error('provider session Grok config is invalid');
-  }
-}
-
 async function buildLaunchSpec(
   args: ProviderSessionShimArgs,
   proxyBaseUrl: string,
@@ -174,7 +142,6 @@ async function buildLaunchSpec(
     `${CONTAINER_STATE}/config`,
     `${CONTAINER_STATE}/state`,
   ]) await requireDirectory(path, owner, true);
-  await writeGrokConfig(proxyBaseUrl, owner);
   const cwd = resolve(dependencies.cwd ?? process.cwd());
   if (!withinWorkspace(cwd) || await realpath(cwd) !== cwd) {
     throw new Error('provider session working directory is invalid');
@@ -212,6 +179,7 @@ export function providerSessionGrokLaunchSpec(
 ): ProviderSessionShimLaunchSpec {
   if (!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}\/v1$/.test(proxyBaseUrl) ||
       !withinWorkspace(cwd) || binary !== GROK_BINARY || typeof nativeSandbox !== 'boolean' ||
+      (args.defaultModel !== undefined && !MODEL_ID.test(args.defaultModel)) ||
       (browserEnvironment !== undefined && (
         Object.keys(browserEnvironment).join(',') !== 'PATH' ||
         browserEnvironment.PATH !==
@@ -231,6 +199,8 @@ export function providerSessionGrokLaunchSpec(
       GROK_CLAUDE_HOOKS_ENABLED: '0',
       GROK_CLI_CHAT_PROXY_BASE_URL: proxyBaseUrl,
       GROK_CURSOR_HOOKS_ENABLED: '0',
+      GROK_DISABLE_AUTOUPDATER: '1',
+      ...(args.defaultModel ? { GROK_DEFAULT_MODEL: args.defaultModel } : {}),
       GROK_HOME: `${CONTAINER_HOME}/.grok`,
       GROK_MANAGED_BY_NPM: '1',
       GROK_XAI_API_BASE_URL: proxyBaseUrl,
@@ -285,11 +255,10 @@ export async function runProviderSessionShim(
     ? new ProviderSessionMultiplexConnection({ role: 'shim', stream: rawStream })
     : null;
   const proxy = new ProviderSessionShimInferenceProxy({
-    localModelIds: ['grok-4.6', 'grok-4.5'],
     onFailure: ({ path, reason }) => process.stderr.write(
       `[provider-session-inference] ${path || '[missing-path]'}: ${reason}\n`,
     ),
-    upstreamPaths: GROK_UPSTREAM_PATHS,
+    upstreamRoutes: GROK_INFERENCE_ROUTES,
     ...(multiplex
       ? { invoke: (request, signal) => multiplex.requestInference(request, signal) }
       : { brokerSocketPath: brokerSocketPath! }),

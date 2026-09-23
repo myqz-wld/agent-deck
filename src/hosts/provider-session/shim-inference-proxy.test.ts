@@ -30,10 +30,13 @@ async function broker(): Promise<{
     request.on('data', (chunk) => { body += chunk; });
     request.on('end', () => {
       calls.push({ body, headers: { ...request.headers }, url: request.url ?? '' });
-      const output = 'data: {"ok":true}\n\ndata: [DONE]\n\n';
+      const catalog = request.method === 'GET' && request.url === '/v1/models';
+      const output = catalog
+        ? JSON.stringify({ data: [{ id: 'grok-from-upstream', object: 'model' }], object: 'list' })
+        : 'data: {"ok":true}\n\ndata: [DONE]\n\n';
       response.writeHead(200, {
         'content-length': Buffer.byteLength(output),
-        'content-type': 'text/event-stream',
+        'content-type': catalog ? 'application/json' : 'text/event-stream',
       });
       response.end(output);
     });
@@ -51,9 +54,12 @@ describe('ProviderSessionShimInferenceProxy', () => {
     const upstream = await broker();
     const proxy = new ProviderSessionShimInferenceProxy({
       brokerSocketPath: upstream.socketPath,
-      localModelIds: ['grok-4.5'],
       nextRequestId: () => 'request-a',
-      upstreamPaths: ['/v1/chat/completions', '/v1/responses'],
+      upstreamRoutes: [
+        { method: 'POST', path: '/v1/chat/completions' },
+        { method: 'POST', path: '/v1/responses' },
+        { method: 'GET', path: '/v1/models' },
+      ],
     });
     await proxy.start();
     try {
@@ -94,10 +100,17 @@ describe('ProviderSessionShimInferenceProxy', () => {
       });
       expect(models.status).toBe(200);
       await expect(models.json()).resolves.toEqual({
-        data: [{ created: 0, id: 'grok-4.5', object: 'model', owned_by: 'xai' }],
+        data: [{ id: 'grok-from-upstream', object: 'model' }],
         object: 'list',
       });
-      expect(upstream.calls).toHaveLength(2);
+      expect(upstream.calls).toHaveLength(3);
+      expect(upstream.calls[2]).toMatchObject({ url: '/v1/models', body: '{}' });
+      expect(JSON.stringify(upstream.calls[2]!.headers)).not.toMatch(/authorization|cookie|marker/i);
+      for (const [method, path] of [['POST', '/models'], ['GET', '/responses'], ['GET', '/models?all=1']]) {
+        const denied = await fetch(`${proxy.baseUrl}${path}`, { method });
+        expect(denied.status).toBe(502);
+      }
+      expect(upstream.calls).toHaveLength(3);
     } finally {
       await proxy.close();
     }
@@ -117,7 +130,7 @@ describe('ProviderSessionShimInferenceProxy', () => {
         };
       },
       nextRequestId: () => 'request-direct-a',
-      upstreamPaths: ['/v1/messages'],
+      upstreamRoutes: [{ method: 'POST', path: '/v1/messages' }],
     });
     await proxy.start();
     try {
@@ -148,7 +161,7 @@ describe('ProviderSessionShimInferenceProxy', () => {
     const proxy = new ProviderSessionShimInferenceProxy({
       invoke: async () => { throw new Error('broker route rejected'); },
       onFailure: (failure) => failures.push(failure),
-      upstreamPaths: ['/v1/responses'],
+      upstreamRoutes: [{ method: 'POST', path: '/v1/responses' }],
     });
     await proxy.start();
     try {

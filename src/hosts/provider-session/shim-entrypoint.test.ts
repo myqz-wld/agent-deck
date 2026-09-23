@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   parseProviderSessionShimArgs,
-  providerSessionGrokConfig,
   providerSessionGrokLaunchSpec,
 } from './shim-entrypoint';
 
@@ -123,12 +122,21 @@ describe('provider session shim entrypoint', () => {
     )).toThrow('projection');
   });
 
-  it('pins Grok 4.5 to the single broker-authorized Chat Completions route', () => {
-    const config = providerSessionGrokConfig('http://127.0.0.1:43121/v1');
-    expect(config).toContain('model = "grok-4.6"');
-    expect(config).toContain('name = "Grok 4.6"');
-    expect(config).toContain('api_backend = "chat_completions"');
-    expect(config).toContain('base_url = "http://127.0.0.1:43121/v1"');
-    expect(config).not.toMatch(/auth\.json|bearer|credential|xai-[A-Za-z0-9]/i);
+  it('leaves the CLI default unset unless a native user default was projected', () => {
+    const argv = [
+      '--adapter', 'grok-build', '--access', 'workspace-read-only',
+      '--project-trusted', 'false',
+    ];
+    const launch = (args: readonly string[]) => providerSessionGrokLaunchSpec(
+      parseProviderSessionShimArgs(args), 'http://127.0.0.1:43121/v1', '/workspace',
+    );
+    expect(launch(argv).environment).not.toHaveProperty('GROK_DEFAULT_MODEL');
+    expect(launch(argv).environment).not.toHaveProperty('GROK_MODELS_LIST_URL');
+    const configured = launch([...argv, '--default-model', 'grok-build']);
+    expect(configured.environment.GROK_DEFAULT_MODEL).toBe('grok-build');
+    expect(configured.args).not.toContain('--model');
+    for (const model of ['', 'x\n[model]', 'https://untrusted.example', '--model']) {
+      expect(() => launch([...argv, '--default-model', model])).toThrow('argv');
+    }
   });
 });

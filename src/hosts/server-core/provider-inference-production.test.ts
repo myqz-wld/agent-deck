@@ -23,8 +23,11 @@ function binding(): ServerCoreProviderInferenceBinding {
     maxDeadlineMs: 30_000,
     maxRequestBytes: 4_096,
     maxResponseBytes: 8_192,
-    method: 'POST',
-    paths: ['/v1/chat/completions', '/v1/responses'],
+    routes: [
+      { method: 'POST', path: '/v1/chat/completions' },
+      { method: 'POST', path: '/v1/responses' },
+      { method: 'GET', path: '/v1/models' },
+    ],
     processId: 'process-a',
     providerId: 'xai',
     sessionId: 'session-a',
@@ -33,7 +36,7 @@ function binding(): ServerCoreProviderInferenceBinding {
 }
 
 function request(socketPath: string, path = '/v1/chat/completions'): Promise<string> {
-  const body = JSON.stringify(path === '/v1/responses'
+  const body = JSON.stringify(path === '/v1/models' ? {} : path === '/v1/responses'
     ? { input: 'hello', model: 'grok-4.5', stream: true }
     : { messages: [{ role: 'user', content: 'hello' }], stream: true });
   return new Promise((resolve, reject) => {
@@ -44,7 +47,7 @@ function request(socketPath: string, path = '/v1/chat/completions'): Promise<str
         'x-agent-deck-deadline-ms': '20000',
         'x-agent-deck-request-id': path === '/v1/responses' ? 'request-b' : 'request-a',
       },
-      method: 'POST',
+      method: path === '/v1/models' ? 'GET' : 'POST',
       path,
       socketPath,
     }, (response) => {
@@ -111,6 +114,19 @@ describe('production Server Core Provider inference composition', () => {
           url: 'https://api.x.ai/v1/responses',
         },
       ]);
+      await expect(request(socketPath, '/v1/models')).resolves.toBe('{"choices":[]}');
+      expect(observed[2]).toEqual({
+        headers: expect.objectContaining({
+          authorization: 'Bearer REAL_TRUSTED_TOKEN', 'x-xai-token-auth': 'xai-grok-cli',
+        }),
+        url: 'https://cli-chat-proxy.grok.com/v1/models',
+      });
+      expect(fetchFn.mock.calls[2]?.[1]).toMatchObject({ method: 'GET', body: undefined });
+      await expect(runtime.invoke(endpoint.endpointId, {
+        schemaVersion: 1, body: {}, deadlineMs: 20_000, requestId: 'rejected-catalog',
+        method: 'POST', path: '/v1/models',
+      }, new AbortController().signal)).rejects.toMatchObject({ code: 'access-denied' });
+      expect(fetchFn).toHaveBeenCalledTimes(3);
       expect(JSON.stringify(binding())).not.toContain('REAL_TRUSTED_TOKEN');
     } finally {
       await runtime.close();

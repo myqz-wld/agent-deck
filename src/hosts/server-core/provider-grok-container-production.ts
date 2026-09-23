@@ -19,6 +19,7 @@ import {
 
 export interface ProductionServerCoreProviderGrokContainerOptions
   extends ProductionServerCoreProviderInferenceOptions {
+  readonly defaultModel?: string;
   readonly inferenceTransport?: ProviderSessionInferenceTransport;
   readonly instanceId: string;
   readonly onInferenceFailure?: ServerCoreProviderGrokContainerRuntimeOptions['onInferenceFailure'];
@@ -150,6 +151,7 @@ export function createProductionServerCoreProviderGrokContainer(
     supervisor,
   });
   const processFactory = createServerCoreProviderGrokContainerTransport({
+    defaultModel: options.defaultModel,
     projectTrusted: options.projectTrusted,
     runtime,
     workspaceRoot: options.workspaceRoot,

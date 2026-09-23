@@ -49,6 +49,8 @@ export interface ProviderSessionLaunchSpec {
   readonly upstreamId: string;
   readonly workingDirectory: string;
   readonly browserContext?: ProviderSessionBrowserContext;
+  /** Non-secret native default selector; never a model profile or endpoint configuration. */
+  readonly defaultModel?: string;
 }
 
 export interface ProviderSessionLaunchResult {
@@ -89,13 +91,16 @@ export interface ProviderSessionSupervisorCapabilities {
   readonly generation: number;
 }
 
-export interface ProviderInferenceBrokerRequest {
+export interface ProviderInferenceRoute {
+  readonly method: 'GET' | 'POST';
+  /** An upstream HTTP path, never a filesystem path or full URL. */
+  readonly path: string;
+}
+
+export interface ProviderInferenceBrokerRequest extends ProviderInferenceRoute {
   readonly schemaVersion: typeof PROVIDER_INFERENCE_BROKER_SCHEMA_VERSION;
   readonly body: JsonObject;
   readonly deadlineMs: number;
-  readonly method: 'POST';
-  /** An upstream HTTP path, never a filesystem path or full URL. */
-  readonly path: string;
   readonly requestId: string;
 }
 
@@ -261,6 +266,7 @@ export function parseProviderSessionLaunchSpec(value: unknown): ProviderSessionL
     'upstreamId', 'workingDirectory',
   ];
   if (raw.browserContext !== undefined) keys.push('browserContext');
+  if (raw.defaultModel !== undefined) keys.push('defaultModel');
   exactKeys(raw, keys, field);
   if (raw.schemaVersion !== PROVIDER_SESSION_CONTAINER_SCHEMA_VERSION) {
     fail(`${field}.schemaVersion`);
@@ -273,6 +279,9 @@ export function parseProviderSessionLaunchSpec(value: unknown): ProviderSessionL
   return Object.freeze({
     schemaVersion: PROVIDER_SESSION_CONTAINER_SCHEMA_VERSION,
     adapterId: parsedAdapter,
+    ...(raw.defaultModel !== undefined
+      ? { defaultModel: token(raw.defaultModel, `${field}.defaultModel`) }
+      : {}),
     brokerEndpointId: token(raw.brokerEndpointId, `${field}.brokerEndpointId`),
     effectiveAccess: effectiveAccess(raw.effectiveAccess, `${field}.effectiveAccess`),
     launchId: token(raw.launchId, `${field}.launchId`),
@@ -401,17 +410,19 @@ export function parseProviderInferenceBrokerRequest(
   if (raw.schemaVersion !== PROVIDER_INFERENCE_BROKER_SCHEMA_VERSION) {
     fail(`${field}.schemaVersion`);
   }
-  if (raw.method !== 'POST') fail(`${field}.method`);
+  if (raw.method !== 'POST' && raw.method !== 'GET') fail(`${field}.method`);
+  const body = boundedJsonObject(raw.body, `${field}.body`);
+  if (raw.method === 'GET' && Object.keys(body).length !== 0) fail(`${field}.body`);
   return Object.freeze({
     schemaVersion: PROVIDER_INFERENCE_BROKER_SCHEMA_VERSION,
-    body: boundedJsonObject(raw.body, `${field}.body`),
+    body,
     deadlineMs: integer(
       raw.deadlineMs,
       `${field}.deadlineMs`,
       PROVIDER_INFERENCE_MIN_DEADLINE_MS,
       PROVIDER_INFERENCE_MAX_DEADLINE_MS,
     ),
-    method: 'POST',
+    method: raw.method,
     path: upstreamPath(raw.path, `${field}.path`),
     requestId: token(raw.requestId, `${field}.requestId`),
   });

@@ -92,10 +92,7 @@ function defaultEntry(
 ): ServerCoreSessionCreateCatalogEntry {
   return Object.freeze({
     adapterId,
-    defaults: Object.freeze({
-      ...baseDefaults(settings),
-      ...(adapterId === 'grok-build' ? { model: 'grok-4.6' } : {}),
-    }),
+    defaults: Object.freeze(baseDefaults(settings)),
     providers: Object.freeze([]),
     providerProfiles: Object.freeze([]),
   });

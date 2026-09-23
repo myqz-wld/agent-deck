@@ -47,7 +47,7 @@ export const UNKNOWN_BUCKET = 'unknown';
  *
  * 这些 token 只在 model id **尾部**被视为变体；出现在中间时可能属于未来或第三方
  * provider 的真实 slug，不能删除。例如 `gpt-5.6-thinking-preview` 必须保留完整身份，而
- * `gpt-5.6-sol-thinking-max[1m]` 应归到 `gpt-5.6-sol`。
+ * `gpt-6-sol-thinking-max[1m]` 应归到 `gpt-6-sol`。
  */
 const VARIANT_SUFFIXES = [
   '[1m]',

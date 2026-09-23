@@ -96,6 +96,36 @@ function harness(
 }
 
 describe('GrokRuntimeMutationController', () => {
+  it.each([
+    {},
+    { modelId: 'new-model', reasoningEffort: 'high' },
+    { _meta: { model: { Ok: ' ' } } },
+    { _meta: { model: { Err: 'rejected' } } },
+    { _meta: { model: { Ok: 'new-model', Err: 'rejected' } } },
+  ])('does not persist an unconfirmed model result: %j', async (reply) => {
+    const active = runtime(vi.fn().mockResolvedValue(reply));
+    const { controller, persistModelOptions, dispose } = harness(active);
+    await expect(controller.setModelOptions('app-session', {
+      provider: null, model: 'new-model', thinking: 'high',
+    })).rejects.toMatchObject({ code: 'remote-state-unknown' });
+    expect(persistModelOptions).not.toHaveBeenCalled();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a native alias as the user choice while displaying the acknowledged model', async () => {
+    const active = runtime(vi.fn().mockResolvedValue({ _meta: { model: { Ok: 'grok-4.7' } } }));
+    const { controller, persistModelOptions, dispose } = harness(active);
+    await controller.setModelOptions('app-session', {
+      provider: null, model: 'team-model', thinking: 'high',
+    });
+    expect(persistModelOptions).toHaveBeenCalledWith('app-session', 'team-model', 'high');
+    expect(active).toMatchObject({
+      model: 'grok-4.7', modelOverride: 'team-model',
+      runtimeIdentity: { runtimeProvider: 'native', model: 'grok-4.7' },
+    });
+    expect(dispose).not.toHaveBeenCalled();
+  });
+
   it('clears persisted overrides using only the ACP-reported native model', async () => {
     const request = vi.fn(async (method: string, params: Record<string, unknown>) => {
       expect(method).toBe('session/set_model');
@@ -103,7 +133,7 @@ describe('GrokRuntimeMutationController', () => {
         sessionId: 'native-session',
         modelId: 'native-model',
       });
-      return { modelId: 'native-model', reasoningEffort: null };
+      return { _meta: { model: { Ok: 'native-model' } } };
     });
     const active = runtime(request);
     const { controller, persistModelOptions, drain } = harness(active);
@@ -160,12 +190,10 @@ describe('GrokRuntimeMutationController', () => {
       const request = vi
         .fn()
         .mockResolvedValueOnce({
-          modelId: 'new-model',
-          reasoningEffort: 'high',
+          _meta: { model: { Ok: 'new-model' } },
         })
         .mockResolvedValueOnce({
-          modelId: 'old-model',
-          reasoningEffort: 'low',
+          _meta: { model: { Ok: 'old-model' } },
         });
       const active = runtime(request);
       let persistCalls = 0;
@@ -209,8 +237,7 @@ describe('GrokRuntimeMutationController', () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({
-        modelId: 'new-model',
-        reasoningEffort: 'high',
+        _meta: { model: { Ok: 'new-model' } },
       })
       .mockRejectedValueOnce(new Error('rollback rejected'));
     const active = runtime(request);
@@ -277,7 +304,7 @@ describe('GrokRuntimeMutationController', () => {
         }),
       ).rejects.toMatchObject({ code: 'remote-state-unknown' });
       if (kind === 'late') {
-        resolveRequest({ modelId: 'new-model', reasoningEffort: 'high' });
+        resolveRequest({ _meta: { model: { Ok: 'new-model' } } });
         await Promise.resolve();
       }
 

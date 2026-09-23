@@ -119,6 +119,10 @@ export function createServerCoreRuntimeWithOverrides(
   const { runtimeOptions, providerSettings, sessionLifecycle: sessionLifecycleSettings } =
     resolvedSettings;
   const runtimeDiagnostics = overrides.diagnostics ?? diagnostics();
+  const sessionCreateCatalog = resolveServerCoreSessionCreateCatalog(
+    workspaceBoundary.providerHomeRoot,
+    providerSettings,
+  );
   const projectTrust = createServerCoreRuntimeProjectTrust({
     diagnostics: runtimeDiagnostics,
     providerHomeRoot: workspaceBoundary.providerHomeRoot,
@@ -130,6 +134,7 @@ export function createServerCoreRuntimeWithOverrides(
     workspaceRoot,
     runtimeDiagnostics,
     {
+      defaultModel: sessionCreateCatalog.get('grok-build').defaults.model,
       projectTrusted: (cwd) => projectTrust.isTrusted({ adapterId: 'grok-build', cwd }),
       ...(overrides.workspaceSandbox ? { workspaceSandbox: overrides.workspaceSandbox } : {}),
     },
@@ -183,10 +188,6 @@ export function createServerCoreRuntimeWithOverrides(
       }
     },
   });
-  const sessionCreateCatalog = resolveServerCoreSessionCreateCatalog(
-    workspaceBoundary.providerHomeRoot,
-    providerSettings,
-  );
   const nodeAssets = ServerCoreNodeAssetCatalog.create({
     runtimeReadRoots: workspaceBoundary.runtimeReadRoots,
     stateDirectory: input.paths.stateDirectory,

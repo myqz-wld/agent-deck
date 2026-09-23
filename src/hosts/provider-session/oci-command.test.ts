@@ -86,6 +86,16 @@ function mounts(args: readonly string[]): string[] {
 }
 
 describe('provider session OCI command builder', () => {
+  it('carries a projected native default as one bounded shim argument', () => {
+    const built = buildProviderSessionOciPlan({
+      coreProcessId: 'core-process-a', engine: 'rootless-podman', executable: '/usr/bin/podman',
+      images: IMAGES, instanceId: 'instance-a', mount: binding(),
+      runtimeUser: { gid: 501, uid: 501 }, spec: { ...spec(), defaultModel: 'grok-build' },
+    });
+    expect(built.commands.create.args.slice(-2)).toEqual(['--default-model', 'grok-build']);
+    expect(plan().commands.create.args).not.toContain('--default-model');
+  });
+
   it('builds one fixed broker-only, non-root, resource-bounded container', () => {
     const built = plan();
     const create = built.commands.create;

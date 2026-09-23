@@ -78,6 +78,7 @@ function upstream(
     routes: [{
       adapterId: 'grok-build',
       origin: 'https://cli-chat-proxy.grok.com',
+      method: 'POST',
       paths: ['/v1/chat/completions'],
       providerId: 'xai',
       upstreamId: 'grok-xai',
@@ -150,6 +151,7 @@ describe('ServerCore trusted Provider HTTP upstream', () => {
         {
           adapterId: 'grok-build',
           origin: 'https://cli-chat-proxy.grok.com',
+          method: 'POST',
           paths: ['/v1/chat/completions'],
           providerId: 'xai',
           upstreamId: 'grok-xai',
@@ -157,6 +159,7 @@ describe('ServerCore trusted Provider HTTP upstream', () => {
         {
           adapterId: 'grok-build',
           origin: 'https://api.x.ai',
+          method: 'POST',
           paths: ['/v1/responses'],
           providerId: 'xai',
           upstreamId: 'grok-xai',
@@ -164,6 +167,7 @@ describe('ServerCore trusted Provider HTTP upstream', () => {
         {
           adapterId: 'claude-code',
           origin: 'https://api.anthropic.com',
+          method: 'POST',
           paths: ['/v1/messages'],
           providerId: 'anthropic',
           upstreamId: 'claude-messages',
@@ -171,6 +175,7 @@ describe('ServerCore trusted Provider HTTP upstream', () => {
         {
           adapterId: 'codex-cli',
           origin: 'https://api.openai.com',
+          method: 'POST',
           paths: ['/v1/responses'],
           providerId: 'openai',
           upstreamId: 'openai-responses',
@@ -241,6 +246,7 @@ describe('ServerCore trusted Provider HTTP upstream', () => {
       routes: [{
         adapterId: 'grok-build',
         origin: 'http://untrusted.example',
+        method: 'POST',
         paths: ['/v1/chat/completions'],
         providerId: 'xai',
         upstreamId: 'grok-xai',

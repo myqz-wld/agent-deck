@@ -4,6 +4,7 @@ import {
   parseProviderInferenceBrokerRequest,
   parseProviderInferenceBrokerResponse,
   type ProviderSessionAdapterId,
+  type ProviderInferenceRoute,
 } from '@contracts/index';
 
 import type {
@@ -16,6 +17,7 @@ import type { ServerCoreProviderCredentialInjectorPort } from './provider-infere
 export interface ServerCoreProviderHttpRoute {
   readonly adapterId: ProviderSessionAdapterId;
   readonly origin: string;
+  readonly method: ProviderInferenceRoute['method'];
   readonly paths: readonly string[];
   readonly providerId: string;
   readonly upstreamId: string;
@@ -41,12 +43,12 @@ function token(value: string, field: string): string {
   return value;
 }
 
-function path(value: string): string {
+function path(value: string, method: ProviderInferenceRoute['method']): string {
   return parseProviderInferenceBrokerRequest({
     schemaVersion: PROVIDER_INFERENCE_BROKER_SCHEMA_VERSION,
     body: {},
     deadlineMs: 1_000,
-    method: 'POST',
+    method,
     path: value,
     requestId: 'route-validation',
   }).path;
@@ -59,13 +61,14 @@ function route(value: ServerCoreProviderHttpRoute): ParsedRoute {
       value.paths.length > MAX_PATHS_PER_ROUTE) {
     throw new Error('provider inference route is invalid');
   }
-  const paths = value.paths.map(path);
+  const paths = value.paths.map((valuePath) => path(valuePath, value.method));
   if (new Set(paths).size !== paths.length) {
     throw new Error('provider inference route paths are not unique');
   }
   return Object.freeze({
     adapterId: value.adapterId,
     origin,
+    method: value.method,
     paths: new Set(paths),
     providerId: token(value.providerId, 'provider inference route provider'),
     upstreamId: token(value.upstreamId, 'provider inference route upstream'),
@@ -74,7 +77,7 @@ function route(value: ServerCoreProviderHttpRoute): ParsedRoute {
 
 function routeKeys(value: ParsedRoute): readonly string[] {
   return [...value.paths].map((path) =>
-    [value.adapterId, value.providerId, value.upstreamId, path].join('\0'));
+    [value.adapterId, value.providerId, value.upstreamId, value.method, path].join('\0'));
 }
 
 function contentType(value: string | null): 'application/json' | 'text/event-stream' {
@@ -146,7 +149,7 @@ export class ServerCoreProviderHttpUpstream implements ServerCoreProviderInferen
       'content-type': 'application/json',
     });
     await this.options.credentials.inject(target, headers);
-    const body = JSON.stringify(input.body);
+    const body = input.method === 'POST' ? JSON.stringify(input.body) : undefined;
     let operation: Promise<Response>;
     try {
       operation = this.fetch(new URL(input.path, selected.origin), {
@@ -154,7 +157,7 @@ export class ServerCoreProviderHttpUpstream implements ServerCoreProviderInferen
         cache: 'no-store',
         credentials: 'omit',
         headers,
-        method: 'POST',
+        method: input.method,
         redirect: 'manual',
         referrerPolicy: 'no-referrer',
         signal: input.signal,
@@ -175,8 +178,9 @@ export class ServerCoreProviderHttpUpstream implements ServerCoreProviderInferen
   private requireRoute(target: ServerCoreProviderInferenceUpstreamTarget): ParsedRoute {
     const selected = this.routes.find((candidate) =>
       candidate.adapterId === target.adapterId && candidate.providerId === target.providerId &&
-      candidate.upstreamId === target.upstreamId && candidate.paths.has(target.path));
-    if (!selected || target.method !== 'POST') {
+      candidate.upstreamId === target.upstreamId && candidate.method === target.method &&
+      candidate.paths.has(target.path));
+    if (!selected) {
       throw new Error('provider inference upstream route was rejected');
     }
     return selected;

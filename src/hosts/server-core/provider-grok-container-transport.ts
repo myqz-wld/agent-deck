@@ -23,6 +23,7 @@ interface RootIdentity {
 }
 
 export interface ServerCoreProviderGrokContainerTransportOptions {
+  readonly defaultModel?: string;
   readonly projectTrusted: (cwd: string) => Promise<boolean>;
   readonly runtime: Pick<ServerCoreProviderGrokContainerRuntime, 'open'>;
   readonly workspaceRoot: string;
@@ -98,6 +99,7 @@ export function createServerCoreProviderGrokContainerTransport(
       projectTrusted,
       sessionId: input.applicationSessionId,
       workingDirectory,
+      ...(options.defaultModel ? { defaultModel: options.defaultModel } : {}),
       ...(input.browserContext ? { browserContext: input.browserContext } : {}),
     });
     const process = await GrokAcpProcess.connect(session, clientOptions(input));

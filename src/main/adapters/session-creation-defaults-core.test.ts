@@ -35,6 +35,24 @@ const settings = {
 };
 
 describe('Session creation defaults Core host boundary', () => {
+  it.each(['claude-code', 'grok-build'] as const)(
+    'leaves an unconfigured %s model unset for native CLI selection',
+    async (adapterId) => {
+      const ports = host();
+      ports.anthropicModel = () => undefined;
+
+      const result = await resolveSessionCreationDefaultsCore(adapterId, {
+        cwd: '/workspace',
+      }, {
+        settings,
+        readCodexConfig: async () => ({}),
+        readConfigFile: async () => '',
+      }, ports);
+
+      expect(result).toMatchObject({ provider: '', model: '', thinking: 'high' });
+    },
+  );
+
   it('uses the selected Codex Gateway as the complete defaults source', async () => {
     const ports = host();
 

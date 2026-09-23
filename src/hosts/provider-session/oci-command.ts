@@ -299,6 +299,7 @@ export function buildProviderSessionOciPlan(
     spec.effectiveAccess,
     '--project-trusted',
     String(spec.projectTrusted),
+    ...(spec.defaultModel ? ['--default-model', spec.defaultModel] : []),
   );
   return Object.freeze({
     commands: Object.freeze({

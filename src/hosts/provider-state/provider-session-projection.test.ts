@@ -79,7 +79,7 @@ describe('provider session projection', () => {
       'experimental_bearer_token = "sk-must-stay-in-provider-home"',
     ].join('\n');
     sourceFile(source, '.codex/gateways/team.toml', fullGatewayToml);
-    sourceFile(source, '.grok/config.toml', 'model = "grok-team"\n');
+    sourceFile(source, '.grok/config.toml', '[models]\ndefault = "grok-team"\n');
 
     expect(projectProviderSessionFiles(source, destination)).toEqual([
       '.claude/gateways/team.json',

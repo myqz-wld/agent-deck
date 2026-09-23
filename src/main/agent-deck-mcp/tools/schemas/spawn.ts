@@ -3,19 +3,6 @@ import { SESSION_THINKING_LEVELS } from '@shared/session-metadata';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import { MCP_TARGET_RUNTIME_SUPERSET_SHAPE } from './target-runtime';
 
-export const SPAWN_SESSION_MODEL_VALUES = [
-  'haiku',
-  'sonnet',
-  'opus',
-  'fable',
-  'gpt-6-astra',
-  'gpt-5.6-sol',
-  'gpt-5.6-terra',
-  'gpt-5.6-luna',
-  'grok-4.6',
-  'grok-4.5',
-] as const;
-
 export const SPAWN_SESSION_THINKING_VALUES = SESSION_THINKING_LEVELS;
 export type SpawnSessionThinkingValue = (typeof SPAWN_SESSION_THINKING_VALUES)[number];
 

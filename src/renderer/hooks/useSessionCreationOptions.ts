@@ -108,7 +108,7 @@ export function useSessionCreationOptions({
   active = true,
   scopeKey = 'session-creation',
 }: Options): SessionCreationOptionsState {
-  const initial = mergeRemembered(adapterId, fallbackForAdapter(adapterId));
+  const initial = mergeRemembered(adapterId, SAFE_FALLBACK);
   const selectionIdentity = `${scopeKey}\u0000${adapterId}`;
   const [selection, setSelection] = useState<SelectionState>({
     identity: selectionIdentity,
@@ -170,7 +170,7 @@ export function useSessionCreationOptions({
             // Explicit last-used choices survive through mergeRemembered; derived values reset.
             setSelection({
               identity: selectionIdentity,
-              value: mergeRemembered(adapterId, fallbackForAdapter(adapterId)),
+              value: mergeRemembered(adapterId, SAFE_FALLBACK),
               projectTrust: UNAVAILABLE_PROJECT_TRUST,
               trustAuthoritative: false,
             });
@@ -346,10 +346,4 @@ function mergeRemembered(
     ...(remembered.model?.trim() ? { model: remembered.model.trim() } : {}),
     ...(remembered.thinking ? { thinking: remembered.thinking } : {}),
   };
-}
-
-function fallbackForAdapter(adapterId: string): SessionCreationDefaults {
-  if (adapterId === 'claude-code') return { ...SAFE_FALLBACK, model: 'sonnet' };
-  if (adapterId === 'grok-build') return { ...SAFE_FALLBACK, model: 'grok-4.6' };
-  return { ...SAFE_FALLBACK };
 }

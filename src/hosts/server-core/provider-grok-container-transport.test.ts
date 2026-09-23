@@ -133,11 +133,12 @@ describe('Server Core Provider Grok container ACP transport', () => {
     expect(open).not.toHaveBeenCalled();
   });
 
-  it('forwards the optional browser-only context without adding a host path', async () => {
+  it('forwards the native default selector and browser context without adding host configuration', async () => {
     const workspaceRoot = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), 'ad-grok-ws-')));
     roots.push(workspaceRoot);
     const open = vi.fn(async (input: ServerCoreProviderGrokContainerOpenInput) => channel(input));
     const factory = createServerCoreProviderGrokContainerTransport({
+      defaultModel: 'grok-build',
       projectTrusted: async () => true,
       runtime: { open }, workspaceRoot,
     });
@@ -155,6 +156,7 @@ describe('Server Core Provider Grok container ACP transport', () => {
     });
 
     expect(open).toHaveBeenCalledWith({
+      defaultModel: 'grok-build',
       effectiveAccess: 'selected-directory-read-write',
       projectTrusted: true,
       sessionId: 'session-browser',

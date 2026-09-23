@@ -17,19 +17,18 @@ import {
   parseProviderInferenceBrokerResponse,
   type ProviderInferenceBrokerRequest,
   type ProviderInferenceBrokerResponse,
+  type ProviderInferenceRoute,
 } from '@contracts/index';
 
 export interface ProviderSessionShimInferenceProxyOptions {
   readonly brokerSocketPath?: string;
   readonly deadlineMs?: number;
   readonly invoke?: ProviderSessionShimInferenceInvoke;
-  /** Fixed non-secret model ids served locally; no discovery request reaches trusted egress. */
-  readonly localModelIds?: readonly string[];
   readonly maxConcurrent?: number;
   readonly nextRequestId?: () => string;
   readonly onFailure?: (failure: ProviderSessionShimInferenceFailure) => void;
   /** Small exact Core-authorized route set for this Provider session profile. */
-  readonly upstreamPaths: readonly string[];
+  readonly upstreamRoutes: readonly ProviderInferenceRoute[];
 }
 
 export interface ProviderSessionShimInferenceFailure {
@@ -46,7 +45,6 @@ const MAX_DEADLINE_MS = 120_000;
 const DEFAULT_DEADLINE_MS = 115_000;
 const MAX_HEADER_BYTES = 8 * 1024;
 const CONTENT_TYPES = new Set(['application/json', 'text/event-stream']);
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 
 function socketPath(value: string): string {
   if (!isAbsolute(value) || normalize(value) !== value || value === '/' ||
@@ -140,13 +138,12 @@ export class ProviderSessionShimInferenceProxy {
   private readonly brokerSocketPath: string | null;
   private readonly deadlineMs: number;
   private readonly invoke: ProviderSessionShimInferenceInvoke | null;
-  private readonly localModelsBody: Buffer | null;
   private readonly maxConcurrent: number;
   private readonly nextRequestId: () => string;
   private readonly onFailure: (failure: ProviderSessionShimInferenceFailure) => void;
   private readonly server: Server;
   private readonly sockets = new Set<Socket>();
-  private readonly upstreamPaths: ReadonlySet<string>;
+  private readonly upstreamRoutes: ReadonlySet<string>;
   private active = 0;
   private baseUrlValue: string | null = null;
   private closePromise: Promise<void> | null = null;
@@ -159,15 +156,6 @@ export class ProviderSessionShimInferenceProxy {
       ? socketPath(options.brokerSocketPath)
       : null;
     this.invoke = options.invoke ?? null;
-    const localModelIds = options.localModelIds ?? [];
-    if (localModelIds.length > 8 || new Set(localModelIds).size !== localModelIds.length ||
-        localModelIds.some((id) => !MODEL_ID.test(id))) {
-      throw new Error('provider shim local model catalog is invalid');
-    }
-    this.localModelsBody = localModelIds.length === 0 ? null : Buffer.from(JSON.stringify({
-      data: localModelIds.map((id) => ({ created: 0, id, object: 'model', owned_by: 'xai' })),
-      object: 'list',
-    }), 'utf8');
     this.deadlineMs = options.deadlineMs ?? DEFAULT_DEADLINE_MS;
     this.maxConcurrent = options.maxConcurrent ?? 4;
     this.nextRequestId = options.nextRequestId ?? randomUUID;
@@ -177,22 +165,24 @@ export class ProviderSessionShimInferenceProxy {
         this.maxConcurrent < 1 || this.maxConcurrent > 8) {
       throw new Error('provider shim inference proxy limits are invalid');
     }
-    if (options.upstreamPaths.length < 1 || options.upstreamPaths.length > 4) {
+    if (options.upstreamRoutes.length < 1 || options.upstreamRoutes.length > 4) {
       throw new Error('provider shim inference routes are invalid');
     }
-    const upstreamPaths = options.upstreamPaths.map((path, index) =>
-      parseProviderInferenceBrokerRequest({
+    const upstreamRoutes = options.upstreamRoutes.map((route, index) => {
+      const parsed = parseProviderInferenceBrokerRequest({
         schemaVersion: PROVIDER_INFERENCE_BROKER_SCHEMA_VERSION,
         body: {},
         deadlineMs: this.deadlineMs,
-        method: 'POST',
-        path,
+        method: route.method,
+        path: route.path,
         requestId: `provider-shim-route-validation-${index}`,
-      }).path);
-    if (new Set(upstreamPaths).size !== upstreamPaths.length) {
+      });
+      return `${parsed.method} ${parsed.path}`;
+    });
+    if (new Set(upstreamRoutes).size !== upstreamRoutes.length) {
       throw new Error('provider shim inference routes are invalid');
     }
-    this.upstreamPaths = new Set(upstreamPaths);
+    this.upstreamRoutes = new Set(upstreamRoutes);
     this.server = createServer({ maxHeaderSize: MAX_HEADER_BYTES }, (request, response) => {
       void this.handle(request, response);
     });
@@ -237,15 +227,6 @@ export class ProviderSessionShimInferenceProxy {
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     response.shouldKeepAlive = false;
-    if (request.method === 'GET' && request.url === '/v1/models' && this.localModelsBody) {
-      response.writeHead(200, {
-        connection: 'close',
-        'content-length': this.localModelsBody.byteLength,
-        'content-type': 'application/json',
-      });
-      response.end(this.localModelsBody);
-      return;
-    }
     if (this.active >= this.maxConcurrent) {
       response.writeHead(429, { connection: 'close', 'content-length': 0 });
       response.end();
@@ -253,16 +234,22 @@ export class ProviderSessionShimInferenceProxy {
     }
     this.active += 1;
     try {
-      if (request.method !== 'POST' || !this.upstreamPaths.has(request.url ?? '') ||
-          contentType(request.headers['content-type']) !== 'application/json') {
+      if (!this.upstreamRoutes.has(`${request.method} ${request.url}`) ||
+          (request.method === 'POST' &&
+            contentType(request.headers['content-type']) !== 'application/json') ||
+          (request.method === 'GET' && (request.headers['transfer-encoding'] !== undefined ||
+            ![undefined, '0'].includes(request.headers['content-length'])))) {
         throw new Error('provider shim inference route is invalid');
       }
-      const body = await readBody(request);
+      const body = request.method === 'GET'
+        ? { bytes: Buffer.from('{}'), value: {} }
+        : await readBody(request);
       const controller = new AbortController();
       const abort = (): void => controller.abort();
       request.once('aborted', abort);
       request.socket.once('close', abort);
       const brokerResponse = await this.forward(
+        request.method as ProviderInferenceRoute['method'],
         request.url!, body.bytes, body.value, controller.signal,
       )
         .finally(() => {
@@ -289,6 +276,7 @@ export class ProviderSessionShimInferenceProxy {
   }
 
   private forward(
+    method: ProviderInferenceRoute['method'],
     path: string,
     body: Buffer,
     value: Record<string, unknown>,
@@ -299,7 +287,7 @@ export class ProviderSessionShimInferenceProxy {
       schemaVersion: PROVIDER_INFERENCE_BROKER_SCHEMA_VERSION,
       body: value,
       deadlineMs: this.deadlineMs,
-      method: 'POST',
+      method,
       path,
       requestId,
     });
@@ -327,7 +315,7 @@ export class ProviderSessionShimInferenceProxy {
           'x-agent-deck-deadline-ms': String(this.deadlineMs),
           'x-agent-deck-request-id': requestId,
         },
-        method: 'POST',
+        method,
         path,
         socketPath: this.brokerSocketPath!,
       }, (response) => void readResponse(response).then(resolve, reject));

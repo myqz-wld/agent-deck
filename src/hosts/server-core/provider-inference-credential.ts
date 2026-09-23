@@ -1,6 +1,7 @@
 import { constants } from 'node:fs';
 import { open, realpath } from 'node:fs/promises';
 import { isAbsolute, normalize } from 'node:path';
+import { GROK_INFERENCE_ROUTES } from '@hosts/provider-session/grok-inference-routes';
 
 import {
   ServerCoreProviderInferenceError,
@@ -108,7 +109,8 @@ export function isValidServerCoreGrokCredentialDocument(
 
 function exactGrokTarget(target: ServerCoreProviderInferenceUpstreamTarget): boolean {
   return target.adapterId === 'grok-build' && target.providerId === 'xai' &&
-    target.upstreamId === 'grok-xai' && target.method === 'POST';
+    target.upstreamId === 'grok-xai' && GROK_INFERENCE_ROUTES.some((route) =>
+      route.method === target.method && route.path === target.path);
 }
 
 /** Reads the trusted Grok credential on demand and mutates only the host-side fetch headers. */
@@ -158,6 +160,9 @@ export class ServerCoreGrokCredentialFile implements ServerCoreProviderCredentia
       );
     }
     headers.set('authorization', `Bearer ${token}`);
+    if (target.method === 'GET' && target.path === '/v1/models') {
+      headers.set('x-xai-token-auth', 'xai-grok-cli');
+    }
     headers.set('x-grok-client-mode', 'agent-deck');
   }
 }

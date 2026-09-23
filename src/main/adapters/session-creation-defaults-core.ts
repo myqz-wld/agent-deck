@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { readGrokModelDefaults } from '@shared/grok-config';
 import {
   isClaudeThinkingLevel,
   isCodexThinkingLevel,
@@ -187,7 +188,7 @@ async function resolveClaudeDefaults(
     nonBlank(gatewayEnv.ANTHROPIC_MODEL) ??
     configured.model ??
     nonBlank(host.anthropicModel()) ??
-    'sonnet';
+    '';
 
   return {
     ...base,
@@ -253,8 +254,9 @@ async function resolveGrokDefaults(
   const configPath =
     deps.grokConfigPath ?? join(deps.userHome ?? host.userHome(), '.grok', 'config.toml');
   const content = await readConfigText(configPath, 'grok-config', deps);
-  const model = readTopLevelQuotedString(content, 'model') ?? 'grok-4.6';
-  const configuredThinking = readTopLevelQuotedString(content, 'reasoning_effort');
+  const configured = readGrokModelDefaults(content);
+  const model = configured.model ?? '';
+  const configuredThinking = configured.thinking;
   return {
     ...base,
     model,

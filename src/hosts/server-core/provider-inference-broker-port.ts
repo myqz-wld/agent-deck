@@ -1,6 +1,7 @@
 import type {
   ProviderInferenceBrokerRequest,
   ProviderInferenceBrokerResponse,
+  ProviderInferenceRoute,
   ProviderSessionAdapterId,
 } from '@contracts/index';
 
@@ -11,9 +12,8 @@ export interface ServerCoreProviderInferenceBinding {
   readonly maxDeadlineMs: number;
   readonly maxRequestBytes: number;
   readonly maxResponseBytes: number;
-  readonly method: 'POST';
   /** Small exact route set owned by one trusted Provider profile. */
-  readonly paths: readonly string[];
+  readonly routes: readonly ProviderInferenceRoute[];
   readonly processId: string;
   readonly providerId: string;
   readonly sessionId: string;
@@ -38,7 +38,7 @@ export interface ServerCoreProviderInferenceEndpoint {
 export interface ServerCoreProviderInferenceUpstreamTarget {
   readonly adapterId: ProviderSessionAdapterId;
   readonly instanceId: string;
-  readonly method: 'POST';
+  readonly method: ProviderInferenceRoute['method'];
   readonly path: string;
   readonly processId: string;
   readonly providerId: string;

@@ -234,7 +234,11 @@ describe('Server Core Provider Grok container runtime', () => {
     });
     expect(inference.bindings[1]).toMatchObject({
       instanceId: 'instance-a',
-      paths: ['/v1/chat/completions', '/v1/responses'],
+      routes: [
+        { method: 'POST', path: '/v1/chat/completions' },
+        { method: 'POST', path: '/v1/responses' },
+        { method: 'GET', path: '/v1/models' },
+      ],
       processId: 'process-a',
       sessionId: 'session-a',
     });

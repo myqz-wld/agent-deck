@@ -334,8 +334,8 @@ implements ServerCoreProviderInferenceUnixHttpPort {
     this.assertBrokerRoot();
     const record = this.endpoints.get(endpointId);
     const request = parseProviderInferenceBrokerRequest(value);
-    if (!record || record.closed || request.method !== record.binding.method ||
-        !record.binding.paths.includes(request.path)) {
+    if (!record || record.closed || !record.binding.routes.some((route) =>
+      route.method === request.method && route.path === request.path)) {
       throw new ServerCoreProviderInferenceError('access-denied', 'Broker endpoint was rejected');
     }
     const finish = this.beginOperation();
@@ -418,8 +418,8 @@ implements ServerCoreProviderInferenceUnixHttpPort {
     request.once('aborted', abort);
     request.socket.once('close', abort);
     try {
-      if (record.closed || request.method !== 'POST' ||
-          !record.binding.paths.includes(request.url ?? '')) {
+      if (record.closed || !record.binding.routes.some((route) =>
+        route.method === request.method && route.path === request.url)) {
         throw new ServerCoreProviderInferenceError('access-denied', 'HTTP route was rejected');
       }
       validateHeaders(request);
@@ -439,7 +439,7 @@ implements ServerCoreProviderInferenceUnixHttpPort {
         schemaVersion: PROVIDER_INFERENCE_BROKER_SCHEMA_VERSION,
         body,
         deadlineMs,
-        method: 'POST',
+        method: request.method,
         path: request.url,
         requestId,
       });

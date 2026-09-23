@@ -26,8 +26,11 @@ function binding(overrides: Partial<ServerCoreProviderInferenceBinding> = {}) {
     maxDeadlineMs: 30_000,
     maxRequestBytes: 4_096,
     maxResponseBytes: 8_192,
-    method: 'POST',
-    paths: ['/v1/chat/completions', '/v1/responses'],
+    routes: [
+      { method: 'POST', path: '/v1/chat/completions' },
+      { method: 'POST', path: '/v1/responses' },
+      { method: 'GET', path: '/v1/models' },
+    ],
     processId: 'process-a',
     providerId: 'xai',
     sessionId: 'session-a',
@@ -137,6 +140,23 @@ async function opened(options: {
 }
 
 describe('ServerCoreProviderInferenceBroker', () => {
+  it('authorizes model discovery as GET only, independently of inference POST routes', async () => {
+    const { broker, endpoint, upstream } = await opened();
+    const catalog = { ...request(), body: {}, method: 'GET' as const, path: '/v1/models' };
+    await broker.invoke(peer(endpoint.endpointId), catalog);
+    expect(upstream.calls[0]).toMatchObject({ method: 'GET', path: '/v1/models', body: {} });
+    for (const changed of [
+      { method: 'POST' as const },
+      { path: '/v1/responses' },
+      { path: '/v1/api-key' },
+    ]) {
+      await expect(broker.invoke(peer(endpoint.endpointId), { ...catalog, ...changed }))
+        .rejects.toMatchObject({ code: 'access-denied' });
+    }
+    expect(upstream.calls).toHaveLength(1);
+    broker.close();
+  });
+
   it('binds exact identity and route while leaving credential ownership in the upstream port', async () => {
     const { broker, endpoint, upstream } = await opened();
     await expect(broker.invoke(peer(endpoint.endpointId), request())).resolves.toEqual(response());
@@ -343,10 +363,10 @@ describe('ServerCoreProviderInferenceBroker', () => {
       ...binding(), maxConcurrency: 3,
     })).toThrow();
     expect(() => parseServerCoreProviderInferenceBinding({
-      ...binding(), paths: ['https://api.x.ai/v1/chat/completions'],
+      ...binding(), routes: [{ method: 'POST', path: 'https://api.x.ai/v1/chat/completions' }],
     })).toThrow();
     expect(() => parseServerCoreProviderInferenceBinding({
-      ...binding(), paths: ['/v1/chat/completions', '/v1/chat/completions'],
+      ...binding(), routes: [binding().routes[0], binding().routes[0]],
     })).toThrow();
   });
 });

@@ -204,8 +204,7 @@ agent({ name: 'fake-grok-acp-agent' })
     'session/set_model',
     (params) => params,
     ({ params }) => ({
-      modelId: params.modelId,
-      reasoningEffort: params._meta?.reasoningEffort ?? null,
+      _meta: { model: { Ok: params.modelId } },
     }),
   )
   .onRequest(methods.agent.session.setMode, ({ params }) => {

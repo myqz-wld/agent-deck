@@ -2,35 +2,16 @@ import { describe, expect, it } from 'vitest';
 
 describe('spawn runtime schema', () => {
   it('schema exposes context mode, model, and thinking without changing omitted defaults', async () => {
-    const { SPAWN_SESSION_MODEL_VALUES, SPAWN_SESSION_SCHEMA } = await import('./spawn');
-    expect(SPAWN_SESSION_MODEL_VALUES).toEqual([
-      'haiku',
-      'sonnet',
-      'opus',
-      'fable',
-      'gpt-6-astra',
-      'gpt-5.6-sol',
-      'gpt-5.6-terra',
-      'gpt-5.6-luna',
-      'grok-4.6',
-      'grok-4.5',
-    ]);
-    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('fable-5');
-    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('gpt-5.6');
-    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('gpt-5.5');
-    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('gpt-5.4');
-    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('deepseek-v4-pro[1m]');
-    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('deepseek-v4-pro');
-    expect(SPAWN_SESSION_MODEL_VALUES).not.toContain('deepseek-v4-flash');
+    const { SPAWN_SESSION_SCHEMA } = await import('./spawn');
     expect(SPAWN_SESSION_SCHEMA.model.unwrap().safeParse('claude-opus-4-8').success).toBe(true);
     expect(SPAWN_SESSION_SCHEMA.model.unwrap().safeParse('').success).toBe(false);
     expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('fable-5');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-6-astra');
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('grok-4.7');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('grok-4.6');
-    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('grok-4.5');
-    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-sol');
-    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-terra');
-    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-5.6-luna');
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-6-sol');
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-6-terra');
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-6-luna');
     expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('gpt-5.5');
     expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('gpt-5.4');
     expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('deepseek-v4-pro[1m]');

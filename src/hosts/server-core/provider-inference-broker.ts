@@ -10,6 +10,7 @@ import {
   parseProviderInferenceBrokerRequest,
   parseProviderInferenceBrokerResponse,
   type ProviderSessionAdapterId,
+  type ProviderInferenceRoute,
 } from '@contracts/index';
 
 import {
@@ -25,7 +26,7 @@ import {
 export const SERVER_CORE_PROVIDER_INFERENCE_MAX_ENDPOINTS = 128;
 export const SERVER_CORE_PROVIDER_INFERENCE_MAX_GLOBAL_CONCURRENCY = 32;
 export const SERVER_CORE_PROVIDER_INFERENCE_MAX_ENDPOINT_CONCURRENCY = 2;
-export const SERVER_CORE_PROVIDER_INFERENCE_MAX_BINDING_PATHS = 4;
+export const SERVER_CORE_PROVIDER_INFERENCE_MAX_BINDING_ROUTES = 4;
 
 interface DeadlineWait {
   readonly promise: Promise<void>;
@@ -114,7 +115,7 @@ export function parseServerCoreProviderInferenceBinding(
   const raw = object(value, field);
   exactKeys(raw, [
     'adapterId', 'instanceId', 'maxConcurrency', 'maxDeadlineMs', 'maxRequestBytes',
-    'maxResponseBytes', 'method', 'paths', 'processId', 'providerId', 'sessionId',
+    'maxResponseBytes', 'routes', 'processId', 'providerId', 'sessionId',
     'upstreamId',
   ], field);
   if (!PROVIDER_SESSION_ADAPTER_IDS.includes(raw.adapterId as ProviderSessionAdapterId)) {
@@ -126,20 +127,25 @@ export function parseServerCoreProviderInferenceBinding(
     PROVIDER_INFERENCE_MIN_DEADLINE_MS,
     PROVIDER_INFERENCE_MAX_DEADLINE_MS,
   );
-  if (!Array.isArray(raw.paths) || raw.paths.length < 1 ||
-      raw.paths.length > SERVER_CORE_PROVIDER_INFERENCE_MAX_BINDING_PATHS) {
-    throw failure('access-denied', `${field} paths are invalid`);
+  if (!Array.isArray(raw.routes) || raw.routes.length < 1 ||
+      raw.routes.length > SERVER_CORE_PROVIDER_INFERENCE_MAX_BINDING_ROUTES) {
+    throw failure('access-denied', `${field} routes are invalid`);
   }
-  const parsedPaths = raw.paths.map((path, index) => parseProviderInferenceBrokerRequest({
-    schemaVersion: PROVIDER_INFERENCE_BROKER_SCHEMA_VERSION,
-    body: {},
-    deadlineMs: maxDeadlineMs,
-    method: raw.method,
-    path,
-    requestId: `binding-validation-${index}`,
-  }).path);
-  if (new Set(parsedPaths).size !== parsedPaths.length) {
-    throw failure('access-denied', `${field} paths are invalid`);
+  const routes = raw.routes.map((value, index) => {
+    const route = object(value, `${field} route`);
+    exactKeys(route, ['method', 'path'], `${field} route`);
+    const parsed = parseProviderInferenceBrokerRequest({
+      schemaVersion: PROVIDER_INFERENCE_BROKER_SCHEMA_VERSION,
+      body: {},
+      deadlineMs: maxDeadlineMs,
+      method: route.method,
+      path: route.path,
+      requestId: `binding-validation-${index}`,
+    });
+    return Object.freeze({ method: parsed.method, path: parsed.path });
+  });
+  if (new Set(routes.map((route) => `${route.method} ${route.path}`)).size !== routes.length) {
+    throw failure('access-denied', `${field} routes are invalid`);
   }
   return Object.freeze({
     adapterId: raw.adapterId as ProviderSessionAdapterId,
@@ -163,8 +169,7 @@ export function parseServerCoreProviderInferenceBinding(
       1,
       PROVIDER_INFERENCE_MAX_RESPONSE_BYTES,
     ),
-    method: 'POST',
-    paths: Object.freeze(parsedPaths),
+    routes: Object.freeze(routes),
     processId: token(raw.processId, `${field} process`),
     providerId: token(raw.providerId, `${field} provider`),
     sessionId: token(raw.sessionId, `${field} session`),
@@ -195,13 +200,13 @@ function parsePeer(value: unknown): ServerCoreProviderInferencePeer {
 
 function target(
   binding: ServerCoreProviderInferenceBinding,
-  path = binding.paths[0]!,
+  route: ProviderInferenceRoute = binding.routes[0]!,
 ): ServerCoreProviderInferenceUpstreamTarget {
   return Object.freeze({
     adapterId: binding.adapterId,
     instanceId: binding.instanceId,
-    method: binding.method,
-    path,
+    method: route.method,
+    path: route.path,
     processId: binding.processId,
     providerId: binding.providerId,
     sessionId: binding.sessionId,
@@ -255,8 +260,8 @@ export class ServerCoreProviderInferenceBroker implements ServerCoreProviderInfe
     let binding: ServerCoreProviderInferenceBinding;
     try {
       binding = parseServerCoreProviderInferenceBinding(value);
-      for (const path of binding.paths) {
-        if (!await this.options.upstream.isAvailable(target(binding, path))) return false;
+      for (const route of binding.routes) {
+        if (!await this.options.upstream.isAvailable(target(binding, route))) return false;
       }
       return !this.closed;
     } catch {
@@ -279,8 +284,8 @@ export class ServerCoreProviderInferenceBroker implements ServerCoreProviderInfe
       let available = false;
       try {
         available = true;
-        for (const path of binding.paths) {
-          if (!await this.options.upstream.isAvailable(target(binding, path))) {
+        for (const route of binding.routes) {
+          if (!await this.options.upstream.isAvailable(target(binding, route))) {
             available = false;
             break;
           }
@@ -326,7 +331,8 @@ export class ServerCoreProviderInferenceBroker implements ServerCoreProviderInfe
     if (!entry || entry.closed || !sameIdentity(entry.binding, peer)) {
       throw failure('access-denied', 'Provider inference peer identity was rejected');
     }
-    if (request.method !== entry.binding.method || !entry.binding.paths.includes(request.path)) {
+    if (!entry.binding.routes.some((route) =>
+      route.method === request.method && route.path === request.path)) {
       throw failure('access-denied', 'Provider inference route was rejected');
     }
     if (request.deadlineMs > entry.binding.maxDeadlineMs ||
@@ -362,7 +368,7 @@ export class ServerCoreProviderInferenceBroker implements ServerCoreProviderInfe
       controller.signal.addEventListener('abort', onAbort, { once: true });
     });
     const upstream = Promise.resolve().then(() => this.options.upstream.invoke({
-        ...target(entry.binding, request.path),
+        ...target(entry.binding, request),
         body: request.body,
         deadlineMs: request.deadlineMs,
         requestId: request.requestId,

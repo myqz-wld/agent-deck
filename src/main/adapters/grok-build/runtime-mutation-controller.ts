@@ -263,7 +263,7 @@ export class GrokRuntimeMutationController {
     try {
       const response = await withTimeout(
         runtime.process!.connection.agent.request<
-          { modelId?: string; reasoningEffort?: string | null },
+          { _meta?: { model?: { Ok?: string; Err?: unknown } } },
           {
             sessionId: string;
             modelId: string;
@@ -283,19 +283,18 @@ export class GrokRuntimeMutationController {
         this.context.requestTimeoutMs ?? REQUEST_TIMEOUT_MS,
         label,
       );
-      const result = asRecord(response);
-      const reportedModel = result.modelId;
-      const reportedThinking = result.reasoningEffort;
-      if (
-        reportedModel !== selection.model ||
-        !('reasoningEffort' in result) ||
-        reportedThinking !== selection.thinking
-      ) {
+      // Grok 1.0.41 acknowledges the model as a Rust Result in ACP metadata. The
+      // reasoning-effort request remains CLI-owned and is not echoed in this response.
+      const result = asRecord(asRecord(asRecord(response)._meta).model);
+      const reportedModel = result.Ok;
+      if (typeof reportedModel !== 'string' || reportedModel.trim().length === 0 ||
+          reportedModel !== reportedModel.trim() || 'Err' in result) {
         throw new Error(
-          `${label} returned an unverified selection ` +
-            `(model=${String(reportedModel)}, thinking=${String(reportedThinking)})`,
+          `${label} returned an unverified model (${String(reportedModel)})`,
         );
       }
+      // Native aliases may resolve to a different canonical ID. Persist the user's
+      // selector separately and use the acknowledged ID for live runtime identity.
       return reportedModel;
     } finally {
       controller.abort();

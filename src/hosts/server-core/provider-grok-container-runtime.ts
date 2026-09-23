@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Duplex } from 'node:stream';
+import { GROK_INFERENCE_ROUTES } from '@hosts/provider-session/grok-inference-routes';
 
 import {
   PROVIDER_INFERENCE_MAX_DEADLINE_MS,
@@ -35,7 +36,6 @@ const ADAPTER_ID = 'grok-build';
 const PROVIDER_ID = 'xai';
 const RUNTIME_ID = 'grok-build-v1';
 const UPSTREAM_ID = 'grok-xai';
-const UPSTREAM_PATHS = Object.freeze(['/v1/chat/completions', '/v1/responses']);
 
 export type ServerCoreProviderGrokContainerDisabledReason =
   | 'provider-inference-broker-unavailable'
@@ -48,6 +48,7 @@ export interface ServerCoreProviderGrokContainerReadiness {
 }
 
 export interface ServerCoreProviderGrokContainerOpenInput {
+  readonly defaultModel?: string;
   readonly browserContext?: ProviderSessionBrowserContext;
   readonly effectiveAccess: SessionConsoleSandboxAccess;
   readonly projectTrusted: boolean;
@@ -100,8 +101,7 @@ function binding(instanceId: string, processId: string, sessionId: string) {
     maxDeadlineMs: PROVIDER_INFERENCE_MAX_DEADLINE_MS,
     maxRequestBytes: PROVIDER_INFERENCE_MAX_REQUEST_BYTES,
     maxResponseBytes: PROVIDER_INFERENCE_MAX_RESPONSE_BYTES,
-    method: 'POST',
-    paths: UPSTREAM_PATHS,
+    routes: GROK_INFERENCE_ROUTES,
     processId,
     providerId: PROVIDER_ID,
     sessionId,
@@ -203,6 +203,7 @@ export class ServerCoreProviderGrokContainerRuntime {
       sessionId: input.sessionId,
       upstreamId: UPSTREAM_ID,
       workingDirectory: input.workingDirectory,
+      ...(input.defaultModel !== undefined ? { defaultModel: input.defaultModel } : {}),
       ...(input.browserContext ? { browserContext: input.browserContext } : {}),
     });
     if (this.sessions.has(provisional.sessionId) ||

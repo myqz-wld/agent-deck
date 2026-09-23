@@ -33,6 +33,12 @@ function launch() {
 describe('provider session container contract', () => {
   it('round-trips a topology-free launch and lifecycle result', () => {
     expect(parseProviderSessionLaunchSpec(launch())).toEqual(launch());
+    expect(parseProviderSessionLaunchSpec({ ...launch(), defaultModel: 'grok-build' }))
+      .toMatchObject({ defaultModel: 'grok-build' });
+    for (const defaultModel of ['', 'https://untrusted.example', 'model\n[credentials]', {}]) {
+      expect(() => parseProviderSessionLaunchSpec({ ...launch(), defaultModel }))
+        .toThrow('defaultModel');
+    }
     expect(parseProviderSessionStopResult({
       schemaVersion: 2,
       processId: 'process-a',
@@ -116,6 +122,14 @@ describe('provider session container contract', () => {
 
 describe('provider inference broker contract', () => {
   it('accepts one bounded JSON request and JSON or SSE response', () => {
+    const catalog = {
+      schemaVersion: 1, body: {}, deadlineMs: 30_000, method: 'GET',
+      path: '/v1/models', requestId: 'catalog-a',
+    };
+    expect(parseProviderInferenceBrokerRequest(catalog).method).toBe('GET');
+    expect(() => parseProviderInferenceBrokerRequest({ ...catalog, body: { query: 'all' } }))
+      .toThrow();
+    expect(() => parseProviderInferenceBrokerRequest({ ...catalog, method: 'DELETE' })).toThrow();
     expect(parseProviderInferenceBrokerRequest({
       schemaVersion: 1,
       body: { messages: [{ role: 'user', content: 'hello' }], stream: true },

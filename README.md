@@ -34,6 +34,14 @@ Each session keeps its agent's own model, permissions, approvals, and sandbox se
 Collaboration does not widen that access. Claude and Codex support native Gateway profiles;
 see [runtime configuration](resources/README.md) for setup and adapter differences.
 
+For ordinary new sessions, explicit model choices and provider configuration take precedence.
+When no model is configured, Claude, Codex, and Grok delegate model selection to their CLI.
+Grok reads `[models].default` from its native configuration. Remote Grok passes only this default
+selector into its isolated CLI and discovers models through the Core-owned inference broker;
+Agent Deck does not pin a container model or maintain a separate model list. Remote selectors
+must be native model IDs or built-in CLI aliases; custom endpoint profiles stay outside the container.
+Periodic summaries and continuation checkpoints keep their separate model settings.
+
 Type `/` in the message composer to discover supported commands.
 
 Browser tabs are private to the session, open in the background by default, and
@@ -73,6 +81,9 @@ release actions require a clean, committed, pushed, and upstream-aligned checkou
 
 Quit Agent Deck before a local install. Build installers on the matching host OS; cross-platform
 packaging is not supported. See [CLAUDE.md](CLAUDE.md) for the full development workflow.
+
+Bundled provider versions: Claude Agent SDK `0.3.280` (Claude Code `2.1.280`), Codex CLI
+`0.156.0`, and Grok `1.0.41`. Supporting libraries use Anthropic SDK `0.128.0` and ACP SDK `1.5.0`.
 
 After updating bundled agent dependencies, rebuild and reinstall Agent Deck to refresh the
 app and macOS Worker runtimes. Dependency versions are recorded in [package.json](package.json)

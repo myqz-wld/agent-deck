@@ -299,7 +299,7 @@ describe('resolveSessionCreationDefaults', () => {
     const configPath = join(root, 'config.toml');
     writeFileSync(
       configPath,
-      'model = "grok-custom"\nreasoning_effort = "medium"\n[ui]\nyolo = false\n',
+      '[models]\ndefault = "grok-custom"\ndefault_reasoning_effort = "medium"\n[ui]\nyolo = false\n',
     );
 
     await expect(resolveSessionCreationDefaults(

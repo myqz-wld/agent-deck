@@ -282,6 +282,10 @@ export function translateGrokUpdate(
       ];
     case 'plan_removed':
       return flushGrokTextUpdates(sessionId, state);
+    case 'notice':
+      // ACP notices require clientCapabilities.session.notices, which we do not advertise.
+      // These advisory live events must not become persisted conversation content.
+      return [];
     case 'available_commands_update':
     case 'current_mode_update':
     case 'config_option_update':

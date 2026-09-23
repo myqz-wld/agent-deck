@@ -30,6 +30,7 @@ export interface ServerCoreProviderContainerRuntimePaths {
 }
 
 interface ResolverDependencies {
+  readonly defaultModel?: string;
   readonly createContainer?: (
     options: ProductionServerCoreProviderGrokContainerOptions,
   ) => ServerCoreProviderGrokContainerPort;
@@ -141,6 +142,7 @@ export function resolveServerCoreProviderGrokContainer(
           ? join(dependencies.workspaceSandbox.privateRoot, 'provider-inference')
           : SERVER_CORE_PROVIDER_INFERENCE_CREDENTIAL_ROOT),
       instanceId: input.instanceId,
+      defaultModel: dependencies.defaultModel,
       projectTrusted: dependencies.projectTrusted ?? (async () => false),
       supervisorSocketPath: paths.supervisorSocketPath,
       workspaceRoot,

@@ -54,13 +54,28 @@ describe('Server Core derived session creation catalog', () => {
     });
     expect(catalog.get('grok-build')).toMatchObject({
       providers: [],
-      defaults: { model: 'grok-4.6', thinking: 'high', sessionMode: 'default' },
+      defaults: { model: '', thinking: 'high', sessionMode: 'default' },
+    });
+  });
+
+  it('preserves unset native and Gateway models through projection', () => {
+    const { destination, source } = fixture();
+    sourceFile(source, '.claude/gateways/unset.json', JSON.stringify({ effortLevel: 'high' }));
+    projectProviderSessionFiles(source, destination);
+
+    const catalog = resolveServerCoreSessionCreateCatalog(destination, settings);
+    for (const adapterId of ['claude-code', 'codex-cli', 'grok-build'] as const) {
+      expect(catalog.get(adapterId).defaults.model).toBe('');
+    }
+    expect(catalog.get('claude-code', 'unset').defaults).toMatchObject({
+      provider: 'unset', model: '', thinking: 'high',
     });
   });
 
   it('loads safe defaults and provider-specific models from one trusted projection', () => {
     const { destination, source } = fixture();
     sourceFile(source, '.claude/settings.json', JSON.stringify({ model: 'claude-native' }));
+    sourceFile(source, '.grok/config.toml', '[models]\ndefault = "grok-4.7"\n');
     sourceFile(source, '.claude/gateways/team.json', JSON.stringify({
       env: { ANTHROPIC_MODEL: 'gateway-sonnet', ANTHROPIC_AUTH_TOKEN: 'private-token' },
     }));
@@ -104,6 +119,7 @@ describe('Server Core derived session creation catalog', () => {
         approvalPolicy: 'on-request',
       },
     });
+    expect(catalog.get('grok-build').defaults.model).toBe('grok-4.7');
   });
 
   it('rejects secret-shaped derived values', () => {

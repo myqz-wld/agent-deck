@@ -1,5 +1,6 @@
 import { lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
+import { readGrokModelDefaults } from '@shared/grok-config';
 
 import { SESSION_CONSOLE_MAX_OPTION_VALUES, type JsonObject } from '@contracts/index';
 import {
@@ -181,7 +182,7 @@ function syncGatewayFiles(
     if (!raw) continue;
     const sanitized = sanitizeGateway(raw);
     const env = stringRecord(sanitized.env);
-    const model = safeText(sanitized.model ?? env.ANTHROPIC_MODEL, 'sonnet');
+    const model = safeText(sanitized.model ?? env.ANTHROPIC_MODEL, '', true);
     const thinking = isClaudeThinkingLevel(sanitized.effortLevel)
       ? sanitized.effortLevel
       : 'high';
@@ -259,7 +260,8 @@ function catalog(
   const claudeEnv = stringRecord(claudeSettings?.env);
   const claudeModel = safeText(
     claudeSettings?.model ?? claudeEnv.ANTHROPIC_MODEL,
-    'sonnet',
+    '',
+    true,
   );
   const claudeThinking = isClaudeThinkingLevel(claudeSettings?.effortLevel)
     ? claudeSettings.effortLevel
@@ -278,8 +280,9 @@ function catalog(
     if (!bytes) return '';
     try { return bytes.toString('utf8'); } finally { bytes.fill(0); }
   })();
-  const grokModel = safeText(quotedTopLevel(grokContent, 'model'), 'grok-4.6');
-  const grokThinkingValue = quotedTopLevel(grokContent, 'reasoning_effort');
+  const grokDefaults = readGrokModelDefaults(grokContent);
+  const grokModel = safeText(grokDefaults.model, '', true);
+  const grokThinkingValue = grokDefaults.thinking;
   return {
     schemaVersion: 3,
     adapters: [

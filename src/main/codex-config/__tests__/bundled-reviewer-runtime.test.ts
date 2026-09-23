@@ -62,7 +62,7 @@ describe('bundled reviewer runtime contract', () => {
     expect(codex.modelReasoningEffort).toBe('xhigh');
 
     const grok = parseFrontmatter(reviewerGrok);
-    expect(grok).toMatchObject({ name: 'reviewer-grok', model: 'grok-4.6', effort: 'high' });
+    expect(grok).toMatchObject({ name: 'reviewer-grok', model: 'grok-4.7', effort: 'high' });
     expect(String(grok.tools)).toContain('Bash');
   });
 

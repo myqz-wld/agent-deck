@@ -184,7 +184,7 @@ describe('GrokAcpProcess', () => {
       expect(updates).toEqual(['echo:hello']);
       await expect(
         child.connection.agent.request<
-          { modelId: string; reasoningEffort: string | null },
+          { _meta: { model: { Ok: string } } },
           {
             sessionId: string;
             modelId: string;
@@ -196,8 +196,7 @@ describe('GrokAcpProcess', () => {
           _meta: { reasoningEffort: 'high' },
         }),
       ).resolves.toEqual({
-        modelId: 'fake-model-2',
-        reasoningEffort: 'high',
+        _meta: { model: { Ok: 'fake-model-2' } },
       });
       await expect(
         child.connection.agent.request(methods.agent.session.setMode, {

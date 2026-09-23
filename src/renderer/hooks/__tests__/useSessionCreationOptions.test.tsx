@@ -58,6 +58,19 @@ afterEach(() => {
 });
 
 describe('useSessionCreationOptions request fencing', () => {
+  it.each(['claude-code', 'codex-cli', 'grok-build'])(
+    'does not invent a model before %s configuration is available',
+    (adapterId) => {
+      const hook = renderHook(() => useSessionCreationOptions({
+        adapterId,
+        cwd: '/repo',
+        active: false,
+      }));
+
+      expect(hook.result.current.model).toBe('');
+    },
+  );
+
   it('uses never as the Codex approval fallback without changing its sandbox fallback', () => {
     const hook = renderHook(() => useSessionCreationOptions({
       adapterId: 'codex-cli',
@@ -142,27 +155,33 @@ describe('useSessionCreationOptions request fencing', () => {
     expect(getDefaults).toHaveBeenCalledTimes(3);
   });
 
-  it('does not retain a prior cwd-derived model after the next cwd lookup fails', async () => {
-    vi.useFakeTimers();
-    const getDefaults = vi.fn()
-      .mockResolvedValueOnce({ ...defaults('repo-one-model'), model: 'repo-one-model' })
-      .mockRejectedValueOnce(new Error('unreadable cwd config'));
-    Object.defineProperty(window, 'api', {
-      configurable: true,
-      value: { getAdapterSessionCreationDefaults: getDefaults } as unknown as Window['api'],
-    });
-    const hook = renderHook(
-      ({ cwd }) => useSessionCreationOptions({ adapterId: 'grok-build', cwd }),
-      { initialProps: { cwd: '/repo/one' } },
-    );
-    await act(() => vi.advanceTimersByTimeAsync(0));
-    expect(hook.result.current.model).toBe('repo-one-model');
+  it.each(['claude-code', 'grok-build'])(
+    'does not retain a prior cwd-derived %s model after the next cwd lookup fails',
+    async (adapterId) => {
+      vi.useFakeTimers();
+      const getDefaults = vi.fn()
+        .mockResolvedValueOnce({ ...defaults('repo-one-model'), model: 'repo-one-model' })
+        .mockRejectedValueOnce(new Error('unreadable cwd config'));
+      Object.defineProperty(window, 'api', {
+        configurable: true,
+        value: {
+          getAdapterSessionCreationDefaults: getDefaults,
+          listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+        } as unknown as Window['api'],
+      });
+      const hook = renderHook(
+        ({ cwd }) => useSessionCreationOptions({ adapterId, cwd }),
+        { initialProps: { cwd: '/repo/one' } },
+      );
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(hook.result.current.model).toBe('repo-one-model');
 
-    hook.rerender({ cwd: '/repo/two' });
-    await act(() => vi.advanceTimersByTimeAsync(120));
-    expect(hook.result.current.model).toBe('grok-4.6');
-    expect(hook.result.current.configurationLoading).toBe(false);
-  });
+      hook.rerender({ cwd: '/repo/two' });
+      await act(() => vi.advanceTimersByTimeAsync(120));
+      expect(hook.result.current.model).toBe('');
+      expect(hook.result.current.configurationLoading).toBe(false);
+    },
+  );
 
   it('keeps trust consent unchecked and binds it to the exact cwd, provider, and scope', async () => {
     vi.useFakeTimers();
