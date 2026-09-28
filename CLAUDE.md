@@ -55,7 +55,7 @@ Before starting, run `find ref/changelogs ref/plans ref/reviews -maxdepth 2 -typ
 3. Keep non-final plans in the current environment's plan workspace; if no stronger contract exists, use `.ref/plans/<plan-id>.md`. Keep non-final review drafts and raw reviewer output in the current review workspace or `.ref/reviews/`. At final handoff, archive plans into the correct `ref/plans/<bucket>/PLAN_X_<topic>.md`, rebucket by completed date, update the root and affected bucket indexes, and clean up workspace copies.
 4. Store durable extra LLM-facing materials, including spike reports, investigation notes, and reusable evidence, somewhere under `ref/` and link them from the relevant final record. Keep temporary scratch, raw logs, and non-final drafts in `.ref/` or the current environment workspace.
 5. Keep the advisory `.ref` archive pre-commit hook installed with `bash scripts/ref-archive-reminder-pre-commit.sh --install` after setup or whenever `.git/hooks/pre-commit` is reset. The installer replaces only its managed block and preserves unrelated hook logic. The hook exits 0, but agents must classify each `.ref/` file as durable context to archive, intentionally non-final workspace material to retain, or scratch to remove.
-6. Before changing long-lived prompt assets, inventory and back up the confirmed editable files, check paired Claude/Codex assets for semantic drift, and validate local links. Bundled Agent Deck behavior must remain self-contained in `resources/`.
+6. Before changing long-lived prompt assets, inventory the confirmed editable files, check paired Claude/Codex assets for semantic drift, and validate local links. Bundled Agent Deck behavior must remain self-contained in `resources/`.
 
 Project-specific triggers:
 
@@ -121,7 +121,7 @@ Command sequences are in `README.md`; topology-specific prerequisites and recove
 
 Keep `resources/claude-config/`, `resources/codex-config/`, bundled `agent-deck-plugin` agents/skills, and injected MCP tool descriptions coherent and self-contained inside the Agent Deck bundle, without extra installations.
 
-Apply the same self-containment, trigger, boundary, and local-link checks when modifying `README.md`, `CLAUDE.md`, `AGENTS.md`, or `resources/README.md`. Keep prompt-asset inventory, backup, deduplication, and review procedures in the maintenance workflow, outside the runtime baseline.
+Apply the same self-containment, trigger, boundary, and local-link checks when modifying `README.md`, `CLAUDE.md`, `AGENTS.md`, or `resources/README.md`. Keep prompt-asset inventory, deduplication, and review procedures in the maintenance workflow, outside the runtime baseline.
 
 External extensions may enhance repository workflows but must not own built-in behavior. Remove weakly related bundled content or retain a self-contained minimum; never replace required behavior with an external pointer. Bundled assets may reference one another, but each caller must retain executable triggers, boundaries, and failure actions.
 
