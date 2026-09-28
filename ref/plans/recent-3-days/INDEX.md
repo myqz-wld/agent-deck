@@ -15,3 +15,4 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-28 | `PLAN_57_codex-live-gateway-switch.md` | completed | Apply Codex Gateway changes before the next turn | `REVIEW_279_codex-live-gateway-switch.md` |

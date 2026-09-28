@@ -172,7 +172,7 @@ export class CodexAppServerThread {
   }
 
   async steer(input: CodexAppServerUserInput[], expectedTurnId: string, signal?: AbortSignal): Promise<void> {
-    const threadId = await this.ensureThread(signal);
+    const threadId = await this.ensureThread(signal, false);
     await this.client.request('turn/steer', { threadId, expectedTurnId, input }, signal);
   }
 
@@ -475,7 +475,10 @@ export class CodexAppServerThread {
     }
   }
 
-  private async ensureThread(signal?: AbortSignal): Promise<string> {
+  private async ensureThread(
+    signal?: AbortSignal,
+    applyPendingConfiguration = true,
+  ): Promise<string> {
     return ensureCodexThreadReady({
       client: this.client,
       getMode: () => this.mode,
@@ -483,6 +486,7 @@ export class CodexAppServerThread {
       setThreadId: (threadId) => { this.threadId = threadId; },
       runtimeIdentity: this.runtimeIdentity,
       signal,
+      applyPendingConfiguration,
       state: this.readiness,
     });
   }

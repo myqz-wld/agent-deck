@@ -37,6 +37,7 @@ export async function ensureCodexThreadReady(input: {
   setThreadId(threadId: string): void;
   runtimeIdentity: CodexRuntimeIdentityTracker;
   signal?: AbortSignal;
+  applyPendingConfiguration?: boolean;
   state: CodexThreadReadinessState;
 }): Promise<string> {
   const { client, state } = input;
@@ -54,6 +55,8 @@ export async function ensureCodexThreadReady(input: {
         state.configurationRefreshPending = false;
         return ready;
       }
+      // Steering belongs to the existing turn; leave the next-turn Gateway staged.
+      if (input.applyPendingConfiguration === false) return ready;
       if (state.promiseConfigurationRevision === readyRevision) state.promise = null;
       continue;
     }
@@ -65,6 +68,16 @@ export async function ensureCodexThreadReady(input: {
     const attempt = client.runGenerationOperation(
       currentThreadId ? 'thread/resume readiness' : 'thread/start readiness', input.signal,
       async (operation) => {
+        if (currentThreadId && state.configurationRefreshPending) {
+          // Resuming a loaded native thread only rejoins it and ignores config overrides.
+          // Release this connection's thread before restoring its history with the new layer.
+          const unloaded = await operation.request<{ status: string }>(
+            'thread/unsubscribe', { threadId: currentThreadId },
+          );
+          if (unloaded?.status !== 'unsubscribed' && unloaded?.status !== 'notLoaded') {
+            throw new Error('Codex 模型网关切换失败：无法卸载原线程，请重试。');
+          }
+        }
         const result = await operation.request<CodexAppServerThreadCreateResult>(
           currentThreadId ? 'thread/resume' : 'thread/start',
           currentThreadId
