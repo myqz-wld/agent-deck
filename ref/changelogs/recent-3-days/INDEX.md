@@ -15,3 +15,4 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-09-28 | `CHANGELOG_649_provider-runtime-stable-refresh.md` | Refresh stable Claude, Codex, protocol SDKs, and macOS bundled runtimes |
