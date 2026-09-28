@@ -45,7 +45,7 @@ and historical commits, and removing unnecessary compatibility before public rel
 
 ## Validation and residual boundaries
 
-See `ref/reviews/recent-3-days/REVIEW_274_privacy-and-compatibility-cleanup.md`.
+See `ref/reviews/recent-month/REVIEW_274_privacy-and-compatibility-cleanup.md`.
 Confirmed private literals are absent from current files and the cleaned local Git object store.
 The remote has one main branch and no other advertised refs. Copies fetched elsewhere and hosting
 caches are outside Git ref rewriting. Existing installed apps and old installer archives were not

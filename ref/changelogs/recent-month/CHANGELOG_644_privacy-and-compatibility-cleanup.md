@@ -36,4 +36,4 @@ recorded in `REVIEW_274_privacy-and-compatibility-cleanup.md` and the archived f
 
 ## Related record
 
-- `ref/reviews/recent-3-days/REVIEW_274_privacy-and-compatibility-cleanup.md`
+- `ref/reviews/recent-month/REVIEW_274_privacy-and-compatibility-cleanup.md`

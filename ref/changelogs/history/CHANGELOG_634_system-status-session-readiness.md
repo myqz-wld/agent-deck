@@ -67,4 +67,4 @@ largest is `src/main/session/worktree-transition/coordinator.ts` at 486 lines.
 
 ## Related review
 
-- `ref/reviews/recent-3-days/REVIEW_265_system-status-session-readiness.md`
+- `ref/reviews/history/REVIEW_265_system-status-session-readiness.md`

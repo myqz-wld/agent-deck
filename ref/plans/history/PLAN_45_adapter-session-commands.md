@@ -64,4 +64,4 @@ require host-native picker and modal semantics rather than text forwarding.
 
 ## Related final record
 
-- `ref/changelogs/recent-3-days/CHANGELOG_631_adapter-session-commands.md`
+- `ref/changelogs/history/CHANGELOG_631_adapter-session-commands.md`

@@ -15,6 +15,9 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-09-20 | `CHANGELOG_645_shared-iab-login.md` | Share persistent IAB website login across sessions |
+| 2026-09-16 | `CHANGELOG_644_privacy-and-compatibility-cleanup.md` | Remove identifying paths and retired Browser/RPC compatibility |
+| 2026-09-15 | `CHANGELOG_643_provider-runtime-bundle-refresh.md` | Refresh Claude, Codex, Grok dependencies and macOS bundled runtimes |
 | 2026-09-05 | `CHANGELOG_642_codex-runtime-release-sync.md` | Upgrade embedded Codex to 0.153.4 and prepare the macOS app |
 | 2026-09-04 | `CHANGELOG_641_codex-quota-visibility.md` | Hide Codex reserve and Spark quota windows in the Data panel |
 | 2026-09-04 | `CHANGELOG_640_model-routing-and-grok-defaults.md` | Refresh model suggestions, Grok defaults and Skill model tiers |
@@ -23,14 +26,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | 2026-09-04 | `CHANGELOG_637_application-convention-boundaries.md` | Keep conventions task-focused and require host-process approval |
 | 2026-09-04 | `CHANGELOG_636_bundled-only-assets-library.md` | Show only bundled Skills and Agents in the Assets Library |
 | 2026-09-03 | `CHANGELOG_635_provider-runtime-browser-remount.md` | Refresh provider/app dependencies and remount Browser contexts |
-| 2026-08-27 | `CHANGELOG_634_system-status-session-readiness.md` | Align system status rows and stabilize Claude startup controls |
-| 2026-08-27 | `CHANGELOG_633_codex-clear-stable-id-feedback.md` | Preserve Codex clear completion on same-id native rotation |
-| 2026-08-27 | `CHANGELOG_632_session-command-system-feedback.md` | Show one final system status for silent native commands |
-| 2026-08-27 | `CHANGELOG_631_adapter-session-commands.md` | Add native adapter slash commands to Local and Remote composers |
-| 2026-08-24 | `CHANGELOG_630_session-authoring-interaction-stability.md` | Stabilize trust, History reactivation, and expanded composer actions |
-| 2026-08-24 | `CHANGELOG_629_session-settings-clarity.md` | Clarify project trust, Hook actions, and Codex SessionEnd timeout |
-| 2026-08-24 | `CHANGELOG_628_native-project-trust.md` | Add native project trust to Local and Remote session creation |
-| 2026-08-23 | `CHANGELOG_627_grok-sandbox-next-turn.md` | Apply active-turn Grok sandbox choices before the next turn |
-| 2026-08-23 | `CHANGELOG_626_new-session-sandbox-label.md` | Align sandbox field labels across new-session adapters |
-| 2026-08-23 | `CHANGELOG_625_provider-runtime-app-sync.md` | Refresh embedded provider runtimes and install the macOS app |
-| 2026-08-23 | `CHANGELOG_624_session-config-read-latency.md` | Keep adapter-default reads inside the 150 ms UI grace |

@@ -6,4 +6,4 @@ removing the old string-error alternative; terminal notification error shapes ar
 
 Command: `codex app-server generate-json-schema --out <temporary-schema-directory>`.
 
-Related record: `ref/reviews/recent-3-days/REVIEW_274_privacy-and-compatibility-cleanup.md`.
+Related record: `ref/reviews/recent-month/REVIEW_274_privacy-and-compatibility-cleanup.md`.

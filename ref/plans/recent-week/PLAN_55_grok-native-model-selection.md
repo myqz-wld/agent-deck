@@ -47,4 +47,4 @@ Grok without an application-pinned model or duplicate model catalog.
 Completed in the source tree and generated macOS package. No installation, restart, or remote
 deployment was performed. Existing unrelated `.ref` workspaces remain untouched.
 Installed-app activation and coordinated Core/container rollout remain separate authorized actions.
-See [CHANGELOG_648](../../changelogs/recent-3-days/CHANGELOG_648_grok-native-model-selection.md).
+See [CHANGELOG_648](../../changelogs/recent-week/CHANGELOG_648_grok-native-model-selection.md).

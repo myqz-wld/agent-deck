@@ -88,5 +88,5 @@ split into dedicated project-trust contract/composition modules.
 
 ## Related records
 
-- `ref/plans/recent-month/PLAN_44_pi-adapter-project-trust.md`
-- `ref/reviews/recent-3-days/REVIEW_262_native-project-trust.md`
+- `ref/plans/history/PLAN_44_pi-adapter-project-trust.md`
+- `ref/reviews/history/REVIEW_262_native-project-trust.md`

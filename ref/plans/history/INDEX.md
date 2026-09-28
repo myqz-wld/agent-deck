@@ -17,6 +17,8 @@ Legacy topic-and-date plan names and nonterminal snapshots remain stable. Missin
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-08-27 | `PLAN_45_adapter-session-commands.md` | completed | Integrate native adapter slash commands into Agent Deck | CHANGELOG_631 |
+| 2026-08-24 | `PLAN_44_pi-adapter-project-trust.md` | completed | Design Pi integration and add native project trust to existing adapters | CHANGELOG_628 / REVIEW_262 |
 | 2026-08-18 | `PLAN_43_unified-browser-skill-cli-iab.md` | completed with Remote live gate retained | Unify Browser skill, CLI, responsive IAB, and annotation | CHANGELOG_618 / REVIEW_255 |
 | 2026-08-18 | `PLAN_42_summary-settings-layout-and-timeout-policy.md` | completed | Align generator settings order and internalize summary timeout | REVIEW_254 |
 | 2026-08-18 | `PLAN_41_current-only-gap-sweep.md` | completed | Close remaining utility, root-config, prompt, and settings-copy gaps | REVIEW_253 |

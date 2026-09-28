@@ -106,4 +106,4 @@ this run does not claim latest-release server deployment acceptance.
 - The small operational probes under `.ref/reviews/` remain intentionally non-final material for
   the pending installed acceptance. Raw build/test logs were summarized here and removed.
 
-Related plan: [Relay operational acceptance](../../plans/recent-3-days/PLAN_52_relay-worker-live-acceptance.md).
+Related plan: [Relay operational acceptance](../../plans/recent-month/PLAN_52_relay-worker-live-acceptance.md).

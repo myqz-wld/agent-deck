@@ -275,7 +275,21 @@ export function clickScript(ref: string): string {
   scrollRefTarget(el, frameHosts);
   if (el.focus) el.focus();
   var target = describe(el);
-  el.click();
+  if (typeof el.click === 'function') {
+    el.click();
+  } else {
+    // SVG and other non-HTML elements can have interactive roles without HTMLElement.click().
+    var view = el.ownerDocument && el.ownerDocument.defaultView;
+    var MouseEventConstructor = view && view.MouseEvent ? view.MouseEvent : MouseEvent;
+    el.dispatchEvent(new MouseEventConstructor('click', {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: view || window,
+      button: 0,
+      detail: 1,
+    }));
+  }
   return JSON.stringify({ clicked: target, frameDepth: frameHosts.length, page: pageState() });
 })()`;
 }

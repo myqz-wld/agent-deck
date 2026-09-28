@@ -61,4 +61,4 @@ all changed production TypeScript files remain below 500 lines.
 
 ## Related review
 
-- `ref/reviews/recent-3-days/REVIEW_264_session-authoring-interaction-stability.md`
+- `ref/reviews/history/REVIEW_264_session-authoring-interaction-stability.md`

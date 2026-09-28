@@ -94,8 +94,8 @@ confirmed private-literal matches. The stash remains listed and usable.
 
 ## Related record
 
-- `ref/changelogs/recent-3-days/CHANGELOG_644_privacy-and-compatibility-cleanup.md`
+- `ref/changelogs/recent-month/CHANGELOG_644_privacy-and-compatibility-cleanup.md`
 
 ## Final plan
 
-- `ref/plans/recent-3-days/PLAN_53_privacy-and-compatibility-cleanup.md`
+- `ref/plans/recent-month/PLAN_53_privacy-and-compatibility-cleanup.md`

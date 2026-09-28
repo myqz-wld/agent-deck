@@ -61,5 +61,5 @@ None. Modified production sources remain below 500 lines; the dependency lockfil
   defaults must select native model IDs or CLI default aliases.
 - The installed app and deployed runtimes remain unchanged. Installation/restart requires exact
   host-runtime approval; remote rollout requires matching Core and rebuilt container shim/image.
-- Related: [PLAN_55](../../plans/recent-3-days/PLAN_55_grok-native-model-selection.md),
+- Related: [PLAN_55](../../plans/recent-week/PLAN_55_grok-native-model-selection.md),
   [CHANGELOG_647](CHANGELOG_647_model-names-native-defaults.md).

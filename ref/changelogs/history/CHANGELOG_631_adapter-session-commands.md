@@ -62,4 +62,4 @@ provider lifecycle logic and composer UI live in focused modules.
 
 ## Related plan
 
-- `ref/plans/recent-month/PLAN_45_adapter-session-commands.md`
+- `ref/plans/history/PLAN_45_adapter-session-commands.md`

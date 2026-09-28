@@ -56,4 +56,4 @@ No exception is required. The changed production files remain below 500 lines.
 
 ## Related record
 
-- `ref/reviews/recent-3-days/REVIEW_263_session-settings-clarity.md`
+- `ref/reviews/history/REVIEW_263_session-settings-clarity.md`

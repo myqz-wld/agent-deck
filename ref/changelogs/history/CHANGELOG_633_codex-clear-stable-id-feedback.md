@@ -34,4 +34,4 @@ the existing SessionManager public-API suite.
 
 ## Related change
 
-- `ref/changelogs/recent-3-days/CHANGELOG_632_session-command-system-feedback.md`
+- `ref/changelogs/history/CHANGELOG_632_session-command-system-feedback.md`

@@ -49,4 +49,4 @@ verification in an updated main runtime remains a separate follow-up. No install
 or restart was performed. If the symptom recurs, verify backend receipt before
 selecting any further recovery action.
 
-See [REVIEW_277](../../reviews/recent-3-days/REVIEW_277_enter-worktree-preparation-timeout.md).
+See [REVIEW_277](../../reviews/recent-week/REVIEW_277_enter-worktree-preparation-timeout.md).

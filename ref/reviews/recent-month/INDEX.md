@@ -15,6 +15,9 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-09-19 | `REVIEW_275_gateway-model-presentation.md` | Gateway model continuity and live selection | 3 MEDIUM fixed |
+| 2026-09-16 | `REVIEW_274_privacy-and-compatibility-cleanup.md` | Privacy and obsolete compatibility cleanup | Source, local history, and remote history verified |
+| 2026-09-16 | `REVIEW_273_relay-worker-packaged-startup.md` | Relay live checks and Worker packaging | 1 HIGH fixed in source / installed acceptance pending |
 | 2026-09-10 | `REVIEW_272_plan-review-question-runtime-controls.md` | Plan-review question creation and retry | 1 MEDIUM fixed / 1 LOW fixed |
 | 2026-09-06 | `REVIEW_271_worktree-user-message-projection.md` | Preserve worktree input history and simplify README | 1 HIGH fixed / 1 MEDIUM fixed |
 | 2026-09-04 | `REVIEW_270_astra-usage-and-model-inventory.md` | Quota groups, reviewer defaults and model-name inventory | 1 MEDIUM fixed / inventory only |
@@ -22,7 +25,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 | 2026-09-04 | `REVIEW_268_project-code-quality-scan.md` | Project defects, architecture and dead-code scan | 3 HIGH / 11 MEDIUM / 4 LOW; resolved in REVIEW_269 |
 | 2026-09-04 | `REVIEW_267_compatibility-dead-code-audit.md` | Compatibility and dead-code retirement | 0 CRITICAL / 0 HIGH / 0 MEDIUM / 0 LOW open |
 | 2026-09-03 | `REVIEW_266_browser-runtime-remount.md` | Cross-day Browser runtime remount | 0 CRITICAL / 0 HIGH / 1 MEDIUM fixed / 1 LOW fixed |
-| 2026-08-27 | `REVIEW_265_system-status-session-readiness.md` | System status and Claude startup consistency | 0 CRITICAL / 0 HIGH / 2 MEDIUM fixed / 2 LOW fixed |
-| 2026-08-24 | `REVIEW_264_session-authoring-interaction-stability.md` | Session authoring and History interaction stability | 0 CRITICAL / 0 HIGH / 3 MEDIUM fixed / 1 LOW fixed |
-| 2026-08-24 | `REVIEW_263_session-settings-clarity.md` | Session settings clarity and Hook timeout | 0 CRITICAL / 0 HIGH / 0 MEDIUM / 3 LOW fixed |
-| 2026-08-24 | `REVIEW_262_native-project-trust.md` | Native project trust security and lifecycle | 0 CRITICAL / 0 HIGH / 4 MEDIUM fixed / 2 LOW fixed |
