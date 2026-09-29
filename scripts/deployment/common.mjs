@@ -6,7 +6,7 @@ export const SERVER_ACTIONS = Object.freeze([
   'check', 'dry-run', 'deploy', 'upgrade', 'rollback', 'verify',
 ]);
 export const WORKER_ACTIONS = Object.freeze([
-  'check', 'dry-run', 'deploy', 'upgrade', 'verify',
+  'check', 'dry-run', 'deploy', 'upgrade', 'verify', 'stop',
 ]);
 
 export function fail(message) {

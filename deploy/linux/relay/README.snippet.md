@@ -166,6 +166,11 @@ Keep the source file and Worker wrapper outside the Workspace and shared Provide
 `agent-deck-worker check-installed-provider-credential --worker <id>`, and verifies that launchd
 loaded the current synchronization settings. After upgrading the application, run Worker `--upgrade`
 to refresh an older service definition. Supervisor `health-config` separately checks its transport.
+Before replacing the installed application, `deploy:relay-worker --stop` quiesces the exact
+configured Worker and managed supervisor so launchd KeepAlive cannot reopen the old bundle during
+replacement. It preserves credentials and configuration. After installation, use `--check`,
+`--dry-run`, `--upgrade`, then `--verify` to restore and validate them. Desktop stop/install approval
+and the managed service lifecycle authorization remain separate operator responsibilities.
 An expired optional Grok credential degrades only
 the Provider component; it is not reported as a generic Worker transport failure. Startup
 idempotently recreates the exact mode-0700

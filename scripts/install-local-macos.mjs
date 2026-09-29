@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
   existsSync,
   lstatSync,
+  readFileSync,
   readlinkSync,
   renameSync,
   rmSync,
@@ -15,7 +16,6 @@ import { assertInstalledAppStopped, stopInstalledApp } from './local-macos-proce
 
 const PRODUCT_NAME = 'Agent Deck';
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const distRoot = resolve(repoRoot, 'build/dist');
 const applicationsRoot = '/Applications';
 const installedApp = resolve(applicationsRoot, `${PRODUCT_NAME}.app`);
 const stagingApp = resolve(applicationsRoot, `.${PRODUCT_NAME}.installing.app`);
@@ -30,6 +30,19 @@ export function macOutputDirectory(arch) {
 
 export function packagedAppPath(root, arch) {
   return resolve(root, 'build/dist', macOutputDirectory(arch), `${PRODUCT_NAME}.app`);
+}
+
+export function clearPackagedAppForBuild(root, arch) {
+  const sourceApp = packagedAppPath(root, arch);
+  assertInstalledAppStopped(sourceApp);
+  rmSync(sourceApp, { recursive: true, force: true });
+}
+
+export function assertPrebuiltBuildInfo(metadata, commit, status) {
+  if (metadata?.name !== 'agent-deck' || metadata.dirty !== false ||
+      !/^[a-f0-9]{40}$/.test(commit) || metadata.commit !== commit || status.trim() !== '') {
+    throw new Error('预构建安装包必须来自当前干净提交；请重新运行 pnpm dist:mac。');
+  }
 }
 
 export function resolvedSymlinkTarget(linkPath, target) {
@@ -128,21 +141,25 @@ async function installPackagedApp(sourceApp, stopRunning) {
 }
 
 export function printHelp() {
-  console.log(`用法：pnpm install:local:mac [--stop-running]
+  console.log(`用法：pnpm install:local:mac [--stop-running] [--prebuilt]
 
 构建、验证并安装 macOS 版 Agent Deck。默认要求先退出应用；
 --stop-running 明确允许退出 /Applications/Agent Deck.app，可能中断应用内的当前会话。
 该选项会先请求正常退出，再按完整可执行路径、PID 和启动时间核实目标后发送 SIGTERM。
 无法确认身份或退出超时会取消安装。
+--prebuilt 安装已完成验证且匹配当前干净提交的 build/dist 安装包，跳过重复构建。
 
 安装成功后删除 build/dist/mac-*/Agent Deck.app，保留 DMG。
+构建不会删除 build/dist 中保留的历史安装包。
 仅打包而不安装，请运行 pnpm dist:mac。`);
 }
 
 export function parseInstallArgs(args) {
-  if (args.length === 0) return { stopRunning: false };
-  if (args.length === 1 && args[0] === '--stop-running') return { stopRunning: true };
-  throw new Error(`无法识别参数：${args.join(' ')}；使用 --help 查看用法。`);
+  if (new Set(args).size !== args.length ||
+      args.some((arg) => arg !== '--stop-running' && arg !== '--prebuilt')) {
+    throw new Error(`无法识别参数：${args.join(' ')}；使用 --help 查看用法。`);
+  }
+  return { stopRunning: args.includes('--stop-running'), prebuilt: args.includes('--prebuilt') };
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -150,15 +167,25 @@ export async function main(args = process.argv.slice(2)) {
     printHelp();
     return;
   }
-  const { stopRunning } = parseInstallArgs(args);
+  const { stopRunning, prebuilt } = parseInstallArgs(args);
   if (process.platform !== 'darwin') {
     throw new Error('local Agent Deck installation is supported only on macOS');
   }
   if (!stopRunning) assertInstalledAppStopped(installedApp);
 
   const sourceApp = packagedAppPath(repoRoot, process.arch);
-  rmSync(distRoot, { recursive: true, force: true });
-  run('pnpm', ['dist:mac']);
+  if (prebuilt) {
+    const git = (args) => execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
+    assertPrebuiltBuildInfo(
+      JSON.parse(readFileSync(resolve(sourceApp, 'Contents/Resources/build-info.json'), 'utf8')),
+      git(['rev-parse', 'HEAD']),
+      git(['status', '--porcelain']),
+    );
+    run('pnpm', ['check:packaged-macos-worker-sandbox']);
+  } else {
+    clearPackagedAppForBuild(repoRoot, process.arch);
+    run('pnpm', ['dist:mac']);
+  }
   if (!existsSync(sourceApp)) {
     throw new Error(`packaged application is missing after pnpm dist:mac: ${sourceApp}`);
   }

@@ -4,6 +4,7 @@ import { runCommand } from './process.mjs';
 import {
   checkWorkerProviderSupervisor,
   deployWorkerProviderSupervisor,
+  stopWorkerProviderSupervisor,
   verifyWorkerProviderSupervisor,
 } from './worker-supervisor.mjs';
 
@@ -65,6 +66,15 @@ export function workerConfigureArgs(config) {
 }
 
 export async function runWorkerDeployment(config, action) {
+  if (action === 'stop') {
+    const before = await status(config, false);
+    assertSupervisorWorker(config, before);
+    if (!before.workerConfigId) throw new Error('Worker 配置标识无法确认，已取消停止。');
+    await worker(config, ['stop', '--worker', before.workerConfigId]);
+    const providerSupervisor = await stopWorkerProviderSupervisor(supervisor(config));
+    return { action, name: config.name, status: 'stopped', workerConfigId: before.workerConfigId,
+      providerSupervisor };
+  }
   if (action === 'dry-run') {
     return {
       action,

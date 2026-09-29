@@ -254,6 +254,32 @@ export function assertCredentialSyncArguments(output, config) {
   }
 }
 
+/** Quiesce the configured launchd job so KeepAlive cannot race application replacement. */
+export async function stopWorkerProviderSupervisor(config) {
+  if (config === null) return { managed: false };
+  assertSupportedPlatform();
+  const { target } = identity(config);
+  const current = await launchctl(['print', target], true);
+  if (current.code !== 0) {
+    if (current.code === 113 && /Could not find service/.test(current.stderr)) {
+      return { managed: true, status: 'stopped' };
+    }
+    throw new Error('无法核实 Provider supervisor 服务身份，已取消停止。');
+  }
+  const block = current.stdout.match(/^\s*arguments = \{\s*$([\s\S]*?)^\s*\}/m)?.[1];
+  const args = block?.split('\n').map((line) => line.trim()).filter(Boolean) ?? [];
+  const expected = [config.command, 'serve', '--instance', config.hostConfig.instanceId,
+    '--config', config.configFile, '--socket', config.hostConfig.transportSocketPath];
+  if (expected.some((value, index) => args[index] !== value)) {
+    throw new Error('Provider supervisor 已加载的服务身份与配置不匹配，已取消停止。');
+  }
+  const pid = launchAgentProcessId(current.stdout);
+  const stopped = await launchctl(['bootout', target], true);
+  if (stopped.code !== 0) throw new Error('Provider supervisor 无法受控停止。');
+  await waitForLaunchAgentProcessExit(pid);
+  return { managed: true, status: 'stopped' };
+}
+
 export async function verifyWorkerProviderSupervisor(config) {
   if (config === null) return { managed: false };
   const inspect = async (operation) => {
