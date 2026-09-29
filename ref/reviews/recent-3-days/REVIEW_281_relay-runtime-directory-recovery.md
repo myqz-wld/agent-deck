@@ -1,7 +1,7 @@
 ---
 review_id: 281
 reviewed_at: 2026-09-28
-baseline_commit: 1d2e5d19a3ebd3bccfde87d0d2feffe36dd1b352
+baseline_commit: 54a19a9de6a58a0932d8505fdf1f38f6d5f16355
 expired: false
 ---
 
@@ -75,12 +75,29 @@ scripts/deployment/archive-identity.test.mjs
 
 ## Live acceptance
 
-Source validation is complete. The exact validated release must be committed and pushed before
-official server check, dry-run, upgrade, and verify. Runtime restoration and subsequent SSH/Core
-acceptance are tracked in the active recovery plan; they are not claimed by this source record.
+- Committed and pushed release `git-54a19a9de6a5`, then completed official Relay `--check`,
+  `--dry-run`, `--upgrade`, and `--verify`. Final verification reports a healthy container and ready
+  Feishu runtime files. The Feishu active-runtime pointer is preserved by the deployment workflow.
+- The deployed unit is active/running, has zero restarts, and exposes the intended runtime
+  directory settings. Both namespace and instance directories are service-owned with mode 0700.
+- Completed official Worker `--check`, `--dry-run`, `--upgrade`, and `--verify`. Worker is running;
+  supervisor configuration, credential validation, and service health all pass. Both LaunchAgents
+  have run once without an exit; the previous Worker error log has not grown.
+- The production SSH client connects to the Relay and reaches a `local-worker` Core at generation
+  1. `session.console.list` and `session.console.capabilities` complete successfully. Claude,
+  Codex, and Grok appear enabled in the returned creation descriptors.
+- An early single-attempt reconnect failed with a generic SSH bridge error. Seven subsequent
+  connect/read/close cycles all completed; six connected directly and one recovered through the
+  client's automatic retry. Final official Relay and Worker verification still pass.
+- The hosting Desktop and installed application were preserved. No credentials were rotated and
+  no new model sessions were created during acceptance.
+
+Completed plan: [Relay runtime recovery](../../plans/recent-3-days/PLAN_58_relay-runtime-recovery.md).
 
 ## Residual risk
 
-The repair does not delete or replace durable instance state, credentials, or Workspace data.
-Fresh service startup is required to confirm the deployed unit and Worker are operational.
-The live recovery must preserve the currently hosting Desktop.
+The runtime-directory outage is repaired and live service recovery is complete. Intermittent SSH
+bridge rejection was observed and automatically recovered, but its precise cause was not established
+by this pass. Acceptance covers transport, read requests, and creation descriptors; it does not claim
+a provider inference round trip or an actual host reboot test. Durable instance state, credentials,
+Workspace data, and the hosting Desktop remain intact.
