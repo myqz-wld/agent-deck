@@ -62,6 +62,12 @@ deploy/linux/feishu/README.md
 
 ## Residual risk and follow-ups
 
-This source checkpoint still requires server activation and real Feishu acceptance. Relay itself
-is healthy at generation 22, and the Feishu sidecar is inactive after safe rollback. Event/callback
-subscription, publication, owner pairing and an actual provider reply remain in the active plan.
+The official check/dry-run/upgrade/verify sequence passed for `b911844d518b`; read-only inspection
+confirmed generation 23 and no pending journal. A fresh Feishu connect and verify both passed:
+service active, WebSocket connected, Core connected, and no pending runtime update. Worker and
+Provider supervisor verification also passed. SQLite now retains the old unpaired row as revoked
+and the new row as active; no owner or user metadata was deleted.
+
+The developer console saved long-connection event delivery. Its event checkbox still requires one
+manual action in the unchanged installed Browser. Event/callback subscriptions, publication, owner
+pairing and an actual provider reply remain in the active plan; backend health is not full acceptance.

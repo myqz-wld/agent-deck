@@ -55,6 +55,6 @@ Read-only inspection confirmed generation 22 and no pending journal. Worker and 
 verification also passed. One temporary local build stalled on an npm download; its exact container
 was stopped before new remote lifecycle work, and a controlled retry completed normally.
 
-Feishu long connection subsequently started, but Core verification caused a transactional rollback.
-The active acceptance plan retains that diagnosis. Socket reachability alone does not establish
-Feishu message or provider-response acceptance.
+Feishu's subsequent Core rejection was isolated to its old runtime's protocol version; REVIEW_295
+records that repair. Generation 23 at `b911844d518b` has since passed official Relay and Feishu
+connection verification. Socket reachability alone does not establish message/provider acceptance.

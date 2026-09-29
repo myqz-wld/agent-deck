@@ -15,11 +15,11 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-09-29 | `REVIEW_295_feishu-bootstrap-runtime-recovery.md` | Activate current runtime and recover empty Feishu bootstrap | 1 HIGH / 1 MEDIUM fixed; activation pending |
+| 2026-09-29 | `REVIEW_295_feishu-bootstrap-runtime-recovery.md` | Activate current runtime and recover empty Feishu bootstrap | 1 HIGH / 1 MEDIUM fixed; connection verified |
 | 2026-09-29 | `REVIEW_294_claude-permission-indicators.md` | Simplify Claude option annotations and warning markers | 1 LOW fixed; desktop activation deferred |
 | 2026-09-29 | `REVIEW_293_running-relay-recovery.md` | Recover running Relay without startup socket probes | 1 MEDIUM fixed; server activation verified |
-| 2026-09-29 | `REVIEW_292_feishu-rollback-credential-history.md` | Preserve revoked history and recover interrupted Relay updates | 1 HIGH / 1 MEDIUM fixed; activation pending |
-| 2026-09-29 | `REVIEW_291_feishu-startup-prerequisites.md` | Correct HTTPS preflight and wait for Feishu readiness | 2 MEDIUM fixed; server activation pending |
+| 2026-09-29 | `REVIEW_292_feishu-rollback-credential-history.md` | Preserve revoked history and recover interrupted Relay updates | 1 HIGH / 1 MEDIUM fixed; server verified |
+| 2026-09-29 | `REVIEW_291_feishu-startup-prerequisites.md` | Correct HTTPS preflight and wait for Feishu readiness | 2 MEDIUM fixed; server activation verified |
 | 2026-09-29 | `REVIEW_290_browser-styled-controls-monaco.md` | Expose styled controls and update real Monaco content | 2 MEDIUM fixed; desktop activation deferred |
 | 2026-09-29 | `REVIEW_289_inline-diff-readiness.md` | Tighten diff spacing and share loading grace | 1 MEDIUM / 1 LOW fixed and installed |
 | 2026-09-29 | `REVIEW_288_hosted-app-replacement.md` | Preserve packages and quiesce managed jobs before replacement | 2 MEDIUM fixed; installation accepted |

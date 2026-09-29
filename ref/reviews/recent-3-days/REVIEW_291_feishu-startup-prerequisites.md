@@ -59,12 +59,12 @@ rollback retain their original authority and protected-file transactions.
 
 ## Residual risk and follow-ups
 
-Updating the existing managed Relay through its official release lifecycle is still required to
-activate these host scripts. Obtain explicit approval for that server update/restart, then run the
-prepared check, dry-run, upgrade and verify sequence. Reconnect Feishu, upgrade its desired runtime
-when appropriate, configure long-connection message/card events, publish to the intended tester,
-upload the project icon, pair the owner and perform a real private-chat/provider-response test.
-No Desktop repackaging or replacement is required for this server repair.
+The user approved the exact managed Relay update. The official release lifecycle activated these
+host scripts; generation 23 at `b911844d518b` is verified. Feishu connect and verify now pass with
+both WebSocket and Core connected, after the additional runtime/bootstrap repairs in REVIEW_295.
+The user set the project icon and the developer console saved long-connection event delivery.
+Event/card subscriptions, publication, owner pairing and a real provider response remain in the
+active plan. The Desktop application was not repackaged or replaced.
 
 The active onboarding plan remains intentionally non-final under `.ref/plans/`; archive it only
 after the external acceptance is complete. Review-expiry tooling exited 1, so the complete changed

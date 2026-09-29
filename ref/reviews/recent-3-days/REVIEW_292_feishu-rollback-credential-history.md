@@ -67,7 +67,9 @@ deploy/linux/feishu/README.md
 
 ## Residual risk and follow-ups
 
-At this source checkpoint, the previous generation remains recorded and the failed upgrade journal
-is preserved for managed recovery. Live activation and Feishu messaging acceptance are still required;
-the active plan retains that work. Transport-only Relay health had remained green while credential
-admission was unhealthy, so successful socket probing alone must not be treated as business acceptance.
+Managed recovery completed and the official release reached generation 23 at `b911844d518b` with
+no pending journal. Read-only inspection found 14 authoritative and 14 persisted credential rows,
+zero orphans, three active grants and exactly one active Feishu grant. Temporary probe credentials
+are all revoked. Feishu connect/Core verification passes; messaging acceptance remains in the plan.
+Transport-only Relay health had remained green while credential admission was unhealthy, so
+successful socket probing alone must not be treated as business acceptance.
