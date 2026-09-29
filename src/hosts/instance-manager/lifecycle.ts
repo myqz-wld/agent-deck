@@ -6,6 +6,7 @@ import { runStartPreflight } from './preflight';
 import { validateImageAvailable } from './create';
 import { waitForHealthyContainer } from './container-health';
 import { verifyFullRuntimeConfig } from './full-runtime-config';
+import { ensureDirectoryChain } from './artifacts';
 import type { InstanceSelector, InstanceStatus, InstanceSummary, SystemdUnitStatus } from './types';
 import { fail, InstanceManagerError } from './validation';
 
@@ -103,6 +104,22 @@ export async function startInstance(
     maxAgeMs: context.limits.maxEvidenceAgeMs,
   });
   const evidence = evidencePaths(loaded.record.topology, loaded.paths);
+  if (loaded.record.topology === 'relay' &&
+      !(await context.ports.fileSystem.lstat(loaded.paths.runtimeDirectory))) {
+    const current = await statusLoaded(context, loaded);
+    if (current.activeState === 'active') {
+      fail('tampered', 'active Relay is missing its runtime directory');
+    }
+    // Quiesce automatic retries before recreating the bind source and running preflight.
+    if (current.activeState !== 'inactive') {
+      await context.ports.systemd.stopUserUnit(loaded.paths.unitName, context.limits.lifecycleTimeoutMs);
+      if ((await statusLoaded(context, loaded)).activeState !== 'inactive') {
+        fail('health_failed', 'Relay retry loop did not stop before runtime recovery');
+      }
+    }
+    await revalidateLoadedArtifacts({ loaded, ports: context.ports, maxArtifactBytes: context.limits.maxArtifactBytes, serviceUid: context.serviceUid });
+    await ensureDirectoryChain(context.ports.fileSystem, context.roots.runtimeRoot, loaded.paths.runtimeDirectory, [], context.serviceUid);
+  }
   await runStartPreflight({
     topology: loaded.record.topology,
     paths: loaded.paths,

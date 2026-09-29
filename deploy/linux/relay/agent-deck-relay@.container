@@ -27,6 +27,9 @@ HealthOnFailure=kill
 Notify=healthy
 
 [Service]
+RuntimeDirectory=agent-deck-relay agent-deck-relay/%i
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
 ExecStartPost=/opt/agent-deck/bin/agent-deck-relay-health-gate --container agent-deck-relay-%i
 Restart=on-failure
 RestartSec=5s

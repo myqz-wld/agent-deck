@@ -1,3 +1,5 @@
+import { posix } from 'node:path';
+
 import type { InstancePaths } from './paths';
 import { generationPaths, resolveInstancePaths } from './paths';
 import { requireCanonicalFile, requireOwnedDirectory } from './artifacts';
@@ -50,13 +52,20 @@ export async function loadInstance(input: {
   }
   const managedDirectories: [string, string][] = [
     [paths.configDirectory, 'instance config directory'],
-    [paths.runtimeDirectory, 'instance runtime directory'],
     [paths.metadataDirectory, 'instance metadata directory'],
     [paths.backupDirectory, 'instance backup directory'],
   ];
   if (paths.stateDirectory) managedDirectories.push([paths.stateDirectory, 'instance state directory']);
   for (const [path, field] of managedDirectories) {
     await requireOwnedDirectory(input.ports.fileSystem, path, input.serviceUid, 0o700, field);
+  }
+  const runtimeDirectories = input.selector.topology === 'relay'
+    ? [posix.dirname(paths.runtimeDirectory), paths.runtimeDirectory]
+    : [paths.runtimeDirectory];
+  for (const path of runtimeDirectories) {
+    // Runtime state may disappear on reboot. Reads never recreate it or relax existing trust.
+    if (input.selector.topology === 'relay' && !(await input.ports.fileSystem.lstat(path))) continue;
+    await requireOwnedDirectory(input.ports.fileSystem, path, input.serviceUid, 0o700, 'instance runtime directory');
   }
   const stored = await requireCanonicalFile(
     input.ports.fileSystem,

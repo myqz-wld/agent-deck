@@ -74,7 +74,8 @@ if ! awk '
         key == "TimeoutStopSec" ||
         key == "TimeoutStartSec" || key == "MemoryMax" ||
         key == "CPUQuota" || key == "TasksMax" ||
-        key == "LimitNOFILE"
+        key == "LimitNOFILE" || key == "RuntimeDirectory" ||
+        key == "RuntimeDirectoryMode" || key == "RuntimeDirectoryPreserve"
     if (section == "Install") return key == "WantedBy"
     return 0
   }
@@ -150,6 +151,14 @@ required_lines=(
   'LimitNOFILE=4096'
   'WantedBy=default.target'
 )
+# Recorded releases without directory management remain valid recovery/rollback inputs.
+if grep -q '^RuntimeDirectory' "$quadlet_path"; then
+  required_lines+=(
+    'RuntimeDirectory=agent-deck-relay agent-deck-relay/%i'
+    'RuntimeDirectoryMode=0700'
+    'RuntimeDirectoryPreserve=yes'
+  )
+fi
 for line in "${required_lines[@]}"; do
   if [[ "$(grep -Fxc -- "$line" "$quadlet_path")" != 1 ]]; then
     echo "relay preflight: missing or duplicated exact Quadlet setting: $line" >&2

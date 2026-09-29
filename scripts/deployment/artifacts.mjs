@@ -147,7 +147,10 @@ async function archiveDirectory(root, prefix) {
   const archive = join(tmpdir(), `${prefix}-${randomUUID()}.tgz`);
   await writeFile(archive, '', { mode: 0o600, flag: 'wx' });
   try {
-    await runCommand('/usr/bin/tar', ['--no-xattrs', '-czf', archive, '-C', root, '.'], {
+    const ownership = process.platform === 'darwin'
+      ? ['--uid', '0', '--gid', '0', '--uname', 'root', '--gname', 'root']
+      : ['--owner=0', '--group=0', '--numeric-owner'];
+    await runCommand('/usr/bin/tar', [...ownership, '--no-xattrs', '-czf', archive, '-C', root, '.'], {
       env: { ...process.env, COPYFILE_DISABLE: '1' },
       timeoutMs: 120_000,
       maxOutputBytes: 1024 * 1024,

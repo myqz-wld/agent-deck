@@ -5,6 +5,15 @@ relay_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 bash -n "$relay_dir/preflight.sh"
 bash -n "$relay_dir/static-check.sh"
+for setting in \
+  'RuntimeDirectory=agent-deck-relay agent-deck-relay/%i' \
+  'RuntimeDirectoryMode=0700' \
+  'RuntimeDirectoryPreserve=yes'; do
+  grep -Fxq "$setting" "$relay_dir/agent-deck-relay@.container" || {
+    echo "relay static check: missing startup directory setting: $setting" >&2
+    exit 1
+  }
+done
 bash "$relay_dir/preflight.sh" \
   --quadlet "$relay_dir/agent-deck-relay@.container" \
   --static-only
@@ -21,6 +30,11 @@ bash "$relay_dir/preflight.sh" \
   --static-only
 bash "$relay_dir/preflight.sh" \
   --quadlet "$relay_dir/agent-deck-relay@.container" \
+  --instance static-check \
+  --static-only
+sed '/^RuntimeDirectory/d' "$relay_dir/agent-deck-relay@.container" > "$instantiated_fixture"
+bash "$relay_dir/preflight.sh" \
+  --quadlet "$instantiated_fixture" \
   --instance static-check \
   --static-only
 cleanup_instantiated_fixture
@@ -108,6 +122,9 @@ for replacement in \
   'HealthCmd=["/opt/agent-deck/bin/agent-deck-relay","health","--socket","/run/agent-deck-relay/%i/control.sock"]|HealthCmd=["/bin/true"]' \
   'HealthOnFailure=kill|HealthOnFailure=none' \
   'Notify=healthy|Notify=true' \
+  'RuntimeDirectory=agent-deck-relay agent-deck-relay/%i|RuntimeDirectory=other-instance' \
+  'RuntimeDirectoryMode=0700|RuntimeDirectoryMode=0777' \
+  'RuntimeDirectoryPreserve=yes|RuntimeDirectoryPreserve=no' \
   'ExecStartPost=/opt/agent-deck/bin/agent-deck-relay-health-gate --container agent-deck-relay-%i|ExecStartPost=/bin/true' \
   'Volume=%h/.config/agent-deck-relay/%i:/etc/agent-deck-relay/%i:ro,Z|Volume=/:/etc/agent-deck-relay/%i:Z' \
   'Volume=%h/.local/share/agent-deck-relay/%i:/var/lib/agent-deck-relay/%i:Z|Volume=/:/var/lib/agent-deck-relay/%i:Z' \
