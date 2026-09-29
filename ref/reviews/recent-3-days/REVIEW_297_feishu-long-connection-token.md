@@ -48,6 +48,9 @@ show empty header tokens; that report's separate message-loss claim is not adopt
 - Actual runtime archive inspection covered 37 members and 26 regular files per architecture,
   root archive ownership, safe member paths and current private identifier/secret exclusion. Source
   and eleven generated Node bundles also passed privacy inspection.
+- A local probe used the actual built SDK and mapper with an encoded/decoded synthetic WebSocket
+  frame and 64-bit sequence ids. Mapping and the 200 acknowledgement passed without SDK errors;
+  the temporary generated module was removed.
 - Review-expiry helper exited 1 for existing global/legacy coverage. The complete scope above was
   inspected directly without treating historical records as exemptions.
 
@@ -63,6 +66,11 @@ error still require actual-event comparison or post-upgrade acceptance. Do not i
 business delivery from transport health. Preserve private operational evidence and the active plan
 until owner pairing, commands, provider replies and card interaction are verified.
 
-Remote activation uses the existing official managed release and Feishu upgrade workflow. The
-accepted Desktop bundle, working credentials and concurrent unrelated main-checkout edits remain
-outside this repair's mutation scope.
+Official server check, dry-run, upgrade and verify passed for `feb434db965a`; official Feishu
+upgrade and verify then passed. The active and desired runtime digest match the inspected artifact,
+with service, WebSocket and Core connected and no update remaining. Worker verification passed.
+No Desktop replacement or credential re-enrollment occurred. One private one-time owner pairing
+command has been prepared for the user; approval and real business acceptance remain pending.
+
+The concurrent main-checkout source and review-index edits remain untouched. This repair and its
+evidence are retained on the dedicated branch until integration can preserve that ongoing work.
