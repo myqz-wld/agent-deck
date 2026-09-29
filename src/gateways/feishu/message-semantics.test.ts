@@ -25,7 +25,10 @@ function rawEvent(text: string, group = false, mentions = group ? [botMention] :
       event_type: 'im.message.receive_v1', create_time: String(now * 1000), token: 'fixture_token',
     },
     event: {
-      sender: { sender_id: { open_id: credential.openId }, sender_type: 'user', tenant_key: credential.tenantKey },
+      sender: {
+        sender_id: { open_id: credential.openId, union_id: 'on_fixture', user_id: null },
+        sender_type: 'user', tenant_key: credential.tenantKey,
+      },
       message: {
         message_id: 'om_text', create_time: String(now), chat_id: 'chat-1',
         chat_type: group ? 'group' : 'p2p', message_type: 'text', content: JSON.stringify({ text }), mentions,

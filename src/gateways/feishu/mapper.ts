@@ -134,7 +134,7 @@ function validateMentions(value: unknown, options: FeishuEventMapperOptions): st
       fail('invalid_event', `message.mentions[${index}].id is empty`);
     }
     for (const field of ['open_id', 'union_id', 'user_id'] as const) {
-      if (id[field] !== undefined) token(id[field], `message.mentions[${index}].id.${field}`);
+      if (id[field] != null) token(id[field], `message.mentions[${index}].id.${field}`);
     }
     if (mention.tenant_key !== undefined) token(mention.tenant_key, `message.mentions[${index}].tenant_key`);
     if (mention.mentioned_type !== undefined) bounded(mention.mentioned_type, `message.mentions[${index}].mentioned_type`, 32);
@@ -171,8 +171,9 @@ export function mapFeishuMessageEvent(
   const senderId = record(sender.sender_id, 'sender.sender_id');
   exact(senderId, ['open_id', 'union_id', 'user_id'], ['open_id'], 'sender.sender_id');
   const openId = token(senderId.open_id, 'sender.sender_id.open_id');
+  // Feishu returns null for optional ids unavailable to the current application.
   for (const field of ['union_id', 'user_id'] as const) {
-    if (senderId[field] !== undefined) token(senderId[field], `sender.sender_id.${field}`);
+    if (senderId[field] != null) token(senderId[field], `sender.sender_id.${field}`);
   }
 
   const message = record(raw.message, 'message');
@@ -316,7 +317,7 @@ export function mapFeishuCardActionEvent(
   }
   const openId = token(operator.open_id, 'operator.open_id');
   for (const field of ['union_id', 'user_id'] as const) {
-    if (operator[field] !== undefined) token(operator[field], `operator.${field}`);
+    if (operator[field] != null) token(operator[field], `operator.${field}`);
   }
   const displayName = operator.name === undefined ? undefined : bounded(operator.name, 'operator.name', 256);
   const context = record(raw.context, 'context');

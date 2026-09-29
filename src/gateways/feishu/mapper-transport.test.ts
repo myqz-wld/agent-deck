@@ -167,6 +167,44 @@ describe('strict Feishu SDK event mapping', () => {
       .toMatchObject({ kind: 'card-action', action: { action: 'approve' } });
   });
 
+  it('accepts unavailable optional user ids in sender, mention and card identities', () => {
+    const raw = rawMessage({ token: '' });
+    raw.sender = {
+      ...(raw.sender as object),
+      sender_id: { open_id: 'ou_owner_1', union_id: null, user_id: null },
+    };
+    raw.message = {
+      ...(raw.message as object),
+      mentions: [{ key: '@_user_1', id: { open_id: 'ou_bot_1', union_id: null, user_id: null } }],
+    };
+    expect(mapFeishuMessageEvent(raw, options).event).toMatchObject({ openId: 'ou_owner_1' });
+    const card = rawCard();
+    card.operator = { ...(card.operator as object), union_id: null, user_id: null };
+    expect(mapFeishuCardActionEvent(card, options).event).toMatchObject({ openId: 'ou_owner_1' });
+  });
+
+  it.each([false, 0, {}, [], '', 'bad\nid'])('rejects malformed present optional user ids: %j', (userId) => {
+    const raw = rawMessage();
+    raw.sender = { ...(raw.sender as object), sender_id: { open_id: 'ou_owner_1', user_id: userId } };
+    expect(() => mapFeishuMessageEvent(raw, options))
+      .toThrow(expect.objectContaining({ code: 'invalid_event' }));
+  });
+
+  it('still requires the sender and card operator open id and a nonempty mention identity', () => {
+    const raw = rawMessage();
+    raw.sender = { ...(raw.sender as object), sender_id: { open_id: null, user_id: null } };
+    expect(() => mapFeishuMessageEvent(raw, options))
+      .toThrow(expect.objectContaining({ code: 'invalid_event' }));
+    const card = rawCard();
+    card.operator = { ...(card.operator as object), open_id: null, user_id: null };
+    expect(() => mapFeishuCardActionEvent(card, options))
+      .toThrow(expect.objectContaining({ code: 'invalid_event' }));
+    const mention = rawMessage();
+    mention.message = { ...(mention.message as object), mentions: [{ key: '@_user_1', id: { open_id: null, user_id: null, union_id: null } }] };
+    expect(() => mapFeishuMessageEvent(mention, options))
+      .toThrow(expect.objectContaining({ code: 'invalid_event' }));
+  });
+
   it.each([undefined, null, false, 0, {}, [], 'bad\ntoken', 'x'.repeat(513)])(
     'rejects malformed verification tokens without weakening the callback contract: %j',
     (token) => {
