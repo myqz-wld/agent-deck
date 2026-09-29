@@ -129,3 +129,22 @@ to preserve concurrent unrelated uncommitted documentation changes without stash
   `.ref/plans/grok-credential-projection-refresh.md` and the two private Relay probes until then.
 - No current source file in this scope needs a size exemption. No Relay Server redeployment is
   required because this fix changes the local Worker/Core and host supervisor.
+
+
+## Local artifact cleanup (2026-09-29)
+
+At the user's request, remove unused reproducible main/preload/renderer, headless, Feishu runtime,
+macOS helper outputs and packaging scratch from `build/`: 247 regular files, about 836 MiB.
+Directory usage decreased from about 2.3 GiB to 1.5 GiB; `.ref` decreased from 24 KiB to 16 KiB.
+No build/test command or open file under
+that directory was found before cleanup. The installed application and services were preserved.
+
+Keep the credential-fix package above and move the older root-level installer into
+`build/dist/installed-001a044e/` for rollback until replacement acceptance. Its metadata and
+`app.asar` match the installed clean `001a044e` application; both retained DMG checksums were verified
+after cleanup. The retained directories include build metadata and checksums and stay under the
+explicitly packaging-excluded `build/dist/` subtree. `build/dist/README.md` explains their purpose.
+
+Compress the non-final `.ref` plan to current status, invariants, evidence links and next actions;
+keep its two Relay probes because installed activation remains pending. No final record or required
+acceptance script was deleted. Generated outputs can be recreated through the project build commands.
