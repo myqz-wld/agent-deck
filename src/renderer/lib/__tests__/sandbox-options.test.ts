@@ -48,7 +48,7 @@ describe('sandbox option copy', () => {
     expect(PERMISSION_OPTIONS[4]?.title).toBe(
       'Claude Code 全程不再询问任何工具调用；系统沙盒（若启用）仍生效',
     );
-    expect(PERMISSION_OPTIONS[4]?.warning).toBe(true);
+    expect(PERMISSION_OPTIONS[4]?.warning).toBeFalsy();
   });
 
   it('orders Codex approval policies from strict interaction to no prompts', () => {

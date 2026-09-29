@@ -25,7 +25,6 @@ export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; t
   },
   {
     value: 'bypassPermissions',
-    warning: true,
     label: '不再询问（仍在系统沙盒内）',
     title: 'Claude Code 全程不再询问任何工具调用；系统沙盒（若启用）仍生效',
   },

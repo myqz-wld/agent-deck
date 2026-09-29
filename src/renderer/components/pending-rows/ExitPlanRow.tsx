@@ -29,7 +29,7 @@ const TARGET_MODE_OPTIONS: { value: TargetMode; label: string; title?: string; w
   { value: 'acceptEdits', label: '自动接受编辑', title: '自动允许文件编辑；其他工具仍需询问' },
   { value: 'plan', label: '继续计划模式', title: '保持计划模式，不执行任何工具' },
   { value: 'auto', label: '自动判断', title: '由 Claude Code 的权限分类器自动允许或拒绝' },
-  { value: 'bypassPermissions', label: '不再询问', title: '不再询问任何工具调用；需要重启会话', warning: true },
+  { value: 'bypassPermissions', label: '不再询问', title: '不再询问任何工具调用；需要重启会话' },
 ];
 
 /**
