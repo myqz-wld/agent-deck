@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { atomicWrite } from './artifacts';
 import { loadInstance } from './instance-reader';
@@ -198,6 +198,20 @@ describe('durable operation recovery', () => {
     const { harness } = await interruptedRelayCutover('healthy');
     await expect(harness.manager.stop({ topology: 'relay', instanceId: 'tenant-a' })).resolves.toMatchObject({ generation: 2, currentVersion: 'v2' });
     expect(harness.fileSystem.exists('/srv/manager-journals/relay/tenant-a.journal.json')).toBe(false);
+  });
+
+  it('recovers and verifies a running target without a startup-only socket probe', async () => {
+    const { harness } = await interruptedRelayCutover('healthy');
+    const run = harness.commands.run.bind(harness.commands);
+    vi.spyOn(harness.commands, 'run').mockImplementation(async (request) => {
+      if (request.args.includes('--control-dir')) throw new Error('existing control socket');
+      return run(request);
+    });
+    const calls = harness.systemd.calls.length;
+    await expect(harness.manager.start({ topology: 'relay', instanceId: 'tenant-a' }))
+      .resolves.toMatchObject({ generation: 2, currentVersion: 'v2', systemd: { activeState: 'active' } });
+    expect(harness.fileSystem.exists('/srv/manager-journals/relay/tenant-a.journal.json')).toBe(false);
+    expect(harness.systemd.calls.slice(calls).some((call) => /^(start|stop|reload)/.test(call))).toBe(false);
   });
 });
 

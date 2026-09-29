@@ -2,7 +2,7 @@ import type { InstanceManagerContext } from './context';
 import type { InstancePaths } from './paths';
 import { evidencePaths, revalidateEvidence, validateStartEvidence } from './evidence';
 import { loadInstance, revalidateLoadedArtifacts, type LoadedInstance } from './instance-reader';
-import { runStartPreflight } from './preflight';
+import { runStartPreflight, validateTemplateAndRendered } from './preflight';
 import { validateImageAvailable } from './create';
 import { waitForHealthyContainer } from './container-health';
 import { verifyFullRuntimeConfig } from './full-runtime-config';
@@ -103,6 +103,22 @@ export async function startInstance(
     trustedRootUid: context.trustedRootUid,
     maxAgeMs: context.limits.maxEvidenceAgeMs,
   });
+  await validateTemplateAndRendered({
+    topology: loaded.record.topology, paths: loaded.paths,
+    renderedArtifactPath: loaded.current.unitBackupPath, context,
+  });
+  const before = await statusLoaded(context, loaded);
+  if (before.activeState === 'active') {
+    if (loaded.record.topology === 'relay' && !(await context.ports.fileSystem.lstat(loaded.paths.runtimeDirectory))) {
+      fail('tampered', 'active Relay is missing its runtime directory');
+    }
+    await revalidateEvidence(context.ports.fileSystem, evidenceSnapshots, context.ports.clock, context.limits.maxEvidenceAgeMs);
+    await revalidateLoadedArtifacts({ loaded, ports: context.ports, maxArtifactBytes: context.limits.maxArtifactBytes, serviceUid: context.serviceUid });
+    await waitForHealthyContainer(context, { name: loaded.paths.containerName, image: loaded.current.image });
+    const systemd = await statusLoaded(context, loaded);
+    if (systemd.activeState !== 'active') fail('health_failed', 'exact instance stopped during verification');
+    return { ...summary(loaded), systemd };
+  }
   const evidence = evidencePaths(loaded.record.topology, loaded.paths);
   if (loaded.record.topology === 'relay' &&
       !(await context.ports.fileSystem.lstat(loaded.paths.runtimeDirectory))) {

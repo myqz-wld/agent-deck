@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createHarness,
@@ -8,6 +8,22 @@ import {
 } from './test-fixtures';
 
 describe('LinuxInstanceManager create and lifecycle', () => {
+  it('verifies an already-running Relay without replaying singleton startup checks or restarting it', async () => {
+    const harness = createHarness();
+    const selector = { topology: 'relay' as const, instanceId: 'tenant-a' };
+    await harness.manager.create({ ...selector, version: 'v1', image: DIGEST_A, runtimeConfig: {} });
+    seedEvidence(harness, 'relay', 'tenant-a');
+    await harness.manager.start(selector);
+    const run = harness.commands.run.bind(harness.commands);
+    const calls = harness.systemd.calls.length;
+    vi.spyOn(harness.commands, 'run').mockImplementation(async (request) => {
+      if (request.args.includes('--control-dir')) throw new Error('existing control socket');
+      return run(request);
+    });
+    await expect(harness.manager.start(selector)).resolves.toMatchObject({ systemd: { activeState: 'active' } });
+    expect(harness.systemd.calls.slice(calls).some((call) => /^(start|stop|reload)/.test(call))).toBe(false);
+  });
+
   it('creates, lists, starts, stops, and reports only exact instance units', async () => {
     const harness = createHarness();
     await harness.manager.create({

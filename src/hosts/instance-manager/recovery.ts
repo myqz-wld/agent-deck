@@ -2,11 +2,11 @@ import { cleanupCreatedPaths, requireCanonicalFile, validateExactTreeSnapshot } 
 import type { InstanceManagerContext } from './context';
 import { exactLabels, volumeLabels } from './create';
 import { advanceJournal, clearJournal, readJournal, type StoredJournal } from './journal';
-import { evidencePaths, revalidateEvidence, validateStartEvidence } from './evidence';
+import { revalidateEvidence, validateStartEvidence } from './evidence';
 import { loadInstance } from './instance-reader';
 import { assertExactLoadedUnitStatus } from './lifecycle';
 import { fullVolumeNames, resolveInstancePaths } from './paths';
-import { runStartPreflight } from './preflight';
+import { validateTemplateAndRendered } from './preflight';
 import { canonicalJson, decodeRecord, encodeRecord, sha256 } from './serialization';
 import type { ExactTreeSnapshot, InstanceSelector, PodmanVolumeInspection } from './types';
 import { atomicWrite } from './artifacts';
@@ -119,8 +119,9 @@ async function recoverHealthyChange(context: InstanceManagerContext, stored: Sto
   const targetVersion = target.record.versions.find((version) => version.version === target.version);
   if (!targetVersion) fail('recovery_required', 'cutover journal target version is missing');
   const evidence = await validateStartEvidence({ topology: paths.topology, paths, generation: target.record.generation, version: targetVersion, fileSystem: context.ports.fileSystem, clock: context.ports.clock, serviceUid: context.serviceUid, trustedRootUid: context.trustedRootUid, maxAgeMs: context.limits.maxEvidenceAgeMs });
-  const preflightEvidence = evidencePaths(paths.topology, paths);
-  await runStartPreflight({ topology: paths.topology, paths, renderedArtifactPath: targetVersion.unitBackupPath, egressEvidencePath: preflightEvidence[0], quotaEvidencePath: preflightEvidence[1], context });
+  // This target is already running. Startup's singleton probe intentionally rejects its socket.
+  // Validate trusted templates/artifacts and acceptance evidence, then attest live identity/health.
+  await validateTemplateAndRendered({ topology: paths.topology, paths, renderedArtifactPath: targetVersion.unitBackupPath, context });
   await revalidateEvidence(context.ports.fileSystem, evidence, context.ports.clock, context.limits.maxEvidenceAgeMs);
   const unit = await exactFileDigest(context, paths.unitPath, target.unitSha256, 0o444);
   const config = await exactFileDigest(context, paths.configFile, target.configSha256, 0o600);
