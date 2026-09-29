@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertInstalledAppStopped, stopInstalledApp } from './local-macos-processes.mjs';
 
 const PRODUCT_NAME = 'Agent Deck';
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -57,19 +58,6 @@ function run(command, args, options = {}) {
   }
 }
 
-function stopInstalledApp() {
-  for (const pattern of [
-    'Agent Deck.app/Contents/MacOS/Agent Deck',
-    'Agent Deck Helper',
-  ]) {
-    const result = spawnSync('/usr/bin/pkill', ['-f', pattern], { stdio: 'ignore' });
-    if (result.error) throw result.error;
-    if (result.status !== 0 && result.status !== 1) {
-      throw new Error(`pkill failed for ${pattern} with exit code ${result.status}`);
-    }
-  }
-}
-
 function ensureCliLink(expectedTarget) {
   if (symlinkMatches(cliLink, expectedTarget)) {
     console.log(`[local-install] reusing ${cliLink}`);
@@ -110,7 +98,7 @@ function validateInstalledApp() {
   );
 }
 
-function installPackagedApp(sourceApp) {
+async function installPackagedApp(sourceApp, stopRunning) {
   rmSync(stagingApp, { recursive: true, force: true });
   rmSync(previousApp, { recursive: true, force: true });
 
@@ -119,7 +107,8 @@ function installPackagedApp(sourceApp) {
   run('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', stagingApp]);
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', stagingApp]);
 
-  stopInstalledApp();
+  if (stopRunning) await stopInstalledApp(installedApp);
+  assertInstalledAppStopped(installedApp);
   if (existsSync(installedApp)) renameSync(installedApp, previousApp);
   renameSync(stagingApp, installedApp);
 
@@ -139,23 +128,33 @@ function installPackagedApp(sourceApp) {
 }
 
 export function printHelp() {
-  console.log(`Usage: pnpm install:local:mac
+  console.log(`用法：pnpm install:local:mac [--stop-running]
 
-Build, validate, and install Agent Deck on macOS. After successful installation, the unpacked
-build/dist/mac-*/Agent Deck.app is removed so Spotlight indexes only /Applications/Agent Deck.app.
+构建、验证并安装 macOS 版 Agent Deck。默认要求先退出应用；
+--stop-running 明确允许退出 /Applications/Agent Deck.app，可能中断应用内的当前会话。
+该选项会先请求正常退出，再按完整可执行路径、PID 和启动时间核实目标后发送 SIGTERM。
+无法确认身份或退出超时会取消安装。
 
-If the running app must not be stopped, run pnpm dist:mac instead; packaging alone never installs.`);
+安装成功后删除 build/dist/mac-*/Agent Deck.app，保留 DMG。
+仅打包而不安装，请运行 pnpm dist:mac。`);
 }
 
-export function main(args = process.argv.slice(2)) {
+export function parseInstallArgs(args) {
+  if (args.length === 0) return { stopRunning: false };
+  if (args.length === 1 && args[0] === '--stop-running') return { stopRunning: true };
+  throw new Error(`无法识别参数：${args.join(' ')}；使用 --help 查看用法。`);
+}
+
+export async function main(args = process.argv.slice(2)) {
   if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) {
     printHelp();
     return;
   }
-  if (args.length > 0) throw new Error(`unexpected argument: ${args[0]}`);
+  const { stopRunning } = parseInstallArgs(args);
   if (process.platform !== 'darwin') {
     throw new Error('local Agent Deck installation is supported only on macOS');
   }
+  if (!stopRunning) assertInstalledAppStopped(installedApp);
 
   const sourceApp = packagedAppPath(repoRoot, process.arch);
   rmSync(distRoot, { recursive: true, force: true });
@@ -163,14 +162,12 @@ export function main(args = process.argv.slice(2)) {
   if (!existsSync(sourceApp)) {
     throw new Error(`packaged application is missing after pnpm dist:mac: ${sourceApp}`);
   }
-  installPackagedApp(sourceApp);
+  await installPackagedApp(sourceApp, stopRunning);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  try {
-    main();
-  } catch (error) {
+  main().catch((error) => {
     console.error(`[local-install] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
-  }
+  });
 }

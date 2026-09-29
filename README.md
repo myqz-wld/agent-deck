@@ -82,6 +82,11 @@ release actions require a clean, committed, pushed, and upstream-aligned checkou
 Quit Agent Deck before a local install. Build installers on the matching host OS; cross-platform
 packaging is not supported. See [CLAUDE.md](CLAUDE.md) for the full development workflow.
 
+Local installation refuses to replace a running app by default. From an external terminal,
+`pnpm install:local:mac --stop-running` explicitly permits quitting `/Applications/Agent Deck.app`.
+It requests a graceful exit, then rechecks executable paths, PIDs, and start times before a bounded
+SIGTERM fallback. Changed process identities or an exit timeout cancel installation.
+
 Bundled provider versions: Claude Agent SDK `0.3.283` (Claude Code `2.1.283`), Codex CLI
 `0.158.0`, and Grok `1.0.41`. Supporting libraries use Anthropic SDK `0.128.0`, ACP SDK `1.5.1`,
 and MCP SDK `1.30.1`.

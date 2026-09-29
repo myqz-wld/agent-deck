@@ -7,11 +7,21 @@ import { afterEach, describe, it } from 'vitest';
 import {
   macOutputDirectory,
   packagedAppPath,
+  parseInstallArgs,
   resolvedSymlinkTarget,
   symlinkMatches,
 } from './install-local-macos.mjs';
 
 const temporaryRoots = [];
+
+describe('local macOS install authorization', () => {
+  it('requires an explicit option before stopping the installed app', () => {
+    assert.deepEqual(parseInstallArgs([]), { stopRunning: false });
+    assert.deepEqual(parseInstallArgs(['--stop-running']), { stopRunning: true });
+    assert.throws(() => parseInstallArgs(['--force']), /无法识别参数/);
+    assert.throws(() => parseInstallArgs(['--stop-running', '--stop-running']), /无法识别参数/);
+  });
+});
 
 afterEach(() => {
   for (const root of temporaryRoots.splice(0)) {
