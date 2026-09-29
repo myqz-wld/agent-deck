@@ -63,9 +63,15 @@ matching runtime digests and healthy Worker, WebSocket and Core connections. Rea
 failed on the nullable ID, so transport health was not accepted as business delivery evidence.
 
 The second repair and the latest main branch are integrated on the repair branch. Both review
-index entries were retained. Source and artifact validation passed; managed activation must finish
-before fresh owner pairing. The old unused pairing code expired and its plaintext was removed;
-no owner request has been approved.
+index entries were retained. Official Server check, dry-run, upgrade and verify passed for
+`9dee12dd3c32ec703beaeb4ba5e5dd5dbf41fbf5`. Official Feishu upgrade/verify and Worker verify passed.
+Active and desired Feishu digests match the inspected artifact; no runtime update remains, and
+service, WebSocket and restricted Core connections are healthy. Rebuilt artifact hashes also
+match the pre-release audit. No Desktop replacement or credential re-enrollment occurred.
+
+The old unused pairing code expired and its plaintext was removed. A fresh one-time pairing
+command was placed only in the local clipboard and private temporary storage for the owner.
+The official pre-create list contained no requests; approval and business acceptance are pending.
 
 Retain the active Feishu plan until private-chat commands, a real provider response and a harmless
 card action are verified. The redacted SDK error accompanying rejected events is not independently
