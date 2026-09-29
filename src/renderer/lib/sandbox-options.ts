@@ -15,7 +15,7 @@ export type ClaudeSandboxMode = ClaudeSandboxChoice;
 export type GrokSandboxChoice = string;
 
 export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; title?: string; warning?: boolean }[] = [
-  { value: 'plan', label: '计划模式（只规划）', title: '只生成计划，不执行任何工具调用' },
+  { value: 'plan', label: '计划模式', title: '只生成计划，不执行任何工具调用' },
   { value: 'default', label: '手动确认', title: '每次工具调用前都询问你是否允许' },
   { value: 'acceptEdits', label: '自动接受文件编辑', title: '自动允许文件编辑；其他工具仍需询问' },
   {
@@ -25,7 +25,7 @@ export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; t
   },
   {
     value: 'bypassPermissions',
-    label: '不再询问（仍在系统沙盒内）',
+    label: '不再询问',
     title: 'Claude Code 全程不再询问任何工具调用；系统沙盒（若启用）仍生效',
   },
 ];
