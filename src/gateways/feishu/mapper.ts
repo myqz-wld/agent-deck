@@ -105,7 +105,9 @@ function commonHeader(
   if (appId !== options.appId || tenantKey !== options.tenantKey) {
     fail('access_denied', 'Feishu callback does not match the pinned app and tenant');
   }
-  bounded(raw.token, 'event.token', 512);
+  // App-authenticated long connections can carry an empty webhook verification token.
+  // Binding and user authorization remain mandatory; the token is only metadata here.
+  if (raw.token !== '') bounded(raw.token, 'event.token', 512);
   return {
     appId,
     tenantKey,

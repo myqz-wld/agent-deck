@@ -56,9 +56,10 @@ function sdkFixture() {
     'im.message.receive_v1': (event) => adapter.onMessage(event),
   });
   let eventSequence = 0;
-  const send = async (text: string, group = false) => {
+  const send = async (text: string, group = false, verificationToken = 'fixture_token') => {
     const event = rawEvent(text, group);
     event.header.event_id = `evt_${++eventSequence}`;
+    event.header.token = verificationToken;
     event.event.message.message_id = `om_${eventSequence}`;
     // Exercise the installed SDK's wire normalization with synthetic authenticated events.
     await dispatcher.invoke(event, { needCheck: false });
@@ -67,6 +68,15 @@ function sdkFixture() {
 }
 
 describe('Feishu message text and addressed commands', () => {
+  it('delivers an authenticated long-connection command with an empty header token through the SDK', async () => {
+    const f = sdkFixture();
+    try {
+      await f.send('/help', false, '');
+      expect(f.transport.messages).toHaveLength(1);
+      expect(f.transport.messages[0].text).toContain('/sessions');
+    } finally { await f.gateway.close(); }
+  });
+
   it('runs mention-addressed select and unsubscribe through the SDK and real gateway', async () => {
     const f = sdkFixture();
     try {

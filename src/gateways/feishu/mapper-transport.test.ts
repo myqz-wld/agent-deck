@@ -160,6 +160,34 @@ describe('strict Feishu SDK event mapping', () => {
     });
   });
 
+  it('accepts the empty verification token sent over authenticated long connections', () => {
+    expect(mapFeishuMessageEvent(rawMessage({ token: '' }), options).event)
+      .toMatchObject({ kind: 'message', openId: 'ou_owner_1', text: '/sessions' });
+    expect(mapFeishuCardActionEvent({ ...rawCard(), token: '' }, options).event)
+      .toMatchObject({ kind: 'card-action', action: { action: 'approve' } });
+  });
+
+  it.each([undefined, null, false, 0, {}, [], 'bad\ntoken', 'x'.repeat(513)])(
+    'rejects malformed verification tokens without weakening the callback contract: %j',
+    (token) => {
+      expect(() => mapFeishuMessageEvent(rawMessage({ token }), options))
+        .toThrow(expect.objectContaining({ code: 'invalid_event' }));
+      expect(() => mapFeishuCardActionEvent({ ...rawCard(), token }, options))
+        .toThrow(expect.objectContaining({ code: 'invalid_event' }));
+    },
+  );
+
+  it('keeps exact app and tenant binding when the verification token is empty', () => {
+    expect(() => mapFeishuMessageEvent(rawMessage({ token: '', app_id: 'cli_foreign' }), options))
+      .toThrow(expect.objectContaining({ code: 'access_denied' }));
+    expect(() => mapFeishuCardActionEvent({ ...rawCard(), token: '', tenant_key: 'foreign' }, options))
+      .toThrow(expect.objectContaining({ code: 'access_denied' }));
+    const missing = rawMessage();
+    delete missing.token;
+    expect(() => mapFeishuMessageEvent(missing, options))
+      .toThrow(expect.objectContaining({ code: 'invalid_event' }));
+  });
+
   it.each([
     [rawMessage({ tenant_key: 'another_tenant' }), 'access_denied'],
     [rawMessage({ surprise: true }), 'unknown_field'],
