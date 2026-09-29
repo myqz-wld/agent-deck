@@ -15,6 +15,8 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-09-29 | `REVIEW_291_feishu-startup-prerequisites.md` | Correct HTTPS preflight and wait for Feishu readiness | 2 MEDIUM fixed; server activation pending |
+| 2026-09-29 | `REVIEW_290_browser-styled-controls-monaco.md` | Expose styled controls and update real Monaco content | 2 MEDIUM fixed; desktop activation deferred |
 | 2026-09-29 | `REVIEW_289_inline-diff-readiness.md` | Tighten diff spacing and share loading grace | 1 MEDIUM / 1 LOW fixed and installed |
 | 2026-09-29 | `REVIEW_288_hosted-app-replacement.md` | Preserve packages and quiesce managed jobs before replacement | 2 MEDIUM fixed; installation accepted |
 | 2026-09-29 | `REVIEW_287_grok-credential-projection-refresh.md` | Refresh Grok credentials and restore the headless gate | 2 MEDIUM / 2 LOW fixed; issue resolved |
