@@ -30,5 +30,8 @@ no additional copy-mirroring tests were added. Changed files remain below 500 li
 
 ## Residual risk and follow-ups
 
-No remaining source concern for this presentation change. Packaged Desktop activation is deferred
-under the user's existing instruction; the hosting application was not rebuilt or restarted.
+No remaining source concern for this presentation change. The user subsequently authorized Desktop
+replacement, completed with clean `6d4d44ad` on 2026-09-29. Inspection of the installed renderer
+bundle confirms the base labels, absent parenthetical annotations and absent no-prompt warning
+marker. Source tests establish the shared/native selector behavior; no additional live selector
+screenshot is claimed. See [installed acceptance](../../plans/recent-3-days/PLAN_64_feishu-desktop-activation.md).

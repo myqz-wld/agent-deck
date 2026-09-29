@@ -56,8 +56,13 @@ remain unchanged.
 
 ## Residual risk and follow-ups
 
-This is source and isolated-fixture acceptance. The hosting application still uses its previously
-installed bundle: the user explicitly deferred repackaging and will handle unsupported live UI
-actions manually. Activate this repair only through a later authorized application update. The
-fixture covers Monaco's textarea path, not every rich-editor implementation or custom paste plugin.
-The Browser issue can be resolved as a source repair with this activation limit recorded.
+The user subsequently authorized Desktop replacement, completed with clean `6d4d44ad` on
+2026-09-29. Installed archive identity and signature passed. Through the installed session-scoped
+Browser CLI, the local fixture exposed and toggled its transparent labeled checkbox and accepted
+Unicode JSON into the actual Monaco model. The fixture tab and server were removed afterward.
+The Browser issue remains resolved, now with installed activation evidence.
+
+The fixture covers Monaco's textarea path, not every rich-editor implementation or custom paste
+plugin. The Feishu console's plain callback-tab div has no supported interaction marker and still
+needs a bounded manual navigation step. This does not broaden the repaired control-recognition
+contract. See [installed acceptance](../../plans/recent-3-days/PLAN_64_feishu-desktop-activation.md).

@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-29 | `PLAN_64_feishu-desktop-activation.md` | completed | Install Browser/menu repairs and verify managed runtime health | `REVIEW_290_browser-styled-controls-monaco.md` |
 | 2026-09-29 | `PLAN_63_grok-credential-installed-acceptance.md` | completed | Install fixes and accept Worker/Relay health | `REVIEW_287_grok-credential-projection-refresh.md` |
 | 2026-09-29 | `PLAN_62_inline-file-diffs.md` | completed | Inline file changes and shared provider diff views | `CHANGELOG_654_inline-file-diffs.md` |
 | 2026-09-29 | `PLAN_61_ui-icons-lightbox-controls.md` | completed | Unify UI icons and refine image-preview controls | `CHANGELOG_653_ui-icons-lightbox-controls.md` |
