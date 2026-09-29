@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 
 import { verifyLocalWorkerBundle } from './check-local-worker-bundle.mjs';
+import { verifyFeishuWebSocketBundle } from './check-feishu-websocket-bundle.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const outputRoot = resolve(repoRoot, 'build/linux-headless');
@@ -41,6 +42,8 @@ async function buildAllRoles() {
       cacheDir: resolve(outputRoot, '.vite-cache', role),
       logLevel: 'warn',
       resolve: { alias: aliases },
+      // Vite stubs absent optional peers with empty exports. Keep ws' JS masking path.
+      define: role === 'feishu' ? { 'process.env.WS_NO_BUFFER_UTIL': '"1"' } : undefined,
       ssr: ['feishu', 'server-core-runtime', 'local-worker-runtime', 'local-worker'].includes(role)
         ? { external: ['better-sqlite3'], noExternal: true }
         : { external: ['better-sqlite3'] },
@@ -100,4 +103,5 @@ if (JSON.stringify(first) !== JSON.stringify(second)) {
   throw new Error(`Linux headless build is not reproducible: ${changed.join(', ')}`);
 }
 verifyLocalWorkerBundle();
+verifyFeishuWebSocketBundle();
 process.stdout.write('Linux 无界面 Node 构建与可复现性校验已完成。\n');

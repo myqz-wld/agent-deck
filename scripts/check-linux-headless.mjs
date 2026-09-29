@@ -9,6 +9,7 @@ import { dirname, extname, relative, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 import { verifyLocalWorkerBundle } from './check-local-worker-bundle.mjs';
+import { verifyFeishuWebSocketBundle } from './check-feishu-websocket-bundle.mjs';
 
 import {
   LINUX_HEADLESS_SOURCE_ROOTS,
@@ -37,6 +38,7 @@ for (const root of LINUX_HEADLESS_SOURCE_ROOTS) {
 
 const { packageFixture, builtManifest } = verifyLinuxPackageAndRuntimeArtifacts();
 verifyLocalWorkerBundle();
+verifyFeishuWebSocketBundle();
 
 for (const entry of Object.values(builtManifest.entries)) {
   if (!statSync(resolve(outputRoot, entry), { throwIfNoEntry: false })?.isFile()) {
