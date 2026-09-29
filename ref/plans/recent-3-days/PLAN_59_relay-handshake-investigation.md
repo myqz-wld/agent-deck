@@ -1,13 +1,14 @@
 ---
 plan_id: PLAN_59
 title: Relay handshake investigation
-status: handed-off-with-worker-rollout-pending
+status: completed
 created_at: 2026-09-28
-updated_at: 2026-09-28
-completed_at: 2026-09-28
+updated_at: 2026-09-29
+completed_at: 2026-09-29
 base_commit: e3bdf2b4738168b587a09b30b3e585309a7fd472
 validated_source: b9ee1bd71af44e3b90aab5d94dece332a1f33daf
 deployed_release: git-b9ee1bd71af4
+installed_worker_commit: 001a044ee1ea7491385e1e15b049eeb65c96e3ae
 related_review: REVIEW_282
 ---
 
@@ -36,32 +37,38 @@ credentials, runtime data, current/rollback images, and the hosting Desktop appl
 6. Completed official Relay check, dry-run, upgrade, and verify. Generation 20 runs the repaired
    server; `git-54a19a9de6a5` remains the rollback release. Final disk usage is 89%, with about
    816 MiB available after the upgrade. Worker and Provider supervisor verification passes.
+7. Merged and pushed the repair and records to `main`, removed the isolated worktree and both
+   temporary branch refs, and preserved unrelated work. The user subsequently reinstalled the app.
+8. Verified the newly installed Worker includes the repair and is running. Completed 33 live
+   connection/read/close cycles with retries disabled, including 23 held-client isolation cycles,
+   with zero failures, no SSH attachment replacement, and no new Worker log output.
+9. Found and atomically refreshed an expired Worker-local Grok credential copy using the supported
+   credential installation command. All three adapters were available afterward. Recorded a separate
+   follow-up for automatic synchronization and deployed-copy health verification.
 
-## Validation boundary and remaining work
+## Final acceptance and limits
 
-The installed Worker remains on the old packaged runtime. With only the Relay endpoint updated,
-the held-client probe failed on its second cycle and the Worker SSH child reconnected. Production
-churn testing stopped at that failure. This is consistent with the Worker regression; no new
-Worker stderr entries captured a live frame trace. The handshake issue is not fully accepted.
+The earlier server-only rollout failed the held-client probe on cycle two while the old Worker
+was still installed. After the user installed clean build `001a044e`, the scoped source files were
+confirmed unchanged from the validated repair and both endpoints passed live acceptance. The
+Worker, supervisor, and Worker SSH child kept their process identities throughout the recheck,
+including the credential refresh. No application or service restart was needed for this check.
 
-The user redirected the final step to merge the work into `main`, then remove the worktree and
-branch. This handoff closes the isolated investigation without claiming that Worker rollout is
-complete. A later installation must verify the current app version and exact process identities,
-obtain explicit approval under Host Runtime Safety before stopping/replacing/relaunching the
-hosting application, and restore the exact managed Worker and supervisor through supported
-lifecycle entrypoints. KeepAlive services must be stopped before replacing their shared bundle.
+The original handshake repair and rollout are complete. The source credential can refresh while
+its private Worker projection expires; the official health check did not distinguish that state.
+Follow-up issue `611fdd74-7a9f-4f61-af96-d85961696739` tracks synchronization, deployed-copy
+validation, and accurate availability reasons. The one-time credential refresh here does not
+provide automatic renewal.
 
-After both endpoints are updated, repeat no-retry handshakes and keep an independent connection
-online during connection churn. Provider model turns and a host reboot remain outside the
-completed acceptance. Full evidence is in
+Provider model turns and a host reboot remain outside the completed acceptance. Full evidence is in
 [REVIEW_282](../../reviews/recent-3-days/REVIEW_282_relay-stream-retirement-isolation.md).
 
-## Preserved local materials
+## Evidence and cleanup
 
-- Validated DMG: `build/dist/relay-stream-retirement-b9ee1bd7/Agent Deck-0.1.0-arm64.dmg`.
-  SHA-256: `59ecf51501a5665f5596b4203fe8ba8d1bf1e51b25f6a1cea3fd806f9774f493`.
-- Probe: `node .ref/reviews/run-relay-live-check.mjs --isolation --count 8`, with its TypeScript
-  input alongside it. These local diagnostics remain intentionally non-final until acceptance.
+- The original prepared DMG was superseded by the user-installed build; its validation and checksum
+  remain recorded in REVIEW_282, and its old retained path is no longer present.
+- The temporary live-probe runner and TypeScript input remain intentionally non-final for the
+  credential follow-up, which the user requested implementing immediately after acceptance.
 - The private journal backup stays outside the repository under `$HOME/.agent-deck/diagnostics`;
   its adjacent `metadata.json` records the verified checksum and location. The duplicate scratch
   index was removed after confirming it matched this original metadata.
