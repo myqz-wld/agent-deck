@@ -14,6 +14,7 @@ import {
   type FeishuSubscriptionRecord,
 } from '@gateways/im';
 import { initializeFeishuMetadataSchema } from './sqlite-schema';
+import { isEmptyUnpairedBootstrapRetry } from './sqlite-bootstrap-retry';
 import {
   SqliteFeishuDeliveryStore,
   type SqliteDeliveryInput,
@@ -158,6 +159,8 @@ FeishuGatewayStore, FeishuHealthStore, FeishuPairingStore {
     if (rows.some((row) => row.credential_id === next.credentialId)) return;
     const active = rows.filter((row) => row.status === 'active');
     if (active.length !== 1) return;
+    // Reconciliation below revokes the abandoned public row and inserts the fresh credential.
+    if (isEmptyUnpairedBootstrapRetry(this.db, rows, next)) return;
     const current = active[0];
     if (
       next.replacesCredentialId !== current.credential_id ||

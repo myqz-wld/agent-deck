@@ -341,6 +341,69 @@ describe.each(['relay', 'full'] as const)('Feishu one-click server control: %s',
     expect(test.systemd.active).toBe(true);
   });
 
+  it('uses the desired runtime for a fresh connection and verifies it before starting', async () => {
+    const test = fixture(topology);
+    const nextDigest = 'b'.repeat(64);
+    createRuntimeRelease(test.paths.runtimeReleases, nextDigest);
+    writeFileSync(test.paths.runtimeDesired, `${nextDigest}\n`, { mode: 0o644 });
+    const enable = test.systemd.enableNow.bind(test.systemd);
+    vi.spyOn(test.systemd, 'enableNow').mockImplementation(() => {
+      expect(readFileSync(test.paths.runtimeActive, 'utf8')).toBe(`${nextDigest}\n`);
+      expect(test.runtimeVerifier.verifyActive).toHaveBeenCalledTimes(2);
+      enable();
+    });
+    await expect(test.service.connect(test.request)).resolves.toMatchObject({
+      status: 'connected', runtime: { activeDigest: nextDigest, updateAvailable: false },
+    });
+  });
+
+  it('does not replace an active service without a matching authority record', async () => {
+    const test = fixture(topology);
+    test.systemd.active = true;
+    await expect(test.service.connect(test.request)).rejects.toThrow('active without a matching authority');
+    expect(new ServerConnectionService(test.config).list().credentials).toEqual([]);
+    expect(test.systemd.active).toBe(true);
+    expect(readFileSync(test.paths.runtimeActive, 'utf8')).toBe(`${FIRST_RUNTIME_DIGEST}\n`);
+  });
+
+  it('restores the previous runtime when a fresh connection rolls back', async () => {
+    const test = fixture(topology);
+    const nextDigest = 'b'.repeat(64);
+    createRuntimeRelease(test.paths.runtimeReleases, nextDigest);
+    writeFileSync(test.paths.runtimeDesired, `${nextDigest}\n`, { mode: 0o644 });
+    test.systemd.failEnable = true;
+    await expect(test.service.connect(test.request)).rejects.toThrow('systemd start failed');
+    expect(readFileSync(test.paths.runtimeActive, 'utf8')).toBe(`${FIRST_RUNTIME_DIGEST}\n`);
+    expect(new ServerConnectionService(test.config).list().credentials).toEqual([
+      expect.objectContaining({ credentialId: test.request.credentialId, status: 'revoked' }),
+    ]);
+  });
+
+  it('restores the runtime without enrollment if the desired native ABI check fails', async () => {
+    const test = fixture(topology);
+    const nextDigest = 'b'.repeat(64);
+    createRuntimeRelease(test.paths.runtimeReleases, nextDigest);
+    writeFileSync(test.paths.runtimeDesired, `${nextDigest}\n`, { mode: 0o644 });
+    test.runtimeVerifier.verifyActive.mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => { throw new Error('native ABI failed'); });
+    await expect(test.service.connect(test.request)).rejects.toThrow('native ABI failed');
+    expect(readFileSync(test.paths.runtimeActive, 'utf8')).toBe(`${FIRST_RUNTIME_DIGEST}\n`);
+    expect(new ServerConnectionService(test.config).list().credentials).toEqual([]);
+    expect(test.systemd.active).toBe(false);
+  });
+
+  it('keeps an established connection on its active runtime until explicit upgrade', async () => {
+    const test = fixture(topology);
+    await test.service.connect(test.request);
+    const nextDigest = 'b'.repeat(64);
+    createRuntimeRelease(test.paths.runtimeReleases, nextDigest);
+    writeFileSync(test.paths.runtimeDesired, `${nextDigest}\n`, { mode: 0o644 });
+    await expect(test.service.connect(test.request)).resolves.toMatchObject({
+      status: 'already-connected', runtime: { activeDigest: FIRST_RUNTIME_DIGEST, updateAvailable: true },
+    });
+    expect(readFileSync(test.paths.runtimeActive, 'utf8')).toBe(`${FIRST_RUNTIME_DIGEST}\n`);
+  });
+
   it('atomically restores the prior runtime when an upgrade fails health activation', async () => {
     const test = fixture(topology);
     await test.service.connect(test.request);

@@ -19,8 +19,9 @@ grant; product entry points remain channel-specific.
 1. First deploy a healthy Relay or Full Server with the repository deployment command. The release
    installs both amd64/arm64 digest descriptors, selects the target architecture, validates the
    native SQLite ABI, creates `agent-deck-feishu`, installs the hardened unit, and publishes a
-   `desired` runtime digest. It does not enable the bot before credentials exist. A later Server
-   release keeps `active` unchanged until the explicit `feishu upgrade` transaction succeeds.
+   `desired` runtime digest. It does not enable the bot before credentials exist. A fresh connection
+   selects and verifies `desired`, restoring the previous runtime if connection fails. Established
+   connections keep `active` unchanged until the explicit `feishu upgrade` transaction succeeds.
 2. In Feishu Developer Console, create/select an enterprise custom app, enable its bot, grant the
    required receive/send/card permissions, use long-connection delivery for
    `im.message.receive_v1` and `card.action.trigger`, publish it, and install it in the tenant. These
@@ -53,6 +54,8 @@ grant; product entry points remain channel-specific.
    authorization/config transaction. A failed enrollment retains its credential id as revoked
    history; retry with a new credential id. This prevents a live Relay that already observed the
    enrollment from losing its authoritative history during rollback.
+   An abandoned unpaired gateway credential can also be replaced when no pairing or user metadata
+   exists; its local history remains revoked. Existing owner identities require explicit rotation.
    After success, the operator may remove the app-secret input file under the site's secret-retention
    policy; the sidecar has its own protected copy.
 5. Generate and approve the first owner binding:

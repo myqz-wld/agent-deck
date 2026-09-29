@@ -49,6 +49,7 @@ import {
 } from './feishu-status';
 import { SYSTEMD_CONTROL, type SystemdControlPort } from './systemd';
 import { waitForFeishuStartup } from './feishu-readiness';
+import { connectWithDesiredFeishuRuntime } from './feishu-connect-runtime';
 const CONTROL = /[\u0000-\u0020\u007f-\u009f]/u;
 export interface FeishuControlServiceOptions {
   readonly paths?: FeishuProvisioningPaths;
@@ -143,6 +144,9 @@ export class FeishuControlService {
       loaded.allCredentialIds.has(request.credentialId) ||
       loaded.records.some((entry) => entry.surface === 'feishu' && entry.status === 'active')
     ) throw new Error('An active Feishu connection already exists');
+    if (this.systemd.isActive(this.paths.serviceUnit)) {
+      throw new Error('Feishu service is active without a matching authority record');
+    }
     const prepared = prepareServerConnectionRecord({
       config: this.config,
       credentialId: request.credentialId,
@@ -169,31 +173,33 @@ export class FeishuControlService {
       renderForcedClientKey(this.config, prepared.record),
     );
     verifyManagedAuthorizedKeys(virtualAuthority(loaded, records, authorizedKeys), this.config);
-    let committed = false;
-    try {
-      commitServerConnectionTransaction(
-        loaded,
-        loaded.encode(records),
-        authorizedKeys,
-        rendered.outputs,
-      );
-      committed = true;
-      new ServerConnectionService(this.config).verify();
-      this.systemd.daemonReload();
-      this.systemd.enableNow(this.paths.serviceUnit);
-      const management = await this.requireHealthyManagement();
-      return {
-        status: 'connected',
-        credentialId: request.credentialId,
-        service: 'active',
-        runtime,
-        management,
-      };
-    } catch (error) {
-      try { this.systemd.stopDisable(this.paths.serviceUnit); } catch {}
-      if (committed) this.rollbackProvisioning(request.credentialId);
-      throw error;
-    }
+    return connectWithDesiredFeishuRuntime(this.paths, this.runtimeVerifier, async (runtime) => {
+      let committed = false;
+      try {
+        commitServerConnectionTransaction(
+          loaded,
+          loaded.encode(records),
+          authorizedKeys,
+          rendered.outputs,
+        );
+        committed = true;
+        new ServerConnectionService(this.config).verify();
+        this.systemd.daemonReload();
+        this.systemd.enableNow(this.paths.serviceUnit);
+        const management = await this.requireHealthyManagement();
+        return {
+          status: 'connected',
+          credentialId: request.credentialId,
+          service: 'active',
+          runtime,
+          management,
+        };
+      } catch (error) {
+        try { this.systemd.stopDisable(this.paths.serviceUnit); } catch {}
+        if (committed) this.rollbackProvisioning(request.credentialId);
+        throw error;
+      }
+    });
   }
 
   async status(): Promise<JsonValue> {

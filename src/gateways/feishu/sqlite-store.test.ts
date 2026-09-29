@@ -54,6 +54,37 @@ function context(store: SqliteFeishuGatewayStore): void {
 }
 
 describe('production metadata-only SQLite store', () => {
+  it('retries an empty unpaired bootstrap while preserving revoked credential history', () => {
+    const path = databasePath();
+    const first = new SqliteFeishuGatewayStore(path, binding);
+    first.reconcileCredentials([{ ...enrolled, openId: null }]);
+    first.close();
+    const next = { ...enrolled, openId: null, credentialId: 'credential_retry', connectionScope: 'scope_retry' };
+    const reopened = new SqliteFeishuGatewayStore(path, binding);
+    expect(() => reopened.reconcileCredentials([next])).not.toThrow();
+    expect(reopened.listActiveCredentials()).toEqual([]);
+    reopened.close();
+    const db = new Database(path, { readonly: true });
+    expect(db.prepare('SELECT credential_id, status, open_id FROM credentials ORDER BY credential_id').all()).toEqual([
+      { credential_id: enrolled.credentialId, status: 'revoked', open_id: null },
+      { credential_id: next.credentialId, status: 'active', open_id: null },
+    ]);
+    db.close();
+  });
+
+  it('requires explicit rotation once an unpaired credential has pairing state', () => {
+    const store = new SqliteFeishuGatewayStore(databasePath(), binding);
+    store.reconcileCredentials([{ ...enrolled, openId: null }]);
+    store.createPairingCode({
+      instanceId: binding.instanceId, codeId: 'code-1', codeHash: 'a'.repeat(64),
+      status: 'active', expiresAt: 2_000, createdAt: 100, consumedAt: null, consumedEventId: null,
+    });
+    expect(() => store.reconcileCredentials([{
+      ...enrolled, openId: null, credentialId: 'credential_retry', connectionScope: 'scope_retry',
+    }])).toThrow(expect.objectContaining({ code: 'identity_conflict' }));
+    store.close();
+  });
+
   it('creates an owner-only exact schema with no business-body columns', () => {
     const path = databasePath();
     const store = open(path);
