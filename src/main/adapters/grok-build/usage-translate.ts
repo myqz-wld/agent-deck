@@ -56,6 +56,7 @@ export function beginGrokTurn(
   turnUsageId = `${sessionId}:${Date.now()}`,
 ): void {
   rememberCompletedGrokPromptId(state, state.currentExtensionPromptId);
+  state.fileChanges.pending.clear();
   cancelPendingGrokStandardUsage(state);
   state.turnStartUsage = cloneWatermark(state.lastUsage);
   state.currentTurnUsageId = `grok-standard:${sessionId}:${turnUsageId}`;
@@ -431,6 +432,7 @@ export function completeGrokTurnLiveRate(
 }
 
 export function clearGrokTurnLiveRate(state: GrokTranslationState): void {
+  state.fileChanges.pending.clear();
   rememberCompletedGrokPromptId(state, state.currentExtensionPromptId);
   cancelPendingGrokStandardUsage(state);
   state.currentTurnUsageId = null;

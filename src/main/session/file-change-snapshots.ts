@@ -1,4 +1,5 @@
 import { reverseUnifiedDiffSnapshot } from '@shared/unified-diff';
+import { normalizeTextDiff } from '@shared/file-change-diff';
 
 const MULTIEDIT_SEPARATOR = '\n---\n';
 
@@ -19,6 +20,18 @@ export interface FileChangeSnapshots {
 export function buildFileChangeSnapshots(input: FileChangeSnapshotInput): FileChangeSnapshots {
   if (input.kind !== 'text' || !input.captureAuthorized) {
     return { beforeSnapshot: null, afterSnapshot: null };
+  }
+
+  // ACP supplies full texts. Codex additions/deletions can also carry the whole file.
+  // These exact recorded contents take precedence over a file already edited again on disk.
+  if (input.metadata.source === 'grok-acp' && typeof input.after === 'string') {
+    return { beforeSnapshot: typeof input.before === 'string' ? input.before : '', afterSnapshot: input.after };
+  }
+  if (input.metadata.source === 'codex') {
+    const text = normalizeTextDiff({ ...input, filePath: '', ts: 0 });
+    if (text.change !== 'modified' && text.before !== null && text.after !== null) {
+      return { beforeSnapshot: text.before, afterSnapshot: text.after };
+    }
   }
 
   const afterSnapshot = input.capturedAfterSnapshot ??

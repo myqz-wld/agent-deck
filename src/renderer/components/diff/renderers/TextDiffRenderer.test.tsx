@@ -37,6 +37,16 @@ vi.mock('@renderer/lib/monaco-local', () => ({
 afterEach(() => cleanup());
 
 describe('TextDiffRenderer codex metadata', () => {
+  it.each(['codex', 'Write', 'grok-acp'])('uses the same addition badge and rows for %s', (source) => {
+    render(<TextDiffRenderer payload={{ kind: 'text', filePath: 'demo.ts', before: null,
+      after: source === 'codex' ? null : 'first\nsecond\n', ts: 1,
+      metadata: source === 'codex' ? { source, changeKind: 'add', diff: 'first\nsecond\n' } : { source },
+    }} />);
+    expect(screen.getByText('新增')).toBeTruthy();
+    expect(screen.getByTestId('full-file-diff').getAttribute('data-change-kind')).toBe('added');
+    expect(screen.getByTestId('full-file-diff').textContent).toContain('+second');
+    expect(screen.queryByTestId('diff-editor')).toBeNull();
+  });
   it('normalizes codex unified diff metadata', () => {
     expect(normalizeUnifiedDiffMetadata('\n@@ -1 +1 @@\n-old\n+new\n')).toBe(
       '\n@@ -1 +1 @@\n-old\n+new\n',

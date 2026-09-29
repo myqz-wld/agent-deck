@@ -18,6 +18,7 @@ import {
   type GrokLiveRateObserver,
 } from './live-token-rate-core';
 import type { GrokTranslationState } from './translation-types';
+import { collectGrokFileChanges } from './file-change-translate';
 
 const AGENT_ID = 'grok-build';
 export type { GrokTranslationState } from './translation-types';
@@ -36,6 +37,7 @@ export function createGrokTranslationState(options: {
   liveRateObserver?: GrokLiveRateObserver;
 } = {}): GrokTranslationState {
   return {
+    fileChanges: { pending: new Map(), completed: new Map() },
     toolNames: new Map(),
     toolKinds: new Map(),
     startedToolIds: new Set(),
@@ -142,6 +144,7 @@ export function translateGrokUpdate(
       }
       return [];
     case 'tool_call': {
+      const fileChanges = collectGrokFileChanges(update, state.fileChanges, cwd, event);
       const toolName = grokToolName(update);
       const toolKind = normalizeAgentToolKind(update.kind, toolName);
       state.toolNames.set(update.toolCallId, toolName);
@@ -185,12 +188,14 @@ export function translateGrokUpdate(
         );
         state.toolKinds.delete(update.toolCallId);
         state.toolNames.delete(update.toolCallId);
+        events.push(...fileChanges);
         return events;
       }
       state.startedToolIds.add(update.toolCallId);
       return events;
     }
     case 'tool_call_update': {
+      const fileChanges = collectGrokFileChanges(update, state.fileChanges, cwd, event);
       // ACP `title` is a mutable human-readable progress label. Keep the identity chosen for the
       // start event so the matching completion row cannot drift when Grok patches that title.
       // ACP 1.3 `name` is the programmatic identity and wins when the initial call has it.
@@ -255,20 +260,7 @@ export function translateGrokUpdate(
           }),
         );
       }
-      for (const content of update.content ?? []) {
-        if (content.type !== 'diff') continue;
-        events.push(
-          event('file-changed', {
-            cwd,
-            filePath: content.path,
-            kind: 'text',
-            before: content.oldText ?? null,
-            after: content.newText,
-            metadata: { source: 'grok-acp' },
-            toolCallId: update.toolCallId,
-          }),
-        );
-      }
+      events.push(...fileChanges);
       return events;
     }
     case 'plan':

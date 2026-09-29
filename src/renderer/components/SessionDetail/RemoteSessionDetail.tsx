@@ -104,6 +104,10 @@ export function RemoteSessionDetail({
           isSdk
           allowLocalAssets={false}
           imageReader={{ identity: source.identity, load: source.loadImageBlob }}
+          fileChangeReader={canReadFileChanges ? {
+            identity: source.identity,
+            read: async (_sessionId, changeId) => (await source.getFileChange(changeId)).change,
+          } : null}
           interactivePending={false}
           truncated={source.events?.truncated ?? false}
           renderPendingEvent={(event) => {

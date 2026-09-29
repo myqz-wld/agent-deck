@@ -29,6 +29,12 @@ function event(payload: unknown): StoredAgentEvent {
 }
 
 describe('Server Core event projection', () => {
+  it('keeps opaque file-change ids when projecting activity paths', () => {
+    const result = projectSessionEvents([{ ...event({ fileChangeId: 42,
+      filePath: '/workspaces/repo/src/demo.ts', kind: 'text', metadata: { source: 'codex' } }),
+      kind: 'file-changed' }], session, 20, { workspaceRoot: '/workspaces', privateRoots: [] });
+    expect(result.events[0]?.payload).toMatchObject({ fileChangeId: 42, filePath: 'Workspace/repo/src/demo.ts' });
+  });
   it('projects Workspace paths and removes attachments, binary values, and private roots', () => {
     const result = projectSessionEvents([event({
       cwd: '/workspaces/repo',

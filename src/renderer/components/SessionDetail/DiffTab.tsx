@@ -1,4 +1,5 @@
-import { useMemo, useState, type JSX, type ReactNode } from 'react';
+import { ExpandedDiffOverlay } from '../diff/ExpandedDiffOverlay';
+import { useMemo, useState, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import type { DiffPayload, FileChangeSummary, FileFinalDiffResult } from '@shared/types';
 import { DiffViewer } from '../diff/DiffViewer';
@@ -6,7 +7,7 @@ import type { DiffImageBlobLoader } from '../diff/SessionContext';
 import { ChangeTimeline } from './ChangeTimeline';
 import type { FileChangeGroup } from './helpers';
 import type { FileChangeLoadSummary } from './use-file-changes';
-import { ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExpandIcon } from '../icons';
+import { ChevronLeftIcon, ChevronRightIcon, ExpandIcon } from '../icons';
 import { StableButtonContent } from '../StableButtonContent';
 
 type DiffMode = 'single' | 'final';
@@ -85,7 +86,7 @@ export function DiffTab({
   };
 
   const renderFileNav = (showExpand: boolean): JSX.Element => (
-    <div className="flex shrink-0 items-center gap-1">
+    <div className="flex shrink-0 flex-wrap items-center gap-1 whitespace-nowrap">
       <button
         type="button"
         onClick={() => selectByOffset(-1)}
@@ -224,13 +225,13 @@ export function DiffTab({
           )}
 
           {selectedGroup && (
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex shrink-0 flex-wrap items-center gap-1">
               {(['single', 'final'] as DiffMode[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => onDiffModeChange(mode)}
-                  className={`rounded px-2 py-1 text-[10px] ${
+                  className={`shrink-0 whitespace-nowrap rounded px-2 py-1 text-[10px] ${
                     diffMode === mode
                       ? 'bg-white/15 text-deck-text'
                       : 'bg-white/[0.03] text-deck-muted hover:bg-white/[0.08]'
@@ -348,55 +349,4 @@ function renderDiffBody(args: {
       expanded={args.hideHeader}
     />
   ) : null;
-}
-
-function ExpandedDiffOverlay({
-  filePath,
-  onClose,
-  fileNav,
-  children,
-}: {
-  filePath: string;
-  onClose: () => void;
-  fileNav: JSX.Element;
-  children: ReactNode;
-}): JSX.Element {
-  const lastSlash = filePath.lastIndexOf('/');
-  const dirPart = lastSlash >= 0 ? filePath.slice(0, lastSlash + 1) : '';
-  const filePart = lastSlash >= 0 ? filePath.slice(lastSlash + 1) : filePath;
-
-  return (
-    <div
-      className="absolute inset-0 z-50 flex flex-col bg-black/40 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-label="放大改动视图"
-    >
-      <div className="absolute inset-0 flex flex-col bg-[#141418]">
-        <div className="flex shrink-0 items-center gap-2 border-b border-deck-border pl-[78px] pr-4 py-2">
-          <div className="min-w-0 flex-1">
-            {dirPart && (
-              <div className="truncate font-mono text-[10px] leading-tight text-deck-muted">
-                {dirPart}
-              </div>
-            )}
-            <div className="truncate font-mono text-[12px] font-medium leading-tight text-deck-text">
-              {filePart || '改动'}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {fileNav}
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded bg-white/[0.06] px-2 py-1 text-[11px] text-deck-muted hover:bg-white/[0.12]"
-            >
-              <CloseIcon className="mr-1 inline h-3 w-3" />关闭
-            </button>
-          </div>
-        </div>
-        <div className="min-h-0 flex-1 px-4 py-3">{children}</div>
-      </div>
-    </div>
-  );
 }

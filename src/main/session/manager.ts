@@ -210,8 +210,8 @@ class DesktopSessionManagerHost implements SessionManagerHost {
     }
     const record = ensureRecord(this.ingestCtx, event);
     event = prepareEventImages(event, record.cwd);
+    event = persistFileChange(event);
     persistEventRow(event);
-    persistFileChange(event);
     advanceState(record, event);
     if (event.kind === 'context-compaction-start') {
       resetContextUsageForCompaction(event);

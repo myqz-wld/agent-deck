@@ -1,4 +1,5 @@
 import type { AgentEvent, AgentToolKind, GrokUsageWatermark } from '@shared/types';
+import type { GrokFileChanges } from './file-change-translate';
 
 import type {
   GrokLiveRateObserver,
@@ -13,6 +14,7 @@ export interface PendingGrokStandardUsage {
 }
 
 export interface GrokTranslationState {
+  fileChanges: GrokFileChanges;
   toolNames: Map<string, string>;
   toolKinds: Map<string, AgentToolKind>;
   startedToolIds: Set<string>;

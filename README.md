@@ -62,6 +62,14 @@ eight images per event. Inline images are stored outside activity JSON in the ho
 data directory. Referenced files must still exist; Remote file references must remain inside the
 authorized Workspace. Old Codex records with an available saved file can also show a preview.
 
+File-change activity rows open the recorded diff inline through **查看改动**, with a **放大** view.
+The **改动** tab keeps per-file history and **最终 diff**. Claude, Codex, and Grok share the same
+addition/deletion colors, line numbers, and modification viewer, including Codex raw new-file
+content. New activity rows store a change reference and fetch its saved payload only when opened;
+old rows use their recorded content or patch directly. Local and Remote readers remain scoped to
+the owning session. Full snapshots are compared as a pair; missing snapshots fall back to recorded
+snippets/patches without reading today's file. Content never captured cannot be recovered by this view.
+
 ## Runtime Configuration
 
 Each session keeps its agent's own model, permissions, approvals, and sandbox settings.

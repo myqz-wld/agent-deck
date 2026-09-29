@@ -22,7 +22,8 @@ import { CliFooter } from './CliFooter';
 import { DiffTab } from './DiffTab';
 import { TasksPanel } from './TasksPanel';
 import { SessionContextUsageChip } from '../SessionContextUsageChip';
-import { decodeBlob, groupFileChanges } from './helpers';
+import { groupFileChanges } from './helpers';
+import { fileChangeToDiff } from '@shared/file-change-diff';
 import { useFileChanges } from './use-file-changes';
 import { useFileChangeSelection } from './use-file-change-selection';
 import { useFileChangePayload } from './use-file-change-payload';
@@ -215,23 +216,7 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
     };
   }, [tab, diffMode, session.id, selectedFilePath, selectedGroupLastId]);
 
-  const diffPayload: DiffPayload | null = selectedChange
-    ? {
-        kind: selectedChange.kind,
-        filePath: selectedChange.filePath,
-        before: decodeBlob(
-          selectedChange.kind,
-          selectedChange.beforeSnapshot ?? selectedChange.beforeBlob,
-        ),
-        after: decodeBlob(
-          selectedChange.kind,
-          selectedChange.afterSnapshot ?? selectedChange.afterBlob,
-        ),
-        metadata: selectedChange.metadata,
-        toolCallId: selectedChange.toolCallId ?? undefined,
-        ts: selectedChange.ts,
-      }
-    : null;
+  const diffPayload = selectedChange ? fileChangeToDiff(selectedChange) : null;
   const finalDiffPayload: DiffPayload | null =
     finalDiff?.ok && finalDiff.diff
       ? {

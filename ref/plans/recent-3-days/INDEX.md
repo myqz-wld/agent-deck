@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-29 | `PLAN_62_inline-file-diffs.md` | completed | Inline file changes and shared provider diff views | `CHANGELOG_654_inline-file-diffs.md` |
 | 2026-09-29 | `PLAN_61_ui-icons-lightbox-controls.md` | completed | Unify UI icons and refine image-preview controls | `CHANGELOG_653_ui-icons-lightbox-controls.md` |
 | 2026-09-29 | `PLAN_60_session-content-generated-images.md` | completed | Improve session content and generated-image display | `CHANGELOG_652_session-content-generated-images.md` |
 | 2026-09-29 | `PLAN_59_relay-handshake-investigation.md` | completed | Verify both Relay endpoints after Worker installation | `REVIEW_282_relay-stream-retirement-isolation.md` |

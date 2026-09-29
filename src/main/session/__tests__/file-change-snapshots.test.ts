@@ -2,6 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { buildFileChangeSnapshots } from '../file-change-snapshots';
 
 describe('buildFileChangeSnapshots', () => {
+  it.each([
+    { source: 'grok-acp', before: 'old', after: 'recorded', metadata: { source: 'grok-acp' } },
+    { source: 'codex', before: null, after: null, metadata: { source: 'codex', changeKind: 'add', diff: 'recorded' } },
+  ])('prefers exact $source full text over a later disk edit', ({ before, after, metadata }) => {
+    expect(buildFileChangeSnapshots({ captureAuthorized: true, capturedAfterSnapshot: 'future content',
+      kind: 'text', before, after, metadata })).toEqual({
+        beforeSnapshot: metadata.source === 'codex' ? '' : 'old', afterSnapshot: 'recorded',
+      });
+  });
   it('captures full after content and reverses a Claude Edit snippet into full before content', () => {
     const snapshots = buildFileChangeSnapshots({
       captureAuthorized: true,

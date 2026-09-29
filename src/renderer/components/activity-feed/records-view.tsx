@@ -12,6 +12,9 @@ import type {
 import { activityEventIdentity } from './viewers/activity-event-identity';
 import { MessageBubble } from './rows/message-row';
 import { SimpleRow } from './rows/simple-row';
+import { FileChangeRow } from './rows/file-change-row';
+import { ActivityFileChangeContext } from './file-change-context';
+import { LOCAL_FILE_CHANGES, type FileChangeReader } from '../diff/file-change-reader';
 import { ThinkingBubble } from './rows/thinking-row';
 import { ToolEndRow, ToolStartRow } from './rows/tool-row';
 import { ActivityImageContext, LOCAL_ACTIVITY_IMAGES, type ActivityImageReader } from './image-context';
@@ -23,6 +26,7 @@ const EMPTY_IDS: ReadonlySet<string> = new Set();
 const IGNORE_RESOLUTION: ResolvePending = () => undefined;
 
 export interface ActivityRecordsViewProps {
+  fileChangeReader?: FileChangeReader | null;
   imageReader?: ActivityImageReader;
   events: readonly AgentEvent[];
   loaded: boolean;
@@ -63,6 +67,7 @@ export function ActivityRecordsView({
   resolveDiffReview = IGNORE_RESOLUTION,
   renderPendingEvent,
   imageReader,
+  fileChangeReader,
 }: ActivityRecordsViewProps): JSX.Element {
   const derived = useMemo(() => deriveSources(events, pendingIds), [events, pendingIds]);
   const initialPending = !loaded && loadError === null && events.length === 0;
@@ -87,6 +92,7 @@ export function ActivityRecordsView({
   }
   return (
     <ActivityImageContext.Provider value={imageReader ?? (allowLocalAssets ? LOCAL_ACTIVITY_IMAGES : null)}>
+    <ActivityFileChangeContext.Provider value={fileChangeReader === undefined ? (allowLocalAssets ? LOCAL_FILE_CHANGES : null) : fileChangeReader}>
     <div className="flex min-w-0 flex-col gap-2">
       {loadError && (
         <div role="alert" className="rounded border border-amber-400/15 bg-amber-500/5 px-2 py-1 text-[9px] text-amber-100/80">
@@ -137,6 +143,7 @@ export function ActivityRecordsView({
         })}
       </ol>
     </div>
+    </ActivityFileChangeContext.Provider>
     </ActivityImageContext.Provider>
   );
 }
@@ -184,6 +191,7 @@ export const ActivityRow = memo(function ActivityRow({
     return <MessageBubble event={event} agentId={agentId} showAttachments={allowLocalAssets} />;
   }
   if (event.kind === 'thinking') return <ThinkingBubble event={event} agentId={agentId} />;
+  if (event.kind === 'file-changed') return <FileChangeRow event={event} />;
   if (event.kind === 'waiting-for-user') {
     const injected = renderPendingEvent?.(event);
     if (injected !== undefined) return injected;

@@ -7,12 +7,8 @@ import { isPermissionMode } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { eventRepo } from '@main/store/event-repo';
-import { fileChangeRepo } from '@main/store/file-change-repo';
 import { insertTokenUsageEvent, tokenUsageRepo } from '@main/store/token-usage-repo';
 import { extractCwd, nextActivityState } from './manager-helpers';
-import { buildFileChangeSnapshots } from './file-change-snapshots';
-import { captureFileChangePath } from './file-change-path-authority';
-import { withStoredFileChangePathAuthority } from '@shared/file-change-path-authority';
 import type { InitialSessionRuntime, UpsertOptions } from './manager/_deps';
 import log from '@main/utils/logger';
 
@@ -26,7 +22,7 @@ const logger = log.scope('session-ingest');
  *
  * **5 段顺序硬约束**（与 manager.ts ingest() 入口注释对齐）：
    *   isRecentlyDeleted 条件早返（SDK user message 可清黑名单续聊）→ dedupOrClaim 早返 →
-   *   ensureRecord → persistEventRow → persistFileChange → advanceState → emit('agent-event')
+   *   ensureRecord → persistFileChange → persistEventRow → advanceState → emit('agent-event')
  *
  * dedupOrClaim 必须**第一**：hook 首发竞争场景（CHANGELOG_16 / REVIEW_1）若先落假 CLI
  * 会话再 claim，UI 闪现「内/外两份」。任何 DB / event 写入不得前置。
@@ -240,60 +236,12 @@ export function ensureRecord(ctx: IngestContext, event: AgentEvent): SessionReco
   });
 }
 
-/** 第 3 段：events 表落库。payload 截断由 event-repo 内部 safeStringifyPayload 处理（CHANGELOG_20 / N1）。 */
+/** Persist activity after file content so the stored row and live event share the same reference. */
 export function persistEventRow(event: AgentEvent): void {
   eventRepo.insert(event);
 }
 
-/** 第 4 段：file-changed 事件附带的文件 diff 落 file_changes 表（其它 kind 直接 return）。 */
-export function persistFileChange(event: AgentEvent): void {
-  if (event.kind !== 'file-changed') return;
-  const p = event.payload as {
-    filePath?: string;
-    kind?: string;
-    before?: unknown;
-    after?: unknown;
-    toolCallId?: string;
-    metadata?: Record<string, unknown>;
-    cwd?: string;
-  };
-  if (!p || typeof p.filePath !== 'string') return;
-  // text 通道 before/after 是 string，原样存；image 通道是 ImageSource 对象，需 JSON.stringify。
-  // file_changes.before_blob / after_blob 列是 TEXT，序列化后存得下（典型 < 200 chars）。
-  const serialize = (v: unknown): string | null => {
-    if (v == null) return null;
-    if (typeof v === 'string') return v;
-    return JSON.stringify(v);
-  };
-  const kind = typeof p.kind === 'string' ? p.kind : 'text';
-  const sourceMetadata =
-    p.metadata && typeof p.metadata === 'object' && !Array.isArray(p.metadata)
-      ? p.metadata
-      : {};
-  const cwd = typeof p.cwd === 'string' ? p.cwd : sessionRepo.get(event.sessionId)?.cwd ?? null;
-  const captured = captureFileChangePath(cwd, p.filePath, kind === 'text');
-  const metadata = withStoredFileChangePathAuthority(sourceMetadata, captured.authority);
-  const snapshots = buildFileChangeSnapshots({
-    captureAuthorized: captured.authority !== null,
-    capturedAfterSnapshot: captured.afterSnapshot,
-    kind,
-    before: p.before,
-    after: p.after,
-    metadata,
-  });
-  fileChangeRepo.insert({
-    sessionId: event.sessionId,
-    filePath: p.filePath,
-    kind,
-    beforeBlob: serialize(p.before),
-    afterBlob: serialize(p.after),
-    beforeSnapshot: snapshots.beforeSnapshot,
-    afterSnapshot: snapshots.afterSnapshot,
-    metadata,
-    toolCallId: p.toolCallId ?? null,
-    ts: event.ts,
-  });
-}
+export { persistFileChange } from './persist-file-change';
 
 /**
  * 第 6 段（plan model-token-stats-and-dashboard-20260602 §Phase 1 A5）：token-usage 事件落

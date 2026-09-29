@@ -16,6 +16,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
 | 2026-09-29 | `REVIEW_287_grok-credential-projection-refresh.md` | Refresh Grok credentials and restore the headless gate | 2 MEDIUM / 2 LOW fixed; activation pending |
+| 2026-09-29 | `REVIEW_286_inline-file-diffs.md` | Verify file-change retrieval and provider diff consistency | 4 MEDIUM / 1 LOW fixed |
 | 2026-09-29 | `REVIEW_285_ui-icons-lightbox-controls.md` | Verify UI icons and image-preview interaction | 1 MEDIUM / 3 LOW fixed |
 | 2026-09-29 | `REVIEW_284_session-content-image-chain.md` | Verify provider content and image ownership chain | In-scope findings resolved in source |
 | 2026-09-29 | `REVIEW_282_relay-stream-retirement-isolation.md` | Verify Relay stream retirement isolation | 1 HIGH fixed; credential activation pending in REVIEW_287 |

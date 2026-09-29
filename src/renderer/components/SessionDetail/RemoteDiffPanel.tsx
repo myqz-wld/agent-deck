@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 
-import type { DiffPayload, FileChangePayload, FileFinalDiffResult } from '@shared/types';
+import type { DiffPayload, FileFinalDiffResult } from '@shared/types';
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
-import { decodeBlob, groupFileChanges } from './helpers';
+import { groupFileChanges } from './helpers';
+import { fileChangeToDiff } from '@shared/file-change-diff';
+import { useFileChangePayload } from './use-file-change-payload';
 import { DiffTab } from './DiffTab';
 import { useFileChangeSelection } from './use-file-change-selection';
 import { useFileChangePages } from './use-file-change-pages';
@@ -23,13 +25,9 @@ export function RemoteDiffPanel({ source }: { source: RemoteSessionSourceView })
       errorMessage: (reason, more) => reason instanceof Error ? reason.message
         : more ? '无法加载更早远程改动。' : '无法加载远程文件改动。',
     });
-  const [payload, setPayload] = useState<FileChangePayload | null>(null);
-  const [payloadLoading, setPayloadLoading] = useState(false);
-  const [payloadError, setPayloadError] = useState<string | null>(null);
   const [diffMode, setDiffMode] = useState<DiffMode>('single');
   const [finalDiff, setFinalDiff] = useState<FileFinalDiffResult | null>(null);
   const [finalDiffLoading, setFinalDiffLoading] = useState(false);
-  const payloadGeneration = useRef(0);
   const finalGeneration = useRef(0);
   const selection = useFileChangeSelection({ changes, sessionId, workspaceKey });
   const groups = useMemo(() => groupFileChanges(changes ?? []), [changes]);
@@ -39,32 +37,16 @@ export function RemoteDiffPanel({ source }: { source: RemoteSessionSourceView })
   );
 
   useEffect(() => () => {
-    payloadGeneration.current += 1;
     finalGeneration.current += 1;
   }, [workspaceKey]);
 
-  useEffect(() => {
-    const current = ++payloadGeneration.current;
-    const changeId = selection.selectedChangeId;
-    setPayload(null);
-    setPayloadError(null);
-    if (changeId === null) {
-      setPayloadLoading(false);
-      return;
-    }
-    setPayloadLoading(true);
-    void sourceRef.current.getFileChange(changeId).then((result) => {
-      if (current !== payloadGeneration.current) return;
-      if (!result.change) setPayloadError('找不到当前远程 session 中的文件改动。');
-      else setPayload(result.change);
-    }).catch((reason: unknown) => {
-      if (current === payloadGeneration.current) {
-        setPayloadError(reason instanceof Error ? reason.message : '无法加载所选远程改动。');
-      }
-    }).finally(() => {
-      if (current === payloadGeneration.current) setPayloadLoading(false);
-    });
-  }, [selection.selectedChangeId, workspaceKey]);
+  const { selectedPayload: payload, payloadLoading, payloadError } = useFileChangePayload({
+    sessionId, workspaceKey, selectedChangeId: selection.selectedChangeId,
+    reader: {
+      identity: source.identity,
+      read: async (_sessionId, changeId) => (await source.getFileChange(changeId)).change,
+    },
+  });
 
   useEffect(() => {
     const filePath = selection.selectedFilePath;
@@ -90,15 +72,7 @@ export function RemoteDiffPanel({ source }: { source: RemoteSessionSourceView })
     });
   }, [diffMode, selectedGroup?.lastId, selection.selectedFilePath, workspaceKey]);
 
-  const diffPayload: DiffPayload | null = payload ? {
-    kind: payload.kind,
-    filePath: payload.filePath,
-    before: decodeBlob(payload.kind, payload.beforeSnapshot ?? payload.beforeBlob),
-    after: decodeBlob(payload.kind, payload.afterSnapshot ?? payload.afterBlob),
-    metadata: payload.metadata,
-    toolCallId: payload.toolCallId ?? undefined,
-    ts: payload.ts,
-  } : null;
+  const diffPayload = payload ? fileChangeToDiff(payload) : null;
   const finalDiffPayload: DiffPayload | null = finalDiff?.ok && finalDiff.diff ? {
     kind: 'text',
     filePath: finalDiff.filePath,
