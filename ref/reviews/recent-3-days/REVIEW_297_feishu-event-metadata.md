@@ -97,6 +97,11 @@ The owner received the fresh pairing-submitted response. The single fresh pendin
 approved through the official CLI. Owner verification passed, and the user received the help
 command list. Consumed pairing plaintext was removed; the clipboard had changed and was preserved.
 
-The masking repair has not yet been activated. Retain the active plan until a new help delivery is
-acknowledged without retry, directory listing, a real provider response and a harmless card action
-are verified. Pairing must be preserved through this final runtime upgrade; do not recreate it.
+The masking repair was activated as `5aff43310f074b85c28930b01409b3881e3e1906`. Official Server
+check/dry-run/upgrade/verify, rebuilt artifact identity, Feishu upgrade/verify and Worker verify
+all passed. Active/desired runtime digests match and no update remains. Owner pairing survived;
+service, WebSocket and restricted Core are connected. No Desktop process or bundle was changed.
+
+Retain the active plan until new command delivery is acknowledged without retry, directory listing,
+a real provider response and a harmless card action are verified. The owner is testing a fresh
+`/directories` command; pairing must not be recreated.
