@@ -50,7 +50,9 @@ grant; product entry points remain channel-specific.
    health. Core verification requires the exact Remote Owner Product v1 method set, the exact
    Feishu-internal method set, and a live `access_denied` result for an out-of-policy
    `system.health` request. On failure it disables the unit and compensates the
-   authorization/config transaction.
+   authorization/config transaction. A failed enrollment retains its credential id as revoked
+   history; retry with a new credential id. This prevents a live Relay that already observed the
+   enrollment from losing its authoritative history during rollback.
    After success, the operator may remove the app-secret input file under the site's secret-retention
    policy; the sidecar has its own protected copy.
 5. Generate and approve the first owner binding:
@@ -68,6 +70,12 @@ grant; product entry points remain channel-specific.
    candidate; local Server approval is the authority transition.
 
 ## Operations and rollback
+
+Relay upgrades repair missing Feishu credential history left by older failed enrollments before
+resuming an interrupted instance-manager operation. Recovery copies only public metadata into
+revoked authority records; it preserves existing grants, SSH entries, and Relay metadata. The
+root-only `feishu recover-authority --config <path> --metadata-file <path>` command exposes the
+same bounded repair for administration. Non-Feishu or foreign-instance inconsistencies fail closed.
 
 ```bash
 /opt/agent-deck/bin/agent-deck-server feishu status --config /etc/agent-deck/server-control/instance-a.json

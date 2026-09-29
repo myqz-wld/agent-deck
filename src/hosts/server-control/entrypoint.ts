@@ -11,6 +11,7 @@ import {
 } from './connection-request';
 import { ServerConnectionService } from './connection-service';
 import { FeishuControlService } from './feishu-control-service';
+import { recoverFeishuAuthority } from './feishu-authority-repair';
 import {
   parseFeishuConnectRequest,
   parseFeishuDisconnectRequest,
@@ -38,6 +39,7 @@ const HELP = `Agent Deck Server 连接管理\n\n` +
   `  agent-deck-server feishu dry-run --config <path> --request <path>\n` +
   `  agent-deck-server feishu connect --config <path> --request <path>\n` +
   `  agent-deck-server feishu status --config <path>\n` +
+  `  agent-deck-server feishu recover-authority --config <path> --metadata-file <path>\n` +
   `  agent-deck-server feishu verify --config <path>\n` +
   `  agent-deck-server feishu upgrade --config <path>\n` +
   `  agent-deck-server feishu credential rotate --config <path> --request <path>\n` +
@@ -110,6 +112,11 @@ async function runFeishu(
 ): Promise<{ command: string; result: unknown }> {
   const command = argv[1];
   if (!command) throw new Error('unknown Feishu command');
+  if (command === 'recover-authority') {
+    const flags = parseExactFlags(argv.slice(2), ['--config', '--metadata-file']);
+    const config = parseServerControlConfig(await runtime.readJson(flags['--config']));
+    return { command: 'feishu recover-authority', result: recoverFeishuAuthority(config, flags['--metadata-file']) };
+  }
   if (command === 'credential') {
     if (argv[2] !== 'rotate') throw new Error('unknown Feishu credential command');
     const flags = parseExactFlags(argv.slice(3), ['--config', '--request']);

@@ -361,7 +361,8 @@ async function deploy(config) {
 
 async function upgrade(config) {
   const { release, image } = await prepareMutableRelease(config);
-  const state = await runManager(config, 'describe', selector(config));
+  await ensureRelayAuthority(config, 'recover');
+  const state = await recoverUpgradeState(config, (command) => runManager(config, command, selector(config)));
   if (state.currentVersion === release.version) {
     throw new Error('目标实例已经运行当前 Git release；无需 upgrade。');
   }
@@ -377,6 +378,17 @@ async function upgrade(config) {
   });
   await runManager(config, 'upgrade', request);
   return { release, image, verification: await verify(config, image) };
+}
+
+export async function recoverUpgradeState(config, manager) {
+  try {
+    return await manager('describe');
+  } catch (error) {
+    if (config.topology !== 'relay' || managerFailureCode(error) !== 'recovery_required') throw error;
+    // Manager start owns journal validation, generation recovery, artifact fences and health.
+    await manager('start');
+    return manager('describe');
+  }
 }
 
 async function rollback(config) {

@@ -4,7 +4,6 @@ import { isJsonObject, type JsonValue } from '@contracts/index';
 import { parseFeishuProductionConfig } from '@gateways/feishu/config';
 import { parseFeishuCoreSshConfig } from '@hosts/feishu/config';
 import {
-  commitManagedTextTransaction,
   readTrustedTextFile,
 } from '@hosts/linux-runtime/connection-credential-issuer';
 import {
@@ -192,7 +191,7 @@ export class FeishuControlService {
       };
     } catch (error) {
       try { this.systemd.stopDisable(this.paths.serviceUnit); } catch {}
-      if (committed) this.rollbackProvisioning(loaded);
+      if (committed) this.rollbackProvisioning(request.credentialId);
       throw error;
     }
   }
@@ -451,16 +450,14 @@ export class FeishuControlService {
     });
   }
 
-  private rollbackProvisioning(original: LoadedConnectionAuthority): void {
+  private rollbackProvisioning(credentialId: string): void {
     let failure: unknown = null;
     try { this.removeProtectedFiles(); } catch (error) { failure = error; }
     try {
-      const current = loadConnectionAuthority(this.config);
-      commitManagedTextTransaction({
-        mutations: [
-          { current: current.authorityFile, next: original.authorityFile.text },
-          { current: current.authorizedKeysFile, next: original.authorizedKeysFile.text },
-        ],
+      // The live Relay may already have persisted this id. Preserve a revoked tombstone rather
+      // than deleting history or overwriting credentials enrolled by another administrator.
+      new ServerConnectionService(this.config, this.now).revoke({
+        schemaVersion: 1, credentialId, surface: 'feishu',
       });
     } catch (error) {
       failure ??= error;

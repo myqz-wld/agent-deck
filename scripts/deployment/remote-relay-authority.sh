@@ -14,7 +14,7 @@ service_user=${2:-}
 service_uid=${3:-}
 service_home=${4:-}
 instance_id=${5:-}
-[[ "$mode" == create || "$mode" == verify ]] || fail 'mode 无效'
+[[ "$mode" == create || "$mode" == verify || "$mode" == recover ]] || fail 'mode 无效'
 [[ "$service_user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || fail 'service user 无效'
 [[ "$service_uid" =~ ^[1-9][0-9]{0,9}$ ]] || fail 'service uid 无效'
 [[ "$service_home" == /var/lib/agent-deck ]] || fail 'service home 无效'
@@ -74,6 +74,46 @@ if run_service /usr/bin/test -L "$authority_file"; then fail 'connection authori
   fail 'connection authority owner/mode 不匹配'
 run_service /opt/agent-deck/bin/agent-deck-relay check-authority \
   --instance "$instance_id" --authority "$authority_file"
+
+if [[ "$mode" == recover ]]; then
+  metadata_file="$service_home/.local/share/agent-deck-relay/$instance_id/metadata.json"
+  if run_service /usr/bin/test -e "$metadata_file"; then
+    # A legacy failed Feishu connect could remove authority history already seen by Relay.
+    # Only a matching root-private Server control config may recover revoked Feishu records.
+    /usr/bin/sudo -n /usr/bin/node --input-type=module - "$instance_id" "$authority_file" "$metadata_file" "$service_uid" <<'NODE' >/dev/null
+import { constants, openSync, closeSync, fstatSync, realpathSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { runServerControlEntrypoint } from '/opt/agent-deck/linux-headless/server-control/index.mjs';
+const [instanceId, authorityFile, metadataFile, uid] = process.argv.slice(2);
+function readPrivate(path) {
+  if (realpathSync(path) !== path) throw new Error('Recovery input is not canonical');
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.uid !== Number(uid) || (stat.mode & 0o777) !== 0o600 || stat.size > 1048576) {
+      throw new Error('Recovery input ownership or size is invalid');
+    }
+    return JSON.parse(readFileSync(fd, 'utf8'));
+  } finally { closeSync(fd); }
+}
+const authority = readPrivate(authorityFile);
+const snapshot = readPrivate(metadataFile);
+const configured = new Set(authority.credentials.map((row) => row.credentialId));
+const missing = snapshot.tables?.credentials?.some((row) => !configured.has(row.credentialId));
+if (missing) {
+  const directory = '/etc/agent-deck/server-control';
+  const matches = readdirSync(directory).filter((name) => name.endsWith('.json')).map((name) => join(directory, name))
+    .filter((path) => {
+      const config = JSON.parse(readFileSync(path, 'utf8'));
+      return config.schemaVersion === 2 && config.topology === 'relay'
+        && config.instanceId === instanceId && config.authorityFile === authorityFile;
+    });
+  if (matches.length !== 1) throw new Error('Exact Server control config required for Feishu recovery');
+  await runServerControlEntrypoint(['feishu', 'recover-authority', '--config', matches[0], '--metadata-file', metadataFile]);
+}
+NODE
+  fi
+fi
 
 if ((created == 1)); then
   echo 'RELAY_AUTHORITY_CREATED'

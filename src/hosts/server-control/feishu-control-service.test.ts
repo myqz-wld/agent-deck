@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { JsonValue } from '@contracts/index';
 import type { ServerControlConfig } from './config';
 import { FeishuControlService } from './feishu-control-service';
+import { ServerConnectionService } from './connection-service';
 import type { FeishuManagementClientPort } from './feishu-management-client';
 import type { FeishuProvisioningPaths } from './feishu-provisioning';
 import type { SystemdControlPort } from './systemd';
@@ -247,17 +248,40 @@ describe.each(['relay', 'full'] as const)('Feishu one-click server control: %s',
     ]) expect(() => statSync(path)).toThrow();
   });
 
-  it('restores authority and removes every protected output when service start fails', async () => {
+  it('revokes the enrolled credential without deleting history when service start fails', async () => {
     const test = fixture(topology);
     test.systemd.failEnable = true;
     const originalKeys = readFileSync(test.config.authorizedKeysFile, 'utf8');
     await expect(test.service.connect(test.request)).rejects.toThrow('systemd start failed');
-    expect(readFileSync(test.config.authorityFile, 'utf8')).toBe(test.originalAuthority);
+    const authority = JSON.parse(readFileSync(test.config.authorityFile, 'utf8'));
+    expect(authority.credentials).toEqual([expect.objectContaining({
+      credentialId: 'feishu-a', status: 'revoked', revokedAt: 100,
+    })]);
     expect(readFileSync(test.config.authorizedKeysFile, 'utf8')).toBe(originalKeys);
     for (const path of [
       test.paths.gatewayConfig, test.paths.coreSshConfig, test.paths.appSecret,
       test.paths.actionSecret, test.paths.knownHosts, test.paths.identity,
     ]) expect(() => statSync(path)).toThrow();
+  });
+
+  it('preserves another enrollment committed while Feishu startup was in flight', async () => {
+    const test = fixture(topology);
+    vi.spyOn(test.systemd, 'enableNow').mockImplementation(() => {
+      new ServerConnectionService(test.config, () => 200).issue({
+        schemaVersion: 1, credentialId: 'desktop-concurrent', surface: 'desktop',
+        label: 'Concurrent owner', outputFile: join(test.root, 'desktop-credential.json'),
+      });
+      throw new Error('startup failed');
+    });
+    await expect(test.service.connect(test.request)).rejects.toThrow('startup failed');
+    const authority = JSON.parse(readFileSync(test.config.authorityFile, 'utf8'));
+    expect(authority.credentials).toEqual(expect.arrayContaining([
+      expect.objectContaining({ credentialId: 'feishu-a', status: 'revoked' }),
+      expect.objectContaining({ credentialId: 'desktop-concurrent', status: 'active' }),
+    ]));
+    const keys = readFileSync(test.config.authorizedKeysFile, 'utf8');
+    expect(keys).toContain('--credential desktop-concurrent');
+    expect(keys).not.toContain('--credential feishu-a');
   });
 
   it('rotates to a new credential id once and rewrites the sidecar identity atomically', async () => {
