@@ -26,7 +26,7 @@ describe('production Linux wrappers', () => {
       expect(source).toContain('entrypoint=/opt/agent-deck/linux-headless/local-worker/index.mjs');
       expect(source).toContain('Darwin)');
       expect(source).toContain('configure --credential <Worker凭证> --workspace <目录>');
-      expect(source).toContain('{start|status|stop|remove} [--worker <配置标识>]');
+      expect(source).toContain('{start|status|stop|remove|check-installed-provider-credential} [--worker <配置标识>]');
       expect(source).toContain('XDG_RUNTIME_DIR=');
       expect(source).toContain('Library/LaunchAgents');
       expect(source).toContain('com.agentdeck.worker-sandbox');

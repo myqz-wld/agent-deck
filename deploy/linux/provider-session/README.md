@@ -45,6 +45,13 @@ different namespace/auth mode, expired timestamp, or malformed token fails close
 Grok unavailable. Only the minimal projected document is read by Core on demand; neither it nor the
 source login file is mounted into the Provider container.
 
+For a managed macOS Relay Worker, the host supervisor projects the current source once at startup
+and checks for source-file changes every 30 seconds. It invokes the trusted Worker credential
+installer with one exact Worker identity; unchanged successful sources are not rewritten. Failures
+preserve the last projection and are retried without exposing credential content. Source OIDC
+renewal remains the host login's responsibility. Expired Worker copies are reported as credential
+unavailability, separately from a missing isolation boundary.
+
 Run the macOS Colima acceptance gate only against an explicitly provisioned acceptance root and
 an immutable, locally built image. The test creates and removes identity-checked children beneath
 that root and uses a dummy canary credential; it does not call a real model upstream:
@@ -148,7 +155,11 @@ SUPERVISOR='/Applications/Agent Deck.app/Contents/Resources/bin/agent-deck-provi
 ```
 
 Render the Colima config and plist with the exact Docker CLI, Colima socket, immutable local image
-id, Workspace, derived paths, and wrapper path. Keep the config and plist mode 0600. Then:
+id, Workspace, derived paths, and wrapper path. The managed plist also supplies the host-only
+`--credential-source`, `--worker-wrapper`, and `--worker-config` arguments to `serve`. Supply all
+three together; the source and wrapper must be outside the Workspace and shared Provider runtime
+root. Standalone services without these arguments keep their operator-managed credential lifecycle.
+Keep the config and plist mode 0600. Then:
 
 ```bash
 "$SUPERVISOR" prepare-runtime --config "$HOME/Library/Application Support/Agent Deck/provider-instance-a.json"

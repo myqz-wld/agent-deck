@@ -156,9 +156,17 @@ the credential, runtime paths, and packaged supervisor; the underlying explicit 
 `agent-deck-provider-supervisor runtime-paths`. `--deploy` or `--upgrade` atomically projects the credential into the
 Worker-private root, installs the shipped LaunchAgent, waits for readiness, and restarts that exact
 Worker through `agent-deck-worker install-provider-credential` and
-`agent-deck-provider-supervisor prepare-runtime`; `--verify` reports Worker service health and the
-optional Provider supervisor configuration, credential and service as separate components through
-`agent-deck-provider-supervisor health-config`. An expired optional Grok credential degrades only
+`agent-deck-provider-supervisor prepare-runtime`. The managed host supervisor then checks the source
+file every 30 seconds and atomically reprojects a changed valid login without restarting Worker
+sessions. A missing, invalid, or expired source preserves the previous copy and retries; native
+login renewal remains host-owned. This does not copy refresh tokens or perform a new OAuth login.
+Keep the source file and Worker wrapper outside the Workspace and shared Provider runtime root.
+
+`--verify` checks both the native source and the actual Worker copy through
+`agent-deck-worker check-installed-provider-credential --worker <id>`, and verifies that launchd
+loaded the current synchronization settings. After upgrading the application, run Worker `--upgrade`
+to refresh an older service definition. Supervisor `health-config` separately checks its transport.
+An expired optional Grok credential degrades only
 the Provider component; it is not reported as a generic Worker transport failure. Startup
 idempotently recreates the exact mode-0700
 runtime hierarchy after macOS temporary-directory cleanup. For Colima, render the canonical

@@ -19,6 +19,7 @@ import { ProviderSessionSupervisorTransportClient } from './supervisor-transport
 import { providerSessionRuntimePaths } from './runtime-paths';
 import { prepareProviderSessionRuntimeDirectories } from './runtime-directories';
 import { openProviderSessionTransportPath } from './node-transport-path';
+import { ProviderCredentialSync, withProviderCredentialSync } from './credential-sync';
 
 const MAX_CONFIG_BYTES = 64 * 1024;
 
@@ -146,14 +147,25 @@ export async function runProviderSessionSupervisorEntrypoint(
     return 0;
   }
   if (command !== 'serve') throw new Error('unknown Provider supervisor command');
-  const flags = parseExactFlags(argv.slice(1), ['--instance', '--config', '--socket']);
+  const syncFlags = ['--credential-source', '--worker-wrapper', '--worker-config'];
+  const synchronize = syncFlags.some((flag) => argv.includes(flag));
+  const flags = parseExactFlags(argv.slice(1), [
+    '--instance', '--config', '--socket', ...(synchronize ? syncFlags : []),
+  ]);
   const config = await readConfig(flags['--config']);
   if (config.instanceId !== flags['--instance'] ||
       config.transportSocketPath !== flags['--socket']) {
     throw new Error('Provider supervisor argv/config identity mismatch');
   }
   prepareRuntime(config);
-  const service = createProviderSessionSupervisorHost(config);
+  const supervisor = createProviderSessionSupervisorHost(config);
+  const service = synchronize ? withProviderCredentialSync(supervisor, new ProviderCredentialSync({
+    credentialFile: requireAbsolutePath(flags['--credential-source'], 'credential-source'),
+    workerWrapper: requireAbsolutePath(flags['--worker-wrapper'], 'worker-wrapper'),
+    workerConfigId: requireStableToken(flags['--worker-config'], 'worker-config'),
+    workspaceRoot: config.workspaceRoot,
+    sharedRuntimeRoot: config.privateRoot,
+  })) : supervisor;
   return (await runProviderSessionSupervisorService(service)).exitCode;
 }
 

@@ -14,6 +14,12 @@
     <string>@@CONFIG_PATH@@</string>
     <string>--socket</string>
     <string>@@SOCKET_PATH@@</string>
+    <string>--credential-source</string>
+    <string>@@GROK_CREDENTIAL_FILE@@</string>
+    <string>--worker-wrapper</string>
+    <string>@@WORKER_WRAPPER@@</string>
+    <string>--worker-config</string>
+    <string>@@WORKER_CONFIG_ID@@</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

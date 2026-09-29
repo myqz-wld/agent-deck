@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  checkInstalledLocalWorkerGrokCredential,
   installLocalWorkerGrokCredential,
   projectLocalWorkerGrokCredential,
   readLocalWorkerGrokCredential,
@@ -53,6 +54,29 @@ describe('Local Worker Grok Provider credential projection', () => {
     expect(statSync(join(privateRoot, 'provider-inference')).mode & 0o777).toBe(0o700);
     expect(statSync(target).mode & 0o777).toBe(0o600);
     expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual(document);
+    await expect(checkInstalledLocalWorkerGrokCredential(privateRoot)).resolves.toBeUndefined();
+  });
+
+  it('checks the deployed expiry independently from a fresh native source', async () => {
+    const { credentialFile, document, privateRoot } = fixture();
+    const target = await installLocalWorkerGrokCredential(privateRoot, credentialFile);
+    writeFileSync(target, JSON.stringify({
+      'xai::cached': { ...document['xai::cached'], expires_at: '2000-01-01T00:00:00.000Z' },
+    }));
+    await expect(readLocalWorkerGrokCredential(credentialFile)).resolves.toEqual(document);
+    await expect(checkInstalledLocalWorkerGrokCredential(privateRoot)).rejects.toThrow(/expired/);
+    await installLocalWorkerGrokCredential(privateRoot, credentialFile);
+    await expect(checkInstalledLocalWorkerGrokCredential(privateRoot)).resolves.toBeUndefined();
+  });
+
+  it('does not treat a native login with refresh metadata as a valid installed projection', async () => {
+    const { credentialFile, privateRoot } = fixture();
+    const target = await installLocalWorkerGrokCredential(privateRoot, credentialFile);
+    writeFileSync(target, JSON.stringify({
+      'https://auth.x.ai::fixture': { auth_mode: 'oidc', key: 'fixture-token',
+        refresh_token: 'host-only', expires_at: '2999-01-01T00:00:00.000Z' },
+    }));
+    await expect(checkInstalledLocalWorkerGrokCredential(privateRoot)).rejects.toThrow(/invalid/);
   });
 
   it('rejects public or schema-expanded credential files', async () => {

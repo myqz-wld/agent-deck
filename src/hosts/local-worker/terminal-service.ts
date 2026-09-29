@@ -23,7 +23,10 @@ import { parseLocalWorkerHeadlessConfig, type LocalWorkerHeadlessConfig } from '
 import { DARWIN_WORKSPACE_BOOKMARK_FILE } from './terminal-configuration';
 import { prepareProviderSessionRuntimeDirectories } from '@hosts/provider-session/runtime-directories';
 import { providerSessionWorkerRuntimeRoot } from '@hosts/provider-session/runtime-paths';
-import { installLocalWorkerGrokCredential } from './provider-credential';
+import {
+  checkInstalledLocalWorkerGrokCredential,
+  installLocalWorkerGrokCredential,
+} from './provider-credential';
 import { syncLocalWorkerProviderHome } from './provider-home-projection';
 
 const WORKER_CONFIG_ID = /^worker-[a-f0-9]{24}$/;
@@ -58,6 +61,7 @@ export interface LocalWorkerServiceManagerOptions {
   readonly stateRoot: string;
   readonly wrapperPath: string;
   readonly providerSourceHome?: string;
+  readonly serviceRootMustExist?: boolean;
   readonly darwinSandboxLauncherPath?: string;
   readonly uid?: number;
   readonly commands?: LocalWorkerServiceCommandPort;
@@ -265,7 +269,7 @@ export class LocalWorkerTerminalServiceManager {
       throw new Error('Worker service requires one concrete uid');
     }
     assertOwnedDirectory(options.stateRoot, 'Worker state root', 0o700);
-    mkdirSync(options.serviceRoot, { mode: 0o700, recursive: true });
+    if (!options.serviceRootMustExist) mkdirSync(options.serviceRoot, { mode: 0o700, recursive: true });
     assertOwnedDirectory(options.serviceRoot, 'Worker service root');
     assertTrustedWrapper(options.wrapperPath);
     if (options.platform === 'darwin') {
@@ -415,6 +419,11 @@ export class LocalWorkerTerminalServiceManager {
     const worker = await this.required(workerConfigId);
     await installLocalWorkerGrokCredential(worker.privateRoot, credentialFile);
     return Object.freeze({ state: 'stopped', workerConfigId: worker.workerConfigId });
+  }
+
+  async checkInstalledProviderCredential(workerConfigId?: string): Promise<void> {
+    const worker = await this.required(workerConfigId);
+    await checkInstalledLocalWorkerGrokCredential(worker.privateRoot);
   }
 
   async stop(workerConfigId?: string): Promise<LocalWorkerServiceStatus> {

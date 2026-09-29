@@ -60,7 +60,8 @@ function adapter(adapterId: SessionAdapterId): AgentAdapter {
 
 function harness(enabled: readonly SessionAdapterId[] = [
   'claude-code', 'codex-cli', 'grok-build',
-], grokAvailable = false, grokSandbox?: string, codexModel = 'gpt-remote',
+], grokAvailable: boolean | { available: boolean; disabledReason?: string } = false,
+grokSandbox?: string, codexModel = 'gpt-remote',
 ready: readonly SessionAdapterId[] = enabled,
 projectTrust = PROJECT_TRUST): CapabilityHarness {
   const root = realpathSync(mkdtempSync(join(
@@ -107,7 +108,8 @@ projectTrust = PROJECT_TRUST): CapabilityHarness {
   const settings = resolveServerCoreProviderSettings(runtimeOptions);
   const subject = new ServerCoreSessionCreateCapabilities({
     ...(grokAvailable ? {
-      grokContainer: { readiness: async () => ({ available: true }) },
+      grokContainer: { readiness: async () => typeof grokAvailable === 'boolean'
+        ? { available: true } : grokAvailable },
     } : {}),
     metadata: { currentRevision: () => revision },
     projects: [],
@@ -278,6 +280,29 @@ describe('ServerCoreSessionCreateCapabilities', () => {
       request.workingDirectory,
       defaults(descriptor),
     )).resolves.toMatchObject({ create: { enabled: true } });
+  });
+
+  it('reports credential readiness separately and changes revision after credential recovery', async () => {
+    const readiness: { available: boolean; disabledReason?: string } = {
+      available: false, disabledReason: 'provider-inference-broker-unavailable',
+    };
+    const { subject } = harness(undefined, readiness);
+    const request = { adapterId: 'grok-build' as const, provider: '', workingDirectory: 'repo' };
+    const unavailable = await subject.describe(request);
+    const reason = unavailable.create.disabledReason;
+    expect(reason).toContain('凭证');
+    expect(reason).not.toContain('安全隔离');
+    expect(unavailable.create.options.grokSandbox.disabledReason).toBe(reason);
+    expect(unavailable.create.sandbox.choices.every((choice) => choice.disabledReason === reason))
+      .toBe(true);
+    expect(parseSessionConsoleCapabilitiesResult(structuredClone(unavailable), request))
+      .toEqual(unavailable);
+
+    readiness.available = true;
+    readiness.disabledReason = undefined;
+    const recovered = await subject.describe(request);
+    expect(recovered.create).toMatchObject({ enabled: true, disabledReason: null });
+    expect(recovered.capabilityRevision).not.toBe(unavailable.capabilityRevision);
   });
 
   it.each(['strict', 'project-locked'])(

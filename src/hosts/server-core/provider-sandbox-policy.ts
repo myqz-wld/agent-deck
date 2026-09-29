@@ -49,6 +49,9 @@ export interface ServerCoreProviderSandboxChoice {
 export const SERVER_CORE_REMOTE_GROK_CONTAINER_REQUIRED_REASON =
   'Remote Grok 需要 Provider 会话容器与 Core 凭证代理；当前运行时尚未提供安全隔离。';
 
+export const SERVER_CORE_REMOTE_GROK_CREDENTIAL_REQUIRED_REASON =
+  'Remote Grok 的推理凭证不可用或已过期；请检查并同步当前登录凭证。';
+
 function canonicalDirectory(path: string, field: string): ServerCoreProviderSandboxRootIdentity {
   if (!isAbsolute(path) || resolve(path) !== path || CONTROL.test(path)) {
     throw new Error(`${field} must be one normalized absolute directory`);
@@ -232,6 +235,7 @@ export function assertServerCoreAdditionalWriteRoots(
 export function serverCoreProviderSandboxChoices(
   adapterId: SessionAdapterId,
   grokAvailable = false,
+  grokDisabledReason = SERVER_CORE_REMOTE_GROK_CONTAINER_REQUIRED_REASON,
 ): readonly ServerCoreProviderSandboxChoice[] {
   if (adapterId === 'claude-code') return Object.freeze([
     { value: 'off', effectiveAccess: 'workspace-read-write', enabled: true, disabledReason: null },
@@ -249,11 +253,11 @@ export function serverCoreProviderSandboxChoices(
   ]);
   return Object.freeze([
     { value: 'read-only', effectiveAccess: 'workspace-read-only', enabled: grokAvailable,
-      disabledReason: grokAvailable ? null : SERVER_CORE_REMOTE_GROK_CONTAINER_REQUIRED_REASON },
+      disabledReason: grokAvailable ? null : grokDisabledReason },
     { value: 'workspace', effectiveAccess: 'selected-directory-read-write',
       enabled: grokAvailable,
-      disabledReason: grokAvailable ? null : SERVER_CORE_REMOTE_GROK_CONTAINER_REQUIRED_REASON },
+      disabledReason: grokAvailable ? null : grokDisabledReason },
     { value: 'off', effectiveAccess: 'workspace-read-write', enabled: grokAvailable,
-      disabledReason: grokAvailable ? null : SERVER_CORE_REMOTE_GROK_CONTAINER_REQUIRED_REASON },
+      disabledReason: grokAvailable ? null : grokDisabledReason },
   ]);
 }

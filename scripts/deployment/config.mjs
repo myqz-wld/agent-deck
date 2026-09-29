@@ -1,4 +1,4 @@
-import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import {
   absolutePath,
@@ -359,6 +359,16 @@ export async function loadWorkerConfig(path, repoRoot) {
   const workspaceRelative = relative(repoRoot, parsed.workspace);
   if (workspaceRelative === '' || (!workspaceRelative.startsWith('..') && !isAbsolute(workspaceRelative))) {
     fail('Worker workspace 不能指向 Agent Deck 仓库或其子目录。');
+  }
+  if (parsed.providerSupervisor !== null) {
+    for (const root of [parsed.workspace, parsed.providerSupervisor.hostConfig.privateRoot]) {
+      for (const path of [parsed.wrapper, parsed.providerSupervisor.grokCredentialFile]) {
+        const child = relative(root, path);
+        if (child === '' || (child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child))) {
+          fail('Grok 源凭证和 Worker wrapper 必须位于 Workspace 与共享运行时目录之外。');
+        }
+      }
+    }
   }
   return Object.freeze(parsed);
 }

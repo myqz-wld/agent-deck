@@ -38,6 +38,7 @@ import {
 } from './project-catalog';
 import {
   SERVER_CORE_REMOTE_GROK_CONTAINER_REQUIRED_REASON,
+  SERVER_CORE_REMOTE_GROK_CREDENTIAL_REQUIRED_REASON,
   serverCoreProviderSandboxChoices,
 } from './provider-sandbox-policy';
 import type { ServerCoreProviderSettings } from './provider-settings';
@@ -67,7 +68,7 @@ export interface ServerCoreSessionCreateCapabilityMetadata {
 
 export interface ServerCoreSessionCreateCapabilityOptions {
   grokContainer?: {
-    readiness(): Promise<{ readonly available: boolean }>;
+    readiness(): Promise<{ readonly available: boolean; readonly disabledReason?: string | null }>;
   };
   metadata: ServerCoreSessionCreateCapabilityMetadata;
   projects: readonly ServerCoreProject[];
@@ -123,6 +124,7 @@ function adapterSummary(
   adapterId: SessionAdapterId,
   registry: ServerCoreSessionCreateCapabilityRegistry,
   grokAvailable: boolean,
+  grokDisabledReason: string,
 ): SessionConsoleAdapterSummaryDescriptor {
   const profile = getAdapterRuntimeProfile(adapterId);
   const adapter = registry.get(adapterId);
@@ -137,7 +139,7 @@ function adapterSummary(
     disabledReason: remotelyEnabled
       ? null
       : adapterId === 'grok-build' && enabled
-        ? SERVER_CORE_REMOTE_GROK_CONTAINER_REQUIRED_REASON
+        ? grokDisabledReason
         : '此 Remote Core 当前无法启动该 adapter。',
     enabled: remotelyEnabled,
   });
@@ -148,6 +150,7 @@ function optionSchema(
   defaults: SessionCreationDefaults,
   providers: readonly string[],
   grokAvailable: boolean,
+  grokDisabledReason: string,
 ): SessionConsoleCreateOptionSchema {
   const profile = getAdapterRuntimeProfile(adapterId);
   const common = {
@@ -202,7 +205,7 @@ function optionSchema(
       ? enabledOption(remoteGrokSandboxDefault(defaults.grokSandbox), {
         allowedValues: REMOTE_GROK_SANDBOX_VALUES,
       })
-      : disabledOption(SERVER_CORE_REMOTE_GROK_CONTAINER_REQUIRED_REASON),
+      : disabledOption(grokDisabledReason),
     ...common,
     permissionMode: disabledOption(),
     provider: disabledOption(),
@@ -260,9 +263,11 @@ export class ServerCoreSessionCreateCapabilities {
   }
 
   async describe(params: SessionConsoleCapabilitiesParams): Promise<SessionConsoleCapabilitiesResult> {
-    const grokAvailable = await this.grokAvailable();
+    const grokDisabledReason = await this.grokDisabledReason();
+    const grokAvailable = grokDisabledReason === null;
+    const unavailableReason = grokDisabledReason ?? SERVER_CORE_REMOTE_GROK_CONTAINER_REQUIRED_REASON;
     const summaries = ADAPTER_IDS.map((adapterId) =>
-      adapterSummary(adapterId, this.options.registry, grokAvailable));
+      adapterSummary(adapterId, this.options.registry, grokAvailable, unavailableReason));
     const requested = params.adapterId ?? summaries.find((item) => item.enabled)?.adapterId ??
       summaries[0]!.adapterId;
     if (!isSessionAdapterId(requested)) {
@@ -308,9 +313,9 @@ export class ServerCoreSessionCreateCapabilities {
         maxCount: SESSION_CONSOLE_REMOTE_ATTACHMENT_MAX_COUNT,
         mimeTypes: [...SESSION_CONSOLE_REMOTE_ATTACHMENT_MIME_TYPES],
       }),
-      options: optionSchema(requested, defaults, providers, grokAvailable),
+      options: optionSchema(requested, defaults, providers, grokAvailable, unavailableReason),
       sandbox: Object.freeze({
-        choices: [...serverCoreProviderSandboxChoices(requested, grokAvailable)],
+        choices: [...serverCoreProviderSandboxChoices(requested, grokAvailable, unavailableReason)],
         optionKey: requested === 'claude-code'
           ? 'claudeCodeSandbox'
           : requested === 'codex-cli' ? 'codexSandbox' : 'grokSandbox',
@@ -412,12 +417,15 @@ export class ServerCoreSessionCreateCapabilities {
     }
   }
 
-  private async grokAvailable(): Promise<boolean> {
-    if (!this.options.grokContainer) return false;
+  private async grokDisabledReason(): Promise<string | null> {
+    if (!this.options.grokContainer) return SERVER_CORE_REMOTE_GROK_CONTAINER_REQUIRED_REASON;
     try {
-      return (await this.options.grokContainer.readiness()).available === true;
-    } catch {
-      return false;
-    }
+      const readiness = await this.options.grokContainer.readiness();
+      if (readiness.available) return null;
+      if (readiness.disabledReason === 'provider-inference-broker-unavailable') {
+        return SERVER_CORE_REMOTE_GROK_CREDENTIAL_REQUIRED_REASON;
+      }
+    } catch { /* Keep private readiness errors out of public capabilities. */ }
+    return SERVER_CORE_REMOTE_GROK_CONTAINER_REQUIRED_REASON;
   }
 }

@@ -97,7 +97,7 @@ prepare_lifecycle_args() {
         shift 2
         ;;
       *)
-        echo '用法: agent-deck-worker {start|status|stop|remove} [--worker <配置标识>]' >&2
+        echo '用法: agent-deck-worker {start|status|stop|remove|check-installed-provider-credential} [--worker <配置标识>]' >&2
         exit 2
         ;;
     esac
@@ -136,7 +136,7 @@ prepare_provider_credential_args() {
 
 requested_command="${1:-}"
 case "$requested_command" in
-  configure|start|status|stop|remove|install-provider-credential)
+  configure|start|status|stop|remove|install-provider-credential|check-installed-provider-credential)
     needs_service_roots=1
     ;;
   serve|check-config|check-abi|prepare-provider-runtime)
@@ -175,7 +175,9 @@ case "$platform" in
     if (( needs_service_roots )); then
       state_root=$worker_home/workers
       service_root=$worker_home/.config/systemd/user
-      /bin/mkdir -p -m 700 -- "$state_root" "$service_root"
+      if [[ "$requested_command" != check-installed-provider-credential ]]; then
+        /bin/mkdir -p -m 700 -- "$state_root" "$service_root"
+      fi
       [[ ! -L "$state_root" && "$(/usr/bin/readlink -f -- "$state_root")" == "$state_root" ]] || fail
       [[ ! -L "$service_root" && "$(/usr/bin/readlink -f -- "$service_root")" == "$service_root" ]] || fail
       [[ -d "$runtime_dir" && ! -L "$runtime_dir" ]] || fail
@@ -236,7 +238,9 @@ case "$platform" in
       worker_home="$container_data/Library/Application Support/Agent Deck"
       state_root="$worker_home/workers"
       service_root="$user_home/Library/LaunchAgents"
-      /bin/mkdir -p -m 700 -- "$state_root" "$service_root"
+      if [[ "$requested_command" != check-installed-provider-credential ]]; then
+        /bin/mkdir -p -m 700 -- "$state_root" "$service_root"
+      fi
       state_root="$(canonical_directory "$state_root")"
       service_root="$(canonical_directory "$service_root")"
       node_environment=(HOME="$user_home" ELECTRON_RUN_AS_NODE=1 NODE_PATH="$node_modules")
@@ -274,7 +278,7 @@ case "${1:-}" in
       --wrapper "$wrapper" \
       "${DARWIN_CONFIGURE_ARGS[@]}"
     ;;
-  start|status|stop|remove)
+  start|status|stop|remove|check-installed-provider-credential)
     lifecycle_command=$1
     prepare_lifecycle_args "$@"
     set -- "$lifecycle_command" \
@@ -309,7 +313,7 @@ case "${1:-}" in
     ;;
   *)
     echo '用法: agent-deck-worker configure --credential <Worker凭证> --workspace <目录>' >&2
-    echo '      agent-deck-worker {start|status|stop|remove} [--worker <配置标识>]' >&2
+    echo '      agent-deck-worker {start|status|stop|remove|check-installed-provider-credential} [--worker <配置标识>]' >&2
     echo '      agent-deck-worker install-provider-credential --credential <Grok凭证> [--worker <配置标识>]' >&2
     exit 2
     ;;

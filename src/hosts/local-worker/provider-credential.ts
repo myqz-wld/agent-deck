@@ -86,7 +86,7 @@ function assertPrivateDirectory(path: string): void {
   }
 }
 
-export async function readLocalWorkerGrokCredential(
+async function readTrustedCredentialDocument(
   credentialFile: string,
 ): Promise<unknown> {
   const stat = lstatSync(credentialFile);
@@ -98,14 +98,29 @@ export async function readLocalWorkerGrokCredential(
   ) {
     throw new Error('Grok Provider credential file must be canonical private mode 0600');
   }
-  const document = await readPrivateJsonFile(credentialFile, {
+  return readPrivateJsonFile(credentialFile, {
     maxBytes: MAX_GROK_CREDENTIAL_BYTES,
   });
+}
+
+export async function readLocalWorkerGrokCredential(credentialFile: string): Promise<unknown> {
+  const document = await readTrustedCredentialDocument(credentialFile);
   const projected = projectLocalWorkerGrokCredential(document);
   if (!projected) {
     throw new Error('Grok Provider credential document is invalid or expired');
   }
   return projected;
+}
+
+/** Checks the actual Core-readable copy, not a separately refreshed native login. */
+export async function checkInstalledLocalWorkerGrokCredential(privateRoot: string): Promise<void> {
+  assertPrivateDirectory(privateRoot);
+  const credentialRoot = join(privateRoot, 'provider-inference');
+  assertPrivateDirectory(credentialRoot);
+  const document = await readTrustedCredentialDocument(join(credentialRoot, GROK_CREDENTIAL_FILE));
+  if (!isValidServerCoreGrokCredentialDocument(document)) {
+    throw new Error('Installed Grok Provider credential document is invalid or expired');
+  }
 }
 
 /** Projects the exact Grok credential into one Worker's model-invisible private root. */

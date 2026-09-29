@@ -64,7 +64,9 @@ function providerCredentialFlags(argv: readonly string[]): Record<string, string
     : required);
 }
 
-function terminalServiceManager(flags: Record<string, string>): LocalWorkerTerminalServiceManager {
+function terminalServiceManager(
+  flags: Record<string, string>, serviceRootMustExist = false,
+): LocalWorkerTerminalServiceManager {
   const platform = workerPlatform();
   return new LocalWorkerTerminalServiceManager({
     platform,
@@ -72,6 +74,7 @@ function terminalServiceManager(flags: Record<string, string>): LocalWorkerTermi
     stateRoot: requireAbsolutePath(flags['--state-root'], 'state-root'),
     wrapperPath: requireAbsolutePath(flags['--wrapper'], 'wrapper'),
     providerSourceHome: requireAbsolutePath(process.env.HOME, 'provider-source-home'),
+    serviceRootMustExist,
     ...(process.platform === 'darwin' ? {
       darwinSandboxLauncherPath: requireAbsolutePath(
         flags['--sandbox-launcher'],
@@ -100,6 +103,11 @@ export async function runLocalWorkerEntrypoint(argv: readonly string[]): Promise
     await readLocalWorkerGrokCredential(
       requireAbsolutePath(flags['--credential'], 'credential'),
     );
+    return 0;
+  }
+  if (command === 'check-installed-provider-credential') {
+    const flags = terminalServiceFlags(argv.slice(1));
+    await terminalServiceManager(flags, true).checkInstalledProviderCredential(flags['--worker']);
     return 0;
   }
   if (command === 'configure') {
@@ -229,6 +237,8 @@ if (invokedAsEntrypoint) {
     () => {
       process.stderr.write(entrypointArgv[0] === 'check-abi'
         ? 'Local Worker 的 Node SQLite ABI 预检失败。\n'
+        : entrypointArgv[0] === 'check-installed-provider-credential'
+          ? 'Worker 中的 Grok 凭证缺失、无效或已过期；请同步当前登录凭证。\n'
         : entrypointArgv[0] === 'configure'
           ? 'Worker 配置失败；详细输入已隐藏。\n'
           : ['start', 'status', 'stop', 'remove', 'install-provider-credential'].includes(

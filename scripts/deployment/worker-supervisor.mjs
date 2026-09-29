@@ -74,6 +74,7 @@ async function checkSupervisorConfiguration(config) {
   assertSupportedPlatform();
   await command(config.command, ['check-config', '--config', config.configFile]);
   await assertRuntimePaths(config);
+  await renderLaunchAgent(config);
 }
 
 async function checkSupervisorCredential(config) {
@@ -105,6 +106,9 @@ async function renderLaunchAgent(config) {
     '@@SUPERVISOR_COMMAND@@': config.command,
     '@@CONFIG_PATH@@': config.configFile,
     '@@SOCKET_PATH@@': config.hostConfig.transportSocketPath,
+    '@@GROK_CREDENTIAL_FILE@@': config.grokCredentialFile,
+    '@@WORKER_WRAPPER@@': config.workerWrapper,
+    '@@WORKER_CONFIG_ID@@': config.workerConfigId,
   };
   let rendered = template;
   for (const [marker, value] of Object.entries(replacements)) {
@@ -226,7 +230,28 @@ async function verifyLaunchAgent(config) {
   if (status.code !== 0 || !/^\s*state = running\s*$/m.test(status.stdout)) {
     throw new Error('Provider supervisor LaunchAgent 尚未运行。');
   }
+  const installed = await readExistingPrivateFile(launchAgentPath(config));
+  if (installed?.toString('utf8') !== await renderLaunchAgent(config)) {
+    throw new Error('Provider supervisor 服务定义已过期；请运行 Worker --upgrade。');
+  }
+  assertCredentialSyncArguments(status.stdout, config);
   await command(config.command, ['health-config', '--config', config.configFile]);
+}
+
+/** Check the loaded job as well as its file: writing a plist does not reload launchd. */
+export function assertCredentialSyncArguments(output, config) {
+  const block = output.match(/^\s*arguments = \{\s*$([\s\S]*?)^\s*\}/m)?.[1];
+  const args = block?.split('\n').map((line) => line.trim()).filter(Boolean) ?? [];
+  for (const [flag, value] of [
+    ['--credential-source', config.grokCredentialFile],
+    ['--worker-wrapper', config.workerWrapper],
+    ['--worker-config', config.workerConfigId],
+  ]) {
+    const index = args.indexOf(flag);
+    if (index < 0 || args.lastIndexOf(flag) !== index || args[index + 1] !== value) {
+      throw new Error('Provider supervisor 尚未加载当前凭证同步配置；请运行 Worker --upgrade。');
+    }
+  }
 }
 
 export async function verifyWorkerProviderSupervisor(config) {
@@ -240,7 +265,12 @@ export async function verifyWorkerProviderSupervisor(config) {
     }
   };
   const configuration = await inspect(() => checkSupervisorConfiguration(config));
-  const credential = await inspect(() => checkSupervisorCredential(config));
+  const credential = await inspect(async () => {
+    await checkSupervisorCredential(config);
+    await command(config.workerWrapper, [
+      'check-installed-provider-credential', '--worker', config.workerConfigId,
+    ]);
+  });
   const service = await inspect(() => verifyLaunchAgent(config));
   const healthy = configuration === 'ok' && credential === 'ok' && service === 'ok';
   return {

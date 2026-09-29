@@ -143,6 +143,17 @@ async function installed(
 }
 
 describe('terminal-only Local Worker service lifecycle', () => {
+  it('does not recreate missing service directories during credential diagnostics', () => {
+    const paths = fixture();
+    rmSync(paths.serviceRoot, { recursive: true });
+    expect(() => new LocalWorkerTerminalServiceManager({
+      platform: 'linux', serviceRoot: paths.serviceRoot, stateRoot: paths.stateRoot,
+      wrapperPath: paths.wrapperPath, serviceRootMustExist: true,
+      commands: new FakeServiceCommands(),
+    })).toThrow();
+    expect(existsSync(paths.serviceRoot)).toBe(false);
+  });
+
   it('installs, persists, stops, restarts, and removes one macOS LaunchAgent', async () => {
     const paths = fixture();
     const worker = await installed(paths, 'darwin');
@@ -302,6 +313,11 @@ describe('terminal-only Local Worker service lifecycle', () => {
     expect(statSync(dirname(target)).mode & 0o777).toBe(0o700);
     expect(statSync(target).mode & 0o777).toBe(0o600);
     expect(readFileSync(target, 'utf8')).not.toContain('unexpected');
+    await expect(manager.checkInstalledProviderCredential(worker.workerConfigId))
+      .resolves.toBeUndefined();
+    writeFileSync(target, '{}');
+    await expect(manager.checkInstalledProviderCredential(worker.workerConfigId))
+      .rejects.toThrow(/invalid or expired/);
   });
 
   it('reports an unconfigured state without inventing a Worker', async () => {
