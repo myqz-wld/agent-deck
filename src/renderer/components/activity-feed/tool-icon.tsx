@@ -11,7 +11,9 @@ const KINDS: Record<string, ComponentType<SvgIconProps>> = {
   search: SearchIcon, execute: TerminalIcon, think: BrainIcon, fetch: GlobeIcon,
   switch_mode: HandOffIcon,
 };
-export function ToolIcon({ tool, kind, input }: { tool: string; kind?: unknown; input?: unknown }): JSX.Element {
+export function ToolIcon({ tool, kind, input, className = 'h-3.5 w-3.5 shrink-0 text-deck-muted' }: {
+  tool: string; kind?: unknown; input?: unknown; className?: string;
+}): JSX.Element {
   const name = tool.toLowerCase().split('__').at(-1) ?? '';
   const command = (input as { command?: unknown; cmd?: unknown } | null)?.command
     ?? (input as { cmd?: unknown } | null)?.cmd;
@@ -28,5 +30,5 @@ export function ToolIcon({ tool, kind, input }: { tool: string; kind?: unknown; 
   const semantic = isAgentToolKind(kind) && kind !== 'other' ? kind : inferAgentToolKind(tool);
   Icon ??= semantic ? KINDS[semantic] : undefined;
   Icon ??= tool.startsWith('mcp__') ? PlugIcon : WrenchIcon;
-  return <Icon className="h-3.5 w-3.5 shrink-0 text-deck-muted" />;
+  return <Icon className={className} />;
 }

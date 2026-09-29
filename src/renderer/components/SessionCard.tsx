@@ -1,8 +1,9 @@
 import { useMemo, useState, type JSX } from 'react';
 import type { AgentEvent, SessionRecord } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
-import { toolIcon } from './activity-feed/tool-icons';
-import { describeAgentToolInput, resolveToolNameAlias } from './activity-feed/describe';
+import { describeLiveActivity } from './session-live-activity';
+import { SessionActivityLine } from './SessionActivityLine';
+export { formatEventLine } from './session-live-activity';
 import { SessionMetadataChips } from './SessionMetadataChips';
 import { SessionContextUsageChip } from './SessionContextUsageChip';
 import { SessionPinButton } from './SessionPinButton';
@@ -166,15 +167,7 @@ export function SessionCard({
       {liveLines.length > 0 && (
         <div className="mt-1 flex flex-col gap-0.5">
           {liveLines.map((line, i) => (
-            <div
-              key={`${i}-${line}`}
-              className={`truncate text-[10px] ${
-                i === 0 ? 'text-deck-text/85' : 'text-deck-text/60'
-              }`}
-              title={line}
-            >
-              {line}
-            </div>
+            <SessionActivityLine key={`${i}-${line.text}`} line={line} muted={i > 0} />
           ))}
         </div>
       )}
@@ -212,198 +205,4 @@ export function SessionCard({
       )}
     </SessionCardFrame>
   );
-}
-
-/**
- * 把会话的实时状态浓缩成最多 3 行短文案。waiting 优先级最高（仅返回 1 行），否则按事件 kind
- * 翻译并提取文件名、工具名等可读信息；连续重复行会合并。
- */
-function describeLiveActivity(
-  session: SessionRecord,
-  recent: AgentEvent[],
-): string[] {
-  if (session.activity === 'waiting') {
-    const waitingLine = recent.find((e) => e.kind === 'waiting-for-user');
-    return [waitingLine ? formatEventLine(waitingLine) || '⚠️ 等待你的输入' : '⚠️ 等待你的输入'];
-  }
-  if (session.activity === 'finished' && recent[0]?.kind !== 'tool-use-start') {
-    return ['✅ 一轮完成'];
-  }
-  // 取最近 12 条里最多 3 个有信息量的行（去重连续同行避免「Edit foo.ts × 5」刷屏）
-  const lines: string[] = [];
-  let lastLine: string | null = null;
-  for (const e of recent.slice(0, 12)) {
-    const line = formatEventLine(e);
-    if (!line) continue;
-    if (line === lastLine) continue;
-    lines.push(line);
-    lastLine = line;
-    if (lines.length >= 3) break;
-  }
-  return lines;
-}
-
-export function formatEventLine(e: AgentEvent): string | null {
-  const p = payloadObject(e.payload);
-  switch (e.kind) {
-    case 'tool-use-start': {
-      const tool = textValue(p.toolName) || '工具';
-      const detail = summariseToolInput(tool, p.toolInput);
-      return detail
-        ? `${toolIcon(tool, p.toolKind)} ${tool} · ${detail}`
-        : `${toolIcon(tool, p.toolKind)} ${tool}`;
-    }
-    case 'file-changed': {
-      const path = textValue(p.filePath);
-      return path ? `📝 ${shortenPath(path)}` : null;
-    }
-    case 'message': {
-      const text = typeof p.text === 'string' ? p.text.replace(/\s+/g, ' ').trim() : '';
-      if (!text) return null;
-      return `💬 ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`;
-    }
-    case 'message-display': {
-      const delta = textValue(p.delta).replace(/\s+/g, ' ');
-      if (!delta) return null;
-      return `💬 ${delta.slice(0, 80)}${delta.length > 80 ? '…' : ''}`;
-    }
-    case 'context-compaction-start':
-      return '🧭 正在压缩上下文';
-    case 'context-compaction-end':
-      return '🧭 上下文压缩完成';
-    case 'subagent-start': {
-      const type = textValue(p.subagentType);
-      return `🤖 子代理开始${type ? ` · ${type}` : ''}`;
-    }
-    case 'subagent-end': {
-      const type = textValue(p.subagentType);
-      return `🤖 子代理结束${type ? ` · ${type}` : ''}`;
-    }
-    case 'waiting-for-user':
-      return formatWaitingLine(p);
-    case 'session-start':
-      return null; // 太弱，跳过让循环找下一个更具体的
-    case 'tool-use-end':
-      return null;
-    case 'finished':
-      return '✅ 一轮完成';
-    case 'session-end':
-      return '⏹ 会话结束';
-    default:
-      return null;
-  }
-}
-
-function formatWaitingLine(p: Record<string, unknown>): string {
-  const type = textValue(p.type);
-  if (type === 'permission-request') {
-    const tool = textValue(p.toolName) || '工具';
-    const detail = summariseToolInput(tool, p.toolInput);
-    return detail ? `⚠️ 等待你授权 ${tool} · ${detail}` : `⚠️ 等待你授权 ${tool}`;
-  }
-  if (type === 'ask-user-question') return '❓ 收到一个问题';
-  if (type === 'exit-plan-mode') {
-    const plan = textValue(p.plan);
-    const firstLine = plan.split('\n').find((line) => line.trim())?.trim();
-    return firstLine
-      ? `📋 等待批准计划 · ${firstLine.slice(0, 60)}${firstLine.length > 60 ? '…' : ''}`
-      : '📋 收到一个执行计划';
-  }
-  if (type === 'codex-terminal-permission-request') {
-    const tool = textValue(p.toolName) || '工具';
-    return `⚠️ Codex CLI 等待终端授权 ${tool}`;
-  }
-  if (type === 'permission-cancelled') return '⚪ 权限请求已取消';
-  if (type === 'ask-question-cancelled') return '⚪ 提问已取消';
-  if (type === 'exit-plan-cancelled') return '⚪ 计划批准请求已取消';
-  const message = textValue(p.message);
-  return `⚠️ 等待你的输入${message ? ` · ${message.slice(0, 60)}${message.length > 60 ? '…' : ''}` : ''}`;
-}
-
-function summariseToolInput(toolName: string, input: unknown): string | null {
-  if (!input || typeof input !== 'object') return null;
-  const o = input as Record<string, unknown>;
-  const resolvedToolName = resolveToolNameAlias(toolName);
-  switch (resolvedToolName) {
-    case 'Edit':
-    case 'Write':
-    case 'Read':
-    case 'MultiEdit':
-      return typeof o.file_path === 'string' ? shortenPath(o.file_path) : null;
-    case 'Bash': {
-      const cmd = typeof o.command === 'string' ? o.command.replace(/\s+/g, ' ').trim() : '';
-      return cmd ? cmd.slice(0, 60) + (cmd.length > 60 ? '…' : '') : null;
-    }
-    case 'Glob':
-      return typeof o.pattern === 'string' ? o.pattern : null;
-    case 'Grep':
-      return typeof o.pattern === 'string' ? o.pattern : null;
-    case 'TodoWrite': {
-      // 显示完成数量和当前任务，让卡片保留待办进度。
-      // todos schema：{ content, status, activeForm }[]，status: 'pending' | 'in_progress' | 'completed'
-      const todos = Array.isArray(o.todos)
-        ? o.todos.filter(
-            (t): t is { status?: string; activeForm?: string } =>
-              t !== null && typeof t === 'object',
-          )
-        : [];
-      if (todos.length === 0) return null;
-      const done = todos.filter((t) => t.status === 'completed').length;
-      const inProgress = todos.find((t) => t.status === 'in_progress');
-      const inProgressLabel =
-        inProgress && typeof (inProgress as { activeForm?: string }).activeForm === 'string'
-          ? ` · ${(inProgress as { activeForm: string }).activeForm.slice(0, 40)}${
-              (inProgress as { activeForm: string }).activeForm.length > 40 ? '…' : ''
-            }`
-          : '';
-      return `已完成 ${done}/${todos.length}${inProgressLabel}`;
-    }
-    case 'WebSearch': {
-      // 显示 query 摘要。
-      const query = typeof o.query === 'string' ? o.query.replace(/\s+/g, ' ').trim() : '';
-      if (!query) return null;
-      return `"${query.slice(0, 50)}${query.length > 50 ? '…' : ''}"`;
-    }
-    case 'WebFetch': {
-      // 显示截断后的 URL。
-      const url = typeof o.url === 'string' ? o.url : '';
-      if (!url) return null;
-      // url 长度截 60 字（host 一般够看，太长 prompt 主导）
-      return url.slice(0, 60) + (url.length > 60 ? '…' : '');
-    }
-    case 'Task':
-    case 'Agent': {
-      return describeAgentToolInput(o, 40);
-    }
-    case 'Skill': {
-      // Skill input shape：{ skill: "<plugin:name>" | "<name>", args?: string }
-      // 与 activity-feed/describe.ts 的 Skill 摘要保持一致。
-      const skill = typeof o.skill === 'string' ? o.skill : '';
-      const args = typeof o.args === 'string' ? o.args.replace(/\s+/g, ' ').trim() : '';
-      if (!skill) return null;
-      if (args) {
-        const argsShort = args.length > 60 ? args.slice(0, 60) + '…' : args;
-        return `${skill} · ${argsShort}`;
-      }
-      return skill;
-    }
-    default: {
-      return null;
-    }
-  }
-}
-
-function payloadObject(payload: unknown): Record<string, unknown> {
-  return payload !== null && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
-}
-
-function textValue(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function shortenPath(p: string): string {
-  if (!p) return '';
-  const parts = p.split('/');
-  if (parts.length <= 3) return p;
-  return '…/' + parts.slice(-2).join('/');
 }

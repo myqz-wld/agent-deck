@@ -1,4 +1,5 @@
 import { type JSX } from 'react';
+import { AlertTriangleIcon } from '../../icons';
 import type { AppSettings } from '@shared/types';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { Section } from '../controls';
@@ -32,7 +33,7 @@ function SandboxModeDescriptions({
       <div>默认档位：<strong>工作目录可写</strong>。</div>
       {options.map((option) => (
         <div key={option.value}>
-          · <strong>{option.label.replace(/^⚠️\s*/, '')}：</strong>{option.title}
+          · <strong>{option.label}：</strong>{option.title}
         </div>
       ))}
     </>
@@ -66,7 +67,7 @@ export function ExperimentalSection({ settings, update, readOnly = false }: Prop
         {sandboxNativeAvailable ? (
           <>
             <SandboxModeDescriptions options={CLAUDE_SANDBOX_MODE_OPTIONS} />
-            <strong className="text-amber-300/90">⚠️ 仅对新建会话生效</strong>。
+            <strong className="text-amber-300/90"><AlertTriangleIcon className="mr-1 inline h-3 w-3 align-text-bottom" />仅对新建会话生效</strong>。
           </>
         ) : (
           <>
@@ -90,7 +91,7 @@ export function ExperimentalSection({ settings, update, readOnly = false }: Prop
       </div>
       <div className="text-[10px] leading-snug text-deck-muted/70">
         <SandboxModeDescriptions options={CODEX_SANDBOX_MODE_OPTIONS} />
-        <strong className="text-amber-300/90">⚠️ 仅对新建会话生效</strong>。
+        <strong className="text-amber-300/90"><AlertTriangleIcon className="mr-1 inline h-3 w-3 align-text-bottom" />仅对新建会话生效</strong>。
       </div>
       <div data-settings-field="Grok Build 沙盒（请求档位）" className="mt-3 flex flex-col gap-1 text-[11px]">
         <div>Grok Build 沙盒（请求档位）</div>
@@ -112,7 +113,7 @@ export function ExperimentalSection({ settings, update, readOnly = false }: Prop
           中定义的配置名称；企业托管要求仍可能覆盖这里的请求
         </div>
         <div>权限弹窗决定工具是否执行；沙盒限制获准工具能够访问的系统资源。</div>
-        <strong className="text-amber-300/90">⚠️ 全局设置仅用于新建会话；已有会话可在详情中空闲切换</strong>。
+        <strong className="text-amber-300/90"><AlertTriangleIcon className="mr-1 inline h-3 w-3 align-text-bottom" />全局设置仅用于新建会话；已有会话可在详情中空闲切换</strong>。
       </div>
     </Section>
   );

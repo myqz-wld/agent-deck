@@ -10,13 +10,8 @@ import type { SessionContextMenuPosition } from './SessionActionsContextMenu';
 import { SessionContextSnapshotChip } from './SessionContextUsageChip';
 import { SessionPinControl } from './SessionPinButton';
 import { sessionSummaryHeadline } from './session-summary-headline';
-
-const ACTIVITY_LABELS = {
-  idle: '空闲',
-  working: '工作中',
-  waiting: '等待输入',
-  finished: '一轮完成',
-} as const;
+import { SessionActivityLine } from './SessionActivityLine';
+import { sessionActivitySummary } from './session-live-activity';
 
 export function RemoteSessionSummaryCard({
   session,
@@ -65,11 +60,7 @@ export function RemoteSessionSummaryCard({
           ? `已归档（${lifecycleLabel(session.lifecycle)}）`
           : lifecycleLabel(session.lifecycle)
       }`
-    : session.activity === 'waiting'
-    ? '⚠️ 等待你的输入'
-    : session.activity === 'finished'
-      ? '✅ 一轮完成'
-      : ACTIVITY_LABELS[session.activity];
+    : null;
   return (
     <SessionCardFrame
       element={historyActions ? 'div' : 'button'}
@@ -134,7 +125,11 @@ export function RemoteSessionSummaryCard({
         />
         <SessionContextSnapshotChip context={session.context} />
       </div>
-      <div className="mt-1 truncate text-[10px] text-deck-text/85" title={activityLine}>{activityLine}</div>
+      <div className="mt-1 min-w-0">
+        {history
+          ? <div className="truncate text-[10px] text-deck-text/85" title={activityLine ?? undefined}>{activityLine}</div>
+          : <SessionActivityLine line={sessionActivitySummary(session.activity)} />}
+      </div>
       <div className="mt-0.5 truncate text-[10px] text-deck-muted/70" title={summaryPresentation.title}>
         {summaryPresentation.line}
       </div>

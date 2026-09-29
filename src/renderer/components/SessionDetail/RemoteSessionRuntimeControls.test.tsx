@@ -143,7 +143,7 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
     );
 
     fireEvent.click(screen.getByLabelText('沙盒'));
-    fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
+    fireEvent.click(screen.getByRole('option', { name: '完全开放' }));
     await waitFor(() => expect(window.api.confirmDialog).toHaveBeenCalledOnce());
 
     view.rerender(

@@ -111,7 +111,7 @@ describe('Codex live approval control', () => {
     );
 
     fireEvent.click(screen.getByLabelText('沙盒'));
-    fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
+    fireEvent.click(screen.getByRole('option', { name: '完全开放' }));
 
     await waitFor(() => {
       expect(confirmDialog).toHaveBeenCalledWith({
@@ -141,7 +141,7 @@ describe('Claude Code live sandbox control', () => {
     );
 
     fireEvent.click(screen.getByLabelText('沙盒'));
-    fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
+    fireEvent.click(screen.getByRole('option', { name: '完全开放' }));
 
     await waitFor(() => {
       expect(confirmDialog).toHaveBeenCalledWith({
@@ -247,7 +247,7 @@ describe('Grok Build live sandbox control', () => {
       <SessionSandboxControls session={session()} turnBusy={false} />,
     );
     fireEvent.click(screen.getByLabelText('沙盒'));
-    fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
+    fireEvent.click(screen.getByRole('option', { name: '完全开放' }));
 
     await waitFor(() => {
       expect(confirmDialog).toHaveBeenCalledWith({

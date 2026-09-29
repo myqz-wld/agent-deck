@@ -38,6 +38,11 @@ have a distinct icon, and Grok summaries include the available tool arguments. C
 dedicated permission, question, plan approval, and subagent views. Provider plan updates reuse a
 single card and preserve step status and priority.
 
+Live session cards, detail events, pending requests, and interface warnings use the same SVG icon
+style. Live tool summaries follow the detail view's Shell/Browser and provider argument rules;
+failed or interrupted rounds retain their outcome. Message-body emoji remain part of the original
+content.
+
 In Markdown mode, messages and plans support tables, code highlighting, and mathematical
 formulas across Claude, Codex, and Grok. Use `$x^2$` or `\(x^2\)` for inline math, and
 `$$...$$`, `\[...\]`, or a fenced `math` block for display equations. Formula styles and
@@ -49,7 +54,9 @@ available for viewing the original message.
 
 Images returned by Codex image tools, Claude assistant/tool content, and Grok ACP content appear
 as thumbnails. Click a thumbnail to enlarge it; choose **保存图片** in the card or preview to save
-the original bytes through the native save dialog. Local and Remote sessions use their own asset
+the original bytes through the native save dialog. Preview controls fade after 1.8 seconds of
+pointer inactivity and reappear on movement. They stay visible while hovered, using the keyboard,
+or saving; buttons provide hover, pressed, and focus feedback. Local and Remote sessions use their own asset
 readers. Supported image types are PNG, JPEG, GIF, and WebP, with a 16 MiB limit per image and up to
 eight images per event. Inline images are stored outside activity JSON in the host's application
 data directory. Referenced files must still exist; Remote file references must remain inside the

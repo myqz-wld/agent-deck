@@ -1,7 +1,7 @@
 import { useRef, type JSX } from 'react';
 import type { UseImageAttachmentsResult } from '@renderer/hooks/useImageAttachments';
 import { PendingImageAttachments } from '../PendingImageAttachments';
-import { ImageIcon } from '../icons';
+import { AlertTriangleIcon, ImageIcon } from '../icons';
 import { ExpandableAuthoringField } from '../hand-off/ExpandableTextSurface';
 
 interface Props {
@@ -100,7 +100,7 @@ export function FirstMessageAuthoring({
 
       {images.error ? (
         <div className="rounded bg-status-waiting/10 px-2 py-1 text-[11px] text-status-waiting">
-          ⚠️ {images.error}{' '}
+          <AlertTriangleIcon className="mr-1 inline h-3 w-3 align-text-bottom" />{images.error}{' '}
           <button
             type="button"
             onClick={images.dismissError}

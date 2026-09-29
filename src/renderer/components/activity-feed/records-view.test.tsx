@@ -107,7 +107,7 @@ describe('ActivityRecordsView source boundaries', () => {
     render(<ActivityRecordsView events={events} loaded loadError={null}
       sessionId="remote-session" agentId="grok-build" isSdk />);
 
-    expect(screen.getByText('✅ 一轮完成')).toBeTruthy();
+    expect(screen.getByText('一轮完成')).toBeTruthy();
     expect(screen.getByText('Grok Build /clear 已完成')).toBeTruthy();
   });
 });

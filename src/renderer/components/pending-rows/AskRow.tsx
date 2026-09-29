@@ -15,6 +15,9 @@ import {
 } from './review-detail/row-response-state';
 
 type AskDraft = { selected: string[]; other?: string; note?: string };
+import { PendingStatusIcon } from './PendingStatusIcon';
+import { QuestionIcon } from '../icons';
+
 const logger = log.scope('renderer-ask-row');
 
 export function AskRow({
@@ -147,11 +150,12 @@ export function AskRow({
                 : 'text-status-working/80'
           }
         >
+          <PendingStatusIcon pending={stillPending} cancelled={wasCancelled} icon={QuestionIcon} />
           {stillPending
-            ? '❓ 收到一个问题'
+            ? '收到一个问题'
             : wasCancelled
-              ? '🚫 提问已被取消'
-              : '✅ 已回答'}
+              ? '提问已被取消'
+              : '已回答'}
         </span>
         {stillPending && (
           <span className="text-deck-muted/80">

@@ -216,7 +216,7 @@ describe('Remote New Session attachments', () => {
     expect(options).toEqual([
       expect.objectContaining({ label: '广泛只读', disabled: true, title: reason }),
       expect.objectContaining({ label: '工作目录可写', disabled: true, title: reason }),
-      expect.objectContaining({ label: '⚠️ 工作区内完全开放', disabled: true, title: reason }),
+      expect.objectContaining({ label: '工作区内完全开放', disabled: true, title: reason }),
     ]);
   });
 

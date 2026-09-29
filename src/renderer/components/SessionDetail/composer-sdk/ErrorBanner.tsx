@@ -1,5 +1,5 @@
 import type { JSX } from 'react';
-import { CloseIcon } from '../../icons';
+import { AlertTriangleIcon, CloseIcon } from '../../icons';
 
 /**
  * 通用错误条（5 处复用）：权限模式 / Codex sandbox / Claude OS 沙盒 / 发送 / 图片附件。
@@ -9,7 +9,7 @@ import { CloseIcon } from '../../icons';
  *
  * 行为约束：
  * - `message` falsy 时返回 null（与原行为 `{xxxError && (...)}` 等价）
- * - `prefix` 默认 '⚠'；caller 可传额外前缀文案如「权限模式切换失败」
+ * - 错误图标独立显示；caller 可传额外前缀文案如「权限模式切换失败」
  * - `onDismiss` 用户点关闭图标时调；caller 通常 setXxxError(null)
  */
 export function ErrorBanner({
@@ -24,7 +24,8 @@ export function ErrorBanner({
   if (!message) return null;
   return (
     <div className="mb-1.5 flex items-start gap-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
-      <span className="flex-1">⚠️ {prefix ? `${prefix}：` : ''}{message}</span>
+      <AlertTriangleIcon className="mt-0.5 h-3 w-3 shrink-0" />
+      <span className="min-w-0 flex-1">{prefix ? `${prefix}：` : ''}{message}</span>
       <button
         type="button"
         onClick={onDismiss}

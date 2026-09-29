@@ -9,6 +9,14 @@ export function FileTextIcon(props: SvgIconProps): JSX.Element {
   return <SvgIcon {...props}><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h4M9 13h6M9 17h6" /></SvgIcon>;
 }
 
+export function FileDiffIcon(props: SvgIconProps): JSX.Element {
+  return <SvgIcon {...props}><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h4M9 12h6M12 9v6M9 18h6" /></SvgIcon>;
+}
+
 export function ImageIcon(props: SvgIconProps): JSX.Element {
   return <SvgIcon {...props}><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="9" r="1.5" /><path d="m4 17 5-5 4 4 2-2 5 4" /></SvgIcon>;
+}
+
+export function MessageIcon(props: SvgIconProps): JSX.Element {
+  return <SvgIcon {...props}><path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5A8.5 8.5 0 0 1 10.5 3h2a8.5 8.5 0 0 1 8.5 8.5Z" /><path d="M7 9h9M7 13h6" /></SvgIcon>;
 }

@@ -1,6 +1,6 @@
 import type { AgentEvent } from '@shared/types';
-import { toolIcon } from './tool-icons';
 import { unwrapShellCommand } from './tool-summary';
+import { turnOutcome } from './turn-outcome';
 
 /** SimpleRow 单行灰文字摘要：按事件 kind / waiting-for-user 子类型分发到一句中文描述。 */
 export function describe(e: AgentEvent): string {
@@ -13,18 +13,18 @@ export function describe(e: AgentEvent): string {
     case 'message-display': {
       const delta = textValue(p.delta).replace(/\s+/g, ' ');
       return delta
-        ? `💬 显示消息 · ${delta.slice(0, 80)}${delta.length > 80 ? '…' : ''}`
+        ? `显示消息 · ${delta.slice(0, 80)}${delta.length > 80 ? '…' : ''}`
         : p.final === true
-          ? '💬 消息显示完成'
-          : '💬 显示消息';
+          ? '消息显示完成'
+          : '显示消息';
     }
     case 'tool-use-start': {
       const tool = textValue(p.toolName) || '工具';
-      if (tool === 'ExitPlanMode') return '📋 收到一个执行计划';
+      if (tool === 'ExitPlanMode') return '收到一个执行计划';
       const detail = describeToolInput(tool, p.toolInput);
       return detail
-        ? `${toolIcon(tool, p.toolKind)} ${tool} · ${detail}`
-        : `${toolIcon(tool, p.toolKind)} ${tool}`;
+        ? `${tool} · ${detail}`
+        : `${tool}`;
     }
     case 'tool-use-end': {
       const tool = textValue(p.toolName) || '工具';
@@ -37,15 +37,15 @@ export function describe(e: AgentEvent): string {
             : status === 'denied'
               ? '已拒绝'
               : '完成';
-      return `${toolIcon(tool, p.toolKind)} ${tool} ${suffix}`;
+      return `${tool} ${suffix}`;
     }
     case 'file-changed': {
       const filePath = textValue(p.filePath);
-      return filePath ? `📝 ${filePath}` : '📝 文件改动';
+      return filePath ? `${filePath}` : '文件改动';
     }
     case 'context-compaction-start': {
       const trigger = textValue(p.trigger);
-      return `🧭 开始压缩上下文${trigger ? ` · ${trigger}` : ''}`;
+      return `开始压缩上下文${trigger ? ` · ${trigger}` : ''}`;
     }
     case 'context-compaction-end': {
       const trigger = textValue(p.trigger);
@@ -53,69 +53,61 @@ export function describe(e: AgentEvent): string {
       const detail = summary
         ? `${summary.slice(0, 100)}${summary.length > 100 ? '…' : ''}`
         : '';
-      return `🧭 上下文压缩完成${trigger ? ` · ${trigger}` : ''}${detail ? ` · ${detail}` : ''}`;
+      return `上下文压缩完成${trigger ? ` · ${trigger}` : ''}${detail ? ` · ${detail}` : ''}`;
     }
     case 'subagent-start': {
       const type = textValue(p.subagentType);
       const id = textValue(p.subagentId);
-      return `🤖 子代理开始${type ? ` · ${type}` : id ? ` · ${id}` : ''}`;
+      return `子代理开始${type ? ` · ${type}` : id ? ` · ${id}` : ''}`;
     }
     case 'subagent-end': {
       const type = textValue(p.subagentType);
       const id = textValue(p.subagentId);
-      return `🤖 子代理结束${type ? ` · ${type}` : id ? ` · ${id}` : ''}`;
+      return `子代理结束${type ? ` · ${type}` : id ? ` · ${id}` : ''}`;
     }
     case 'waiting-for-user': {
       const type = textValue(p.type);
       if (type === 'permission-request') {
         const tool = textValue(p.toolName) || '工具';
         const detail = describeToolInput(tool, p.toolInput);
-        return detail ? `⚠️ 等待你授权 ${tool} · ${detail}` : `⚠️ 等待你授权 ${tool}`;
+        return detail ? `等待你授权 ${tool} · ${detail}` : `等待你授权 ${tool}`;
       }
-      if (type === 'ask-user-question') return '❓ 收到一个问题';
-      if (type === 'exit-plan-mode') return '📋 收到一个执行计划';
+      if (type === 'ask-user-question') return '收到一个问题';
+      if (type === 'exit-plan-mode') return '收到一个执行计划';
       if (type === 'codex-terminal-permission-request') {
         const tool = textValue(p.toolName) || '工具';
-        return `⚠️ Codex CLI 等待终端授权 ${tool}`;
+        return `Codex CLI 等待终端授权 ${tool}`;
       }
-      if (type === 'permission-cancelled') return '⚪ 权限请求已取消';
-      if (type === 'ask-question-cancelled') return '⚪ 提问已取消';
-      if (type === 'exit-plan-cancelled') return '⚪ 计划批准请求已取消';
+      if (type === 'permission-cancelled') return '权限请求已取消';
+      if (type === 'ask-question-cancelled') return '提问已取消';
+      if (type === 'exit-plan-cancelled') return '计划批准请求已取消';
       const message = textValue(p.message);
-      return `⚠️ 等待你的输入${message ? ` · ${message}` : ''}`;
+      return `等待你的输入${message ? ` · ${message}` : ''}`;
     }
     case 'finished': {
-      const subtype = textValue(p.subtype);
-      if (subtype === 'interrupted') return '⏸ 一轮已中断';
-      if (['cancelled', 'canceled', 'aborted'].includes(subtype)) return '⏹ 一轮已取消';
-      if (p.ok === false) {
-        const reason = p.failureReason === 'context-window-exceeded' ? '上下文已达到上限'
-          : subtype === 'rate_limit' ? '达到速率限制' : subtype;
-        return `⚠ 一轮失败${reason ? ` · ${reason}` : ''}`;
-      }
-      return '✅ 一轮完成';
+      return turnOutcome(p).text;
     }
     case 'session-end': {
       const reason = textValue(p.reason);
-      return `⏹ 会话结束${reason ? ` · ${translateSessionEndReason(reason)}` : ''}`;
+      return `会话结束${reason ? ` · ${translateSessionEndReason(reason)}` : ''}`;
     }
     // 团队事件只依赖共享 payload 的稳定子集；teammateName / reason 缺失时保持可读降级。
     case 'team-task-created': {
       const desc = textValue(p.description) || textValue(p.taskId);
       const teammate = textValue(p.teammateName);
       const team = textValue(p.teamName);
-      return `📌 新任务${desc ? ` · ${desc}` : ''}${teammate ? ` (${teammate})` : ''}${team ? ` @ ${team}` : ''}`;
+      return `新任务${desc ? ` · ${desc}` : ''}${teammate ? ` (${teammate})` : ''}${team ? ` @ ${team}` : ''}`;
     }
     case 'team-task-completed': {
       const desc = textValue(p.description) || textValue(p.taskId);
       const teammate = textValue(p.teammateName);
       const team = textValue(p.teamName);
-      return `✓ 任务完成${desc ? ` · ${desc}` : ''}${teammate ? ` (${teammate})` : ''}${team ? ` @ ${team}` : ''}`;
+      return `任务完成${desc ? ` · ${desc}` : ''}${teammate ? ` (${teammate})` : ''}${team ? ` @ ${team}` : ''}`;
     }
     case 'team-teammate-idle': {
       const teammate = textValue(p.teammateName);
       const reason = textValue(p.reason);
-      return `💤 队友空闲${teammate ? ` · ${teammate}` : ''}${reason ? ` (${reason})` : ''}`;
+      return `队友空闲${teammate ? ` · ${teammate}` : ''}${reason ? ` (${reason})` : ''}`;
     }
     default:
       return e.kind;

@@ -52,7 +52,8 @@ function EventImage({ image, sessionId, reader }: { image: EventImageRef; sessio
     </button>
     <figcaption className="mt-1 flex items-center gap-2 text-[10px] text-deck-muted">
       <span className="min-w-0 max-w-48 truncate" title={image.name}>{image.name}</span>
-      <button type="button" onClick={() => void save()} disabled={saving} className="inline-flex shrink-0 items-center gap-1 hover:text-deck-text">
+      <button type="button" onClick={() => void save()} disabled={saving} aria-busy={saving}
+        className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 hover:bg-white/10 hover:text-deck-text active:bg-white/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-deck-accent disabled:cursor-wait disabled:opacity-60">
         <SaveIcon className="h-3 w-3" />{saving ? '保存中…' : '保存图片'}
       </button>
     </figcaption>

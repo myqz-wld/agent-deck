@@ -18,15 +18,18 @@ import {
   useRowResponseState,
 } from './review-detail/row-response-state';
 
+import { PendingStatusIcon } from './PendingStatusIcon';
+import { AlertTriangleIcon, ListChecksIcon } from '../icons';
+
 const logger = log.scope('renderer-exit-plan-row');
 type TargetMode = SelectablePermissionMode;
 
-const TARGET_MODE_OPTIONS: { value: TargetMode; label: string; title?: string }[] = [
+const TARGET_MODE_OPTIONS: { value: TargetMode; label: string; title?: string; warning?: boolean }[] = [
   { value: 'default', label: '手动确认', title: '每次工具调用前都询问' },
   { value: 'acceptEdits', label: '自动接受编辑', title: '自动允许文件编辑；其他工具仍需询问' },
   { value: 'plan', label: '继续计划模式', title: '保持计划模式，不执行任何工具' },
   { value: 'auto', label: '自动判断', title: '由 Claude Code 的权限分类器自动允许或拒绝' },
-  { value: 'bypassPermissions', label: '⚠️ 不再询问', title: '不再询问任何工具调用；需要重启会话' },
+  { value: 'bypassPermissions', label: '不再询问', title: '不再询问任何工具调用；需要重启会话', warning: true },
 ];
 
 /**
@@ -90,7 +93,7 @@ export function ExitPlanRow({
     acceptEdits: '自动接受编辑',
     plan: '继续计划模式',
     auto: '自动判断',
-    bypassPermissions: '⚠️ 不再询问',
+    bypassPermissions: '不再询问',
   };
 
   const respond = async (response: ExitPlanModeResponse): Promise<boolean> => {
@@ -188,13 +191,14 @@ export function ExitPlanRow({
                 : 'text-status-working/80'
           }
         >
+          <PendingStatusIcon pending={stillPending} cancelled={wasCancelled} icon={ListChecksIcon} />
           {stillPending
             ? isMcpPlanReview
-              ? '📋 待展示计划'
-              : '📋 收到一个执行计划'
+              ? '待展示计划'
+              : '收到一个执行计划'
             : wasCancelled
-              ? '🚫 计划展示已被取消'
-              : '✅ 已处理'}
+              ? '计划展示已被取消'
+              : '已处理'}
         </span>
         {payload.title && (
           <span
@@ -256,6 +260,7 @@ export function ExitPlanRow({
               }
               className="rounded bg-status-working px-2.5 py-0.5 text-[10px] font-semibold text-black shadow-sm transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
+              {!isMcpPlanReview && targetMode === 'bypassPermissions' && <AlertTriangleIcon className="mr-1 inline h-3 w-3" />}
               {isMcpPlanReview ? '确认计划' : `批准并切到 ${targetModeLabel[targetMode]}`}
             </button>
             <button

@@ -12,6 +12,9 @@ import {
   useRowResponseState,
 } from './review-detail/row-response-state';
 
+import { PendingStatusIcon } from './PendingStatusIcon';
+import { FileDiffIcon } from '../icons';
+
 const logger = log.scope('renderer-diff-review-row');
 
 export function DiffReviewRow({
@@ -109,13 +112,14 @@ export function DiffReviewRow({
                 : 'text-status-working/80'
           }
         >
+          <PendingStatusIcon pending={stillPending} cancelled={wasCancelled} icon={FileDiffIcon} />
           {stillPending
             ? payload.mode === 'merge-conflict'
-              ? '🧩 待展示冲突解决'
-              : '🧩 待展示差异'
+              ? '待展示冲突解决'
+              : '待展示差异'
             : wasCancelled
-              ? '🚫 差异展示已取消'
-              : '✅ 已处理'}
+              ? '差异展示已取消'
+              : '已处理'}
         </span>
         {payload.title && (
           <span

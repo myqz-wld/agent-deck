@@ -95,7 +95,7 @@ describe('RemoteSessionComposer parity and authority', () => {
     await waitFor(() => expect(remote.send).toHaveBeenCalledWith('remote hello', []));
 
     fireEvent.click(screen.getByLabelText('沙盒'));
-    fireEvent.click(screen.getByRole('option', { name: '⚠️ 完全开放' }));
+    fireEvent.click(screen.getByRole('option', { name: '完全开放' }));
     await waitFor(() => expect(confirmDialog).toHaveBeenCalledWith(expect.objectContaining({
       title: '关闭 Claude Code 系统沙盒',
     })));

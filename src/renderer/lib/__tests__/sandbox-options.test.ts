@@ -12,9 +12,11 @@ import {
 
 describe('sandbox option copy', () => {
   it('uses the same risk order and labels for Claude and Codex', () => {
-    const labels = ['完全只读', '工作目录可写', '⚠️ 完全开放'];
+    const labels = ['完全只读', '工作目录可写', '完全开放'];
     expect(CLAUDE_SANDBOX_MODE_OPTIONS.map((option) => option.label)).toEqual(labels);
     expect(CODEX_SANDBOX_MODE_OPTIONS.map((option) => option.label)).toEqual(labels);
+    expect(CODEX_SANDBOX_MODE_OPTIONS.map((option) => Boolean(option.warning))).toEqual([false, false, true]);
+    expect(CLAUDE_SANDBOX_MODE_OPTIONS.map((option) => Boolean(option.warning))).toEqual([false, false, true]);
     expect(CLAUDE_SANDBOX_MODE_OPTIONS.map((option) => option.value)).toEqual([
       'strict',
       'workspace-write',
@@ -46,6 +48,7 @@ describe('sandbox option copy', () => {
     expect(PERMISSION_OPTIONS[4]?.title).toBe(
       'Claude Code 全程不再询问任何工具调用；系统沙盒（若启用）仍生效',
     );
+    expect(PERMISSION_OPTIONS[4]?.warning).toBe(true);
   });
 
   it('orders Codex approval policies from strict interaction to no prompts', () => {

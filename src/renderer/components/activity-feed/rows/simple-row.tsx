@@ -3,6 +3,7 @@ import type { AgentEvent } from '@shared/types';
 import { describe } from '../describe';
 import { formatDisplayText, formatToolResult } from '../format';
 import { MarkdownText } from '../../MarkdownText';
+import { EventIcon } from '../activity-icon';
 
 /** 兜底：单行带状态点 + 中文摘要 + 时间戳。所有未被特化处理的 event kind 都走这里。 */
 export function SimpleRow({ event }: { event: AgentEvent }): JSX.Element {
@@ -15,7 +16,7 @@ export function SimpleRow({ event }: { event: AgentEvent }): JSX.Element {
     .map(([key, label]) => `${label}：${formatToolResult(payload[key])}`).join('\n');
   return (
     <li className="flex min-w-0 items-start gap-2 text-[11px]">
-      <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-deck-muted/60" />
+      <EventIcon event={event} className="mt-0.5 h-3.5 w-3.5 shrink-0 text-deck-muted" />
       <div className="min-w-0 flex-1 leading-relaxed">
         <div className={`break-words ${event.kind === 'finished' && payload.ok === false ? 'text-status-error' : 'text-deck-text'}`}>{describe(event)}</div>
         {(summary || metadata || error) && <details className="mt-1 min-w-0">

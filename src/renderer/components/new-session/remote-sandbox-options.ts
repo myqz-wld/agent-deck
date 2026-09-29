@@ -47,7 +47,7 @@ export function remoteSandboxOptions(
       label: choice.value,
     }),
     ...(choice.effectiveAccess === 'workspace-read-write'
-      ? { label: '⚠️ 工作区内完全开放' }
+      ? { label: '工作区内完全开放', warning: true }
       : {}),
     disabled: !choice.enabled,
     title: choice.disabledReason ?? description(choice.effectiveAccess, optionKey),

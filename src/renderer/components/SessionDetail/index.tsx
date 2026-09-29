@@ -12,7 +12,7 @@ import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
 import { MessagesPanel } from './MessagesPanel';
 import { SessionMetadataChips } from '../SessionMetadataChips';
 import { SessionPinButton } from '../SessionPinButton';
-import { CloseIcon } from '../icons';
+import { CloseIcon, InfoIcon } from '../icons';
 import {
   useSessionStore,
 } from '@renderer/stores/session-store';
@@ -315,7 +315,7 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
         <div className="shrink-0 border-b border-deck-border/40 bg-white/[0.03] px-3 py-1.5">
           {cancelToasts.map((toast) => (
             <div key={toast.id} className="flex items-center gap-1.5 text-[10px] text-deck-muted">
-              <span>⚪</span><span className="flex-1">{toast.text}</span>
+              <InfoIcon className="mt-0.5 h-3 w-3 shrink-0" /><span className="flex-1">{toast.text}</span>
               <button type="button" onClick={() => dismissToast(toast.id)} className="text-deck-muted/60 hover:text-deck-text" aria-label="关闭">
                 <CloseIcon className="h-3.5 w-3.5" />
               </button>

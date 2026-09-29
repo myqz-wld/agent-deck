@@ -9,6 +9,14 @@ export function InfoIcon(props: SvgIconProps): JSX.Element {
   return <SvgIcon {...props}><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7h.01" /></SvgIcon>;
 }
 
+export function QuestionIcon(props: SvgIconProps): JSX.Element {
+  return <SvgIcon {...props}><circle cx="12" cy="12" r="9" /><path d="M9.5 8.5a2.5 2.5 0 1 1 4 2c-1.3.9-1.5 1.4-1.5 2.5M12 17h.01" /></SvgIcon>;
+}
+
+export function PauseIcon(props: SvgIconProps): JSX.Element {
+  return <SvgIcon {...props}><path d="M8 5v14M16 5v14" strokeWidth="3" /></SvgIcon>;
+}
+
 export function PlusIcon(props: SvgIconProps): JSX.Element {
   return <SvgIcon {...props}><path d="M12 5v14M5 12h14" /></SvgIcon>;
 }

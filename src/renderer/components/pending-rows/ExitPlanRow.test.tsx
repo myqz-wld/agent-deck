@@ -169,7 +169,7 @@ describe('ExitPlanRow', () => {
       '批准计划后切换到的权限模式（完全免询问需要重启会话）',
     );
     fireEvent.click(modeSelect);
-    fireEvent.click(screen.getByRole('option', { name: '⚠️ 不再询问' }));
+    fireEvent.click(screen.getByRole('option', { name: '不再询问' }));
 
     expect(screen.getByTitle(
       '批准计划并切到完全免询问模式（需重启会话，5–10 秒）',

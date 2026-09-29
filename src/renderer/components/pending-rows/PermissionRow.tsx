@@ -9,6 +9,9 @@ import {
   useRowResponseState,
 } from './review-detail/row-response-state';
 
+import { PendingStatusIcon } from './PendingStatusIcon';
+import { ShieldIcon } from '../icons';
+
 const logger = log.scope('renderer-permission-row');
 const MAX_STRUCTURED_DEPTH = 6;
 const MAX_STRUCTURED_ENTRIES = 80;
@@ -230,10 +233,10 @@ export function PermissionRow({
       ? 'border-deck-border/40 bg-white/[0.015] opacity-50'
       : 'border-deck-border/60 bg-white/[0.02] opacity-70';
   const statusText = stillPending
-    ? '⚠️ 等待授权'
+    ? '等待授权'
     : wasCancelled
-      ? '🚫 已取消'
-      : '✅ 已响应';
+      ? '已取消'
+      : '已响应';
   const statusColor = stillPending
     ? 'text-status-waiting'
     : wasCancelled
@@ -243,7 +246,7 @@ export function PermissionRow({
   return (
     <li className={`min-w-0 rounded-md border p-2 text-[11px] ${cardClass}`}>
       <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px]">
-        <span className={statusColor}>{statusText}</span>
+        <span className={statusColor}><PendingStatusIcon pending={stillPending} cancelled={wasCancelled} icon={ShieldIcon} />{statusText}</span>
         <span className="min-w-0 truncate font-mono">{payload.toolName}</span>
         <span className="font-mono tabular-nums text-deck-muted/60">{ts}</span>
         {stillPending && isSdk && (

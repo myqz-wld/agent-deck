@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
+import { AlertTriangleIcon } from '../icons';
 
 import {
   SESSION_CONSOLE_REMOTE_ATTACHMENT_MAX_BYTES,
@@ -290,7 +291,7 @@ function RemoteReadNotice({
   if (!message) return null;
   return (
     <div role="status" className="mb-1.5 rounded border border-status-waiting/40 bg-status-waiting/10 px-2 py-1 text-[10px] text-status-waiting">
-      ⚠️ {label}：{message}
+      <AlertTriangleIcon className="mr-1 inline h-3 w-3 align-text-bottom" />{label}：{message}
     </div>
   );
 }

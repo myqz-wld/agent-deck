@@ -7,7 +7,7 @@ import type {
   SessionRecord,
 } from '@shared/types';
 import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
-import { RefreshIcon } from './icons';
+import { AlertTriangleIcon, RefreshIcon } from './icons';
 import { StableButtonContent } from './StableButtonContent';
 import {
   thinkingOptionsForAdapter,
@@ -465,7 +465,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
               role="alert"
               className="space-y-2 rounded bg-status-error/10 px-3 py-2 text-[11px] text-status-error"
             >
-              <div>⚠️ {executionFailureLabel(executionFailure)}</div>
+              <div><AlertTriangleIcon className="mr-1 inline h-3 w-3 align-text-bottom" />{executionFailureLabel(executionFailure)}</div>
               {executionFailure.usedLowerBudgetRetry && (
                 <div>本次已尝试使用较小范围的续接上下文。</div>
               )}
@@ -486,7 +486,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
 
           {error && (
             <div className="rounded bg-status-waiting/10 px-3 py-2 text-[11px] text-status-waiting">
-              ⚠️ {error}
+              <AlertTriangleIcon className="mr-1 inline h-3 w-3 align-text-bottom" />{error}
             </div>
           )}
         </>}

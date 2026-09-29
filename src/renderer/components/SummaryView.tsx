@@ -3,7 +3,7 @@ import type { SummaryRecord } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { loadStableSnapshot } from '@renderer/lib/load-stable-snapshot';
 import { errorMessage } from '@renderer/lib/error-message';
-import { ChevronDownIcon, ChevronUpIcon } from './icons';
+import { ChevronDownIcon, ChevronUpIcon, ClockIcon, ListChecksIcon, PlayIcon } from './icons';
 import { StableButtonContent } from './StableButtonContent';
 import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 
@@ -94,7 +94,7 @@ export function SummaryRecordsView({
     <div className="flex flex-col gap-2">
       <div className="rounded-md border border-deck-border bg-white/[0.04] px-2.5 py-2">
         <div className="text-[10px] uppercase tracking-wider text-deck-muted/70">
-          最新 · {formatTrigger(latest.trigger)} · {formatGenerationSource(latest.generationSource)} · {new Date(latest.ts).toLocaleString('zh-CN', { hour12: false })}
+          最新 · <SummaryTrigger trigger={latest.trigger} /> · {formatGenerationSource(latest.generationSource)} · {new Date(latest.ts).toLocaleString('zh-CN', { hour12: false })}
         </div>
         <div className="mt-1 whitespace-pre-line text-[11px] leading-relaxed">{latest.content}</div>
       </div>
@@ -124,7 +124,7 @@ export function SummaryRecordsView({
           {rest.map((s) => (
             <li key={s.id} className="rounded-md border border-deck-border/50 px-2.5 py-1.5">
               <div className="text-[9px] text-deck-muted/70">
-                {formatTrigger(s.trigger)} · {formatGenerationSource(s.generationSource)} · {new Date(s.ts).toLocaleString('zh-CN', { hour12: false })}
+                <SummaryTrigger trigger={s.trigger} /> · {formatGenerationSource(s.generationSource)} · {new Date(s.ts).toLocaleString('zh-CN', { hour12: false })}
               </div>
               <div className="mt-0.5 whitespace-pre-line text-[11px] leading-relaxed text-deck-muted">{s.content}</div>
             </li>
@@ -135,8 +135,11 @@ export function SummaryRecordsView({
   );
 }
 
-function formatTrigger(t: SummaryRecord['trigger']): string {
-  return t === 'time' ? '⏱ 定时' : t === 'event-count' ? '📊 事件触发' : '✋ 手动';
+function SummaryTrigger({ trigger }: { trigger: SummaryRecord['trigger'] }): JSX.Element {
+  const Icon = trigger === 'time' ? ClockIcon : trigger === 'event-count' ? ListChecksIcon : PlayIcon;
+  return <span className="inline-flex items-center gap-1 align-middle"><Icon className="h-3 w-3" />
+    {trigger === 'time' ? '定时' : trigger === 'event-count' ? '事件触发' : '手动'}
+  </span>;
 }
 
 function formatGenerationSource(source: SummaryRecord['generationSource']): string {

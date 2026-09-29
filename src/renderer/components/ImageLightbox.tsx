@@ -1,6 +1,7 @@
 import { useEffect, useRef, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import { useImageBlob } from '@renderer/hooks/useImageBlob';
+import { useLightboxControls } from '@renderer/hooks/useLightboxControls';
 import { sharedImageBlobCache } from '@renderer/lib/image-blob-cache';
 import { CloseIcon, SaveIcon } from './icons';
 
@@ -49,6 +50,8 @@ function LightboxFrame({
   saving = false,
   notice,
 }: LightboxFrameProps): JSX.Element {
+  const controls = useLightboxControls(saving, notice);
+  const visibility = controls.visible ? 'opacity-100' : 'pointer-events-none opacity-0';
   // Esc 键关闭(React 标准 idiom — useEffect cleanup function 内 remove listener)。
   // REVIEW_102 INFO（reviewer-claude）：用 ref 持有最新 onClose，effect deps=[] 只在
   // mount/unmount 各挂/卸一次 listener。caller 普遍传 inline `onClose={() => setX(null)}`
@@ -66,6 +69,7 @@ function LightboxFrame({
       : null;
     closeButtonRef.current?.focus();
     const handler = (e: KeyboardEvent) => {
+      controls.onKeyboard();
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
@@ -86,13 +90,15 @@ function LightboxFrame({
       document.removeEventListener('keydown', handler, true);
       previousFocus?.focus();
     };
-  }, []);
+  }, [controls.onKeyboard]);
 
   return createPortal(
     <div
       ref={frameRef}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
+      onPointerMove={controls.onPointerMove}
+      onPointerDown={controls.onPointerMove}
       role="dialog"
       aria-modal="true"
       aria-label="图片预览"
@@ -118,22 +124,32 @@ function LightboxFrame({
             className="max-h-[90vh] max-w-[90vw] rounded border border-deck-border object-contain"
           />
         )}
-        {onSave && dataUrl && <div className="absolute bottom-2 left-2 flex items-center gap-2 rounded bg-black/80 p-2 text-[11px]">
-          <button type="button" onClick={onSave} disabled={saving} className="inline-flex items-center gap-1 text-deck-text">
-            <SaveIcon className="h-3.5 w-3.5" />{saving ? '保存中…' : '保存图片'}
-          </button>
-          {notice && <span role="status">{notice}</span>}
-        </div>}
         <button
           ref={closeButtonRef}
           type="button"
           onClick={onClose}
+          onPointerEnter={controls.onPointerEnter}
+          onPointerLeave={controls.onPointerLeave}
           aria-label="关闭预览"
-          className="absolute -top-3 -right-3 flex h-7 w-7 items-center justify-center rounded-full border border-deck-border bg-deck-bg/90 text-deck-text hover:bg-white/10"
+          className={`absolute -top-3 -right-3 flex h-7 w-7 items-center justify-center rounded-full border border-deck-border bg-deck-bg/90 text-deck-text transition-opacity duration-200 hover:bg-white/15 active:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-deck-accent motion-reduce:transition-none ${visibility}`}
         >
           <CloseIcon className="h-4 w-4" />
         </button>
       </div>
+      {onSave && dataUrl && <div
+        role="toolbar"
+        aria-label="图片操作"
+        onClick={(event) => event.stopPropagation()}
+        onPointerEnter={controls.onPointerEnter}
+        onPointerLeave={controls.onPointerLeave}
+        className={`absolute bottom-4 left-1/2 flex max-w-[calc(100vw_-_2rem)] -translate-x-1/2 items-center gap-2 rounded-lg border border-white/15 bg-deck-bg/90 p-1.5 text-[11px] text-deck-text shadow-lg backdrop-blur-sm transition-opacity duration-200 motion-reduce:transition-none ${visibility}`}
+      >
+        <button type="button" onClick={onSave} disabled={saving} aria-busy={saving}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-transparent px-3 py-1.5 text-deck-text transition-colors hover:border-white/20 hover:bg-white/15 active:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-deck-accent disabled:cursor-wait disabled:opacity-60">
+          <SaveIcon className="h-3.5 w-3.5" />{saving ? '保存中…' : '保存图片'}
+        </button>
+        {notice && <span role="status" className="min-w-0 pr-2">{notice}</span>}
+      </div>}
     </div>, document.body,
   );
 }

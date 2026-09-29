@@ -1,6 +1,7 @@
 import { describe as suite, expect, it } from 'vitest';
 import type { AgentEvent } from '@shared/types';
 import { formatEventLine } from '../SessionCard';
+import { describeLiveActivity } from '../session-live-activity';
 import { describe as describeActivity, describeToolInput } from './describe';
 
 function ev(kind: AgentEvent['kind'], payload: unknown): AgentEvent {
@@ -13,7 +14,7 @@ suite('activity-feed describe user-facing fallbacks', () => {
   });
 
   it('file-changed 缺 filePath 时显示用户向兜底', () => {
-    expect(describeActivity(ev('file-changed', {}))).toBe('📝 文件改动');
+    expect(describeActivity(ev('file-changed', {}))).toBe('文件改动');
   });
 
   it('waiting permission-request 显示工具和关键入参', () => {
@@ -25,7 +26,7 @@ suite('activity-feed describe user-facing fallbacks', () => {
           toolInput: { command: 'pnpm test -- --runInBand' },
         }),
       ),
-    ).toBe('⚠️ 等待你授权 Bash · pnpm test -- --runInBand');
+    ).toBe('等待你授权 Bash · pnpm test -- --runInBand');
   });
 
   it('Codex CLI 终端授权使用完整产品名', () => {
@@ -36,40 +37,40 @@ suite('activity-feed describe user-facing fallbacks', () => {
           toolName: 'Bash',
         }),
       ),
-    ).toBe('⚠️ Codex CLI 等待终端授权 Bash');
+    ).toBe('Codex CLI 等待终端授权 Bash');
   });
 
   it('waiting message 为结构对象时不显示 [object Object]', () => {
     expect(describeActivity(ev('waiting-for-user', { message: { type: 'internal' } }))).toBe(
-      '⚠️ 等待你的输入',
+      '等待你的输入',
     );
   });
 
   it('session-end reason 为结构对象时不显示 [object Object]', () => {
     expect(describeActivity(ev('session-end', { reason: { type: 'internal' } }))).toBe(
-      '⏹ 会话结束',
+      '会话结束',
     );
   });
 
   it('团队任务事件使用中文任务文案', () => {
     expect(describeActivity(ev('team-task-created', { description: '修复登录' }))).toBe(
-      '📌 新任务 · 修复登录',
+      '新任务 · 修复登录',
     );
     expect(describeActivity(ev('team-task-completed', { description: '修复登录' }))).toBe(
-      '✓ 任务完成 · 修复登录',
+      '任务完成 · 修复登录',
     );
   });
 
   it('显示压缩、子代理和 Codex 合成的工具中止状态', () => {
     expect(
       describeActivity(ev('context-compaction-start', { trigger: 'auto' })),
-    ).toBe('🧭 开始压缩上下文 · auto');
+    ).toBe('开始压缩上下文 · auto');
     expect(
       describeActivity(ev('subagent-start', { subagentType: 'reviewer' })),
-    ).toBe('🤖 子代理开始 · reviewer');
+    ).toBe('子代理开始 · reviewer');
     expect(
       describeActivity(ev('tool-use-end', { toolName: 'Bash', status: 'aborted' })),
-    ).toBe('💻 Bash 已中止');
+    ).toBe('Bash 已中止');
   });
 
   it('Codex CLI 协作 Agent 摘要包含操作、目标、模型、思考程度和超时', () => {
@@ -89,7 +90,7 @@ suite('activity-feed describe user-facing fallbacks', () => {
     ).toContain('wait_agent · → /root/reviewer · gpt-5.6-codex/xhigh · 超时 30 秒');
   });
 
-  it('Grok Build tool kind 优先于原始工具名选择图标', () => {
+  it('Grok Build 摘要保留原始工具名和命令', () => {
     expect(
       describeActivity(
         ev('tool-use-start', {
@@ -98,10 +99,10 @@ suite('activity-feed describe user-facing fallbacks', () => {
           toolInput: { command: 'pwd' },
         }),
       ),
-    ).toBe('💻 run_terminal_command · pwd');
+    ).toBe('run_terminal_command · pwd');
   });
 
-  it('Grok Build 工具别名没有 kind 时仍能选择语义图标', () => {
+  it('Grok Build 工具别名支持 path 参数摘要', () => {
     expect(
       formatEventLine(
         ev('tool-use-start', {
@@ -109,7 +110,7 @@ suite('activity-feed describe user-facing fallbacks', () => {
           toolInput: { path: '/repo/src/a.ts' },
         }),
       ),
-    ).toBe('📖 read_file');
+    ).toBe('read_file · …/src/a.ts');
   });
 });
 
@@ -137,6 +138,20 @@ suite('tool input alias normalization', () => {
 });
 
 suite('SessionCard formatEventLine', () => {
+  it('shares concise Browser/Shell summaries and keeps authored message emoji intact', () => {
+    expect(formatEventLine(ev('tool-use-start', { toolName: 'Bash', toolInput: {
+      command: "/bin/zsh -lc 'agent-deck-browser snapshot --tab 3'",
+    } }))).toBe('Bash · agent-deck-browser snapshot --tab 3');
+    expect(formatEventLine(ev('message', { role: 'user', text: '✅ 用户正文' }))).toBe('✅ 用户正文');
+  });
+  it('keeps waiting priority and shows failed/interrupted outcomes instead of success', () => {
+    const recent = [ev('message', { text: 'latest' }), ev('waiting-for-user', { type: 'ask-user-question' })];
+    expect(describeLiveActivity({ activity: 'waiting' }, recent)).toEqual([{ text: '收到一个问题', icon: 'question' }]);
+    expect(describeLiveActivity({ activity: 'finished' }, [ev('finished', { ok: false, subtype: 'interrupted' })]))
+      .toEqual([{ text: '一轮已中断', icon: 'interrupted' }]);
+    expect(describeLiveActivity({ activity: 'finished' }, [ev('finished', { ok: false, failureReason: 'context-window-exceeded' })]))
+      .toEqual([{ text: '一轮失败 · 上下文已达到上限', icon: 'error' }]);
+  });
   it('waiting permission-request 显示具体授权原因', () => {
     expect(
       formatEventLine(
@@ -146,7 +161,7 @@ suite('SessionCard formatEventLine', () => {
           toolInput: { command: 'pnpm test' },
         }),
       ),
-    ).toBe('⚠️ 等待你授权 Bash · pnpm test');
+    ).toBe('等待你授权 Bash · pnpm test');
   });
 
   it('Codex CLI 终端授权使用完整产品名', () => {
@@ -157,7 +172,7 @@ suite('SessionCard formatEventLine', () => {
           toolName: 'Bash',
         }),
       ),
-    ).toBe('⚠️ Codex CLI 等待终端授权 Bash');
+    ).toBe('Codex CLI 等待终端授权 Bash');
   });
 
   it('file-changed 缺 filePath 时跳过该弱摘要', () => {
@@ -169,9 +184,9 @@ suite('SessionCard formatEventLine', () => {
   });
 
   it('first-class lifecycle events remain visible on session cards', () => {
-    expect(formatEventLine(ev('context-compaction-end', {}))).toBe('🧭 上下文压缩完成');
+    expect(formatEventLine(ev('context-compaction-end', {}))).toBe('上下文压缩完成');
     expect(formatEventLine(ev('subagent-end', { subagentType: 'reviewer' }))).toBe(
-      '🤖 子代理结束 · reviewer',
+      '子代理结束 · reviewer',
     );
   });
 
@@ -189,6 +204,6 @@ suite('SessionCard formatEventLine', () => {
           },
         }),
       ),
-    ).toBe('🤖 Agent · spawn_agent · audit_adapter · gpt-5.6-codex/high · fork_turns=all');
+    ).toBe('Agent · spawn_agent · audit_adapter · gpt-5.6-codex/high · fork_turns=all');
   });
 });

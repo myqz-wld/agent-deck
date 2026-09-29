@@ -14,7 +14,7 @@ export type ClaudeSandboxMode = ClaudeSandboxChoice;
 /** Empty follows the Agent Deck or Grok Build default; other strings may name custom profiles. */
 export type GrokSandboxChoice = string;
 
-export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; title?: string }[] = [
+export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; title?: string; warning?: boolean }[] = [
   { value: 'plan', label: '计划模式（只规划）', title: '只生成计划，不执行任何工具调用' },
   { value: 'default', label: '手动确认', title: '每次工具调用前都询问你是否允许' },
   { value: 'acceptEdits', label: '自动接受文件编辑', title: '自动允许文件编辑；其他工具仍需询问' },
@@ -25,7 +25,8 @@ export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; t
   },
   {
     value: 'bypassPermissions',
-    label: '⚠️ 不再询问（仍在系统沙盒内）',
+    warning: true,
+    label: '不再询问（仍在系统沙盒内）',
     title: 'Claude Code 全程不再询问任何工具调用；系统沙盒（若启用）仍生效',
   },
 ];
@@ -34,6 +35,7 @@ export const CODEX_APPROVAL_POLICY_OPTIONS: {
   value: CodexApprovalPolicyChoice;
   label: string;
   title?: string;
+  warning?: boolean;
 }[] = [
   {
     value: 'untrusted',
@@ -56,6 +58,7 @@ export const CODEX_SANDBOX_MODE_OPTIONS: {
   value: CodexSandboxMode;
   label: string;
   title?: string;
+  warning?: boolean;
 }[] = [
   { value: 'read-only', label: '完全只读', title: '所有文件只读，包括工作目录' },
   {
@@ -65,7 +68,8 @@ export const CODEX_SANDBOX_MODE_OPTIONS: {
   },
   {
     value: 'danger-full-access',
-    label: '⚠️ 完全开放',
+    warning: true,
+    label: '完全开放',
     title: '可读写任意文件、访问网络并运行任意命令',
   },
 ];
@@ -74,6 +78,7 @@ export const CLAUDE_SANDBOX_MODE_OPTIONS: {
   value: ClaudeSandboxMode;
   label: string;
   title?: string;
+  warning?: boolean;
 }[] = [
   {
     value: 'strict',
@@ -87,7 +92,8 @@ export const CLAUDE_SANDBOX_MODE_OPTIONS: {
   },
   {
     value: 'off',
-    label: '⚠️ 完全开放',
+    warning: true,
+    label: '完全开放',
     title: '关闭系统沙盒；仍受 Claude Code 权限设置约束',
   },
 ];
@@ -96,18 +102,21 @@ export const CODEX_SANDBOX_OPTIONS: {
   value: CodexSandboxChoice;
   label: string;
   title?: string;
+  warning?: boolean;
 }[] = CODEX_SANDBOX_MODE_OPTIONS;
 
 export const CLAUDE_SANDBOX_OPTIONS: {
   value: ClaudeSandboxChoice;
   label: string;
   title?: string;
+  warning?: boolean;
 }[] = CLAUDE_SANDBOX_MODE_OPTIONS;
 
 export const GROK_SANDBOX_MODE_OPTIONS: {
   value: GrokBuiltinSandboxProfile;
   label: string;
   title?: string;
+  warning?: boolean;
 }[] = [
   {
     value: 'read-only',
@@ -121,7 +130,8 @@ export const GROK_SANDBOX_MODE_OPTIONS: {
   },
   {
     value: 'off',
-    label: '⚠️ 完全开放',
+    warning: true,
+    label: '完全开放',
     title: '不启用 Grok Build 系统沙盒；仍受 Grok Build 工具授权规则约束',
   },
 ];

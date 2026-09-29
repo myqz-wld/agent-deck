@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDownIcon } from './icons';
+import { AlertTriangleIcon, ChevronDownIcon } from './icons';
 
 export interface DeckSelectOption<T extends string> {
   value: T;
@@ -16,6 +16,7 @@ export interface DeckSelectOption<T extends string> {
   title?: string;
   description?: ReactNode;
   disabled?: boolean;
+  warning?: boolean;
 }
 
 interface DeckSelectProps<T extends string> {
@@ -195,7 +196,10 @@ export function DeckSelect<T extends string>({
         }}
         className={`no-drag relative min-w-0 ${buttonClassName} pr-6`}
       >
-        <span className="block truncate">{selected?.label ?? ''}</span>
+        <span className="flex min-w-0 items-center gap-1">
+          {selected?.warning && <AlertTriangleIcon className="h-3 w-3 shrink-0 text-status-waiting" />}
+          <span className="min-w-0 truncate">{selected?.label ?? ''}</span>
+        </span>
         <span
           className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-deck-muted/70 transition-transform ${open ? 'rotate-180' : ''}`}
           aria-hidden
@@ -241,7 +245,10 @@ export function DeckSelect<T extends string>({
                             : 'text-deck-muted hover:bg-white/[0.07] hover:text-deck-text'
                       }`}
                     >
-                      <span className="block truncate">{option.label}</span>
+                      <span className="flex min-w-0 items-center gap-1">
+                        {option.warning && <AlertTriangleIcon className="h-3 w-3 shrink-0 text-status-waiting" />}
+                        <span className="min-w-0 truncate">{option.label}</span>
+                      </span>
                       {option.description && (
                         <span className="mt-0.5 block text-[10px] leading-snug text-deck-muted/70">
                           {option.description}
