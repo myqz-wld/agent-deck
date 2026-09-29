@@ -53,9 +53,9 @@ export class LocalWorkerFrameBridge {
       return;
     }
     const stream = this.streams.get(frame.streamId);
-    if (!stream) {
-      throw new Error('Relay frame references an unknown local Worker stream');
-    }
+    // Core close and Relay input travel independently; late frames for a retired stream
+    // must not tear down the shared attachment. Identity and frame validation still precede this.
+    if (!stream) return;
     if (frame.sequence !== stream.nextInboundSequence) {
       this.fail(stream, 'protocol_error');
       return;

@@ -334,7 +334,10 @@ export class RelayStreamRouter {
       throw new RelayRouterError('stream_invalid', 'Only clients may open Relay streams');
     }
     const stream = this.streams.get(frame.streamId);
-    if (!stream || stream.generation !== frame.generation) {
+    // A reset/close can retire the stream while valid Worker frames are still in flight.
+    // Keep that stream-local race from disconnecting the shared authenticated attachment.
+    if (!stream) return { accepted: false, error: 'cancelled' };
+    if (stream.generation !== frame.generation) {
       throw new RelayRouterError('stream_invalid', 'Worker frame references an inactive stream');
     }
     if (stream.workerClosed || frame.sequence !== stream.nextWorkerSequence) {
