@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { parseFrontmatter } from '@main/utils/frontmatter';
 
 import readme from '../../../../README.md?raw';
+import resourcesReadme from '../../../../resources/README.md?raw';
 import browserCli from '../../../../resources/bin/agent-deck-browser.cjs?raw';
 import claudeRuntime from '../../../../resources/claude-config/CLAUDE.md?raw';
 import claudeBrowser from '../../../../resources/claude-config/agent-deck-plugin/skills/browser/SKILL.md?raw';
@@ -63,10 +64,12 @@ describe('bundled Browser skill contract', () => {
   });
 
   it('documents the private Browser lifecycle and annotation handoff', () => {
-    expect(readme).toContain('Browser tabs are private to the session');
-    expect(readme).toContain('open in the background by default');
-    expect(readme).toContain('close with the session or handoff lifecycle');
-    expect(readme).toContain('capture an annotated PNG into the message composer');
-    expect(readme).toContain('when the active runtime accepts image input');
+    expect(readme).toContain('(resources/README.md)');
+    const docs = resourcesReadme.replace(/\s+/g, ' ');
+    expect(docs).toContain('Browser tabs are private to the session');
+    expect(docs).toContain('open in the background by default');
+    expect(docs).toContain('close with the session or handoff lifecycle');
+    expect(docs).toContain('capture an annotated PNG into the message composer');
+    expect(docs).toContain('when the active runtime accepts image input');
   });
 });

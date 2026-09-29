@@ -11,7 +11,7 @@ vi.mock('@monaco-editor/react', () => ({ DiffEditor: ({ original, modified }: { 
   <div data-testid="comparison"><span>{original}</span><span>{modified}</span></div>
 ) }));
 registerBuiltinDiffRenderers();
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 const event: AgentEvent = { sessionId: 'session', agentId: 'codex-cli', kind: 'file-changed', ts: 10,
   payload: { filePath: 'src/demo.ts', kind: 'text', fileChangeId: 42 } };
@@ -23,6 +23,32 @@ function records(reader: FileChangeReader | null, ev = event) {
     agentId={ev.agentId} isSdk allowLocalAssets={false} fileChangeReader={reader} />;
 }
 describe('inline recorded file changes', () => {
+  it('keeps a fast payload read free of loading and empty-state flashes', async () => {
+    vi.useFakeTimers();
+    let resolve!: (value: FileChangePayload) => void;
+    render(records({ identity: 'remote-fast', read: () => new Promise((done) => { resolve = done; }) }));
+    fireEvent.click(screen.getByRole('button', { name: /查看改动/ }));
+    await act(() => vi.advanceTimersByTimeAsync(50));
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByText('这次改动未记录可显示的内容。')).toBeNull();
+    await act(async () => resolve({ ...stored, beforeSnapshot: null, afterSnapshot: null,
+      afterBlob: 'new file', metadata: { changeKind: 'add' } }));
+    expect(screen.getByTestId('full-file-diff')).toBeTruthy();
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('delays a slow payload fallback until 150 ms and resets it on reopen', async () => {
+    vi.useFakeTimers();
+    render(records({ identity: 'remote-slow', read: () => new Promise(() => undefined) }));
+    fireEvent.click(screen.getByRole('button', { name: /查看改动/ }));
+    await act(() => vi.advanceTimersByTimeAsync(149));
+    expect(screen.queryByRole('status')).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByRole('status').textContent).toBe('加载改动…');
+    fireEvent.click(screen.getByRole('button', { name: /收起改动/ }));
+    fireEvent.click(screen.getByRole('button', { name: /查看改动/ }));
+    expect(screen.queryByRole('status')).toBeNull();
+  });
   it('loads only on expansion, reuses the record, and enlarges without looking up a file list', async () => {
     const read = vi.fn(async () => stored);
     render(records({ identity: 'remote', read }));

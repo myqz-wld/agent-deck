@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-09-29 | `REVIEW_289_inline-diff-readiness.md` | Tighten diff spacing and share loading grace | 1 MEDIUM / 1 LOW fixed |
 | 2026-09-29 | `REVIEW_288_hosted-app-replacement.md` | Preserve packages and quiesce managed jobs before replacement | 2 MEDIUM fixed; activation authorized |
 | 2026-09-29 | `REVIEW_287_grok-credential-projection-refresh.md` | Refresh Grok credentials and restore the headless gate | 2 MEDIUM / 2 LOW fixed; activation pending |
 | 2026-09-29 | `REVIEW_286_inline-file-diffs.md` | Verify file-change retrieval and provider diff consistency | 4 MEDIUM / 1 LOW fixed |

@@ -1,16 +1,9 @@
-import { lazy, Suspense, type JSX } from 'react';
+import type { JSX } from 'react';
 import type { DiffPayload } from '@shared/types';
 import { normalizeTextDiff, type TextChangeKind } from '@shared/file-change-diff';
 import { useDiffExpanded } from '../ExpandedContext';
 import { FileTextIcon } from '../../icons';
-
-// Monaco 体积大，懒加载
-const DiffEditor = lazy(async () => {
-  const { configureLocalMonaco } = await import('@renderer/lib/monaco-local');
-  configureLocalMonaco();
-  const mod = await import('@monaco-editor/react');
-  return { default: mod.DiffEditor };
-});
+import { MonacoDiffView } from './MonacoDiffView';
 
 interface Props {
   payload: DiffPayload<string | null>;
@@ -116,46 +109,6 @@ function splitDisplayLines(content: string): string[] {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop();
   return lines;
-}
-
-function MonacoDiffView({
-  before,
-  after,
-  language,
-}: {
-  before: string;
-  after: string;
-  language: string;
-}): JSX.Element {
-  return (
-    <div className="min-h-[260px] min-w-0 flex-1 overflow-hidden rounded-md border border-deck-border">
-      <Suspense
-        fallback={
-          <div className="flex h-full items-center justify-center text-[11px] text-deck-muted">
-            加载差异视图…
-          </div>
-        }
-      >
-        <DiffEditor
-          height="100%"
-          language={language}
-          theme="vs-dark"
-          original={before}
-          modified={after}
-          options={{
-            readOnly: true,
-            renderSideBySide: true,
-            minimap: { enabled: false },
-            fontSize: 11,
-            scrollBeyondLastLine: false,
-            padding: { bottom: 16 },
-            automaticLayout: true,
-            renderOverviewRuler: false,
-          }}
-        />
-      </Suspense>
-    </div>
-  );
 }
 
 export function normalizeUnifiedDiffMetadata(value: unknown): string | null {

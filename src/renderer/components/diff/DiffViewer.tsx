@@ -8,6 +8,7 @@ import {
   type DiffImageBlobLoader,
 } from './SessionContext';
 import { ExpandedProvider } from './ExpandedContext';
+import { DiffLoadingDeadlineProvider } from './LoadingContext';
 
 const logger = log.scope('renderer-diff-viewer');
 
@@ -22,6 +23,8 @@ interface Props {
   imageCacheScope?: string;
   /** 放大模式下传 true；渲染器会隐藏内部 DiffHeader 避免路径重复显示。 */
   expanded?: boolean;
+  /** Preserve the caller's loading grace across payload and editor initialization. */
+  loadingDeadline?: number;
 }
 
 export function DiffViewer({
@@ -30,6 +33,7 @@ export function DiffViewer({
   imageBlobLoader,
   imageCacheScope,
   expanded,
+  loadingDeadline,
 }: Props): JSX.Element {
   const plugin = diffRegistry.resolve(payload);
   if (!plugin) {
@@ -46,9 +50,11 @@ export function DiffViewer({
   const Comp = plugin.Component;
   const content = (
     <ExpandedProvider value={expanded ?? false}>
-      <div className="h-full min-h-0 w-full min-w-0">
-        <Comp payload={payload} />
-      </div>
+      <DiffLoadingDeadlineProvider value={loadingDeadline}>
+        <div className="h-full min-h-0 w-full min-w-0">
+          <Comp payload={payload} />
+        </div>
+      </DiffLoadingDeadlineProvider>
     </ExpandedProvider>
   );
   return (

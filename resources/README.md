@@ -35,6 +35,16 @@ Desktop-local spawn resolution; Agent Deck does not list or manage them.
 Provider endpoints, credentials, and aliases stay in native configuration. The resource layer
 stores only adapter-native Gateway ids and does not write user-level provider configuration.
 
+## Browser
+
+Browser tabs are private to the session, open in the background by default, and close with the
+session or handoff lifecycle. The bundled Browser skill uses the session-scoped
+`agent-deck-browser` CLI; the Skills switch gates both the skill and its private Browser context.
+Local and Remote sessions on one desktop share website cookies and persistent storage.
+
+The Browser panel can capture an annotated PNG into the message composer when the active runtime
+accepts image input. Annotations remain attached to that captured image.
+
 ## claude-config/
 
 Gateway-backed Claude sessions reuse this root; their `gateway` id resolves to

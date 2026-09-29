@@ -1,150 +1,47 @@
 # Agent Deck
 
-Agent Deck is a desktop workspace for coordinating Claude Code, Codex CLI, and Grok Build
-on the same project. Keep agent sessions, collaboration, reviews, and project state in one place.
+A desktop workspace for Claude Code, Codex CLI, and Grok Build.
+Manage agent sessions, project work, and collaboration in one place.
 
-## Highlights
+## Features
 
-- Follow live sessions, revisit history, and track context and provider usage.
-- Coordinate teammates, tasks, issues, and session handoffs.
-- Review plans and diffs, and isolate changes in Git worktrees.
-- Use bundled Agents and Skills from the Assets Library.
-- Browse pages in session-owned tabs with shared website logins and annotate screenshots.
-- Work with local projects or connected remote environments.
+- Live sessions, searchable history, context and usage tracking.
+- Teammates, tasks, issues, reviews, and session handoffs.
+- Markdown, images, and inline file diffs.
+- Git worktree isolation and provider-native runtime controls.
+- Bundled Agents, Skills, and session-owned Browser tabs.
+- Local projects and remote workspaces through Full or Relay deployments.
 
 ## Quick Start
 
-Install Node.js and pnpm, then start Agent Deck:
+Requires Node.js and pnpm. Authenticate the providers you want to use through their CLI workflows.
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-Authenticate the agents you plan to use through their normal CLI workflows. Agent Deck uses
-their existing configuration and does not store provider credentials. Bundled runtimes are
-selected by default; Settings can point to an external installation.
-
-Open a project, start a session, and describe the task. Add teammates for independent work,
-follow their progress, and approve or revise proposed plans and diffs.
-
-## Reading Messages
-
-Assistant messages, reasoning summaries, and plans open in Markdown mode; user messages open
-as plain text. Codex keeps the `REASONING SUMMARY` label, while Claude and Grok keep `THINKING`.
-Matching tool starts and completions share one card with expandable original input, live output,
-final output, and failure details. Shell summaries omit the launcher wrapper, Browser commands
-have a distinct icon, and Grok summaries include the available tool arguments. Claude retains its
-dedicated permission, question, plan approval, and subagent views. Provider plan updates reuse a
-single card and preserve step status and priority.
-
-Live session cards, detail events, pending requests, and interface warnings use the same SVG icon
-style. Live tool summaries follow the detail view's Shell/Browser and provider argument rules;
-failed or interrupted rounds retain their outcome. Message-body emoji remain part of the original
-content.
-
-In Markdown mode, messages and plans support tables, code highlighting, and mathematical
-formulas across Claude, Codex, and Grok. Use `$x^2$` or `\(x^2\)` for inline math, and
-`$$...$$`, `\[...\]`, or a fenced `math` block for display equations. Formula styles and
-fonts are bundled for offline use. Long display equations scroll horizontally; unsupported
-formulas retain their source text. Code remains literal, and ordinary amounts such as
-`$5 and $10` are preserved. Single-line, single-dollar formulas require no whitespace just inside the
-delimiters and cannot close immediately before a digit. The existing MD/TXT switch remains
-available for viewing the original message.
-
-Images returned by Codex image tools, Claude assistant/tool content, and Grok ACP content appear
-as thumbnails. Click a thumbnail to enlarge it; choose **保存图片** in the card or preview to save
-the original bytes through the native save dialog. Preview controls fade after 1.8 seconds of
-pointer inactivity and reappear on movement. They stay visible while hovered, using the keyboard,
-or saving; buttons provide hover, pressed, and focus feedback. Local and Remote sessions use their own asset
-readers. Supported image types are PNG, JPEG, GIF, and WebP, with a 16 MiB limit per image and up to
-eight images per event. Inline images are stored outside activity JSON in the host's application
-data directory. Referenced files must still exist; Remote file references must remain inside the
-authorized Workspace. Old Codex records with an available saved file can also show a preview.
-
-File-change activity rows open the recorded diff inline through **查看改动**, with a **放大** view.
-The **改动** tab keeps per-file history and **最终 diff**. Claude, Codex, and Grok share the same
-addition/deletion colors, line numbers, and modification viewer, including Codex raw new-file
-content. New activity rows store a change reference and fetch its saved payload only when opened;
-old rows use their recorded content or patch directly. Local and Remote readers remain scoped to
-the owning session. Full snapshots are compared as a pair; missing snapshots fall back to recorded
-snippets/patches without reading today's file. Content never captured cannot be recovered by this view.
-
-## Runtime Configuration
-
-Each session keeps its agent's own model, permissions, approvals, and sandbox settings.
-Collaboration does not widen that access. Claude and Codex support native Gateway profiles;
-see [runtime configuration](resources/README.md) for setup and adapter differences.
-
-For ordinary new sessions, explicit model choices and provider configuration take precedence.
-When no model is configured, Claude, Codex, and Grok delegate model selection to their CLI.
-Grok reads `[models].default` from its native configuration. Remote Grok passes only this default
-selector into its isolated CLI and discovers models through the Core-owned inference broker;
-Agent Deck does not pin a container model or maintain a separate model list. Remote selectors
-must be native model IDs or built-in CLI aliases; custom endpoint profiles stay outside the container.
-Periodic summaries and continuation checkpoints keep their separate model settings.
-
-Type `/` in the message composer to discover supported commands.
-
-Browser tabs are private to the session, open in the background by default, and
-close with the session or handoff lifecycle. Local and Remote sessions using the same desktop
-share one persistent Browser profile: log in to a website once in IAB and later sessions reuse
-that login while it remains valid. Persistent cookies and website storage survive app restarts;
-website expiry rules and session-only cookies still apply. Logging out or switching accounts on
-a website affects other sessions using that profile.
-You can capture an annotated PNG into the message composer
-when the active runtime accepts image input.
-
-## Remote Work and Deployment
-
-Choose **Local** for this machine or **Remote** for a connected workspace. Switching data
-sources does not stop remote sessions, and unsupported remote controls never use local data.
-
-- **Full:** a Linux appliance hosts repositories, providers, and session state.
-- **Relay:** an always-on Worker hosts repositories and providers; the server relays traffic.
-
-Use the deployment guides for prerequisites, commands, verification, and rollback. Server
-release actions require a clean, committed, pushed, and upstream-aligned checkout.
-
-- [Relay deployment](deploy/linux/relay/README.snippet.md)
-- [Full deployment](deploy/linux/full/README.snippet.md)
-- [Feishu gateway](deploy/linux/feishu/README.md)
-- [Configuration examples](deploy/examples)
+Open a project, start a session, and describe the task.
 
 ## Development
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm typecheck` | Run architecture and TypeScript checks |
-| `pnpm test` | Run the Electron-compatible test suite |
-| `pnpm build` | Build main, preload, and renderer bundles |
-| `pnpm dist:mac`, `pnpm dist:win`, `pnpm dist:linux` | Build an installer on the matching host OS |
-| `pnpm install:local:mac` | Build, verify, and install the macOS app locally |
+| `pnpm typecheck` | Check architecture and types |
+| `pnpm test` | Run the test suite |
+| `pnpm build` | Build the application |
+| `pnpm dist:mac` | Build the macOS installer |
+| `pnpm install:local:mac --help` | Show local installation options |
 
-Quit Agent Deck before a local install. Build installers on the matching host OS; cross-platform
-packaging is not supported. See [CLAUDE.md](CLAUDE.md) for the full development workflow.
-
-Local installation refuses to replace a running app by default. From an external terminal,
-`pnpm install:local:mac --stop-running` explicitly permits quitting `/Applications/Agent Deck.app`.
-It requests a graceful exit, then rechecks executable paths, PIDs, and start times before a bounded
-SIGTERM fallback. Changed process identities or an exit timeout cancel installation.
-For a package already built and verified from the current clean commit, add `--prebuilt` to avoid
-rebuilding it during the installation step. Retained installers under `build/dist` are preserved.
-If managed Relay services use the installed bundle, quiesce them with `deploy:relay-worker --stop`
-before replacement, then restore them through the documented Worker `--upgrade` flow.
-
-Bundled provider versions: Claude Agent SDK `0.3.283` (Claude Code `2.1.283`), Codex CLI
-`0.158.0`, and Grok `1.0.41`. Supporting libraries use Anthropic SDK `0.128.0`, ACP SDK `1.5.1`,
-and MCP SDK `1.30.1`.
-
-After updating bundled agent dependencies, rebuild and reinstall Agent Deck to refresh the
-app and macOS Worker runtimes. Dependency versions are recorded in [package.json](package.json)
-and [pnpm-lock.yaml](pnpm-lock.yaml).
+Build installers on their target OS. Quit Agent Deck before installation, or explicitly authorize
+its controlled shutdown. See the [development workflow](CLAUDE.md) for validation and installation.
 
 ## Documentation
 
-- [CLAUDE.md](CLAUDE.md) — repository workflow and engineering conventions
-- [AGENTS.md](AGENTS.md) — Codex entry-point instructions
-- [resources/README.md](resources/README.md) — packaged runtimes and adapter boundaries
-- [deploy/linux/](deploy/linux/) — server and gateway deployment contracts
-- [ref/changelogs/INDEX.md](ref/changelogs/INDEX.md) — project change history
+- [Runtime configuration](resources/README.md)
+- [Relay deployment](deploy/linux/relay/README.snippet.md)
+- [Full deployment](deploy/linux/full/README.snippet.md)
+- [Feishu gateway](deploy/linux/feishu/README.md)
+- [Deployment examples](deploy/examples)
+- [Repository workflow](CLAUDE.md) and [Codex instructions](AGENTS.md)
+- [Change history](ref/changelogs/INDEX.md)
