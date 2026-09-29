@@ -1,11 +1,11 @@
 ---
 review_id: 297
 reviewed_at: 2026-09-29
-baseline_commit: 11ae3948736f5e198db3a884510f0e6dfb175392
+baseline_commit: 38c133365a20adfd8a7b49342b31d84822e06d6b
 expired: false
 ---
 
-# Feishu long-connection event metadata
+# Feishu live events and WebSocket acknowledgements
 
 ## Scope and method
 
@@ -16,6 +16,9 @@ official-SDK regressions. No independent agents or paired review were requested.
 src/gateways/feishu/mapper.ts
 src/gateways/feishu/mapper-transport.test.ts
 src/gateways/feishu/message-semantics.test.ts
+scripts/build-linux-headless.mjs
+scripts/check-linux-headless.mjs
+scripts/check-feishu-websocket-bundle.mjs
 ```
 
 ## Findings and fixes
@@ -37,6 +40,22 @@ unknown-field rejection, non-null malformed values and card nonce validation rem
 No additional Feishu scope, credential enrollment, database migration or Desktop replacement is
 needed. Authentication and owner pairing remain mandatory.
 
+HIGH: After pairing and help replies started working, Feishu still retried accepted events.
+A bounded diagnostic using the actual bundle confirmed successful mapping and a 200 ACK payload,
+then `bufferUtil$1.mask is not a function` while sending the WebSocket frame. Vite replaced the
+absent optional `bufferutil` peer with empty exports, so ws selected a nonexistent native masking
+function for larger frames. Small pings and earlier fake-socket probes missed that boundary.
+
+Pin the Feishu bundle to the upstream-supported JavaScript masking path at build time using
+`WS_NO_BUFFER_UTIL`. This avoids an additional native package and runtime environment dependency;
+TLS, masking, app binding and owner authorization stay enabled. See the
+[upstream ws performance options](https://github.com/websockets/ws#opt-in-for-performance).
+
+Add a build/package gate against the actual bundled Sender/Receiver codec. It exchanges masked
+binary frames at 0/31/32/47/48/49/125/126/1024/65536-byte boundaries, validates decoded bytes and
+preserves the read-only caller buffer. The service invocation alone is suppressed in a temporary
+copy; dependency definitions remain intact, and the copy is always removed.
+
 ## Validation
 
 - Empty-token mapper and official-SDK/real-gateway regressions failed before the first repair.
@@ -51,9 +70,14 @@ needed. Authentication and owner pairing remain mandatory.
   37 members and 26 regular files per architecture, with root ownership and safe paths. Both
   archives and all generated Node bundles excluded current private values and machine paths.
   The shared Electron SQLite binding hash remained unchanged.
-- All three modified modules remain below 500 lines. Review-expiry inspection covers the complete
+- All modified modules remain below 500 lines. Review-expiry inspection covers the complete
   changed scope directly, without relying on legacy or expired records.
-- The temporary live diagnostic closed after capture and its generated module was removed.
+- The old runtime bundle failed the new masking gate. The repaired headless build and its
+  reproducibility/transport checks passed. Final masking-release validation also passed: all
+  6,682 tests (four workers), typecheck, both pinned runtime builds, headless/deployment gates and
+  all four topology/manager checks. Both new archives and eleven generated bundles passed the
+  private-value/path audit, and the shared SQLite binding hash was unchanged.
+- Both temporary live diagnostics closed after capture and their generated modules were removed.
   Private operational evidence and credentials remain outside the repository.
 
 ## Release and remaining acceptance
@@ -69,11 +93,10 @@ Active and desired Feishu digests match the inspected artifact; no runtime updat
 service, WebSocket and restricted Core connections are healthy. Rebuilt artifact hashes also
 match the pre-release audit. No Desktop replacement or credential re-enrollment occurred.
 
-The old unused pairing code expired and its plaintext was removed. A fresh one-time pairing
-command was placed only in the local clipboard and private temporary storage for the owner.
-The official pre-create list contained no requests; approval and business acceptance are pending.
+The owner received the fresh pairing-submitted response. The single fresh pending request was
+approved through the official CLI. Owner verification passed, and the user received the help
+command list. Consumed pairing plaintext was removed; the clipboard had changed and was preserved.
 
-Retain the active Feishu plan until private-chat commands, a real provider response and a harmless
-card action are verified. The redacted SDK error accompanying rejected events is not independently
-explained; check acknowledgement and event-log outcomes after activation rather than assuming it
-was resolved by parser changes.
+The masking repair has not yet been activated. Retain the active plan until a new help delivery is
+acknowledged without retry, directory listing, a real provider response and a harmless card action
+are verified. Pairing must be preserved through this final runtime upgrade; do not recreate it.

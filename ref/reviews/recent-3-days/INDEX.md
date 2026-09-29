@@ -15,7 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-09-29 | `REVIEW_297_feishu-event-metadata.md` | Accept empty tokens and nullable optional Feishu user IDs | 2 HIGH fixed; runtime active, chat pending |
+| 2026-09-29 | `REVIEW_297_feishu-event-metadata.md` | Repair Feishu event metadata and bundled WebSocket masking | 3 HIGH fixed; final runtime activation pending |
 | 2026-09-29 | `REVIEW_296_session-output-gateway-thinking.md` | Correct result presentation and Gateway thinking defaults | 3 MEDIUM / 2 LOW fixed; source and Browser verified |
 | 2026-09-29 | `REVIEW_295_feishu-bootstrap-runtime-recovery.md` | Activate current runtime and recover empty Feishu bootstrap | 1 HIGH / 1 MEDIUM fixed; connection verified |
 | 2026-09-29 | `REVIEW_294_claude-permission-indicators.md` | Simplify Claude option annotations and warning markers | 1 LOW fixed; installed bundle verified |
