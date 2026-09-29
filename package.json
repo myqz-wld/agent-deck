@@ -118,6 +118,9 @@
       "build/**/*",
       "!build/dist/**",
       "!build/**/*.log",
+      "!node_modules/**/AGENTS.md",
+      "!node_modules/**/CLAUDE.md",
+      "!node_modules/**/{.claude,.codex}{,/**/*}",
       "resources/icon.png"
     ],
     "extraResources": [
