@@ -11,7 +11,6 @@ import { tokenUsageRepo } from '@main/store/token-usage-repo';
 import { findSessionHandOffSuccessor } from '@main/store/session-handoff-alias-repo';
 import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
-import type { WorkspaceSandboxSpec } from '@contracts/workspace-sandbox';
 import { syncProviderHomeFiles } from '@hosts/provider-state/provider-home-projection';
 import type { ServerCoreRuntimeBootstrap, ServerCoreRuntimeFactoryInput } from './root';
 import { ServerCoreCredentialFile } from './credential-file';
@@ -23,7 +22,7 @@ import { createHeadlessAdapterContext, createServerCoreProviderRenameBus, sessio
 import { createServerCoreRuntimeProjectTrust } from './project-trust';
 import { ServerCoreProviderRuntimeLifecycle } from './provider-runtime-lifecycle';
 import { resolveServerCoreProjectCatalog, withServerCoreWorkspaceRootProject } from './project-catalog';
-import { ServerCoreRepositoryHost, type ServerCoreRuntimeDiagnostics } from './repository-host';
+import { ServerCoreRepositoryHost } from './repository-host';
 import { ServerCoreDaemonRuntime } from './runtime-core';
 import { ServerCoreRuntimeMetadataStore } from './runtime-metadata-store';
 import { ServerCoreSessionConsoleAuthority } from './session-console-authority';
@@ -62,32 +61,16 @@ import {
   resolveServerCoreProviderGrokContainer,
   resolveServerCoreProviderContainerRuntimePaths,
   resolveServerCoreProviderWorkspaceBoundary,
-  type ServerCoreProviderGrokContainerPort,
 } from './runtime-provider-container';
-export const SERVER_CORE_CREDENTIAL_FILE = '/run/secrets/agent-deck/credentials.json';
-export const SERVER_CORE_PROVIDER_AUTH_SOURCE = '/run/secrets/agent-deck/provider-home';
-export interface ServerCoreRuntimeCompositionOverrides {
-  readonly processId?: string;
-  readonly credentialFilePath?: string;
-  readonly diagnostics?: ServerCoreRuntimeDiagnostics;
-  readonly workspaceRoot?: string;
-  readonly workspaceSandbox?: WorkspaceSandboxSpec;
-  /** Test/development seam. Production Full uses the fixed read-only secrets-volume path. */
-  readonly providerAuthSource?: string | null;
-  /** Test/development seam. Production packages the shared CLI at the fixed /opt path. */
-  readonly browserCliPath?: string;
-  /** Trusted composition seam; capability publication remains independently fail-closed. */
-  readonly grokContainer?: ServerCoreProviderGrokContainerPort;
-}
+import {
+  createServerCoreRuntimeDiagnostics,
+  SERVER_CORE_CREDENTIAL_FILE,
+  SERVER_CORE_PROVIDER_AUTH_SOURCE,
+  type ServerCoreRuntimeCompositionOverrides,
+} from './runtime-composition-options';
 
-function diagnostics(): ServerCoreRuntimeDiagnostics {
-  return Object.freeze({
-    info: () => undefined,
-    warn: () => {
-      process.stderr.write('Server Core runtime warning; details hidden.\n');
-    },
-  });
-}
+export { SERVER_CORE_CREDENTIAL_FILE, SERVER_CORE_PROVIDER_AUTH_SOURCE };
+export type { ServerCoreRuntimeCompositionOverrides };
 
 /** Concrete Electron-free runtime module factory consumed by the packaged Server Core entrypoint. */
 export function createServerCoreRuntimeWithOverrides(
@@ -118,7 +101,7 @@ export function createServerCoreRuntimeWithOverrides(
   );
   const { runtimeOptions, providerSettings, sessionLifecycle: sessionLifecycleSettings } =
     resolvedSettings;
-  const runtimeDiagnostics = overrides.diagnostics ?? diagnostics();
+  const runtimeDiagnostics = overrides.diagnostics ?? createServerCoreRuntimeDiagnostics();
   const sessionCreateCatalog = resolveServerCoreSessionCreateCatalog(
     workspaceBoundary.providerHomeRoot,
     providerSettings,

@@ -1,7 +1,6 @@
 import { realpathSync } from 'node:fs';
 import { EventImageChunkReader } from './event-image-chunks';
 import { truncateUtf8 } from './session-detail-text';
-import type { LoadImageBlobResult } from '@shared/types';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import {
@@ -41,14 +40,10 @@ import {
   type DaemonRequestResult,
 } from '@hosts/daemon';
 import type {
-  FileChangePage,
   FileChangePayload,
   FileChangeSummary,
   FileFinalDiffResult,
   SessionRecord,
-  SummaryRecord,
-  TaskRecord,
-  StoredAgentEvent,
 } from '@shared/types';
 import {
   projectSessionEvents,
@@ -61,6 +56,9 @@ import {
 } from './session-image-asset';
 import { projectSessionFilePath } from './session-file-path-authority';
 import { withoutStoredFileChangePathAuthority } from '@shared/file-change-path-authority';
+import type { ServerCoreSessionDetailRuntimeOptions } from './session-detail-runtime-options';
+
+export type { ServerCoreSessionDetailRuntimeOptions };
 
 export const SERVER_CORE_SESSION_DETAIL_METHODS = Object.freeze([
   'session.summaries.list',
@@ -73,36 +71,6 @@ export const SERVER_CORE_SESSION_DETAIL_METHODS = Object.freeze([
 ] as const satisfies readonly CoreMethod[]);
 
 type SessionDetailMethod = (typeof SERVER_CORE_SESSION_DETAIL_METHODS)[number];
-
-export interface ServerCoreSessionDetailRuntimeOptions {
-  readonly eventImages?: {
-    authorized(sessionId: string, imageId: string): boolean;
-    load(sessionId: string, imageId: string): Promise<LoadImageBlobResult>;
-  };
-  readonly workspaceRoot: string;
-  readonly sessions: { get(sessionId: string): SessionRecord | null };
-  readonly summaries: { listForSession(sessionId: string, limit: number): SummaryRecord[] };
-  readonly events: {
-    listValidForSession(sessionId: string, limit: number, offset: number): StoredAgentEvent[];
-  };
-  readonly tasks: { listForSession(sessionId: string, limit: number): TaskRecord[] };
-  readonly fileChanges: {
-    listSummaryPage(
-      sessionId: string,
-      options: { cursor?: string | null; limit: number },
-    ): FileChangePage;
-    getDescriptor(sessionId: string, id: number): FileChangeSummary | null;
-    getPathDescriptor(sessionId: string, candidates: string[]): FileChangeSummary | null;
-    getPayload(sessionId: string, id: number): FileChangePayload | null;
-  };
-  readonly getFinalDiff: (
-    sessionId: string,
-    filePath: string,
-    pathAuthority: string,
-  ) => Promise<FileFinalDiffResult>;
-  readonly privateRoots?: readonly string[];
-  readonly canonicalizePath?: (path: string) => string;
-}
 
 function isSessionDetailMethod(method: CoreMethod): method is SessionDetailMethod {
   return (SERVER_CORE_SESSION_DETAIL_METHODS as readonly CoreMethod[]).includes(method);
