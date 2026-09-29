@@ -58,12 +58,13 @@ completed acceptance. Full evidence is in
 
 ## Preserved local materials
 
-- Validated DMG: `.ref/artifacts/relay-stream-retirement-b9ee1bd7/Agent Deck-0.1.0-arm64.dmg`.
+- Validated DMG: `build/dist/relay-stream-retirement-b9ee1bd7/Agent Deck-0.1.0-arm64.dmg`.
   SHA-256: `59ecf51501a5665f5596b4203fe8ba8d1bf1e51b25f6a1cea3fd806f9774f493`.
 - Probe: `node .ref/reviews/run-relay-live-check.mjs --isolation --count 8`, with its TypeScript
   input alongside it. These local diagnostics remain intentionally non-final until acceptance.
 - The private journal backup stays outside the repository under `$HOME/.agent-deck/diagnostics`;
-  `.ref/reviews/relay-journal-backup.json` records its verified checksum and location.
+  its adjacent `metadata.json` records the verified checksum and location. The duplicate scratch
+  index was removed after confirming it matched this original metadata.
 
 These local artifacts are not distribution inputs. Unrelated work in the main checkout is outside
 this merge and must remain untouched.
