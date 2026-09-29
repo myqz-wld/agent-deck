@@ -6,6 +6,25 @@ async function loadDefaultsModule() {
 }
 
 describe('useLastSessionDefaults', () => {
+  it.each(['claude-code', 'codex-cli'])(
+    'isolates remembered thinking between %s Gateways and the native default', async (adapter) => {
+      const { getLastDefaults, setLastDefaults } = await loadDefaultsModule();
+      setLastDefaults(adapter, { thinking: 'medium' });
+      setLastDefaults(adapter, { provider: 'gateway-a' });
+      expect(getLastDefaults(adapter).thinking).toBeUndefined();
+      setLastDefaults(adapter, { thinking: 'max' });
+      setLastDefaults(adapter, { provider: 'gateway-b' });
+      expect(getLastDefaults(adapter).thinking).toBeUndefined();
+      setLastDefaults(adapter, { thinking: 'low' });
+      setLastDefaults(adapter, { provider: 'gateway-a' });
+      expect(getLastDefaults(adapter).thinking).toBe('max');
+      setLastDefaults(adapter, { thinking: '' });
+      expect(getLastDefaults(adapter).thinking).toBeUndefined();
+      setLastDefaults(adapter, { provider: '' });
+      expect(getLastDefaults(adapter).thinking).toBe('medium');
+    },
+  );
+
   it('claude-code 冷启动默认权限模式为不再询问', async () => {
     const { getLastDefaults } = await loadDefaultsModule();
 

@@ -55,6 +55,11 @@ const store: Record<AdapterId, Defaults> = {
   'codex-cli': {},
   'grok-build': { sessionMode: 'default' },
 };
+// Native default and every Gateway retain their own explicit thinking choice.
+const gatewayThinking: Record<'claude-code' | 'codex-cli', Map<string, SessionThinkingLevel>> = {
+  'claude-code': new Map(),
+  'codex-cli': new Map(),
+};
 let lastAdapter: AdapterId = 'claude-code';
 
 function isAdapterId(s: string): s is AdapterId {
@@ -85,6 +90,10 @@ export function setLastAdapter(adapter: string): void {
 export function getLastDefaults(adapter: string): Defaults {
   if (!isAdapterId(adapter)) return {};
   const cur = store[adapter];
+  if (adapter !== 'grok-build') {
+    const thinking = gatewayThinking[adapter].get(cur.provider ?? '');
+    return { ...cur, ...(thinking ? { thinking } : {}) };
+  }
   // 浅拷贝防 caller mutation 污染 store
   return { ...cur };
 }
@@ -104,7 +113,7 @@ export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void
     if (patch.claudeCodeSandbox !== undefined) next.claudeCodeSandbox = patch.claudeCodeSandbox;
     applyTextDefault(next, 'provider', patch.provider);
     applyTextDefault(next, 'model', patch.model);
-    applyTextDefault(next, 'thinking', patch.thinking);
+    applyGatewayThinking('claude-code', next.provider, patch.thinking);
     // 故意忽略 patch.codexSandbox —— 不允许跨 adapter 串味
     store[adapter] = next;
   } else if (adapter === 'codex-cli') {
@@ -113,7 +122,7 @@ export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void
     if (patch.codexSandbox !== undefined) next.codexSandbox = patch.codexSandbox;
     applyTextDefault(next, 'provider', patch.provider);
     applyTextDefault(next, 'model', patch.model);
-    applyTextDefault(next, 'thinking', patch.thinking);
+    applyGatewayThinking('codex-cli', next.provider, patch.thinking);
     store['codex-cli'] = next;
   } else {
     const next: Defaults = { ...store['grok-build'] };
@@ -123,6 +132,16 @@ export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void
     applyTextDefault(next, 'thinking', patch.thinking);
     store['grok-build'] = next;
   }
+}
+
+function applyGatewayThinking(
+  adapter: 'claude-code' | 'codex-cli',
+  provider: string | undefined,
+  thinking: Defaults['thinking'],
+): void {
+  if (thinking === undefined) return;
+  if (thinking) gatewayThinking[adapter].set(provider ?? '', thinking);
+  else gatewayThinking[adapter].delete(provider ?? '');
 }
 
 function applyTextDefault<K extends 'provider' | 'model' | 'thinking'>(

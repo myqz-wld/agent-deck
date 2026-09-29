@@ -1,6 +1,7 @@
-import type { JSX } from 'react';
+import { useState, type JSX } from 'react';
 import type { AgentEvent } from '@shared/types';
-import { formatDisplayText, formatToolResult } from '../format';
+import { formatDisplayText } from '../format';
+import { presentToolResult, rawToolResult } from '../tool-result-presentation';
 import { formatToolDuration, providerTruncationLabel, toolStatusView } from '../tool-status';
 import { EventImages } from './event-images';
 
@@ -18,9 +19,14 @@ export function ToolRunStatus({ event, pending = false }: { event?: AgentEvent; 
 export function ToolResultContent({ event, fallbackOutput }: { event: AgentEvent; fallbackOutput?: unknown }): JSX.Element {
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   const status = toolStatusView(payload);
-  const output = formatToolResult(payload.toolResult ?? payload.toolResponse ?? payload.aggregatedOutput
-    ?? (payload.__truncated === true ? payload.__preview : undefined)).trim()
-    || formatToolResult(fallbackOutput).trim();
+  const toolName = typeof payload.toolName === 'string' ? payload.toolName : '';
+  let presentation = presentToolResult(payload.toolResult ?? payload.toolResponse ?? payload.aggregatedOutput
+    ?? (payload.__truncated === true ? payload.__preview : undefined), toolName);
+  if (presentation.sections.length === 0 && presentation.raw === undefined) {
+    presentation = presentToolResult(fallbackOutput, toolName);
+  }
+  const output = presentation.sections.map(({ text }) => text).join('\n');
+  const [rawOpen, setRawOpen] = useState(false);
   const failure = typeof payload.error === 'boolean' || payload.error === ''
     ? payload.reason : payload.error ?? payload.reason;
   const error = formatDisplayText(failure).trim();
@@ -37,8 +43,18 @@ export function ToolResultContent({ event, fallbackOutput }: { event: AgentEvent
         {formatDisplayText((state as { message?: unknown })?.message)}
       </li>)}
     </ul>}
-    {output || error ? <pre className="max-h-64 overflow-auto rounded bg-black/25 p-2 text-[11px] leading-relaxed text-deck-muted scrollbar-deck">{output || error}</pre>
-      : <div className="text-[10px] text-deck-muted">（无输出）</div>}
+    {presentation.sections.map((section, index) => <div key={index} className="mb-1 min-w-0 last:mb-0">
+      {section.label && <div className="mb-0.5 text-[10px] text-deck-muted">{section.label}</div>}
+      <pre className={`max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-black/25 p-2 text-[11px] leading-relaxed scrollbar-deck ${section.isError ? 'text-status-error' : 'text-deck-muted'}`}>{section.text}</pre>
+    </div>)}
+    {!output && !error && <div className="text-[10px] text-deck-muted">（无文本输出）</div>}
+    {presentation.raw !== undefined && <div className="mt-1.5">
+      <button type="button" aria-expanded={rawOpen} onClick={() => setRawOpen((open) => !open)}
+        className="text-[10px] text-deck-muted hover:text-deck-text">
+        {rawOpen ? '收起原始数据' : '查看原始数据'}
+      </button>
+      {rawOpen && <pre className="mt-1 max-h-64 overflow-auto rounded bg-black/20 p-2 text-[10px] text-deck-muted scrollbar-deck">{rawToolResult(presentation.raw)}</pre>}
+    </div>}
   </div>;
 }
 

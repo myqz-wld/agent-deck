@@ -1,10 +1,10 @@
 import { lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { readGrokModelDefaults } from '@shared/grok-config';
+import { readClaudeThinkingDefault } from '@shared/claude-config';
 
 import { SESSION_CONSOLE_MAX_OPTION_VALUES, type JsonObject } from '@contracts/index';
 import {
-  isClaudeThinkingLevel,
   isCodexThinkingLevel,
   isGrokThinkingLevel,
 } from '@shared/session-metadata';
@@ -183,9 +183,7 @@ function syncGatewayFiles(
     const sanitized = sanitizeGateway(raw);
     const env = stringRecord(sanitized.env);
     const model = safeText(sanitized.model ?? env.ANTHROPIC_MODEL, '', true);
-    const thinking = isClaudeThinkingLevel(sanitized.effortLevel)
-      ? sanitized.effortLevel
-      : 'high';
+    const thinking = readClaudeThinkingDefault([sanitized]) ?? 'high';
     const bytes = Buffer.from(`${JSON.stringify(sanitized, null, 2)}\n`, 'utf8');
     try { writeProviderFile(destination, relative, bytes, mode); } finally { bytes.fill(0); }
     accepted.add(name);
@@ -263,9 +261,7 @@ function catalog(
     '',
     true,
   );
-  const claudeThinking = isClaudeThinkingLevel(claudeSettings?.effortLevel)
-    ? claudeSettings.effortLevel
-    : 'high';
+  const claudeThinking = readClaudeThinkingDefault([claudeSettings]) ?? 'high';
   const codexModel = safeText(quotedTopLevel(codexContent, 'model'), '', true);
   const codexThinkingValue = quotedTopLevel(codexContent, 'model_reasoning_effort');
   const codexThinking = isCodexThinkingLevel(codexThinkingValue)

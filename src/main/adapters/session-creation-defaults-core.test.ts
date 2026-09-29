@@ -35,6 +35,19 @@ const settings = {
 };
 
 describe('Session creation defaults Core host boundary', () => {
+  it('reads environment effort from the selected Claude Gateway when creating a session', async () => {
+    const result = await resolveSessionCreationDefaultsCore('claude-code', {
+      cwd: '/workspace', provider: 'deepseek',
+    }, {
+      settings,
+      readCodexConfig: async () => ({}),
+      readConfigFile: async (path) => JSON.stringify(path.endsWith('/gateways/deepseek.json')
+        ? { env: { CLAUDE_CODE_EFFORT_LEVEL: 'max' } }
+        : { effortLevel: 'medium' }),
+    }, host());
+    expect(result).toMatchObject({ provider: 'deepseek', thinking: 'max' });
+  });
+
   it.each(['claude-code', 'grok-build'] as const)(
     'leaves an unconfigured %s model unset for native CLI selection',
     async (adapterId) => {

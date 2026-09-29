@@ -41,6 +41,22 @@ afterEach(() => {
 });
 
 describe('provider session projection', () => {
+  it('projects Claude environment effort into both native and Gateway Remote defaults', () => {
+    const { destination, source } = fixture();
+    sourceFile(source, '.claude/settings.json', JSON.stringify({
+      effortLevel: 'low', env: { CLAUDE_CODE_EFFORT_LEVEL: 'xhigh' },
+    }));
+    sourceFile(source, '.claude/gateways/deepseek.json', JSON.stringify({
+      env: { ANTHROPIC_MODEL: 'deepseek-test', CLAUDE_CODE_EFFORT_LEVEL: 'max' },
+    }));
+    projectProviderSessionFiles(source, destination);
+    const catalog = JSON.parse(readFileSync(join(destination, PROVIDER_SESSION_CATALOG_FILE), 'utf8'));
+    expect(catalog.adapters.find((entry: { adapterId: string }) => entry.adapterId === 'claude-code')).toMatchObject({
+      thinking: 'xhigh',
+      providers: [{ id: 'deepseek', thinking: 'max' }],
+    });
+  });
+
   it('projects runtime definitions while keeping the Remote catalog non-secret', () => {
     const { destination, source } = fixture();
     sourceFile(source, '.claude/settings.json', JSON.stringify({
