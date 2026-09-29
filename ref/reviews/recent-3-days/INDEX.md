@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-09-29 | `REVIEW_295_feishu-bootstrap-runtime-recovery.md` | Activate current runtime and recover empty Feishu bootstrap | 1 HIGH / 1 MEDIUM fixed; activation pending |
 | 2026-09-29 | `REVIEW_294_claude-permission-indicators.md` | Simplify Claude option annotations and warning markers | 1 LOW fixed; desktop activation deferred |
 | 2026-09-29 | `REVIEW_293_running-relay-recovery.md` | Recover running Relay without startup socket probes | 1 MEDIUM fixed; server activation verified |
 | 2026-09-29 | `REVIEW_292_feishu-rollback-credential-history.md` | Preserve revoked history and recover interrupted Relay updates | 1 HIGH / 1 MEDIUM fixed; activation pending |
