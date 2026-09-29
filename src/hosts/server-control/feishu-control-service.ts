@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { lstatSync, realpathSync, unlinkSync } from 'node:fs';
+import { lstatSync, unlinkSync } from 'node:fs';
 import { isJsonObject, type JsonValue } from '@contracts/index';
 import { parseFeishuProductionConfig } from '@gateways/feishu/config';
 import { parseFeishuCoreSshConfig } from '@hosts/feishu/config';
@@ -28,6 +28,7 @@ import {
   FEISHU_PROTECTED_FILES,
   PRODUCTION_FEISHU_PATHS,
   renderFeishuProvisioning,
+  requireFeishuDirectory,
   type FeishuProvisioningPaths,
 } from './feishu-provisioning';
 import type {
@@ -48,6 +49,7 @@ import {
   requireHealthyFeishuManagement,
 } from './feishu-status';
 import { SYSTEMD_CONTROL, type SystemdControlPort } from './systemd';
+import { waitForFeishuStartup } from './feishu-readiness';
 const CONTROL = /[\u0000-\u0020\u007f-\u009f]/u;
 export interface FeishuControlServiceOptions {
   readonly paths?: FeishuProvisioningPaths;
@@ -89,18 +91,6 @@ function virtualAuthority(
     records,
     authorizedKeysFile: { ...loaded.authorizedKeysFile, text: authorizedKeys },
   };
-}
-
-function requireDirectory(
-  path: string,
-  owner: { uid: number; gid: number },
-  mode: number,
-): void {
-  const metadata = lstatSync(path);
-  if (
-    !metadata.isDirectory() || metadata.isSymbolicLink() || realpathSync(path) !== path ||
-    metadata.uid !== owner.uid || metadata.gid !== owner.gid || (metadata.mode & 0o777) !== mode
-  ) throw new Error('Feishu provisioning directory trust check failed');
 }
 
 function protectedFilePaths(paths: FeishuProvisioningPaths): string[] {
@@ -411,11 +401,11 @@ export class FeishuControlService {
 
   private verifyDirectories(): void {
     const root = typeof process.getuid === 'function' ? process.getuid() : 0;
-    requireDirectory(this.paths.configDirectory, {
+    requireFeishuDirectory(this.paths.configDirectory, {
       uid: root,
       gid: this.config.feishuIdentityOwner.gid,
     }, 0o750);
-    requireDirectory(this.paths.stateDirectory, this.config.feishuIdentityOwner, 0o700);
+    requireFeishuDirectory(this.paths.stateDirectory, this.config.feishuIdentityOwner, 0o700);
   }
 
   private verifyFiles(expected?: FeishuConnectRequest, expectedCredentialId?: string): void {
@@ -446,7 +436,7 @@ export class FeishuControlService {
   }
 
   private async requireHealthyManagement(): Promise<JsonValue> {
-    return (await this.requireHealthyManagementState()).publicStatus;
+    return (await waitForFeishuStartup(() => this.requireHealthyManagementState())).publicStatus;
   }
 
   private async requireHealthyManagementState(): Promise<{

@@ -181,6 +181,18 @@ function fixture(topology: 'relay' | 'full') {
 }
 
 describe.each(['relay', 'full'] as const)('Feishu one-click server control: %s', (topology) => {
+  it('does not roll back while the started service is still opening its management socket', async () => {
+    const test = fixture(topology);
+    const request = test.management.request.bind(test.management);
+    vi.spyOn(test.management, 'request')
+      .mockRejectedValueOnce(Object.assign(new Error('socket not ready'), { code: 'ENOENT' }))
+      .mockImplementation(request);
+    await expect(test.service.connect(test.request)).resolves.toMatchObject({ status: 'connected' });
+    expect(test.systemd.active).toBe(true);
+    expect(statSync(test.paths.gatewayConfig).isFile()).toBe(true);
+    expect(readFileSync(test.config.authorizedKeysFile, 'utf8')).toContain('--surface feishu');
+  });
+
   it('provisions one unpaired credential, verifies health, pairs, and disconnects', async () => {
     const test = fixture(topology);
     const connected = await test.service.connect(test.request);

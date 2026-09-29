@@ -1,3 +1,4 @@
+import { lstatSync, realpathSync } from 'node:fs';
 import { parseFeishuProductionConfig } from '@gateways/feishu/config';
 import { parseFeishuCoreSshConfig } from '@hosts/feishu/config';
 import type { PrivateTextOutput } from '@hosts/linux-runtime/connection-credential-issuer';
@@ -45,6 +46,18 @@ export const PRODUCTION_FEISHU_PATHS: FeishuProvisioningPaths = Object.freeze({
 export const FEISHU_PROTECTED_FILES = Object.freeze([
   'gatewayConfig', 'coreSshConfig', 'appSecret', 'actionSecret', 'knownHosts', 'identity',
 ] as const);
+
+export function requireFeishuDirectory(
+  path: string,
+  owner: { uid: number; gid: number },
+  mode: number,
+): void {
+  const metadata = lstatSync(path);
+  if (
+    !metadata.isDirectory() || metadata.isSymbolicLink() || realpathSync(path) !== path ||
+    metadata.uid !== owner.uid || metadata.gid !== owner.gid || (metadata.mode & 0o777) !== mode
+  ) throw new Error('Feishu provisioning directory trust check failed');
+}
 
 function encoded(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;

@@ -95,6 +95,8 @@ for ((index = 2; index < path_count - 1; index += 1)); do
 done
 /usr/bin/getent ahosts "${protected_paths[$((path_count - 1))]}" >/dev/null || fail
 /usr/bin/getent ahosts open.feishu.cn >/dev/null || fail
-/usr/bin/curl --fail --silent --show-error --head --max-time 10 \
+# This checks DNS/TLS/HTTPS reachability, not homepage routing. Feishu can return 404 to HEAD;
+# authenticated API and WebSocket readiness are verified by the gateway during startup.
+/usr/bin/curl --silent --show-error --head --proto '=https' --max-time 10 \
   https://open.feishu.cn/ >/dev/null || fail
 printf '%s\n' "feishu-preflight: outbound-only prerequisites verified"
