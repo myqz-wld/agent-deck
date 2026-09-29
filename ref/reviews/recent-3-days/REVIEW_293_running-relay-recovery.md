@@ -50,6 +50,11 @@ src/hosts/instance-manager/recovery.test.ts
 
 ## Residual risk and follow-ups
 
-Live activation remains in the active Feishu acceptance plan. At this checkpoint, Relay is running,
-credential authority has no orphan rows, and the previous managed upgrade journal is still pending.
-Socket reachability alone does not establish Feishu message or provider-response acceptance.
+The official server check, dry-run, upgrade and verify sequence passed for release `21190dda58c5`.
+Read-only inspection confirmed generation 22 and no pending journal. Worker and Provider supervisor
+verification also passed. One temporary local build stalled on an npm download; its exact container
+was stopped before new remote lifecycle work, and a controlled retry completed normally.
+
+Feishu long connection subsequently started, but Core verification caused a transactional rollback.
+The active acceptance plan retains that diagnosis. Socket reachability alone does not establish
+Feishu message or provider-response acceptance.
