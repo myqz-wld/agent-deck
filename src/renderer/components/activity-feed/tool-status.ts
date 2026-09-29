@@ -51,6 +51,7 @@ export function toolStatusView(payload: Record<string, unknown>): ToolStatusView
 
 export function formatToolDuration(value: unknown): string | null {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  if (value > 0 && value < 1) return '<1ms';
   if (value < 1_000) return `${Math.round(value)}ms`;
   const seconds = value / 1_000;
   return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;

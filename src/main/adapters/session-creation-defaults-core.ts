@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { readGrokModelDefaults } from '@shared/grok-config';
+import { readClaudeThinkingDefault } from '@shared/claude-config';
 import {
-  isClaudeThinkingLevel,
   isCodexThinkingLevel,
   isGrokThinkingLevel,
   type CodexThinkingLevel,
@@ -270,16 +270,14 @@ function readClaudeSettings(records: Array<ConfigRecord | null>): {
 } {
   let model: string | undefined;
   let envModel: string | undefined;
-  let thinking: SessionThinkingLevel | undefined;
   for (const parsed of records) {
     if (!parsed) continue;
     model = nonBlank(parsed.model) ?? model;
     const env = isRecord(parsed.env) ? parsed.env : {};
     envModel = nonBlank(env.ANTHROPIC_MODEL) ?? envModel;
-    const effort = parsed.effortLevel;
-    if (isClaudeThinkingLevel(effort)) thinking = effort;
   }
   const effectiveModel = model ?? envModel;
+  const thinking = readClaudeThinkingDefault(records);
   return {
     ...(effectiveModel ? { model: effectiveModel } : {}),
     ...(thinking ? { thinking } : {}),

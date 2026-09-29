@@ -12,8 +12,11 @@ export function SimpleRow({ event }: { event: AgentEvent }): JSX.Element {
     : event.kind === 'context-compaction-end' ? formatDisplayText(payload.summary) : '';
   const error = event.kind === 'finished' ? formatDisplayText(payload.errorDetails ?? payload.error) : '';
   const metadata = Object.entries({ subagentId: '子代理', description: '说明', phase: '阶段', backgroundTasks: '后台任务', sessionCrons: '定时任务' })
-    .filter(([key]) => payload[key] !== undefined && payload[key] !== null)
-    .map(([key, label]) => `${label}：${formatToolResult(payload[key])}`).join('\n');
+    .filter(([key]) => payload[key] !== undefined && payload[key] !== null
+      && !(typeof payload[key] === 'object' && Object.keys(payload[key] as object).length === 0))
+    .map(([key, label]) => ({ label, text: formatToolResult(payload[key]).trim() }))
+    .filter(({ text }) => text.length > 0)
+    .map(({ label, text }) => `${label}：${text}`).join('\n');
   return (
     <li className="flex min-w-0 items-start gap-2 text-[11px]">
       <EventIcon event={event} className="mt-0.5 h-3.5 w-3.5 shrink-0 text-deck-muted" />

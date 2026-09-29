@@ -304,8 +304,11 @@ export function useSessionCreationOptions({
       defaultsRequestGeneration.current += 1;
       // Gateway choices are discrete: do not spend the presentation grace on input debounce.
       resolvedSelectionIdentity.current = null;
-      patchSelection({ provider: value, model: '' });
       setLastDefaults(adapterId, { provider: value, model: '' });
+      patchSelection({
+        provider: value, model: '',
+        thinking: getLastDefaults(adapterId).thinking || SAFE_FALLBACK.thinking,
+      });
       setSelectionRevision((current) => current + 1);
       setTrustSelection({ requestKey: '', grant: false });
     },

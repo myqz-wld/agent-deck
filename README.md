@@ -8,6 +8,7 @@ Manage agent sessions, project work, and collaboration in one place.
 - Live sessions, searchable history, context and usage tracking.
 - Teammates, tasks, issues, reviews, and session handoffs.
 - Markdown, images, and inline file diffs.
+- Readable file and command output with expandable raw tool results.
 - Git worktree isolation and provider-native runtime controls.
 - Bundled Agents, Skills, and session-owned Browser tabs.
 - Local projects and remote workspaces through Full or Relay deployments.
@@ -22,6 +23,10 @@ pnpm dev
 ```
 
 Open a project, start a session, and describe the task.
+
+New-session thinking defaults follow the selected Gateway configuration, including Claude's
+`env.CLAUDE_CODE_EFFORT_LEVEL` and `effortLevel`. Explicit thinking choices are kept separately
+for each Gateway; when no valid value is configured, the creation form uses `high`.
 
 ## Development
 

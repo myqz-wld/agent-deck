@@ -20,6 +20,7 @@ import { ToolEndRow, ToolStartRow } from './rows/tool-row';
 import { ActivityImageContext, LOCAL_ACTIVITY_IMAGES, type ActivityImageReader } from './image-context';
 import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import { planEventId } from '@shared/agent-event-update';
+import { presentMessageDisplays } from './message-display-presentation';
 
 type ResolvePending = (sessionId: string, requestId: string) => void;
 const EMPTY_IDS: ReadonlySet<string> = new Set();
@@ -69,6 +70,7 @@ export function ActivityRecordsView({
   imageReader,
   fileChangeReader,
 }: ActivityRecordsViewProps): JSX.Element {
+  const presentedEvents = useMemo(() => presentMessageDisplays(events), [events]);
   const derived = useMemo(() => deriveSources(events, pendingIds), [events, pendingIds]);
   const initialPending = !loaded && loadError === null && events.length === 0;
   const showInitialLoading = useDelayedAsyncFallback(
@@ -110,7 +112,8 @@ export function ActivityRecordsView({
         aria-live="polite"
         aria-relevant="additions"
       >
-        {events.map((event) => {
+        {presentedEvents.map((event) => {
+          const displayMessageId = (event.payload as { displayMessageId?: string } | null)?.displayMessageId;
           const useId = (event.payload as { toolUseId?: unknown } | null)?.toolUseId;
           const pairedStart = event.kind === 'tool-use-end' && typeof useId === 'string'
             ? derived.toolStartByUseId.get(useId) : undefined;
@@ -121,7 +124,8 @@ export function ActivityRecordsView({
           const row = deriveRowState(event, derived);
           return (
             <ActivityRow
-              key={typeof useId === 'string' && useId ? `${event.sessionId}:tool:${useId}`
+              key={displayMessageId ? `display:${displayMessageId}`
+                : typeof useId === 'string' && useId ? `${event.sessionId}:tool:${useId}`
                 : planEventId(event) ? `${event.sessionId}:plan:${planEventId(event)}` : activityEventIdentity(event)}
               event={visibleEvent}
               endEvent={pairedStart ? { ...event, payload: mergeToolUsePayload(pairedStart.payload, event.payload) } : undefined}
