@@ -59,7 +59,8 @@ generation, and direction remain rejected; six additional regressions protect th
 - The macOS artifact contains clean source commit `b9ee1bd7`; its packaged Worker test and the
   mounted-DMG Worker ABI check passed. Scans of 272 application files, release archive members,
   nested payloads, and archive ownership found no local home paths or personal owner metadata.
-- Prepared artifact: `build/dist/Agent Deck-0.1.0-arm64.dmg`; SHA-256
+- Prepared artifact is retained locally in the main checkout at
+  `.ref/artifacts/relay-stream-retirement-b9ee1bd7/Agent Deck-0.1.0-arm64.dmg`; SHA-256
   `59ecf51501a5665f5596b4203fe8ba8d1bf1e51b25f6a1cea3fd806f9774f493`.
 - The installed Worker still contains the defect until its packaged runtime is replaced. Replacing
   the hosting application and restarting Desktop require exact user approval after the replacement
@@ -106,3 +107,7 @@ repair is deployed. Final live acceptance must exercise both repaired endpoints,
 client online during connection churn, and check handshake success with retries disabled. Provider
 model turns and a host reboot were not exercised. This record does not claim that every Relay or
 provider behavior has been exhaustively validated.
+
+The user subsequently requested merging to `main` and removing the worktree and branch. The
+remaining Worker installation and acceptance are recorded in
+[PLAN_59](../../plans/recent-3-days/PLAN_59_relay-handshake-investigation.md) for continuation.

@@ -15,5 +15,6 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-28 | `PLAN_59_relay-handshake-investigation.md` | handed off | Repair stream retirement; Worker rollout pending | `REVIEW_282_relay-stream-retirement-isolation.md` |
 | 2026-09-28 | `PLAN_58_relay-runtime-recovery.md` | completed | Restore Relay, Worker, and supervisor | `REVIEW_281_relay-runtime-directory-recovery.md` |
 | 2026-09-28 | `PLAN_57_codex-live-gateway-switch.md` | completed | Apply Codex Gateway changes before the next turn | `REVIEW_279_codex-live-gateway-switch.md` |
