@@ -1,5 +1,10 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import { remarkChatMath } from './markdown/remark-chat-math';
+import 'katex/dist/katex.min.css';
+import './markdown/math.css';
 import { memo, type JSX, type ReactNode, isValidElement } from 'react';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import oneDark from 'react-syntax-highlighter/dist/esm/styles/prism/one-dark';
@@ -54,7 +59,7 @@ interface Props {
  * 共用的 Markdown 渲染器。
  *
  * 约束：
- * - 仅 GFM（表格 / 任务列表 / 删除线 / 自动链接），不挂 rehype-raw
+ * - GFM + math; no rehype-raw or trusted TeX commands.
  *   → react-markdown 默认 escape 原始 HTML，安全
  * - 链接强制 _blank + noopener noreferrer（Electron 里 webContents 默认拦截
  *   target=_blank 并交给系统浏览器，避免在应用窗口里跳转破坏 SPA 路由）
@@ -74,7 +79,14 @@ export function MarkdownText({ text }: Props): JSX.Element {
   return (
     <div className="markdown-bubble">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }], remarkChatMath]}
+        rehypePlugins={[[rehypeKatex, {
+          trust: false,
+          strict: 'ignore',
+          maxSize: 20,
+          maxExpand: 1000,
+          errorColor: '#fda4af',
+        }]]}
         components={{
           a: ({ children, ...props }) => (
             <a

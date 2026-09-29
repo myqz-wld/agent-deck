@@ -103,6 +103,7 @@ export function RemoteSessionDetail({
           agentId={session?.adapterId ?? 'remote'}
           isSdk
           allowLocalAssets={false}
+          imageReader={{ identity: source.identity, load: source.loadImageBlob }}
           interactivePending={false}
           truncated={source.events?.truncated ?? false}
           renderPendingEvent={(event) => {

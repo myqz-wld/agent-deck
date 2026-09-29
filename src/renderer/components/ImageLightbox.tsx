@@ -1,7 +1,8 @@
 import { useEffect, useRef, type JSX } from 'react';
+import { createPortal } from 'react-dom';
 import { useImageBlob } from '@renderer/hooks/useImageBlob';
 import { sharedImageBlobCache } from '@renderer/lib/image-blob-cache';
-import { CloseIcon } from './icons';
+import { CloseIcon, SaveIcon } from './icons';
 
 /**
  * plan handoff-render-and-image-batch-20260521 §Phase 4 Step 2:用户上传图片的放大查看
@@ -28,6 +29,9 @@ import { CloseIcon } from './icons';
  *   项目内 source-owned SVG close icon。
  */
 interface LightboxFrameProps {
+  onSave?: () => void;
+  saving?: boolean;
+  notice?: string;
   onClose: () => void;
   alt?: string;
   dataUrl?: string;
@@ -41,6 +45,9 @@ function LightboxFrame({
   dataUrl,
   loading = false,
   failed = false,
+  onSave,
+  saving = false,
+  notice,
 }: LightboxFrameProps): JSX.Element {
   // Esc 键关闭(React 标准 idiom — useEffect cleanup function 内 remove listener)。
   // REVIEW_102 INFO（reviewer-claude）：用 ref 持有最新 onClose，effect deps=[] 只在
@@ -51,6 +58,7 @@ function LightboxFrame({
   // Escape 继续气泡到外层对话框，否则会同时关闭灯箱和输入框。
   const onCloseRef = useRef(onClose);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
   onCloseRef.current = onClose;
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement
@@ -63,10 +71,14 @@ function LightboxFrame({
         e.stopPropagation();
         onCloseRef.current();
       } else if (e.key === 'Tab') {
-        // 灯箱内只有关闭按钮需要获取焦点，防止键盘焦点穿到遮罩后方。
+        // Keep keyboard focus on the image actions instead of the obscured page.
         e.preventDefault();
         e.stopPropagation();
-        closeButtonRef.current?.focus();
+        const buttons = [...(frameRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        const next = index < 0 ? (e.shiftKey ? buttons.length - 1 : 0)
+          : (index + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length;
+        buttons[next]?.focus();
       }
     };
     document.addEventListener('keydown', handler, true);
@@ -76,8 +88,9 @@ function LightboxFrame({
     };
   }, []);
 
-  return (
+  return createPortal(
     <div
+      ref={frameRef}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
       role="dialog"
@@ -105,6 +118,12 @@ function LightboxFrame({
             className="max-h-[90vh] max-w-[90vw] rounded border border-deck-border object-contain"
           />
         )}
+        {onSave && dataUrl && <div className="absolute bottom-2 left-2 flex items-center gap-2 rounded bg-black/80 p-2 text-[11px]">
+          <button type="button" onClick={onSave} disabled={saving} className="inline-flex items-center gap-1 text-deck-text">
+            <SaveIcon className="h-3.5 w-3.5" />{saving ? '保存中…' : '保存图片'}
+          </button>
+          {notice && <span role="status">{notice}</span>}
+        </div>}
         <button
           ref={closeButtonRef}
           type="button"
@@ -115,7 +134,7 @@ function LightboxFrame({
           <CloseIcon className="h-4 w-4" />
         </button>
       </div>
-    </div>
+    </div>, document.body,
   );
 }
 
@@ -147,10 +166,16 @@ export function DataUrlImageLightbox({
   onClose,
   dataUrl,
   alt,
+  onSave,
+  saving,
+  notice,
 }: {
   onClose: () => void;
   dataUrl: string;
   alt?: string;
+  onSave?: () => void;
+  saving?: boolean;
+  notice?: string;
 }): JSX.Element {
-  return <LightboxFrame onClose={onClose} alt={alt} dataUrl={dataUrl} />;
+  return <LightboxFrame onClose={onClose} alt={alt} dataUrl={dataUrl} onSave={onSave} saving={saving} notice={notice} />;
 }

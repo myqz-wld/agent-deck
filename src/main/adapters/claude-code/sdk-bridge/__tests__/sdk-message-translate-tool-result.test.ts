@@ -15,6 +15,26 @@ vi.mock('@main/event-bus', () => ({
 }));
 
 describe('Claude SDK structured tool results', () => {
+  it('preserves image blocks even when the SDK also supplies a structured tool result', () => {
+    const internal = makeInternalSession({ cwd: '/repo', applicationSid: 'sid-image' });
+    internal.toolUseNames.set('image-call', 'Read');
+    const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'image-bytes' } };
+    const emit = vi.fn();
+    translateSdkMessage(emit, 'sid-image', { type: 'user', tool_use_result: { note: 'read image' },
+      message: { content: [{ type: 'tool_result', tool_use_id: 'image-call', content: [image] }] } }, internal);
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ kind: 'tool-use-end',
+      payload: expect.objectContaining({ toolResult: { note: 'read image' }, imageInputs: [image] }) }));
+  });
+
+  it('preserves direct assistant image blocks', () => {
+    const internal = makeInternalSession({ cwd: '/repo', applicationSid: 'sid-image' });
+    const source = { type: 'base64', media_type: 'image/png', data: 'image-bytes' };
+    const emit = vi.fn();
+    translateSdkMessage(emit, 'sid-image', { type: 'assistant', message: { content: [{ type: 'image', source }] } }, internal);
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ kind: 'message',
+      payload: expect.objectContaining({ role: 'assistant', imageInputs: [{ source }] }) }));
+  });
+
   it('uses the full structured result for a single tool result', () => {
     const internal = makeInternalSession({ cwd: '/repo', applicationSid: 'sid-tool' });
     internal.toolUseNames.set('tool-1', 'Agent');

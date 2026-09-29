@@ -9,7 +9,7 @@ export function toolStatusView(payload: Record<string, unknown>): ToolStatusView
   const normalized = raw.replaceAll('_', '').toLowerCase();
   const failedByExitCode =
     typeof payload.exitCode === 'number' && payload.exitCode !== 0;
-  const hasError = payload.error != null || failedByExitCode;
+  const hasError = (payload.error != null && payload.error !== false && payload.error !== '') || failedByExitCode;
 
   switch (normalized) {
     case '':
@@ -38,6 +38,8 @@ export function toolStatusView(payload: Record<string, unknown>): ToolStatusView
     case 'inprogress':
     case 'running':
       return { label: '执行中', detail: null, isError: false };
+    case 'pending':
+      return { label: '等待执行', detail: null, isError: false };
     default:
       return {
         label: hasError ? '失败' : '状态未知',
@@ -55,6 +57,7 @@ export function formatToolDuration(value: unknown): string | null {
 }
 
 export function providerTruncationLabel(payload: Record<string, unknown>): string | null {
+  if (payload.__truncated === true) return '记录内容已截断';
   const input = payload.toolInputTruncated === true;
   const result = payload.toolResultTruncated === true;
   if (input && result) return '输入和结果已截断';

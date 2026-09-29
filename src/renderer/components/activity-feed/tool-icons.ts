@@ -1,28 +1,4 @@
-/**
- * 工具名 → emoji 图标映射。
- *
- * 风格约束：保持纯 emoji，与现有视觉语言一致（ExitPlanMode 📋 / Task 🤖 /
- * file-changed 📝 / finished ✅ / waiting ⚠ 等）。不引入 lucide-react —— renderer 当前没有
- * 这个 dep，加进来纯增 bundle 体积。
- *
- * 高频白名单基于本仓库 7 天 transcript jq 频次实证（截止 2026-05-01）：
- *   Bash 1889 / Read 1650 / Edit 774 / TodoWrite 340 / Grep 235 / Write 176 /
- *   AskUserQuestion 80 / Agent 78 / TaskOutput 48 / Glob 41 / WebFetch 27 /
- *   WebSearch 22 / SendMessage 21 / ExitPlanMode 15 / TaskStop 10 /
- *   Skill 7 / EnterPlanMode 7 / TeamCreate 6 / Task 3
- * 后续按主题加 case 即可；其他 mcp__* 走 🔧 兜底。
- *
- * REVIEW_17 R1 / L10：本应用自带 task store MCP server (CHANGELOG_42-43 + plan
- * task-mcp-merge-into-agent-deck-mcp-20260521 合并入 agent-deck namespace)，
- * 5 个工具真名 `mcp__agent-deck__task_*`，作为应用核心模块需 UI 可识别，单独列。
- *
- * 避撞约束：
- *  - ✅ 已被「一轮完成」状态用 → TodoWrite 不能用 ✅，改 📌
- *  - 📝 已被 file-changed 用 → 不复用
- *  - 📋 ExitPlanMode 已用，EnterPlanMode 配对，复用 OK
- *  - 🤖 Task 已用，Agent 覆盖 Claude subagent 与 Codex collaboration，复用 OK
- *  - mcp__agent-deck__task_create 与 CLI builtin TaskCreate 同 ➕（语义对齐）
- */
+/** Text-only event summaries use emoji; React tool cards use the semantic SVG ToolIcon. */
 import { inferAgentToolKind, isAgentToolKind } from '@shared/tool-kind';
 
 const ICON_MAP: Record<string, string> = {
@@ -82,7 +58,7 @@ const KIND_ICON_MAP: Record<string, string> = {
 
 export function toolIcon(tool: string | undefined | null, toolKind?: unknown): string {
   if (!tool) return '🔧';
-  if (isAgentToolKind(toolKind)) return KIND_ICON_MAP[toolKind];
+  if (isAgentToolKind(toolKind) && toolKind !== 'other') return KIND_ICON_MAP[toolKind];
   const inferred = inferAgentToolKind(tool);
   if (inferred) return KIND_ICON_MAP[inferred];
   return ICON_MAP[tool] ?? '🔧';

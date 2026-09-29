@@ -124,6 +124,9 @@ export async function requestRemoteImageAsset(
   request: RemoteHostImageAssetRequestDto,
 ): Promise<RemoteHostImageAssetResultDto> {
   const chunks: Buffer[] = [];
+  const source = request.source.kind === 'event-image'
+    ? { sessionId: request.sessionId, imageId: request.source.imageId }
+    : { sessionId: request.sessionId, changeId: request.source.changeId, side: request.source.side };
   let offset = 0;
   let assetId: string | undefined;
   let mime: string | undefined;
@@ -133,17 +136,11 @@ export async function requestRemoteImageAsset(
   );
   for (let index = 0; index < maximumChunks; index += 1) {
     const value = await scope.client.request('session.assets.image-chunk.read', {
-      sessionId: request.sessionId,
-      changeId: request.source.changeId,
-      side: request.source.side,
+      ...source,
       offset,
       ...(assetId ? { expectedAssetId: assetId } : {}),
     }, { deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS });
-    const parsed = parseSessionImageAssetReadResult(value, {
-      sessionId: request.sessionId,
-      changeId: request.source.changeId,
-      side: request.source.side,
-    });
+    const parsed = parseSessionImageAssetReadResult(value, source);
     if (!parsed.ok) return { ok: false, reason: parsed.reason };
     if (parsed.offset !== offset) return { ok: false, reason: 'changed' };
     if (assetId && (

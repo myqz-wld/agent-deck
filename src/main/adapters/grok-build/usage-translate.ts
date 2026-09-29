@@ -59,6 +59,7 @@ export function beginGrokTurn(
   cancelPendingGrokStandardUsage(state);
   state.turnStartUsage = cloneWatermark(state.lastUsage);
   state.currentTurnUsageId = `grok-standard:${sessionId}:${turnUsageId}`;
+  state.currentPlanId = null;
   state.currentTurnStartedAt = Date.now();
   state.currentProviderPromptId = null;
   state.currentExtensionPromptId = null;

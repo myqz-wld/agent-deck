@@ -51,6 +51,7 @@ export function translateCodexDisplayItemCompleted(item: AnyRecord, emit: Emit):
         toolName: 'ImageView',
         toolInput: { path: item.path },
         toolResult: { path: item.path },
+        imageInputs: typeof item.path === 'string' ? [{ kind: 'path', path: item.path }] : [],
         status: 'completed',
       });
       return true;
@@ -65,8 +66,11 @@ export function translateCodexDisplayItemCompleted(item: AnyRecord, emit: Emit):
           savedPath: item.savedPath ?? null,
           hasInlineResult: typeof item.result === 'string' && item.result.length > 0,
         },
+        imageInputs: failed ? [] : typeof item.result === 'string' && item.result.length > 0
+          ? [{ data: item.result, fallbackPath: item.savedPath }]
+          : typeof item.savedPath === 'string' ? [{ kind: 'path', path: item.savedPath }] : [],
         status: item.status ?? 'completed',
-        error: failed ? 'Codex image generation failed' : undefined,
+        error: failed ? item.failure ?? 'Codex image generation failed' : undefined,
       });
       return true;
     }

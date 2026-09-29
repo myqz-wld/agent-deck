@@ -50,6 +50,7 @@ export function createGrokTranslationState(options: {
     pendingStandardUsage: null,
     turnStartUsage: options.lastUsage ?? null,
     currentTurnUsageId: null,
+    currentPlanId: null,
     currentTurnStartedAt: null,
     currentProviderPromptId: null,
     currentExtensionPromptId: null,
@@ -166,6 +167,7 @@ export function translateGrokUpdate(
           toolKind,
           toolInput: update.rawInput,
           toolUseId: update.toolCallId,
+          ...toolImageInputs(update.content),
           status: normalizeToolStatus(update.status),
         }),
       ];
@@ -176,6 +178,8 @@ export function translateGrokUpdate(
             toolKind,
             toolUseId: update.toolCallId,
             toolResult: update.rawOutput ?? toolContentText(update.content),
+            toolInput: update.rawInput,
+            ...toolImageInputs(update.content),
             status: update.status,
           }),
         );
@@ -228,12 +232,14 @@ export function translateGrokUpdate(
             toolUseId: update.toolCallId,
             toolResult: update.rawOutput ?? toolContentText(update.content),
             status: update.status,
+            toolInput: update.rawInput,
+            ...toolImageInputs(update.content),
           }),
         );
         state.startedToolIds.delete(update.toolCallId);
         state.toolKinds.delete(update.toolCallId);
         state.toolNames.delete(update.toolCallId);
-      } else if (!state.startedToolIds.has(update.toolCallId)) {
+      } else {
         state.startedToolIds.add(update.toolCallId);
         events.push(
           event('tool-use-start', {
@@ -241,7 +247,10 @@ export function translateGrokUpdate(
             toolKind,
             toolUseId: update.toolCallId,
             toolInput: update.rawInput,
-            aggregatedOutput: toolContentText(update.content),
+            ...(typeof toolContentText(update.content) === 'string'
+              ? { aggregatedOutput: toolContentText(update.content) } : {}),
+            toolTitle: update.title,
+            ...toolImageInputs(update.content),
             status: normalizeToolStatus(update.status),
           }),
         );
@@ -270,6 +279,8 @@ export function translateGrokUpdate(
             .map((entry) => `- [${entry.status === 'completed' ? 'x' : ' '}] ${entry.content}`)
             .join('\n'),
           plan: true,
+          planId: state.currentPlanId ??= state.currentTurnUsageId ?? `grok-plan:${sessionId}:${ts}`,
+          entries: update.entries.map((entry) => ({ content: entry.content, status: entry.status, priority: entry.priority })),
         }),
       ];
     case 'plan_update':
@@ -278,10 +289,18 @@ export function translateGrokUpdate(
         event('thinking', {
           text: formatPlanUpdate(update),
           plan: true,
+          planId: state.currentPlanId = typeof update.plan.planId === 'string'
+            ? `grok:${sessionId}:plan:${update.plan.planId}`
+            : state.currentPlanId ?? state.currentTurnUsageId ?? `grok-plan:${sessionId}:${ts}`,
+          entries: update.plan.type === 'items' ? update.plan.entries : undefined,
         }),
       ];
     case 'plan_removed':
-      return flushGrokTextUpdates(sessionId, state);
+      return [...flushGrokTextUpdates(sessionId, state), event('thinking', {
+        plan: true, planId: typeof update.planId === 'string' ? `grok:${sessionId}:plan:${update.planId}`
+          : state.currentPlanId ?? state.currentTurnUsageId ?? `grok-plan:${sessionId}:${ts}`,
+        entries: [], text: '计划已移除',
+      })];
     case 'notice':
       // ACP notices require clientCapabilities.session.notices, which we do not advertise.
       // These advisory live events must not become persisted conversation content.
@@ -367,8 +386,9 @@ function contentEvents(
     return [
       ...flushGrokTextUpdates(sessionId, state),
       event('message', {
-        text: '[Grok returned an image]',
+        text: '图片',
         role: 'assistant',
+        imageInputs: [{ data: content.data, mimeType: content.mimeType }],
         image: {
           mime: content.mimeType,
           uri: content.uri ?? null,
@@ -423,7 +443,14 @@ function toolContentText(content: ToolCallContent[] | null | undefined): unknown
     if (item.type === 'terminal') return `[terminal ${item.terminalId}]`;
     return item;
   });
-  return values.length === 1 ? values[0] : values;
+  return values.every((value) => typeof value === 'string') ? values.join('\n')
+    : values.length === 1 ? values[0] : values;
+}
+
+function toolImageInputs(content: ToolCallContent[] | null | undefined): { imageInputs?: unknown[] } {
+  // ACP content replaces the previous collection; omitted content leaves it unchanged.
+  return content == null ? {} : { imageInputs: content.flatMap((item) =>
+    item.type === 'content' && item.content.type === 'image' ? [item.content] : []) };
 }
 
 function formatPlanUpdate(update: Extract<SessionUpdate, { sessionUpdate: 'plan_update' }>): string {

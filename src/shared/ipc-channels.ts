@@ -64,6 +64,7 @@ export const IpcInvoke = {
   DialogConfirm: 'dialog:confirm',
   ImageLoadBlob: 'image:load-blob',
   UploadedImageLoad: 'image:load-uploaded',
+  ImageSave: 'image:save',
   ClaudeMdGet: 'claude-md:get',
   ClaudeMdSave: 'claude-md:save',
   ClaudeMdReset: 'claude-md:reset',

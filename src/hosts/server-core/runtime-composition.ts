@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { lstatSync } from 'node:fs';
 import { join } from 'node:path';
+import { createEventImagePort } from './event-image-port';
 import { createProviderAdapterSet } from '@main/adapters/provider-adapter-set-core';
 import { initializeProviderRuntimeCore } from '@main/adapters/provider-runtime-core';
 import { AdapterRegistryClass } from '@main/adapters/registry-core';
@@ -63,7 +64,6 @@ import {
   resolveServerCoreProviderWorkspaceBoundary,
   type ServerCoreProviderGrokContainerPort,
 } from './runtime-provider-container';
-
 export const SERVER_CORE_CREDENTIAL_FILE = '/run/secrets/agent-deck/credentials.json';
 export const SERVER_CORE_PROVIDER_AUTH_SOURCE = '/run/secrets/agent-deck/provider-home';
 export interface ServerCoreRuntimeCompositionOverrides {
@@ -427,6 +427,7 @@ export function createServerCoreRuntimeWithOverrides(
     { workspaceRoot, metadata },
   );
   const detailRuntime = new ServerCoreSessionDetailRuntime(workspaceDirectoryMutationRuntime, {
+    eventImages: createEventImagePort(workspaceRoot),
     workspaceRoot,
     sessions: repositories.sessions,
     events: repositories.events,

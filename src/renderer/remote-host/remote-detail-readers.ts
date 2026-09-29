@@ -45,7 +45,7 @@ export function createRemoteDetailReaders(options: {
     getFileFinalDiff: (filePath) => read('sessions.file-changes.read', (target) =>
       window.api.getRemoteHostFileFinalDiff({ ...target, filePath })),
     loadImageBlob: (sessionId, source) => {
-      if (source.kind !== 'remote-file-change') {
+      if (source.kind !== 'remote-file-change' && source.kind !== 'event-image') {
         return Promise.resolve({ ok: false, reason: 'unsupported_source' });
       }
       return read('assets', async (target) => {

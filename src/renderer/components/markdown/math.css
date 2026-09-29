@@ -1,0 +1,28 @@
+.markdown-bubble {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.markdown-bubble .katex {
+  font-size: 1.1em;
+  font-style: normal;
+}
+
+/* Keep matrices and long derivations inside narrow message/plan containers. */
+.markdown-bubble .katex-display {
+  max-width: 100%;
+  margin: 0.6em 0;
+  padding: 0.3em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.markdown-bubble .katex-display > .katex {
+  text-align: left;
+}
+
+.markdown-bubble .katex-error {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: monospace;
+}

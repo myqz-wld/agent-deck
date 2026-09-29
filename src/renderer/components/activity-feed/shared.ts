@@ -5,10 +5,10 @@ import type { AgentEvent } from '@shared/types';
  * localStorage 里那个 `agent-deck:message-render-mode` 键再也没人写了
  * （永远只能读到 'plaintext' 默认值），CHANGELOG_35 顺手把整个 render-mode.ts
  * 文件删了，类型 inline 到这里。
- * 默认 plaintext —— 用户主动点 MD/TXT 按钮才切到当前 bubble 的本地 state。
+ * Model messages default to Markdown; user messages retain their literal input view.
  */
 export type RenderMode = 'plaintext' | 'markdown';
-export const DEFAULT_RENDER_MODE: RenderMode = 'plaintext';
+export const DEFAULT_RENDER_MODE: RenderMode = 'markdown';
 
 /**
  * 气泡头部显示的对方短名。adapter.displayName 是长名（'Claude Code' / 'Codex CLI'）

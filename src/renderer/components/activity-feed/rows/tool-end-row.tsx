@@ -8,14 +8,15 @@ import type { AgentEvent } from '@shared/types';
 import { describeToolInput } from '../describe';
 import {
   formatDisplayText,
-  formatToolResult,
 } from '../format';
 import {
   formatToolDuration,
   providerTruncationLabel,
   toolStatusView,
 } from '../tool-status';
-import { toolIcon } from '../tool-icons';
+import { ToolIcon } from '../tool-icon';
+import { ToolResultContent } from './tool-result';
+import { EventImages } from './event-images';
 
 export function ToolEndRow({
   event,
@@ -30,18 +31,11 @@ export function ToolEndRow({
     formatDisplayText(payload.toolName)
     || formatDisplayText(startPayload.toolName)
     || '工具';
-  const result =
-    payload.toolResult
-    ?? payload.toolResponse
-    ?? payload.error
-    ?? payload.reason;
   const [open, setOpen] = useState(false);
   const timestamp = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const status = toolStatusView(payload);
   const duration = formatToolDuration(payload.durationMs);
   const truncation = providerTruncationLabel(payload);
-  const text = useMemo(() => formatToolResult(result), [result]);
-  const hasContent = text.trim().length > 0;
   const inputForDisplay = mergeToolInputs(startPayload.toolInput, payload.toolInput);
   const detail = useMemo(
     () => describeToolInput(tool, inputForDisplay),
@@ -64,8 +58,9 @@ export function ToolEndRow({
             ? <ChevronDownIcon className="h-3 w-3" />
             : <ChevronRightIcon className="h-3 w-3" />}
         </span>
+        <ToolIcon tool={tool} kind={payload.toolKind ?? startPayload.toolKind} input={inputForDisplay} />
         <span className="min-w-0 truncate">
-          {`${toolIcon(tool, payload.toolKind ?? startPayload.toolKind)} ${tool}`}{' '}
+          {tool}{' '}
           {status.isError ? (
             <span className="text-status-error/90">{status.label}</span>
           ) : status.label}
@@ -86,20 +81,8 @@ export function ToolEndRow({
           {timestamp}
         </span>
       </button>
-      {open && (
-        hasContent ? (
-          <pre className="mt-1 max-h-64 overflow-auto rounded bg-black/30 p-1.5 text-[10px] leading-snug text-deck-muted scrollbar-deck">
-            {text}
-          </pre>
-        ) : (
-          <div className="mt-1 px-1.5 py-1 text-[10px] italic text-deck-muted/70">
-            （无输出
-            {status.detail && ` · 状态：${status.detail}`}
-            {typeof payload.exitCode === 'number' && ` · 退出码: ${payload.exitCode}`}
-            ）
-          </div>
-        )
-      )}
+      {open && <ToolResultContent event={event} fallbackOutput={startPayload.aggregatedOutput} />}
+      <EventImages payload={payload} sessionId={event.sessionId} />
     </li>
   );
 }

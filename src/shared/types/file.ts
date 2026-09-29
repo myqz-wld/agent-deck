@@ -76,6 +76,7 @@ export interface DiffPayload<T = unknown> {
  */
 export type ImageSource =
   | { kind: 'path'; path: string }
+  | { kind: 'event-image'; imageId: string }
   /** Opaque Remote handle. It never contains a Worker path or asset credential. */
   | { kind: 'remote-file-change'; changeId: number; side: 'before' | 'after' };
 

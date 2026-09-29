@@ -22,6 +22,8 @@
  * 不直接对超长 JSON 字符串做 slice：会破 JSON 结构，rowToEvent 的 JSON.parse 会炸。
  */
 
+import { eventImages } from '@shared/event-images';
+
 const MAX_PAYLOAD_BYTES = 256 * 1024;
 const MAX_FILE_SNAPSHOT_BYTES = 1024 * 1024;
 /**
@@ -121,7 +123,11 @@ export function safeStringifyPayload(payload: unknown): string {
     payload && typeof payload === 'object' && !Array.isArray(payload)
       ? Object.keys(payload as object).slice(0, 10)
       : [];
+  // Keep the bounded asset authority even when unrelated tool output exceeds the JSON cap.
+  const images = eventImages(payload);
+  const keepImages = images.length > 0 && Buffer.byteLength(JSON.stringify(images), 'utf8') <= 64 * 1024;
   return JSON.stringify({
+    ...(keepImages ? { images } : {}),
     __truncated: true,
     __originalBytes: rawBytes,
     __reason: 'payload exceeds 256KB cap even after large-field shrink',

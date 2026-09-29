@@ -34,6 +34,7 @@ export interface GrokTranslationState {
   turnStartUsage: GrokUsageWatermark | null;
   /** Stable local id used until the provider extension reveals its prompt id. */
   currentTurnUsageId: string | null;
+  currentPlanId: string | null;
   /** Wall-clock boundary used only to disambiguate an explicitly older late extension. */
   currentTurnStartedAt: number | null;
   /** Optional ACP user-message id. It is a correlation hint, never assumed to equal prompt_id. */

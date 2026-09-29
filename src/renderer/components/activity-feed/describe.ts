@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@shared/types';
 import { toolIcon } from './tool-icons';
+import { unwrapShellCommand } from './tool-summary';
 
 /** SimpleRow 单行灰文字摘要：按事件 kind / waiting-for-user 子类型分发到一句中文描述。 */
 export function describe(e: AgentEvent): string {
@@ -83,8 +84,17 @@ export function describe(e: AgentEvent): string {
       const message = textValue(p.message);
       return `⚠️ 等待你的输入${message ? ` · ${message}` : ''}`;
     }
-    case 'finished':
+    case 'finished': {
+      const subtype = textValue(p.subtype);
+      if (subtype === 'interrupted') return '⏸ 一轮已中断';
+      if (['cancelled', 'canceled', 'aborted'].includes(subtype)) return '⏹ 一轮已取消';
+      if (p.ok === false) {
+        const reason = p.failureReason === 'context-window-exceeded' ? '上下文已达到上限'
+          : subtype === 'rate_limit' ? '达到速率限制' : subtype;
+        return `⚠ 一轮失败${reason ? ` · ${reason}` : ''}`;
+      }
       return '✅ 一轮完成';
+    }
     case 'session-end': {
       const reason = textValue(p.reason);
       return `⏹ 会话结束${reason ? ` · ${translateSessionEndReason(reason)}` : ''}`;
@@ -151,14 +161,18 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
     case 'Write':
     case 'Read':
     case 'MultiEdit':
-      return typeof o.file_path === 'string' ? o.file_path : null;
+      return typeof o.file_path === 'string' ? o.file_path
+        : typeof o.path === 'string' ? o.path : null;
     case 'Bash': {
-      const cmd = typeof o.command === 'string' ? o.command.replace(/\s+/g, ' ').trim() : '';
+      const command = typeof o.command === 'string' ? o.command : typeof o.cmd === 'string' ? o.cmd : '';
+      const cmd = unwrapShellCommand(command).replace(/\s+/g, ' ').trim();
       return cmd ? cmd.slice(0, 80) + (cmd.length > 80 ? '…' : '') : null;
     }
     case 'Grep':
     case 'Glob':
-      return typeof o.pattern === 'string' ? o.pattern : null;
+      return typeof o.pattern === 'string' ? o.pattern : typeof o.query === 'string' ? o.query : null;
+    case 'NotebookEdit':
+      return typeof o.notebook_path === 'string' ? o.notebook_path : null;
     case 'TodoWrite': {
       // 与 SessionCard 的 TodoWrite 摘要保持一致，但分别服务详情和卡片展示。
       // todos schema：{ content, status, activeForm }[]，status: 'pending' | 'in_progress' | 'completed'
@@ -188,6 +202,12 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
       if (!url) return null;
       return url.slice(0, 60) + (url.length > 60 ? '…' : '');
     }
+    case 'ImageView':
+      return typeof o.path === 'string' ? o.path : null;
+    case 'ImageGeneration':
+      return typeof o.prompt === 'string' ? o.prompt.replace(/\s+/g, ' ').slice(0, 80) : null;
+    case 'clock.sleep':
+      return typeof o.durationMs === 'number' ? `等待 ${formatDurationMs(o.durationMs)}` : null;
     case 'Skill': {
       // Skill input shape：{ skill: "<plugin:name>" | "<name>", args?: string }
       // skill 必须是 string，args 是可选 string。
@@ -263,6 +283,9 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
       return firstLine.slice(0, 80) + (firstLine.length > 80 ? '…' : '');
     }
     default: {
+      for (const key of ['description', 'query', 'url', 'file_path', 'path']) {
+        if (typeof o[key] === 'string' && o[key]) return o[key].replace(/\s+/g, ' ').slice(0, 100);
+      }
       return null;
     }
   }
@@ -276,7 +299,10 @@ export function describeToolInput(toolName: string, input: unknown): string | nu
 export function resolveToolNameAlias(toolName: string): string {
   switch (toolName.trim().toLowerCase()) {
     case 'read_file':
+    case 'readfile':
       return 'Read';
+    case 'edit_file': return 'Edit';
+    case 'write_file': return 'Write';
     case 'run_terminal_command':
       return 'Bash';
     case 'grep':

@@ -13,7 +13,8 @@ import {
   formatDisplayText,
   formatToolInput,
 } from '../format';
-import { toolIcon } from '../tool-icons';
+import { ToolIcon } from '../tool-icon';
+import { ToolExecutionDetails, ToolRunStatus } from './tool-result';
 import { ChevronDownIcon, ChevronRightIcon } from '../../icons';
 import { StableButtonContent } from '../../StableButtonContent';
 
@@ -23,17 +24,20 @@ export function ToolStartRow({
   event,
   sessionId,
   allowLocalAssets = true,
+  endEvent,
 }: {
   event: AgentEvent;
   sessionId: string;
   allowLocalAssets?: boolean;
+  endEvent?: AgentEvent;
 }): JSX.Element {
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   const tool = formatDisplayText(payload.toolName) || '工具';
-  const detail = describeToolInput(tool, payload.toolInput);
+  const detail = describeToolInput(tool, payload.toolInput)
+    ?? (typeof payload.toolTitle === 'string' && payload.toolTitle !== tool ? payload.toolTitle : null);
   const diff = toolInputToDiff(tool, payload.toolInput);
   const visibleDiff = diff && (allowLocalAssets || diff.kind !== 'image') ? diff : null;
-  const timestamp = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
+  const timestamp = new Date((endEvent ?? event).ts).toLocaleTimeString('zh-CN', { hour12: false });
   const hasInput = payload.toolInput !== undefined;
   const [inputOpen, setInputOpen] = useState(false);
   const [diffOpen, setDiffOpen] = useState(false);
@@ -78,7 +82,7 @@ export function ToolStartRow({
                 : <ChevronRightIcon className="h-3 w-3" />}
             </span>
           )}
-          <span>{toolIcon('ExitPlanMode')}</span>
+          <ToolIcon tool="ExitPlanMode" />
           <span className="font-mono">ExitPlanMode</span>
           <span className="text-deck-muted/80">收到一个执行计划</span>
           <span className="ml-auto font-mono text-[9px] tabular-nums text-deck-muted/60">
@@ -89,6 +93,7 @@ export function ToolStartRow({
           <MarkdownText text={plan || '（计划内容为空）'} />
         </div>
         <ToolInputBlock input={payload.toolInput} open={inputOpen} />
+        <ToolExecutionDetails event={endEvent ?? event} completed={Boolean(endEvent)} fallbackOutput={payload.aggregatedOutput} />
         <div className="mt-1.5 text-[10px] text-deck-muted">
           这是终端启动的只读会话，请回到原终端窗口批准
         </div>
@@ -197,8 +202,9 @@ export function ToolStartRow({
                 : <ChevronRightIcon className="h-3 w-3" />}
             </span>
           )}
-          <span>{toolIcon(tool, payload.toolKind)}</span>
+          <ToolIcon tool={tool} kind={payload.toolKind} input={payload.toolInput} />
           <span className="font-mono">{tool}</span>
+          <ToolRunStatus event={endEvent ?? event} pending={!endEvent} />
           {subType && (
             <span
               className="min-w-0 truncate rounded bg-status-working/20 px-1 py-0.5 font-mono text-[9px] text-status-working"
@@ -320,12 +326,13 @@ export function ToolStartRow({
           </div>
         )}
         <ToolInputBlock input={payload.toolInput} open={inputOpen} />
+        <ToolExecutionDetails event={endEvent ?? event} completed={Boolean(endEvent)} fallbackOutput={payload.aggregatedOutput} />
       </li>
     );
   }
 
   return (
-    <li className="min-w-0 rounded-md border border-deck-border/60 bg-white/[0.02] p-2 text-[11px]">
+    <li className="min-w-0 rounded-md border border-deck-border/60 bg-black/10 p-2 text-[11px]">
       <div
         role={hasInput ? 'button' : undefined}
         tabIndex={hasInput ? 0 : undefined}
@@ -345,9 +352,10 @@ export function ToolStartRow({
               : <ChevronRightIcon className="h-3 w-3" />}
           </span>
         )}
-        <span>{toolIcon(tool, payload.toolKind)}</span>
-        <span className="min-w-0 truncate font-mono">{tool}</span>
-        {detail && <span className="truncate text-[10px] text-deck-muted">· {detail}</span>}
+        <ToolIcon tool={tool} kind={payload.toolKind} input={payload.toolInput} />
+        <span className="shrink-0 font-mono">{tool}</span>
+        <ToolRunStatus event={endEvent ?? event} pending={!endEvent} />
+        {detail && <span className="min-w-0 truncate text-[11px] text-deck-muted" title={detail}>· {detail}</span>}
         {visibleDiff && (
           <button
             type="button"
@@ -375,6 +383,7 @@ export function ToolStartRow({
         </span>
       </div>
       <ToolInputBlock input={payload.toolInput} open={inputOpen} />
+      <ToolExecutionDetails event={endEvent ?? event} completed={Boolean(endEvent)} fallbackOutput={payload.aggregatedOutput} />
       {visibleDiff && diffOpen && (
         <div className="mt-1 h-72 overflow-hidden rounded border border-white/5">
           <DiffViewer payload={visibleDiff} sessionId={sessionId} />

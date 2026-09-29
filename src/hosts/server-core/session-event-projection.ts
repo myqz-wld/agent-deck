@@ -1,4 +1,5 @@
 import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { eventImages } from '@shared/event-images';
 
 import {
   SESSION_EVENT_MAX_JSON_DEPTH,
@@ -213,6 +214,11 @@ function projectValue(
     if (CONTROL.test(entryKey) || Buffer.byteLength(entryKey, 'utf8') > 256) continue;
     if (entryKey === 'attachments') {
       output[entryKey] = [];
+    } else if (entryKey === 'images') {
+      output[entryKey] = eventImages({ images: item }).map((image) => ({
+        id: image.id, mime: image.mime, name: projectOrdinaryText(image.name, state),
+        ...(typeof image.bytes === 'number' ? { bytes: image.bytes } : {}),
+      }));
     } else {
       output[entryKey] = projectValue(item, state, depth + 1, entryKey);
     }

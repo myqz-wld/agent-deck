@@ -7,7 +7,7 @@ import {
   SESSION_IMAGE_ASSET_CHUNK_BYTES,
   SESSION_IMAGE_ASSET_MAX_BYTES,
   type SessionImageAssetFailureReason,
-  type SessionImageAssetReadParams,
+  type SessionFileImageAssetReadParams,
 } from '@contracts/index';
 import type { FileChangePayload, FileChangeSummary } from '@shared/types';
 import { fileChangePathAuthorityFromMetadata } from '@shared/file-change-path-authority';
@@ -151,7 +151,7 @@ export class ServerCoreSessionImageAssetReader {
   }
 
   async read(
-    params: SessionImageAssetReadParams,
+    params: SessionFileImageAssetReadParams,
     signal: AbortSignal,
     descriptor: FileChangeSummary,
   ): Promise<AssetReadPayload> {

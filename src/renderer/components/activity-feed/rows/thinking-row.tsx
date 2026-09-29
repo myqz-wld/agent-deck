@@ -8,6 +8,7 @@ import {
   type RenderMode,
 } from '../shared';
 import { ChevronDownIcon, ChevronUpIcon } from '../../icons';
+import { PlanProgress } from './plan-progress';
 
 /** Thinking is often verbose, so use a slightly lower compact-list threshold. */
 const COLLAPSE_THRESHOLD_CHARS = 600;
@@ -35,11 +36,11 @@ export function ThinkingBubble({
   event: AgentEvent;
   agentId: string;
 }): JSX.Element {
-  const p = (event.payload ?? {}) as { text?: string };
+  const p = (event.payload ?? {}) as { text?: string; plan?: boolean; entries?: unknown; explanation?: unknown };
   const text = formatDisplayText(p.text).trim();
   const ts = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const otherName = getAgentShortName(agentId);
-  const copy = thinkingCopy(agentId);
+  const copy = p.plan ? { label: 'PLAN', title: '计划进度', empty: '暂无计划内容' } : thinkingCopy(agentId);
   const [mode, setMode] = useState<RenderMode>(DEFAULT_RENDER_MODE);
   const isLong = text.length > COLLAPSE_THRESHOLD_CHARS;
   const [expanded, setExpanded] = useState(false);
@@ -84,11 +85,12 @@ export function ThinkingBubble({
           )}
         </div>
         <div
-          className={`min-w-0 max-w-full break-words rounded-lg border border-dashed border-deck-border/40 bg-white/[0.02] px-2.5 py-1.5 text-[11px] italic leading-relaxed text-deck-muted ${
+          className={`min-w-0 max-w-full break-words rounded-lg border border-deck-border/60 bg-black/[0.08] px-2.5 py-1.5 text-[11px] leading-relaxed text-deck-muted ${
             renderAsMarkdown ? '' : 'whitespace-pre-wrap'
           } ${isLong && !expanded ? 'max-h-56 overflow-auto scrollbar-deck' : ''}`}
         >
-          {text ? (
+          {p.plan && typeof p.explanation === 'string' && <div className="mb-2">{p.explanation}</div>}
+          {p.plan && mode === 'markdown' && Array.isArray(p.entries) && p.entries.length > 0 ? <PlanProgress entries={p.entries} /> : text ? (
             renderAsMarkdown ? (
               <MarkdownText text={text} />
             ) : (

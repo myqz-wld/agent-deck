@@ -7,6 +7,7 @@
 
 import { ipcRenderer } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
+import type { SaveImageResult } from '@shared/event-images';
 import type {
   AppSettings,
   AssetAdapter,
@@ -101,6 +102,8 @@ export const miscApi = {
    */
   loadUploadedImage: (path: string): Promise<LoadImageBlobResult> =>
     ipcRenderer.invoke(IpcInvoke.UploadedImageLoad, path),
+  saveImage: (dataUrl: string, suggestedName: string): Promise<SaveImageResult> =>
+    ipcRenderer.invoke(IpcInvoke.ImageSave, dataUrl, suggestedName),
 
   // CLAUDE.md（注入到 SDK system prompt 末尾的 agent-deck 应用约定）
   /** 读取「当前生效」的 CLAUDE.md（用户副本优先 → 回落内置）。 */

@@ -1,12 +1,22 @@
 import type { AgentEvent } from '@shared/types';
 import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import { agentEventIdentity } from '@renderer/lib/agent-event-identity';
+import { planEventId } from '@shared/agent-event-update';
 
 export function upsertEvent(
   arr: AgentEvent[],
   event: AgentEvent,
   limit: number,
 ): AgentEvent[] {
+  const planId = planEventId(event);
+  if (planId) {
+    const index = arr.findIndex((previous) => planEventId(previous) === planId);
+    if (index >= 0) {
+      const next = arr.slice();
+      next[index] = event;
+      return next;
+    }
+  }
   if (event.kind === 'tool-use-start' || event.kind === 'tool-use-end') {
     const tid = (event.payload as { toolUseId?: unknown })?.toolUseId;
     if (typeof tid === 'string' && tid) {
@@ -33,8 +43,14 @@ export function dedupeRecentEvents(events: AgentEvent[], limit: number): AgentEv
   const seenStart = new Map<string, number>();
   const seenEnd = new Map<string, number>();
   const seenEvents = new Set<string>();
+  const seenPlans = new Set<string>();
   const deduped: AgentEvent[] = [];
   for (const e of events) {
+    const planId = planEventId(e);
+    if (planId) {
+      if (seenPlans.has(planId)) continue;
+      seenPlans.add(planId);
+    }
     if (e.kind === 'tool-use-start' || e.kind === 'tool-use-end') {
       const tid = (e.payload as { toolUseId?: unknown })?.toolUseId;
       if (typeof tid === 'string' && tid) {

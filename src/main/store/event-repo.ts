@@ -2,6 +2,8 @@ import type { AgentEvent } from '@shared/types';
 import { performance } from 'node:perf_hooks';
 import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import { getDb } from './db';
+import { updateExistingPlanEvent } from './plan-event-update';
+import { legacyEventImage } from './legacy-event-image';
 import { safeStringifyPayload } from './payload-truncate';
 import { reportEventRepositoryWarning } from './event-repo-diagnostics-core';
 
@@ -37,6 +39,8 @@ function rowToEvent(r: Row): (AgentEvent & { id: number }) | null {
   let payload: unknown;
   try {
     payload = JSON.parse(r.payload_json) as unknown;
+    const legacyImage = legacyEventImage(payload, r.id);
+    if (legacyImage) payload = { ...(payload as Record<string, unknown>), images: [legacyImage] };
   } catch (err) {
     reportEventRepositoryWarning('[event-repo] payload JSON parse failed; row skipped', {
       operation: 'row-to-event',
@@ -107,6 +111,8 @@ export const eventRepo = {
    * payload_json 才能保留缺失字段并按 marker 追加 output delta。
    */
   insert(event: AgentEvent): number {
+    const updatedPlanId = updateExistingPlanEvent(event);
+    if (updatedPlanId !== null) return updatedPlanId;
     const startedAt = performance.now();
     let operation = 'insert';
     let payloadChars = 0;

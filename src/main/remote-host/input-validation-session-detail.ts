@@ -133,6 +133,15 @@ export function parseRemoteHostImageAssetRequest(
   value: unknown,
 ): RemoteHostImageAssetRequestDto {
   const raw = exactObject(value, ['profileId', 'sessionId', 'source'], 'imageAsset');
+  if (isJsonObject(raw.source) && raw.source.kind === 'event-image') {
+    const source = exactObject(raw.source, ['imageId', 'kind'], 'imageAsset.source');
+    try {
+      const parsed = parseSessionImageAssetReadParams({ sessionId: raw.sessionId, imageId: source.imageId, offset: 0 });
+      if (!('imageId' in parsed)) throw new Error('invalid image source');
+      return { profileId: parseRemoteHostProfileId(raw.profileId), sessionId: parsed.sessionId,
+        source: { kind: 'event-image', imageId: parsed.imageId } };
+    } catch { throw new RemoteHostInputError('imageAsset', 'invalid image asset request'); }
+  }
   const source = exactObject(raw.source, ['changeId', 'kind', 'side'], 'imageAsset.source');
   if (source.kind !== 'remote-file-change') {
     throw new RemoteHostInputError('imageAsset.source', 'invalid image source');
@@ -144,6 +153,7 @@ export function parseRemoteHostImageAssetRequest(
       side: source.side,
       offset: 0,
     });
+    if ('imageId' in parsed) throw new Error('invalid image source');
     return {
       profileId: parseRemoteHostProfileId(raw.profileId),
       sessionId: parsed.sessionId,

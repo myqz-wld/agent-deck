@@ -7,6 +7,7 @@ import type { AgentEvent, SessionRecord } from '@shared/types';
 import { eventBus } from '@main/event-bus';
 import { sessionRepo } from '@main/store/session-repo';
 import { isDbClosed } from '@main/store/db';
+import { prepareEventImages } from './event-images';
 import { enrichRecordWithTeams, enrichRecordsWithTeamsBatch } from './manager-enrich';
 import {
   type IngestContext,
@@ -208,6 +209,7 @@ class DesktopSessionManagerHost implements SessionManagerHost {
       return;
     }
     const record = ensureRecord(this.ingestCtx, event);
+    event = prepareEventImages(event, record.cwd);
     persistEventRow(event);
     persistFileChange(event);
     advanceState(record, event);

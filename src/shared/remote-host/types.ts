@@ -342,7 +342,7 @@ export interface RemoteHostFileFinalDiffRequestDto extends RemoteHostSessionTarg
 export type RemoteHostFileFinalDiffDto = SessionFileFinalDiffResult;
 
 export interface RemoteHostImageAssetRequestDto extends RemoteHostSessionTargetDto {
-  source: {
+  source: { kind: 'event-image'; imageId: string } | {
     kind: 'remote-file-change';
     changeId: number;
     side: 'before' | 'after';

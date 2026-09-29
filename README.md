@@ -28,6 +28,33 @@ selected by default; Settings can point to an external installation.
 Open a project, start a session, and describe the task. Add teammates for independent work,
 follow their progress, and approve or revise proposed plans and diffs.
 
+## Reading Messages
+
+Assistant messages, reasoning summaries, and plans open in Markdown mode; user messages open
+as plain text. Codex keeps the `REASONING SUMMARY` label, while Claude and Grok keep `THINKING`.
+Matching tool starts and completions share one card with expandable original input, live output,
+final output, and failure details. Shell summaries omit the launcher wrapper, Browser commands
+have a distinct icon, and Grok summaries include the available tool arguments. Claude retains its
+dedicated permission, question, plan approval, and subagent views. Provider plan updates reuse a
+single card and preserve step status and priority.
+
+In Markdown mode, messages and plans support tables, code highlighting, and mathematical
+formulas across Claude, Codex, and Grok. Use `$x^2$` or `\(x^2\)` for inline math, and
+`$$...$$`, `\[...\]`, or a fenced `math` block for display equations. Formula styles and
+fonts are bundled for offline use. Long display equations scroll horizontally; unsupported
+formulas retain their source text. Code remains literal, and ordinary amounts such as
+`$5 and $10` are preserved. Single-line, single-dollar formulas require no whitespace just inside the
+delimiters and cannot close immediately before a digit. The existing MD/TXT switch remains
+available for viewing the original message.
+
+Images returned by Codex image tools, Claude assistant/tool content, and Grok ACP content appear
+as thumbnails. Click a thumbnail to enlarge it; choose **保存图片** in the card or preview to save
+the original bytes through the native save dialog. Local and Remote sessions use their own asset
+readers. Supported image types are PNG, JPEG, GIF, and WebP, with a 16 MiB limit per image and up to
+eight images per event. Inline images are stored outside activity JSON in the host's application
+data directory. Referenced files must still exist; Remote file references must remain inside the
+authorized Workspace. Old Codex records with an available saved file can also show a preview.
+
 ## Runtime Configuration
 
 Each session keeps its agent's own model, permissions, approvals, and sandbox settings.

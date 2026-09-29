@@ -11,6 +11,8 @@ import { on } from './_helpers';
 import { ALLOWED_IMAGE_EXTS, MIME_BY_EXT, MAX_IMAGE_BYTES } from './_image-constants';
 import { loadUploadedImage } from '@main/store/image-uploads';
 import { isPlatformAbsolutePath } from '@main/platform-paths';
+import { loadEventImage } from '@main/store/event-image-repo';
+import { registerSaveImageIpc } from './save-image';
 
 /**
  * 加载一张图片：双白名单（防 renderer 越权读任意磁盘）+ ext + size 校验。
@@ -23,6 +25,7 @@ async function loadImageBlob(
   if (!source || typeof source !== 'object') {
     return { ok: false, reason: 'unsupported_source' };
   }
+  if (source.kind === 'event-image') return loadEventImage(sessionId, source.imageId);
   if (source.kind !== 'path' || typeof source.path !== 'string') {
     // 当前只接受已授权的磁盘路径来源。
     return { ok: false, reason: 'unsupported_source' };
@@ -96,6 +99,7 @@ function isPathInSessionWhitelist(sessionId: string, target: string): boolean {
 }
 
 export function registerImagesIpc(): void {
+  registerSaveImageIpc();
   // Image: 按需读取一张图片为 dataURL 给 renderer 渲染。
   // 安全门：path 必须出现在该 session 的 file_changes 中，再做扩展名与大小校验。
   on(IpcInvoke.ImageLoadBlob, async (_e, sessionId, source): Promise<LoadImageBlobResult> => {

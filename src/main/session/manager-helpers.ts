@@ -44,6 +44,8 @@ export function nextActivityState(
   kind: AgentEvent['kind'],
   payload: unknown,
 ): ActivityState {
+  if (kind === 'message' && (payload as { warning?: unknown; role?: unknown } | null)?.warning === true &&
+      (payload as { role?: unknown }).role === 'system') return current;
   switch (kind) {
     case 'session-start':
       return 'idle';

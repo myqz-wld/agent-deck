@@ -14,34 +14,40 @@ export type SessionImageAssetFailureReason =
   | 'too_big'
   | 'unsupported_source';
 
-export interface SessionImageAssetReadParams {
+export interface SessionFileImageAssetSource {
   sessionId: string;
   changeId: number;
   side: SessionImageAssetSide;
+}
+export interface SessionEventImageAssetSource {
+  sessionId: string;
+  imageId: string;
+}
+export type SessionImageAssetSource = SessionFileImageAssetSource | SessionEventImageAssetSource;
+interface ImageReadRange {
   offset: number;
   expectedAssetId?: string;
 }
+export type SessionImageAssetReadParams = SessionImageAssetSource & ImageReadRange;
+export type SessionFileImageAssetReadParams = SessionFileImageAssetSource & ImageReadRange;
 
 export type SessionImageAssetReadResult =
   | { ok: false; reason: SessionImageAssetFailureReason; revision: number }
-  | {
+  | (SessionImageAssetSource & {
       ok: true;
       assetId: string;
       base64: string;
       bytes: number;
-      changeId: number;
       mime: 'image/gif' | 'image/jpeg' | 'image/png' | 'image/webp';
       nextOffset: number | null;
       offset: number;
       revision: number;
-      sessionId: string;
-      side: SessionImageAssetSide;
       totalBytes: number;
-    };
+    });
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@-]*$/;
 const ASSET_ID = /^[A-Za-z0-9_-]{43}$/;
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 function fail(field: string): never {
   throw new SessionConsoleContractError(field);
@@ -75,9 +81,24 @@ function assetId(value: unknown, field: string): string {
   return value;
 }
 
+function sourceKeys(raw: Record<string, unknown>): string[] {
+  return 'imageId' in raw ? ['imageId', 'sessionId'] : ['changeId', 'sessionId', 'side'];
+}
+function parseSource(raw: Record<string, unknown>): SessionImageAssetSource {
+  const sessionId = token(raw.sessionId, 'session.assets.image-chunk.read.sessionId');
+  if ('imageId' in raw) {
+    if (typeof raw.imageId !== 'string' || !/^[a-f0-9]{64}$/.test(raw.imageId)) {
+      fail('session.assets.image-chunk.read.imageId');
+    }
+    return { sessionId, imageId: raw.imageId };
+  }
+  if (raw.side !== 'before' && raw.side !== 'after') fail('session.assets.image-chunk.read.side');
+  return { sessionId, changeId: integer(raw.changeId, 'session.assets.image-chunk.read.changeId', 1), side: raw.side };
+}
+
 export function parseSessionImageAssetReadParams(value: unknown): SessionImageAssetReadParams {
   const raw = object(value, 'session.assets.image-chunk.read.params');
-  const expected = ['changeId', 'offset', 'sessionId', 'side'];
+  const expected = [...sourceKeys(raw), 'offset'];
   if (raw.expectedAssetId !== undefined) expected.push('expectedAssetId');
   exactKeys(raw, expected, 'session.assets.image-chunk.read.params');
   const offset = integer(raw.offset, 'session.assets.image-chunk.read.offset');
@@ -87,13 +108,8 @@ export function parseSessionImageAssetReadParams(value: unknown): SessionImageAs
   if ((offset === 0) !== (raw.expectedAssetId === undefined)) {
     fail('session.assets.image-chunk.read.expectedAssetId');
   }
-  if (raw.side !== 'before' && raw.side !== 'after') {
-    fail('session.assets.image-chunk.read.side');
-  }
   return {
-    sessionId: token(raw.sessionId, 'session.assets.image-chunk.read.sessionId'),
-    changeId: integer(raw.changeId, 'session.assets.image-chunk.read.changeId', 1),
-    side: raw.side,
+    ...parseSource(raw),
     offset,
     ...(raw.expectedAssetId === undefined
       ? {}
@@ -111,7 +127,7 @@ function decodedBase64Bytes(value: string): number {
 
 export function parseSessionImageAssetReadResult(
   value: unknown,
-  expectedSource?: Pick<SessionImageAssetReadParams, 'changeId' | 'sessionId' | 'side'>,
+  expectedSource?: SessionImageAssetSource,
 ): SessionImageAssetReadResult {
   const raw = object(value, 'session.assets.image-chunk.read.result');
   if (raw.ok === false) {
@@ -131,19 +147,15 @@ export function parseSessionImageAssetReadResult(
   }
   if (raw.ok !== true) fail('session.assets.image-chunk.read.ok');
   exactKeys(raw, [
-    'assetId', 'base64', 'bytes', 'changeId', 'mime', 'nextOffset', 'offset', 'ok',
-    'revision', 'sessionId', 'side', 'totalBytes',
+    'assetId', 'base64', 'bytes', 'mime', 'nextOffset', 'offset', 'ok',
+    'revision', 'totalBytes', ...sourceKeys(raw),
   ], 'session.assets.image-chunk.read.result');
-  const sessionId = token(raw.sessionId, 'session.assets.image-chunk.read.sessionId');
-  const changeId = integer(raw.changeId, 'session.assets.image-chunk.read.changeId', 1);
-  if (raw.side !== 'before' && raw.side !== 'after') {
-    fail('session.assets.image-chunk.read.side');
+  const source = parseSource(raw);
+  if (expectedSource && Object.entries(expectedSource).some(([key, value]) =>
+    key !== 'offset' && key !== 'expectedAssetId' && raw[key] !== value)) {
+    fail('session.assets.image-chunk.read.source');
   }
-  const side = raw.side;
-  if (expectedSource && (
-    sessionId !== expectedSource.sessionId || changeId !== expectedSource.changeId ||
-    side !== expectedSource.side
-  )) fail('session.assets.image-chunk.read.source');
+  if (expectedSource && ('imageId' in expectedSource) !== ('imageId' in source)) fail('session.assets.image-chunk.read.source');
   const offset = integer(raw.offset, 'session.assets.image-chunk.read.offset');
   const bytes = integer(raw.bytes, 'session.assets.image-chunk.read.bytes', 1);
   const totalBytes = integer(raw.totalBytes, 'session.assets.image-chunk.read.totalBytes', 1);
@@ -153,7 +165,8 @@ export function parseSessionImageAssetReadResult(
     totalBytes > SESSION_IMAGE_ASSET_MAX_BYTES ||
     offset + bytes > totalBytes
   ) fail('session.assets.image-chunk.read.bounds');
-  if (typeof raw.base64 !== 'string' || !BASE64.test(raw.base64) ||
+  if (typeof raw.base64 !== 'string' || raw.base64.length > Math.ceil(bytes / 3) * 4 ||
+      raw.base64.length % 4 !== 0 || !BASE64.test(raw.base64) ||
       decodedBase64Bytes(raw.base64) !== bytes) {
     fail('session.assets.image-chunk.read.base64');
   }
@@ -174,13 +187,11 @@ export function parseSessionImageAssetReadResult(
     assetId: assetId(raw.assetId, 'session.assets.image-chunk.read.assetId'),
     base64: raw.base64,
     bytes,
-    changeId,
     mime: raw.mime as (typeof mimes)[number],
     nextOffset,
     offset,
     revision: integer(raw.revision, 'session.assets.image-chunk.read.revision'),
-    sessionId,
-    side,
+    ...source,
     totalBytes,
   };
 }

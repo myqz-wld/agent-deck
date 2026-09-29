@@ -1,4 +1,5 @@
 import type { CodexAppServerNotification } from './protocol';
+import { translateCodexProgress } from './translate-progress';
 import { APPEND_AGGREGATED_OUTPUT } from '@shared/agent-event-merge';
 import {
   classifyStreamErrorEvent,
@@ -59,6 +60,7 @@ export function translateCodexAppServerNotification(
     observeHeuristicStreamError?: (message: string) => void;
   },
 ): void {
+  if (translateCodexProgress(notification, emit)) return;
   switch (notification.method) {
     case 'thread/started':
     case 'thread/status/changed':
@@ -67,7 +69,6 @@ export function translateCodexAppServerNotification(
     case 'item/reasoning/textDelta':
     case 'item/plan/delta':
     case 'turn/diff/updated':
-    case 'turn/plan/updated':
       return;
     case 'item/reasoning/summaryTextDelta': {
       trackReasoningSummaryDelta(notification.params, opts?.state);
@@ -133,12 +134,7 @@ export function translateCodexAppServerNotification(
       });
       return;
     }
-    case 'item/mcpToolCall/progress':
     case 'serverRequest/resolved':
-    case 'warning':
-    case 'guardianWarning':
-    case 'configWarning':
-    case 'deprecationNotice':
       return;
   }
 }

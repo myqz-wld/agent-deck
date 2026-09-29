@@ -14,12 +14,16 @@ import { MessageBubble } from './rows/message-row';
 import { SimpleRow } from './rows/simple-row';
 import { ThinkingBubble } from './rows/thinking-row';
 import { ToolEndRow, ToolStartRow } from './rows/tool-row';
+import { ActivityImageContext, LOCAL_ACTIVITY_IMAGES, type ActivityImageReader } from './image-context';
+import { mergeToolUsePayload } from '@shared/agent-event-merge';
+import { planEventId } from '@shared/agent-event-update';
 
 type ResolvePending = (sessionId: string, requestId: string) => void;
 const EMPTY_IDS: ReadonlySet<string> = new Set();
 const IGNORE_RESOLUTION: ResolvePending = () => undefined;
 
 export interface ActivityRecordsViewProps {
+  imageReader?: ActivityImageReader;
   events: readonly AgentEvent[];
   loaded: boolean;
   loadError: string | null;
@@ -58,6 +62,7 @@ export function ActivityRecordsView({
   resolveExitPlan = IGNORE_RESOLUTION,
   resolveDiffReview = IGNORE_RESOLUTION,
   renderPendingEvent,
+  imageReader,
 }: ActivityRecordsViewProps): JSX.Element {
   const derived = useMemo(() => deriveSources(events, pendingIds), [events, pendingIds]);
   const initialPending = !loaded && loadError === null && events.length === 0;
@@ -81,6 +86,7 @@ export function ActivityRecordsView({
     return <div className="px-2 py-3 text-[11px] text-deck-muted">无活动记录</div>;
   }
   return (
+    <ActivityImageContext.Provider value={imageReader ?? (allowLocalAssets ? LOCAL_ACTIVITY_IMAGES : null)}>
     <div className="flex min-w-0 flex-col gap-2">
       {loadError && (
         <div role="alert" className="rounded border border-amber-400/15 bg-amber-500/5 px-2 py-1 text-[9px] text-amber-100/80">
@@ -99,11 +105,20 @@ export function ActivityRecordsView({
         aria-relevant="additions"
       >
         {events.map((event) => {
+          const useId = (event.payload as { toolUseId?: unknown } | null)?.toolUseId;
+          const pairedStart = event.kind === 'tool-use-end' && typeof useId === 'string'
+            ? derived.toolStartByUseId.get(useId) : undefined;
+          if (event.kind === 'tool-use-start' && typeof useId === 'string' && derived.toolEndByUseId.has(useId)) return null;
+          const visibleEvent = pairedStart ? { ...pairedStart, payload: mergeToolUsePayload(pairedStart.payload, {
+            toolInput: (event.payload as { toolInput?: unknown })?.toolInput,
+          }) } : event;
           const row = deriveRowState(event, derived);
           return (
             <ActivityRow
-              key={activityEventIdentity(event)}
-              event={event}
+              key={typeof useId === 'string' && useId ? `${event.sessionId}:tool:${useId}`
+                : planEventId(event) ? `${event.sessionId}:plan:${planEventId(event)}` : activityEventIdentity(event)}
+              event={visibleEvent}
+              endEvent={pairedStart ? { ...event, payload: mergeToolUsePayload(pairedStart.payload, event.payload) } : undefined}
               sessionId={sessionId}
               agentId={agentId}
               isSdk={isSdk}
@@ -122,6 +137,7 @@ export function ActivityRecordsView({
         })}
       </ol>
     </div>
+    </ActivityImageContext.Provider>
   );
 }
 
@@ -135,6 +151,7 @@ interface RowProps {
   stillPending: boolean;
   wasCancelled: boolean;
   startEvent?: AgentEvent;
+  endEvent?: AgentEvent;
   resolvePermission: ResolvePending;
   resolveAsk: ResolvePending;
   resolveExitPlan: ResolvePending;
@@ -152,6 +169,7 @@ export const ActivityRow = memo(function ActivityRow({
   stillPending,
   wasCancelled,
   startEvent,
+  endEvent,
   resolvePermission,
   resolveAsk,
   resolveExitPlan,
@@ -199,7 +217,7 @@ export const ActivityRow = memo(function ActivityRow({
       const toolName = (event.payload as { toolName?: unknown })?.toolName;
       if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') return null;
     }
-    return <ToolStartRow event={event} sessionId={sessionId} allowLocalAssets={allowLocalAssets} />;
+    return <ToolStartRow event={event} endEvent={endEvent} sessionId={sessionId} allowLocalAssets={allowLocalAssets} />;
   }
   if (event.kind === 'tool-use-end') {
     if (isSdk) {
@@ -225,6 +243,7 @@ interface DerivationSources {
   cancelledExitIds: ReadonlySet<string>;
   cancelledDiffIds: ReadonlySet<string>;
   toolStartByUseId: ReadonlyMap<string, AgentEvent>;
+  toolEndByUseId: ReadonlyMap<string, AgentEvent>;
 }
 
 function deriveSources(
@@ -236,10 +255,15 @@ function deriveSources(
   const cancelledExitIds = new Set<string>();
   const cancelledDiffIds = new Set<string>();
   const toolStartByUseId = new Map<string, AgentEvent>();
+  const toolEndByUseId = new Map<string, AgentEvent>();
   for (const event of events) {
     if (event.kind === 'tool-use-start') {
       const id = (event.payload as { toolUseId?: unknown })?.toolUseId;
       if (typeof id === 'string' && id) toolStartByUseId.set(id, event);
+    }
+    if (event.kind === 'tool-use-end') {
+      const id = (event.payload as { toolUseId?: unknown })?.toolUseId;
+      if (typeof id === 'string' && id) toolEndByUseId.set(id, event);
     }
     if (event.kind !== 'waiting-for-user') continue;
     const payload = (event.payload ?? {}) as { type?: string; requestId?: string };
@@ -259,6 +283,7 @@ function deriveSources(
     cancelledExitIds,
     cancelledDiffIds,
     toolStartByUseId,
+    toolEndByUseId,
   };
 }
 

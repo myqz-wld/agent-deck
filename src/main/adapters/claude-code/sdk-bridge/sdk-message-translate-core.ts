@@ -116,6 +116,7 @@ export function translateSdkMessageCore(
         input?: unknown;
         id?: string;
         thinking?: string;
+        source?: unknown;
       }[];
     };
     // SDK 给 assistant 消息附带 error 字段时（rate_limit / billing_error / auth 等），
@@ -157,6 +158,8 @@ export function translateSdkMessageCore(
         } else {
           e('message', { text: block.text, role: 'assistant' });
         }
+      } else if (block.type === 'image') {
+        e('message', { role: 'assistant', text: '图片', imageInputs: [{ source: block.source }] });
       } else if (block.type === 'tool_use') {
         // 反查需要：tool_result block 只带 tool_use_id 没 toolName，必须靠这条记录
         if (block.id && block.name) {
@@ -212,6 +215,9 @@ export function translateSdkMessageCore(
           toolUseId: block.tool_use_id,
           toolName,
           toolResult: useStructuredToolResult ? msg.tool_use_result : block.content,
+          ...(useStructuredToolResult && Array.isArray(block.content)
+            ? { imageInputs: block.content.filter((item) => item && typeof item === 'object' && item.type === 'image') }
+            : {}),
           status,
         });
         // plan §Phase 3 Step 3.5 修法 (A1-MED-1 codex): pendingFileChangeIntents 消费时序。

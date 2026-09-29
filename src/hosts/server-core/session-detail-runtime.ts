@@ -1,4 +1,7 @@
 import { realpathSync } from 'node:fs';
+import { EventImageChunkReader } from './event-image-chunks';
+import { truncateUtf8 } from './session-detail-text';
+import type { LoadImageBlobResult } from '@shared/types';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 
 import {
@@ -72,6 +75,10 @@ export const SERVER_CORE_SESSION_DETAIL_METHODS = Object.freeze([
 type SessionDetailMethod = (typeof SERVER_CORE_SESSION_DETAIL_METHODS)[number];
 
 export interface ServerCoreSessionDetailRuntimeOptions {
+  readonly eventImages?: {
+    authorized(sessionId: string, imageId: string): boolean;
+    load(sessionId: string, imageId: string): Promise<LoadImageBlobResult>;
+  };
   readonly workspaceRoot: string;
   readonly sessions: { get(sessionId: string): SessionRecord | null };
   readonly summaries: { listForSession(sessionId: string, limit: number): SummaryRecord[] };
@@ -115,22 +122,12 @@ function isMissingPath(error: unknown): boolean {
     'code' in error && error.code === 'ENOENT';
 }
 
-function truncateUtf8(value: string, maximum: number): string {
-  const encoded = Buffer.from(value, 'utf8');
-  if (encoded.byteLength <= maximum) return value;
-  const marker = '\n…[remote view truncated]';
-  const markerBytes = Buffer.byteLength(marker);
-  let cut = Math.max(0, maximum - markerBytes);
-  while (cut > 0 && (encoded[cut] & 0xc0) === 0x80) cut -= 1;
-  return `${encoded.subarray(0, cut).toString('utf8')}${marker}`;
-}
-
-/** Adds bounded, cwd-free detail reads around the authoritative Core repositories. */
 export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
   readonly supportedMethods: readonly CoreMethod[];
   readonly subscribe?: DaemonCoreRuntime['subscribe'];
   private readonly workspaceRoot: string;
   private readonly imageAssets: ServerCoreSessionImageAssetReader;
+  private readonly eventImages: EventImageChunkReader;
   private readonly canonicalizePath: (path: string) => string;
 
   constructor(
@@ -154,6 +151,10 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
       options.fileChanges,
       this.canonicalizePath,
     );
+    this.eventImages = new EventImageChunkReader(options.eventImages ?? {
+      authorized: () => false,
+      load: async () => ({ ok: false, reason: 'unsupported_source' }),
+    });
     if (base.subscribe) {
       const subscribe = base.subscribe.bind(base);
       this.subscribe = (input: DaemonEventSubscriptionInput) => subscribe(input);
@@ -432,6 +433,11 @@ export class ServerCoreSessionDetailRuntime implements DaemonCoreRuntime {
   private async readImageAsset(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     const params = parseSessionImageAssetReadParams(input.params);
     const session = this.requireSession(params.sessionId);
+    if ('imageId' in params) {
+      const revision = await this.revision(input);
+      return this.result(parseSessionImageAssetReadResult(
+        await this.eventImages.read(params, input.signal, revision), params), revision);
+    }
     const descriptor = this.options.fileChanges.getDescriptor(params.sessionId, params.changeId);
     let payload: Awaited<ReturnType<ServerCoreSessionImageAssetReader['read']>>;
     if (!descriptor || descriptor.kind !== 'image') {
