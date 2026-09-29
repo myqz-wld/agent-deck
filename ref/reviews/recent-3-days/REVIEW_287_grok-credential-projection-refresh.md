@@ -7,6 +7,8 @@ expired: true
 
 # Grok credential projection refresh and headless module boundaries
 
+Final status: installed and accepted at `3bb45616`; issue resolved. See installed acceptance below.
+
 ## Scope and method
 
 Issue `611fdd74-7a9f-4f61-af96-d85961696739`, explicitly brought into scope by the user,
@@ -88,7 +90,7 @@ The new check does not create missing service/state directories. No real model c
 - Built headless artifacts and source maps contained no current machine home/worktree identity or
   private deployment identifiers. Staged content and public commit attribution were inspected.
 
-## Packaging and installed activation
+## Initial packaging before installed activation
 
 Clean source `6b9bed471c3d56f0aa7c9d8e2d5120c997855f22` is packaged with `dirty: false`.
 `pnpm dist:mac` and packaged Worker sandbox checks passed. Actual archive inspection found
@@ -105,10 +107,10 @@ Scanning 281 application files, including binaries and source maps, found no cur
 worktree, or private deployment identifiers. Both nested Linux runtime archives were inspected
 (74 members); ownership is anonymous root and no private identifiers were found.
 
-Retained package: `build/dist/grok-credential-6b9bed47/Agent Deck-0.1.0-arm64.dmg`.
+Initial package: `build/dist/grok-credential-6b9bed47/Agent Deck-0.1.0-arm64.dmg`.
 SHA-256: `540188ffd2e9942b6e75340b7a2343f7bceab3812ba5ce180774cb6ded1f1730`.
-The package directory also contains its block map, checksum, and clean build metadata.
-The installed Desktop bundle and live Worker/supervisor have not been replaced for this fix.
+The package directory also contained its block map, checksum, and clean build metadata.
+At this initial validation point, Desktop and Worker/supervisor activation was still pending.
 The previously repaired Relay transport remains accepted in [REVIEW_282](REVIEW_282_relay-stream-retirement-isolation.md)
 and [PLAN_59](../../plans/recent-3-days/PLAN_59_relay-handshake-investigation.md).
 
@@ -122,16 +124,16 @@ to preserve concurrent unrelated uncommitted documentation changes without stash
   not log in, exchange refresh tokens, or revive an already-expired native credential.
 - Source rotation is observed at the next 30-second poll after a prior helper completes; a helper
   has a 30-second command timeout. Unchanged successful sources are not repeatedly rewritten.
-- Installed activation requires the new app bundle and official Worker deployment `--upgrade` to
-  load the new supervisor arguments. Replacing/stopping the hosting Desktop needs exact approval
-  under `CLAUDE.md` Host Runtime Safety. Existing live credentials are preserved.
-- Keep the issue in progress until installed activation/acceptance is complete. Retain the active
-  `.ref/plans/grok-credential-projection-refresh.md` and the two private Relay probes until then.
+- Installed activation used the new app bundle and official Worker deployment `--upgrade` to
+  load the synchronization arguments, with explicit approval for replacing the hosting Desktop.
+  Existing live credentials were preserved.
+- Installed acceptance completed and the issue is resolved. The completed plan is
+  [PLAN_63](../../plans/recent-3-days/PLAN_63_grok-credential-installed-acceptance.md).
 - No current source file in this scope needs a size exemption. No Relay Server redeployment is
   required because this fix changes the local Worker/Core and host supervisor.
 
 
-## Local artifact cleanup (2026-09-29)
+## Initial local artifact cleanup (2026-09-29)
 
 At the user's request, remove unused reproducible main/preload/renderer, headless, Feishu runtime,
 macOS helper outputs and packaging scratch from `build/`: 247 regular files, about 836 MiB.
@@ -148,3 +150,18 @@ explicitly packaging-excluded `build/dist/` subtree. `build/dist/README.md` expl
 Compress the non-final `.ref` plan to current status, invariants, evidence links and next actions;
 keep its two Relay probes because installed activation remains pending. No final record or required
 acceptance script was deleted. Generated outputs can be recreated through the project build commands.
+
+## Installed acceptance and final cleanup (2026-09-29)
+
+- Installed clean source `3bb45616c0258fbb9b04da2b1c5e6a4e82d1dbb6`, including REVIEW_288
+  replacement safeguards and REVIEW_289 UI/documentation fixes. The installed build metadata,
+  app archive and exact newly opened application process were verified.
+- Official Worker check, dry-run, upgrade and verify passed. Supervisor configuration and native/
+  deployed credentials are healthy, its service is running and synchronization arguments are loaded.
+- Five retry-disabled Relay isolation cycles passed, with zero failures. Grok stayed enabled and
+  client retirement preserved the Worker SSH attachment. Relay Server was not redeployed.
+- Issue `611fdd74-7a9f-4f61-af96-d85961696739` was updated to `resolved` through the owned MCP tool.
+- After acceptance, remove both superseded package directories, 249 generated build files and the
+  two temporary probes. Build usage fell from about 2.89 GiB to 676 MiB, reclaiming about 2.23 GiB.
+  Retain only the accepted installer and its metadata/checksum under
+  `build/dist/installed-3bb45616/`; the active plan is archived in PLAN_63.

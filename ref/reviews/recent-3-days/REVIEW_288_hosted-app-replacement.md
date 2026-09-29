@@ -59,5 +59,14 @@ retained retry-disabled Relay probe. Keep durable sanitized status and private r
 recovery. On failure, reopen the existing/rolled-back app; do not claim installed acceptance until
 build identity, process identity and health checks succeed. No Relay Server deployment is required.
 
-The active continuation plan remains `.ref/plans/grok-credential-projection-refresh.md` until live
-acceptance is recorded and issue `611fdd74-7a9f-4f61-af96-d85961696739` can be resolved.
+## Installed acceptance (2026-09-29)
+
+The authorized sequence completed from clean `3bb45616`: exact managed service stop, prebuilt
+installation with staging signature verification, application reopen, official Worker upgrade and
+health verification, and five successful retry-disabled Relay isolation cycles. The installed
+archive matches the prepared app and read-only mounted DMG; its main process has a new verified
+identity. The temporary launchd job removed itself after writing its result and resuming this session.
+
+The first resumed MCP transport briefly returned 401; the following turn successfully resolved the
+owned credential issue. No database bypass or credential changes were used. Final evidence and
+cleanup are in [PLAN_63](../../plans/recent-3-days/PLAN_63_grok-credential-installed-acceptance.md).

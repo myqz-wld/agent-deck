@@ -62,5 +62,6 @@ src/renderer/components/diff/renderers/TextDiffRenderer.tsx
 
 The 150 ms value controls when progress appears; cold Monaco initialization can take longer.
 Slow paths retain progress until a computed diff is ready. Actual timings depend on the machine.
-The authorized package/install/Worker acceptance continues under REVIEW_288 and the active
-credential-projection plan. Resolve its existing issue only after installed acceptance.
+The fix is installed in clean `3bb45616`; authorized application replacement and Worker/Relay
+acceptance completed under REVIEW_288. The credential issue is resolved and the final plan is
+[PLAN_63](../../plans/recent-3-days/PLAN_63_grok-credential-installed-acceptance.md).
