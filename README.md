@@ -98,11 +98,6 @@ sources does not stop remote sessions, and unsupported remote controls never use
 Use the deployment guides for prerequisites, commands, verification, and rollback. Server
 release actions require a clean, committed, pushed, and upstream-aligned checkout.
 
-Managed Relay Grok credentials follow changes to the host login file without restarting Worker
-sessions. Verification checks the Worker-private copy as well as the source login; expired
-credentials are reported separately from unavailable container isolation. After upgrading an older
-app, run the Worker deployment upgrade to install the current supervisor synchronization settings.
-
 - [Relay deployment](deploy/linux/relay/README.snippet.md)
 - [Full deployment](deploy/linux/full/README.snippet.md)
 - [Feishu gateway](deploy/linux/feishu/README.md)

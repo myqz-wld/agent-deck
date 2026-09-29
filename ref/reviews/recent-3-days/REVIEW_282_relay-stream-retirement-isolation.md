@@ -124,12 +124,15 @@ command atomically refreshed the exact Worker's copy. Grok then became available
 follow-up isolation cycles, without restarting either managed service or changing the SSH
 attachment. No credential values or account metadata were retained in this evidence.
 
-The current official Worker verification checks the source credential and supervisor transport;
+At the time of live acceptance, official Worker verification checked the source credential and supervisor transport;
 it can report healthy while the deployed credential copy is expired. Its generic capability error
 also attributes this case to isolation availability. Host-owned synchronization and verification of
 the deployed copy are tracked separately in Agent Deck follow-up issue
 `611fdd74-7a9f-4f61-af96-d85961696739` (medium). Refresh tokens must remain outside the Worker
 projection. The credential recovery performed here does not implement automatic renewal.
+Source synchronization, deployed-copy verification, and precise capability reasons are now implemented
+and packaged in [REVIEW_287](REVIEW_287_grok-credential-projection-refresh.md); installed activation
+remains pending host application replacement approval.
 
 ## Residual limits
 
