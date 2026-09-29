@@ -1,7 +1,7 @@
 ---
 review_id: 294
 reviewed_at: 2026-09-29
-baseline_commit: ae0f3ad32525b06d91e8385084d3cb8290a5208f
+baseline_commit: 0be35722bd1e45f125629c512f4651643f1537f3
 expired: false
 ---
 
@@ -19,8 +19,9 @@ src/renderer/components/pending-rows/ExitPlanRow.tsx
 
 LOW: Claude's no-prompt permission option showed an extra warning icon compared with other
 adapters' approval options. Removed that option's warning marker in shared permission selectors
-and the native plan-exit selector. The user's final instruction preserves all existing wording,
-including parenthetical labels and hover descriptions. Permission values and behavior are unchanged.
+and the native plan-exit selector. Removed only the parenthetical annotations from the shared
+plan and no-prompt labels, preserving their base wording and hover descriptions. Permission values
+and behavior are unchanged.
 
 ## Validation
 
