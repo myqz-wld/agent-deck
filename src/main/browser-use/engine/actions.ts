@@ -8,6 +8,7 @@
 
 import { EngineTab, delay } from './tab';
 import { pressFallbackScript } from './key-script';
+import { typeEditorText, withTyping } from './editor-input';
 import {
   clickScript,
   evaluateScript,
@@ -143,15 +144,24 @@ export async function typeText(
   text: string,
   options: { clear?: boolean; submit?: boolean } = {},
 ): Promise<Record<string, unknown>> {
-  const result = await runScript<string>(tab, typeScript(ref, text, options.clear ?? true), {
-    userGesture: true,
+  return withTyping(tab, async () => {
+    const result = await runScript<string>(tab, typeScript(ref, text, options.clear ?? true), {
+      userGesture: true,
+    });
+    const parsed = JSON.parse(result) as Record<string, unknown>;
+    const nativeEditorInput = parsed.nativeEditorInput === true;
+    if (nativeEditorInput) {
+      await typeEditorText(tab, ref, text, options.clear ?? true, runScript, options.submit);
+      delete parsed.nativeEditorInput;
+      // A Monaco textarea contains an accessibility projection, not the full editor model.
+      delete (parsed.typedInto as Record<string, unknown>).value;
+    }
+    if (options.submit === true) {
+      if (!nativeEditorInput) await press(tab, 'Enter');
+      await tab.waitForSettle(2_000);
+    }
+    return { ...parsed, submitted: options.submit === true, page: pageState(tab) };
   });
-  const parsed = JSON.parse(result) as Record<string, unknown>;
-  if (options.submit === true) {
-    await press(tab, 'Enter');
-    await tab.waitForSettle(2_000);
-  }
-  return { ...parsed, submitted: options.submit === true, page: pageState(tab) };
 }
 
 export async function press(tab: EngineTab, key: string): Promise<Record<string, unknown>> {

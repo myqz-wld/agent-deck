@@ -10,10 +10,14 @@
  * stale ref a clear error instead of a silent mis-click.
  */
 
+import { OPEN_DOM_VISIBILITY } from './visibility-script';
+
+export { OPEN_DOM_VISIBILITY } from './visibility-script';
+
 const REF_STATE_KEY = '__agentDeckBrowserRefs__';
 export const MAX_OPEN_DOM_SCAN = 20_000;
 
-const REF_LOOKUP = `
+export const REF_LOOKUP = `
   var state = window['${REF_STATE_KEY}'];
   if (!state) throw new Error('NO_SNAPSHOT');
   var parts = String(ref).split('-');
@@ -28,25 +32,6 @@ const REF_LOOKUP = `
     if (!frameHosts[hostIndex] || !frameHosts[hostIndex].isConnected) {
       throw new Error('DETACHED_REF');
     }
-  }
-`;
-
-export const OPEN_DOM_VISIBILITY = `
-  function ownVisible(node) {
-    if (!node || !node.isConnected || !node.getBoundingClientRect) return false;
-    var rect = node.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return false;
-    var view = node.ownerDocument && node.ownerDocument.defaultView;
-    var style = view && view.getComputedStyle ? view.getComputedStyle(node) : null;
-    if (!style) return true;
-    return style.visibility !== 'hidden' && style.display !== 'none' && Number(style.opacity) !== 0;
-  }
-  function visible(node, frameHosts) {
-    if (!ownVisible(node)) return false;
-    for (var hostIndex = 0; hostIndex < frameHosts.length; hostIndex += 1) {
-      if (!ownVisible(frameHosts[hostIndex])) return false;
-    }
-    return true;
   }
 `;
 
@@ -201,6 +186,11 @@ export function snapshotScript(options: {
     }
     var text = boundedElementText(el, 120);
     if (text) return text.slice(0, 120);
+    if (el.type === 'checkbox' || el.type === 'radio') {
+      var row = el.closest('tr,[role="row"]');
+      var rowText = boundedElementText(row, 120);
+      if (rowText) return rowText;
+    }
     var fallback = el.placeholder || el.title || (el.getAttribute && el.getAttribute('alt')) || el.name || '';
     return String(fallback).slice(0, 240).trim().slice(0, 120);
   }
@@ -305,6 +295,10 @@ export function typeScript(ref: string, text: string, clear: boolean): string {
   ${SCROLL_REF_TARGET}
   scrollRefTarget(el, frameHosts);
   if (el.focus) el.focus();
+  if (el.tagName === 'TEXTAREA' && el.closest('.monaco-editor')) {
+    return JSON.stringify({ nativeEditorInput: true, typedInto: describe(el),
+      frameDepth: frameHosts.length, page: pageState() });
+  }
   var editable = el.isContentEditable === true;
   if (editable) {
     if (clear) el.textContent = '';

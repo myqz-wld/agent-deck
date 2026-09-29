@@ -20,6 +20,7 @@ import {
 import { EngineTab } from '../../src/main/browser-use/engine/tab';
 import { BrowserViewHost } from '../../src/main/browser-use/view-host';
 import { verifySharedBrowserLogin } from './browser-login-electron';
+import { serveEditorFixture, verifyEditorInput } from './browser-editor-electron';
 
 const profileRoot = process.env.AGENT_DECK_BROWSER_FIXTURE_USER_DATA;
 if (profileRoot == null) throw new Error('Run this fixture through test:browser-electron');
@@ -63,7 +64,8 @@ async function closeServer(server: Server): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const server = createServer((_request, response) => {
+  const server = createServer((request, response) => {
+    if (serveEditorFixture(request.url ?? '/', response)) return;
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     response.end(`<!doctype html>
       <style>body { min-width: 1600px; min-height: 2600px; }</style>
@@ -230,6 +232,15 @@ async function main(): Promise<void> {
     assert.equal(focusedWindows, 0, 'showInactive presentation must not steal focus');
     presentation.destroy();
     secondParked.tab.destroy();
+
+    const editorFixture = createTab();
+    try {
+      await verifyEditorInput(editorFixture.tab, `http://127.0.0.1:${port}`);
+      await verifyEditorInput(editorFixture.tab, `http://127.0.0.1:${port}`, true);
+      assert.equal(focusedWindows, 0, 'Monaco input must not focus the host application');
+    } finally {
+      editorFixture.tab.destroy();
+    }
 
     const closeFixture = createTab();
     await closeFixture.tab.loadUrl(`http://127.0.0.1:${port}/`);
