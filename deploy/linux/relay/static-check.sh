@@ -148,7 +148,7 @@ bash -n "$health_gate"
 bash -n "$authority_installer"
 for required in \
   'mode=${1:-}' \
-  '[[ "$mode" == create || "$mode" == verify ]]' \
+  '[[ "$mode" == create || "$mode" == verify || "$mode" == recover ]]' \
   'authority_file="$config_directory/authority.json"' \
   'check-authority'; do
   grep -Fq -- "$required" "$authority_installer" || {

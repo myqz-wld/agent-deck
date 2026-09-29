@@ -19,6 +19,7 @@ src/hosts/server-control/feishu-authority-repair.ts
 src/hosts/server-control/feishu-authority-repair.test.ts
 src/hosts/server-control/entrypoint.ts
 scripts/deployment/remote-relay-authority.sh
+deploy/linux/relay/static-check.sh
 scripts/deployment/server.mjs
 scripts/deployment/server-recovery.test.mjs
 deploy/linux/feishu/README.md
@@ -57,6 +58,8 @@ deploy/linux/feishu/README.md
 - Both Relay and Full rollback tests preserve revocation history and a concurrent desktop enrollment.
 - Deployment tests prove describe/start/describe ordering only for the intended recovery condition
   and stop immediately when recovery fails.
+- Relay's exact-template audit includes the new bounded recovery mode; all lifecycle static gates
+  were re-run before the recovery release.
 - Typecheck, 6,621 full-suite tests, Linux headless build/reproducibility, headless packaging checks
   and deployment checks passed. Three tests retain their existing skips.
 - Source, staged content and generated headless artifacts passed privacy inspection. Changed source
