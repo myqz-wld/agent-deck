@@ -1,3 +1,4 @@
+import { SqliteFeishuContextStore } from './sqlite-context-store';
 import { closeSync, constants, lstatSync, openSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import {
@@ -72,6 +73,7 @@ function credential(row: Record<string, unknown>): EnrolledFeishuCredential {
 export class SqliteFeishuGatewayStore implements
 FeishuGatewayStore, FeishuHealthStore, FeishuPairingStore {
   private readonly db: Database.Database;
+  private readonly contextStore: SqliteFeishuContextStore;
   private readonly deliveryStore: SqliteFeishuDeliveryStore;
   private readonly deleteConfirmationStore: SqliteFeishuDeleteConfirmationStore;
   private readonly pairingStore: SqliteFeishuPairingStore;
@@ -97,6 +99,7 @@ FeishuGatewayStore, FeishuHealthStore, FeishuPairingStore {
           'Feishu metadata database integrity could not be verified',
         );
       }
+      this.contextStore = new SqliteFeishuContextStore(this.db);
       this.deliveryStore = new SqliteFeishuDeliveryStore(this.db);
       this.deleteConfirmationStore = new SqliteFeishuDeleteConfirmationStore(this.db);
       this.pairingStore = new SqliteFeishuPairingStore(this.db, this.binding);
@@ -250,94 +253,18 @@ FeishuGatewayStore, FeishuHealthStore, FeishuPairingStore {
     ).all() as Record<string, unknown>[]).map(credential);
   }
 
-  getContext(instanceId: string, credentialId: string, chatId: string): FeishuChatContext | null {
-    const row = this.db.prepare(`
-      SELECT * FROM contexts WHERE instance_id = ? AND credential_id = ? AND chat_id = ?
-    `).get(instanceId, credentialId, chatId) as Record<string, unknown> | undefined;
-    return row ? {
-      instanceId: row.instance_id as string,
-      credentialId: row.credential_id as string,
-      chatId: row.chat_id as string,
-      chatType: row.chat_type as FeishuChatContext['chatType'],
-      openId: row.open_id as string,
-      activeSessionId: row.active_session_id as string | null,
-      updatedAt: row.updated_at as number,
-    } : null;
+  getContext(i: string, c: string, chat: string): FeishuChatContext | null {
+    return this.contextStore.getContext(i, c, chat);
   }
-
-  listContexts(): readonly FeishuChatContext[] {
-    return (this.db.prepare(`SELECT * FROM contexts ORDER BY credential_id, chat_id`).all() as
-      Record<string, unknown>[]).map((row) => ({
-      instanceId: row.instance_id as string,
-      credentialId: row.credential_id as string,
-      chatId: row.chat_id as string,
-      chatType: row.chat_type as FeishuChatContext['chatType'],
-      openId: row.open_id as string,
-      activeSessionId: row.active_session_id as string | null,
-      updatedAt: row.updated_at as number,
-    }));
+  listContexts(): readonly FeishuChatContext[] { return this.contextStore.listContexts(); }
+  putContext(value: FeishuChatContext): void { this.contextStore.putContext(value); }
+  getSubscription(i: string, c: string, chat: string, sid: string): FeishuSubscriptionRecord | null {
+    return this.contextStore.getSubscription(i, c, chat, sid);
   }
-
-  putContext(value: FeishuChatContext): void {
-    this.db.prepare(`
-      INSERT INTO contexts VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(instance_id, credential_id, chat_id) DO UPDATE SET
-        open_id = excluded.open_id,
-        active_session_id = excluded.active_session_id,
-        updated_at = excluded.updated_at,
-        chat_type = excluded.chat_type
-    `).run(
-      value.instanceId, value.credentialId, value.chatId, value.openId,
-      value.activeSessionId, value.updatedAt, value.chatType,
-    );
+  listSubscriptions(i: string, c: string, chat: string): readonly FeishuSubscriptionRecord[] {
+    return this.contextStore.listSubscriptions(i, c, chat);
   }
-
-  getSubscription(
-    instanceId: string,
-    credentialId: string,
-    chatId: string,
-    sessionId: string,
-  ): FeishuSubscriptionRecord | null {
-    const row = this.db.prepare(`
-      SELECT * FROM subscriptions
-      WHERE instance_id = ? AND credential_id = ? AND chat_id = ? AND session_id = ?
-    `).get(instanceId, credentialId, chatId, sessionId) as Record<string, unknown> | undefined;
-    return row ? this.toSubscription(row) : null;
-  }
-
-  listSubscriptions(
-    instanceId: string,
-    credentialId: string,
-    chatId: string,
-  ): readonly FeishuSubscriptionRecord[] {
-    return (this.db.prepare(`
-      SELECT * FROM subscriptions
-      WHERE instance_id = ? AND credential_id = ? AND chat_id = ? ORDER BY session_id
-    `).all(instanceId, credentialId, chatId) as Record<string, unknown>[])
-      .map((row) => this.toSubscription(row));
-  }
-
-  private toSubscription(row: Record<string, unknown>): FeishuSubscriptionRecord {
-    return {
-      instanceId: row.instance_id as string,
-      credentialId: row.credential_id as string,
-      chatId: row.chat_id as string,
-      sessionId: row.session_id as string,
-      status: row.status as FeishuSubscriptionRecord['status'],
-      updatedAt: row.updated_at as number,
-    };
-  }
-
-  putSubscription(value: FeishuSubscriptionRecord): void {
-    this.db.prepare(`
-      INSERT INTO subscriptions VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(instance_id, credential_id, chat_id, session_id) DO UPDATE SET
-        status = excluded.status, updated_at = excluded.updated_at
-    `).run(
-      value.instanceId, value.credentialId, value.chatId,
-      value.sessionId, value.status, value.updatedAt,
-    );
-  }
+  putSubscription(value: FeishuSubscriptionRecord): void { this.contextStore.putSubscription(value); }
 
   claimDelivery(input: SqliteDeliveryInput, maximum: number, lifetimeMs = 30_000): DeliveryClaim {
     return this.deliveryStore.claim(input, maximum, lifetimeMs);

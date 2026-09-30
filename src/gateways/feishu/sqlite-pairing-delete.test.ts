@@ -185,6 +185,7 @@ describe('Feishu pairing and deletion metadata state machines', () => {
     const store = new SqliteFeishuGatewayStore(path, binding);
     store.reconcileCredentials([{ ...configured, openId: 'ou_owner_1' }]);
     store.putContext({
+      assistantSessionId: null, assistantGeneration: 0,
       instanceId: binding.instanceId,
       credentialId: configured.credentialId,
       chatId: 'oc_chat_1',
@@ -194,6 +195,7 @@ describe('Feishu pairing and deletion metadata state machines', () => {
       updatedAt: 100,
     });
     store.putSubscription({
+      purpose: 'session',
       instanceId: binding.instanceId,
       credentialId: configured.credentialId,
       chatId: 'oc_chat_1',
@@ -258,6 +260,7 @@ describe('Feishu pairing and deletion metadata state machines', () => {
     const old = new SqliteFeishuGatewayStore(path, binding);
     old.reconcileCredentials([{ ...configured, openId: 'ou_owner_1' }]);
     old.putContext({
+      assistantSessionId: null, assistantGeneration: 0,
       instanceId: binding.instanceId,
       credentialId: configured.credentialId,
       chatId: 'oc_chat_1',
@@ -267,6 +270,7 @@ describe('Feishu pairing and deletion metadata state machines', () => {
       updatedAt: 100,
     });
     old.putSubscription({
+      purpose: 'session',
       instanceId: binding.instanceId,
       credentialId: configured.credentialId,
       chatId: 'oc_chat_1',

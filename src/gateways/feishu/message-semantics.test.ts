@@ -113,7 +113,10 @@ describe('Feishu message text and addressed commands', () => {
       await f.send(text);
       await f.send(`/send ${text}`);
       expect(onlyClient(f.clients).calls.filter((call) => call.method === 'session.send'))
-        .toEqual([1, 2].map(() => expect.objectContaining({ params: { sessionId: 'session-1', text } })));
+        .toEqual([
+          expect.objectContaining({ params: { sessionId: expect.not.stringMatching(/^session-1$/), text } }),
+          expect.objectContaining({ params: { sessionId: 'session-1', text } }),
+        ]);
       expect(parseFeishuCommand(`/create codex-cli . -- ${text}`))
         .toMatchObject({ kind: 'create', initialMessage: text });
     } finally { await f.gateway.close(); }

@@ -70,24 +70,30 @@ function credential(value: unknown): EnrolledFeishuCredential {
 function context(value: unknown): FeishuChatContext {
   exact(value, [
     'activeSessionId', 'chatId', 'chatType', 'credentialId', 'instanceId', 'openId', 'updatedAt',
+    'assistantSessionId', 'assistantGeneration',
   ]);
   if (value.activeSessionId !== null) token(value.activeSessionId);
+  if (value.assistantSessionId !== null) token(value.assistantSessionId);
   if (!['group', 'p2p'].includes(String(value.chatType))) fail();
   return {
     instanceId: token(value.instanceId), credentialId: token(value.credentialId),
     chatId: token(value.chatId), openId: token(value.openId),
     chatType: value.chatType as FeishuChatContext['chatType'],
     activeSessionId: value.activeSessionId as string | null, updatedAt: integer(value.updatedAt),
+    assistantSessionId: value.assistantSessionId as string | null,
+    assistantGeneration: integer(value.assistantGeneration),
   };
 }
 
 function subscription(value: unknown): FeishuSubscriptionRecord {
-  exact(value, ['chatId', 'credentialId', 'instanceId', 'sessionId', 'status', 'updatedAt']);
+  exact(value, ['chatId', 'credentialId', 'instanceId', 'sessionId', 'purpose', 'status', 'updatedAt']);
   if (!['active', 'inactive'].includes(String(value.status))) fail();
+  if (!['assistant', 'session'].includes(String(value.purpose))) fail();
   return {
     instanceId: token(value.instanceId), credentialId: token(value.credentialId),
     chatId: token(value.chatId), sessionId: token(value.sessionId),
     status: value.status as FeishuSubscriptionRecord['status'], updatedAt: integer(value.updatedAt),
+    purpose: value.purpose as FeishuSubscriptionRecord['purpose'],
   };
 }
 

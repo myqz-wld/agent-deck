@@ -94,12 +94,17 @@ export class FeishuCommandExecutor {
         this.options.limits.maxSessions,
         this.options.limits,
       );
+      const assistantIds = new Set(this.options.store.listSubscriptions(
+        credential.instanceId, credential.credentialId, event.chatId,
+      ).filter(s => s.purpose === 'assistant').map(s => s.sessionId));
+      if (context.assistantSessionId) assistantIds.add(context.assistantSessionId);
       return renderSessionList(
-        result.sessions,
+        result.sessions.filter(s => assistantIds.has(s.id) === (command.target === 'assistant')),
         result.nextCursor,
-        result.total,
+        assistantIds.size > 0 || command.target === 'assistant' ? null : result.total,
         this.options.limits.maxOutputBytes,
         result.revision,
+        command.target === 'assistant' ? 'assistant' : 'session',
       );
     }
     if (command.kind === 'directories') {
@@ -144,6 +149,14 @@ export class FeishuCommandExecutor {
         this.options.limits,
       );
       if (!result.session) throw new FeishuGatewayError('not_found', 'Session 不存在');
+      const known = this.options.store.getSubscription(credential.instanceId, credential.credentialId,
+        event.chatId, command.sessionId);
+      if ((known?.purpose === 'assistant' || context.assistantSessionId === command.sessionId) !== (command.target === 'assistant')) {
+        throw new FeishuGatewayError('session_target_mismatch', 'The selected session has a different purpose');
+      }
+      if (command.target === 'assistant' && context.assistantGeneration === Number.MAX_SAFE_INTEGER) {
+        throw new FeishuGatewayError('conflict', 'Assistant generation is exhausted');
+      }
       assertFeishuMethod(connected.hello, 'pending.list');
       const pending = await client.request(
         'pending.list',
@@ -160,13 +173,16 @@ export class FeishuCommandExecutor {
       );
       this.options.store.putContext({
         ...context,
-        activeSessionId: command.sessionId,
+        ...(command.target === 'assistant' ? { assistantSessionId: command.sessionId,
+          assistantGeneration: context.assistantGeneration + Number(context.assistantSessionId !== command.sessionId) }
+          : { activeSessionId: command.sessionId }),
         updatedAt: this.options.now(),
       });
       return {
         ...view,
         text: truncateUtf8(
-          `${result.session.title ?? '未命名会话'}\nID：${command.sessionId}\n\n${view.cards?.length ? view.text : '直接发送消息即可继续。'}`,
+          `${result.session.title ?? '未命名会话'}\nID：${command.sessionId}\n\n${view.cards?.length ? view.text : command.target === 'assistant'
+            ? '已切回助手聊天，直接发送文字即可继续。' : '使用 /send <内容> 向此工作会话发送消息。普通文字仍发给助手。'}`,
           this.options.limits.maxOutputBytes,
         ),
       };
@@ -174,7 +190,7 @@ export class FeishuCommandExecutor {
     if (command.kind === 'create') {
       return createFeishuSession(this.options, command, event, credential, context, connected, remaining);
     }
-    if (command.kind === 'new') throw new FeishuGatewayError('invalid_command', '请在私聊中开始新对话');
+    if (command.kind === 'new' || command.kind === 'new-conversation') throw new FeishuGatewayError('invalid_command', '请在私聊中开始新对话');
     if (command.kind === 'preferences-get' || command.kind === 'preferences-set' || command.kind === 'models') {
       if (event.chatType === 'group') return { text: '请在机器人私聊中查看或修改模型配置。', revision: null };
       if (command.kind === 'models') return renderModels(await readModelCapabilities(connected,
@@ -223,6 +239,7 @@ export class FeishuCommandExecutor {
         this.options.limits.maxOutputBytes,
         result.revision,
         event.chatType,
+        command.target === 'assistant' ? '/chat history' : '/history',
       );
     }
     if (command.kind === 'send') {
@@ -356,6 +373,8 @@ export class FeishuCommandExecutor {
         credentialId: credential.credentialId,
         chatId: event.chatId,
         sessionId,
+        purpose: subscriptions.find(s => s.sessionId === sessionId)?.purpose ??
+          (context.assistantSessionId === sessionId ? 'assistant' : 'session'),
         status: result.subscribed ? 'active' : 'inactive',
         updatedAt: this.options.now(),
       });

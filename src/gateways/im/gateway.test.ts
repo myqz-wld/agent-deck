@@ -54,8 +54,8 @@ describe('FeishuSessionConsoleGateway identity and chat state', () => {
     const { gateway, clients } = setup();
     await select(gateway, 'session-1', 'select-a', 'chat-a');
     await select(gateway, 'session-2', 'select-b', 'chat-b');
-    await gateway.handle(messageEvent('send-a', 'hello A', { chatId: 'chat-a' }));
-    await gateway.handle(messageEvent('send-b', 'hello B', { chatId: 'chat-b' }));
+    await gateway.handle(messageEvent('send-a', '/send hello A', { chatId: 'chat-a' }));
+    await gateway.handle(messageEvent('send-b', '/send hello B', { chatId: 'chat-b' }));
 
     expect(clients.size).toBe(2);
     const sendCalls = [...clients.values()]

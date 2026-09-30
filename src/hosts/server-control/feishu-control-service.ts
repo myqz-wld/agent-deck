@@ -290,7 +290,7 @@ export class FeishuControlService {
   async upgrade(): Promise<JsonValue> {
     this.verifyFiles();
     return upgradeFeishuRuntime(this.paths, this.systemd,
-      () => this.requireHealthyManagement(), this.runtimeRetention);
+      () => this.requireHealthyManagement(), this.runtimeRetention, this.config.feishuIdentityOwner);
   }
 
   async rotateCredential(request: FeishuRotateCredentialRequest): Promise<JsonValue> {

@@ -108,16 +108,18 @@ export function renderSessionList(
   total: number | null,
   maximumBytes: number,
   revision: number,
+  target: 'assistant' | 'session' = 'session',
 ): SessionConsoleView {
   const lines = sessions.map(
     (session) =>
       `${session.title ?? '未命名会话'}\n${session.adapterId} · ${session.status}\nID：${session.id}`,
   );
   const count = total === null || total === sessions.length ? `${sessions.length}` : `${sessions.length}/${total}`;
-  const next = nextCursor ? `\n下一页：/sessions ${nextCursor}` : '';
+  const next = nextCursor ? `\n下一页：${target === 'assistant' ? '/chat list' : '/sessions'} ${nextCursor}` : '';
   return {
-    text: truncateUtf8(lines.length === 0 ? '还没有可用会话。直接发送消息即可开始对话。'
-      : `${lines.join('\n\n')}\n\n本页 ${count} 个会话${next}`, maximumBytes),
+    text: truncateUtf8(lines.length === 0
+      ? `${target === 'assistant' ? '本页暂无助手聊天，直接发送文字即可开始。' : '本页暂无工作会话，发送 /new [需求] 新建。'}${next}`
+      : `${lines.join('\n\n')}\n\n本页 ${count} 个${target === 'assistant' ? '助手聊天' : '工作会话'}${next}`, maximumBytes),
     sessions,
     revision,
   };
@@ -154,6 +156,7 @@ export function renderHistory(
   maximumBytes: number,
   revision: number,
   chatType: 'group' | 'p2p' = 'p2p',
+  historyCommand = '/history',
 ): SessionConsoleView {
   if (chatType === 'group') {
     return {
@@ -164,7 +167,7 @@ export function renderHistory(
   const lines = entries.map(
     (entry) => `${entry.sequence} ${entry.role}: ${boundedJsonText(entry.content, 1_024)}`,
   );
-  const next = nextCursor ? `\n下一页：/history ${nextCursor}` : '';
+  const next = nextCursor ? `\n下一页：${historyCommand} ${nextCursor}` : '';
   return {
     text: truncateUtf8(`History\n${lines.join('\n')}${next}`, maximumBytes),
     history: entries.map((entry) => ({ ...entry, content: redactJson(entry.content) })),

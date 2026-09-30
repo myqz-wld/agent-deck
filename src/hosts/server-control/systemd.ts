@@ -11,6 +11,7 @@ export interface SystemdControlPort {
   daemonReload(): void;
   enableNow(unit: string): void;
   restart(unit: string): void;
+  stop(unit: string): void;
   stopDisable(unit: string): void;
   isActive(unit: string): boolean;
 }
@@ -27,6 +28,7 @@ export const SYSTEMD_CONTROL: SystemdControlPort = Object.freeze({
   daemonReload: () => run(['daemon-reload']),
   enableNow: (unit) => run(['enable', '--now', unit]),
   restart: (unit) => run(['restart', unit]),
+  stop: (unit) => run(['stop', unit]),
   stopDisable: (unit) => {
     try {
       run(['disable', '--now', unit]);

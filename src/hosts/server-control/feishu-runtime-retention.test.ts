@@ -24,6 +24,7 @@ function fixture() {
   const paths = {
     ...PRODUCTION_FEISHU_PATHS,
     runtimeRoot: root,
+    stateDirectory: join(root, 'state'),
     runtimeReleases: join(root, 'releases'),
     runtimeActive: join(root, 'active'),
     runtimeDesired: join(root, 'desired'),
@@ -124,17 +125,19 @@ describe('post-acceptance Feishu runtime retention', () => {
   it('never prunes a failed activation or rolls back a healthy activation on cleanup failure', async () => {
     const t = fixture();
     t.release(A); t.release(B); t.pointers(A, B);
+    mkdirSync(t.paths.stateDirectory, { mode: 0o700 });
+    const owner = { uid: process.getuid!(), gid: process.getgid!() };
     const systemd = {
       daemonReload: vi.fn(), restart: vi.fn(), isActive: vi.fn(),
-      enableNow: vi.fn(), stopDisable: vi.fn(),
+      enableNow: vi.fn(), stopDisable: vi.fn(), stop: vi.fn(),
     };
     const retention = { prune: vi.fn().mockRejectedValue(new Error('cleanup failed')) };
     const health = vi.fn().mockRejectedValueOnce(new Error('unhealthy')).mockResolvedValue({ healthy: true });
-    await expect(upgradeFeishuRuntime(t.paths, systemd, health, retention)).rejects.toThrow('unhealthy');
+    await expect(upgradeFeishuRuntime(t.paths, systemd, health, retention, owner)).rejects.toThrow('unhealthy');
     expect(retention.prune).not.toHaveBeenCalled();
     expect(readFileSync(t.paths.runtimeActive, 'utf8')).toBe(`${A}\n`);
     systemd.restart.mockClear();
-    await expect(upgradeFeishuRuntime(t.paths, systemd, health, retention)).resolves.toMatchObject({
+    await expect(upgradeFeishuRuntime(t.paths, systemd, health, retention, owner)).resolves.toMatchObject({
       status: 'upgraded', cleanup: { status: 'skipped' },
     });
     expect(systemd.restart).toHaveBeenCalledTimes(1);

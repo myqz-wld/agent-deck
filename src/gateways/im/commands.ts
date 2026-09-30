@@ -9,9 +9,10 @@ import { FeishuGatewayError } from './errors';
 import type { FeishuInboundEvent } from './types';
 import { requireBoundedText, stableToken } from './validation';
 
-export type FeishuCommand =
+export type FeishuCommand = (
   | PreferenceCommand
-  | { kind: 'new' }
+  | { kind: 'new'; initialMessage?: string }
+  | { kind: 'new-conversation' }
   | { kind: 'create'; adapterId: string | null; initialMessage: string; workingDirectory: string; selection?: Partial<FeishuModelPreference>; purpose?: FeishuPreferencePurpose }
   | { kind: 'directories'; cursor?: string }
   | { kind: 'help' }
@@ -24,7 +25,8 @@ export type FeishuCommand =
   | { kind: 'session-delete-prepare' }
   | { kind: 'send'; text: string }
   | { kind: 'sessions'; cursor?: string }
-  | { kind: 'subscribe'; subscribed: boolean };
+  | { kind: 'subscribe'; subscribed: boolean }
+) & { target?: 'assistant' };
 
 function exactArgument(
   input: string,
@@ -54,6 +56,14 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
   const preferenceCommand = parsePreferenceCommand(input);
   if (preferenceCommand) return preferenceCommand;
   if (input === '/new') return { kind: 'new' };
+  if (input.startsWith('/new ')) return { kind: 'new', initialMessage: input.slice(5).trim() };
+  if (input === '/chat new') return { kind: 'new-conversation' };
+  if (input === '/chat list' || input.startsWith('/chat list ')) return {
+    ...parseFeishuCommand('/sessions' + input.slice('/chat list'.length), maximumTextBytes), target: 'assistant',
+  };
+  const chatControl = input.match(/^\/chat (history|pending|runtime|subscribe|unsubscribe|select)(?: (.*))?$/);
+  if (chatControl) return { ...parseFeishuCommand('/' + chatControl[1] +
+    (chatControl[2] ? ' ' + chatControl[2] : ''), maximumTextBytes), target: 'assistant' };
   if (input === '/help') return { kind: 'help' };
   if (input === '/sessions') return { kind: 'sessions' };
   if (input.startsWith('/sessions ')) {
@@ -149,14 +159,18 @@ export const FEISHU_HELP_TEXT = [
   '直接发送消息即可聊天或安排任务。首次使用先发送 /settings 选择助手。',
   '/settings — 查看或修改机器人聊天、新建会话的上次选择',
   '/models [adapter-id] [provider] — 查看可用助手与模型选项',
-  '/new — 沿用聊天配置开始新对话，保留原会话',
+  '普通文字 → 机器人助手，独立保留聊天上下文',
+  '/new [需求] — 沿用工作会话配置新建会话',
+  '/chat new — 重开助手聊天，保留旧聊天记录',
+  '/chat history 或 /chat pending — 查看助手历史或待确认事项',
+  '/chat list 或 /chat select <ID> — 查看、切回以前的助手聊天',
   '/sessions [cursor] — 分页列出 session',
   '/directories [cursor] — 查看 Workspace 内的工作目录建议',
-  '/select <session-id> — 选择 session',
+  '/select <session-id> — 选择工作会话，不切换助手聊天',
   '/create last <目录> -- <需求> — 沿用上次的新建会话配置',
   '/create <adapter-id> <目录> [--model <模型>] [--provider <网关>] [--thinking <程度>] -- <需求> — 覆盖并记住选择',
-  '/history [cursor] — 查看历史',
-  '/send <text> — 发送消息（普通文本也会发送）',
+  '/history [cursor] — 查看所选工作会话历史',
+  '/send <内容> — 发送给所选工作会话',
   '/runtime — 查看 adapter runtime controls',
   '/runtime-set <revision> <JSON-patch> — 更新 runtime controls',
   '/pending — 查看仍在 pending 的请求',

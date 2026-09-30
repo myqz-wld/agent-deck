@@ -320,7 +320,9 @@ export class ServerCoreSessionConsoleAuthority implements AuthoritativeSessionCo
     if (replay) return replay;
     try {
       const prepared = await this.prepareProviderSession(params);
-      return await this.createPreparedSession(params, prepared, {}, identity);
+      // Remote callers retain the returned handle across requests and cannot follow
+      // the Desktop-only temporary-id rename lifecycle.
+      return await this.createPreparedSession(params, prepared, { awaitCanonicalId: true }, identity);
     } catch (cause) {
       if (cause instanceof UncertainSessionCreateError) throw cause;
       try { this.options.metadata.releaseMutationClaim(identity); } catch (releaseError) {

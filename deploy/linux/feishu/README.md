@@ -91,10 +91,12 @@ same bounded repair for administration. Non-Feishu or foreign-instance inconsist
   --request /etc/agent-deck/server-control/feishu-disconnect.json
 ```
 
-`upgrade` switches `active` to the release-installed `desired` digest, restarts, and verifies Feishu
-plus Core. Any activation failure atomically restores the prior pointer and verifies the old service.
-To roll back intentionally, deploy the prior Server release (which republishes its runtime as
-`desired`) and run `feishu upgrade`. `disconnect` disables the unit, revokes the dedicated Server
+`upgrade` stops the exact service, checkpoints its private metadata, switches `active` to the
+release-installed `desired` digest, restarts, and verifies Feishu plus Core. Activation failure
+stops the new service, preserves failed metadata privately, restores the pre-upgrade database and
+runtime pointer, and verifies the prior service. Accepted upgrades discard the temporary checkpoint.
+Intentional rollback uses the prior Server release and `feishu upgrade` when metadata formats are
+compatible; a schema downgrade requires a matching operator-owned state backup. `disconnect` disables the unit, revokes the dedicated Server
 credential, removes protected connection files, and deliberately preserves SQLite state for explicit
 operator recovery or deletion.
 
@@ -114,18 +116,26 @@ work sessions. The same configuration is available in the connected Core's Deskt
 object containing `model`, `provider`, and/or `thinking` strings. Empty option values follow native
 settings. No initial adapter is silently selected, and unavailable saved choices never fall back.
 
-Ordinary text automatically starts a conversation using the saved chat selection when no session
-is selected. New p2p conversations and explicitly created sessions subscribe to assistant replies
-and pending cards. `/new` starts another chat with the saved selection and preserves old sessions.
-`/create last <directory> -- <message>` reuses the saved work selection. An explicit adapter and
-optional `--model`, `--provider`, or `--thinking` flags override and remember that work selection.
-Existing selected sessions keep their native runtime controls; explicit `/unsubscribe` remains
-in effect. A request to create a work session in natural language reads current preferences through
-Core's read-only MCP tool before using the existing session creation tools.
+Ordinary p2p text always goes to the assistant, whose history has a separate persistent binding.
+`/new [task]` creates a work session using the saved work selection; `/select <id>` changes the
+work target and `/send <text>` sends to that target. These operations preserve assistant history.
+`/chat new` explicitly starts fresh assistant history, while `/chat list`, `/chat select <id>`,
+and `/chat history` browse and resume earlier assistant conversations. `/sessions` and `/history`
+remain scoped to work sessions. Groups do not bootstrap private assistant conversations.
 
-Commands use compact cards with standalone p2p responses and quoted group replies. Groups cannot
-read or modify the shared model configuration, bootstrap a conversation, or use private saved
-selections. Explicit group session creation does not alter the private last choices.
+`/create last <directory> -- <message>` offers explicit directory selection. Adapter and optional
+`--model`, `--provider`, or `--thinking` flags override and remember the work selection. Existing
+sessions retain their native controls. `/unsubscribe` applies to the selected work session;
+`/chat unsubscribe` applies to the assistant. Natural-language work creation reads the current
+preferences through Core's read-only MCP tool before using the exposed session tools.
+
+Ordinary assistant replies are unlabelled text. Work replies use cards identifying the session;
+commands and interactive approvals identify their target. P2p command results are standalone;
+group results quote the request. Groups cannot read/change private preferences or use saved choices.
+
+Gateway metadata schema v5 stores independent assistant identity/generation and subscription
+purpose. A verified v4 migration preserves pairing, work selection and delivery state; chat bodies
+remain in authoritative Core history. Remote creation commits only canonical provider session IDs.
 
 Core owns a bounded, owner-only, atomically replaced configuration file. Desktop/Feishu saves use
 an independent settings revision to detect concurrent edits. Protocol 2.9 requires matching Desktop,

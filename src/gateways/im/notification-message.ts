@@ -10,6 +10,7 @@ export async function readFeishuAssistantMessage(
   event: NotificationEvent,
   limits: FeishuGatewayLimits,
   remaining: () => number,
+  historyCommand = '/history',
 ): Promise<string | null> {
   if (!event.entityId || event.persisted?.kind !== 'message') return null;
   assertFeishuMethod(connected.hello, 'session.history');
@@ -42,5 +43,5 @@ export async function readFeishuAssistantMessage(
     seenCursors.add(result.nextCursor);
     cursor = result.nextCursor;
   }
-  return truncateUtf8('有一条较早的会话消息未能自动读取。请发送 /history 查看。', limits.maxOutputBytes);
+  return truncateUtf8(`有一条较早的会话消息未能自动读取。请发送 ${historyCommand} 查看。`, limits.maxOutputBytes);
 }

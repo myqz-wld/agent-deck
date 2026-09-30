@@ -28,7 +28,11 @@ describe('Feishu last model selections', () => {
     });
     await t.gateway.handle(messageEvent('override', '/create last . --model next-model --thinking max -- 检查文档'));
     expect(client.preferences.session).toMatchObject({ adapterId: 'codex-cli', model: 'next-model', thinking: 'max' });
-    await t.gateway.handle(messageEvent('new-chat', '/new'));
+    await t.gateway.handle(messageEvent('new-work', '/new'));
+    expect(client.calls.filter(call => call.method === 'session.console.create').at(-1)?.params).toMatchObject({
+      adapterId: 'codex-cli', options: { model: 'next-model', thinking: 'max' },
+    });
+    await t.gateway.handle(messageEvent('new-chat', '/chat new'));
     expect(client.calls.filter(call => call.method === 'session.console.create').at(-1)?.params).toMatchObject({
       adapterId: 'claude-code', options: { model: 'chat-model' },
     });

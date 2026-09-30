@@ -16,6 +16,14 @@ export async function createFeishuSession(options: FeishuCommandExecutorOptions,
   assertFeishuMethod(connected.hello, 'session.console.create');
   await options.beforeMutation(credential, event.chatId);
   const purpose = command.purpose ?? 'session';
+  if (purpose === 'conversation' && context.assistantGeneration === Number.MAX_SAFE_INTEGER) {
+    throw new FeishuGatewayError('conflict', 'Assistant generation is exhausted');
+  }
+  if (event.chatType === 'p2p' && options.store.listSubscriptions(
+    credential.instanceId, credential.credentialId, event.chatId,
+  ).length >= options.limits.maxSubscriptionsPerChat) {
+    throw new FeishuGatewayError('subscription_limit_exceeded', 'Chat subscriptions are full');
+  }
   if (event.chatType === 'group' && !command.adapterId) {
     throw new FeishuGatewayError('private_configuration', 'Saved selections are private');
   }
@@ -56,7 +64,12 @@ export async function createFeishuSession(options: FeishuCommandExecutorOptions,
     initialMessage: command.initialMessage, projectTrust: { revision: capabilities.projectTrust.revision, grant: false },
     workingDirectory: command.workingDirectory, options: createOptions,
   }, { idempotencyKey: `feishu:${event.eventId}`, deadlineMs: remaining() }), options.limits);
-  options.store.putContext({ ...context, activeSessionId: result.sessionId, updatedAt: options.now() });
+  options.store.putContext({ ...context, updatedAt: options.now(),
+    ...(purpose === 'conversation' ? {
+      assistantSessionId: result.sessionId,
+      assistantGeneration: context.assistantGeneration + Number(context.assistantSessionId !== result.sessionId),
+    } : { activeSessionId: result.sessionId }),
+  });
   if (event.chatType === 'group') return { text: '会话已创建。请在机器人私聊中查看详情。', revision: result.revision };
-  return { text: `助手：${capabilities.create.displayName}\n模型：${createOptions.model || '跟随原生设置'}\n工作目录：${command.workingDirectory}\nID：${result.sessionId}\n\n直接发送消息即可继续。`, revision: result.revision };
+  return { text: `${purpose === 'conversation' ? '机器人助手' : '工作会话'}：${capabilities.create.displayName}\n模型：${createOptions.model || '跟随原生设置'} · ${createOptions.thinking}\n工作目录：${command.workingDirectory}\nID：${result.sessionId}\n\n${purpose === 'conversation' ? '直接发送文字即可与助手聊天。' : '使用 /send <内容> 向此会话发送消息。普通文字仍发给助手。'}`, revision: result.revision };
 }

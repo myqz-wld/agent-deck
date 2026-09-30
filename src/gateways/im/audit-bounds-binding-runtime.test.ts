@@ -163,6 +163,7 @@ describe('pinned instance/topology and Relay cwd-free projection', () => {
     const store = new InMemoryFeishuGatewayStore();
     store.enroll(relayCredential);
     store.putContext({
+      assistantSessionId: null, assistantGeneration: 0,
       instanceId: relayCredential.instanceId,
       credentialId: relayCredential.credentialId,
       chatId: 'chat-1',
@@ -264,6 +265,7 @@ describe('revocation, subscription fanout, and runtime value domains', () => {
     const bounded = setup({ limits: { maxSubscriptionsPerChat: 1 } });
     await select(bounded.gateway);
     bounded.store.putSubscription({
+      purpose: 'session',
       instanceId: credential.instanceId,
       credentialId: credential.credentialId,
       chatId: 'chat-1',
@@ -314,6 +316,7 @@ describe('revocation, subscription fanout, and runtime value domains', () => {
     });
     await select(gateway);
     store.putSubscription({
+      purpose: 'session',
       instanceId: credential.instanceId,
       credentialId: credential.credentialId,
       chatId: 'chat-1',
@@ -322,6 +325,7 @@ describe('revocation, subscription fanout, and runtime value domains', () => {
       updatedAt: 1,
     });
     store.putSubscription({
+      purpose: 'session',
       instanceId: credential.instanceId,
       credentialId: credential.credentialId,
       chatId: 'chat-1',
@@ -348,6 +352,7 @@ describe('revocation, subscription fanout, and runtime value domains', () => {
     const bounded = setup({ limits: { maxSubscriptionsPerChat: 1 } });
     await select(bounded.gateway);
     bounded.store.putSubscription({
+      purpose: 'session',
       instanceId: credential.instanceId,
       credentialId: credential.credentialId,
       chatId: 'chat-1',

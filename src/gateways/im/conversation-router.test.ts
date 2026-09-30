@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
 import type { FeishuAgentDeckClientFactory } from './types';
 import { FEISHU_CONVERSATION_SETUP } from './conversation-prompt';
-import { FakeCoreClient, credential, flush, messageEvent, onlyClient, select, session, setup } from './__tests__/fixture';
+import { FakeCoreClient, credential, flush, messageEvent, onlyClient, session, setup } from './__tests__/fixture';
 
 describe('Feishu conversational entry', () => {
   it('creates one conversation with the last saved choice, subscribes, and sends unchanged user text', async () => {
@@ -93,13 +93,15 @@ describe('Feishu conversational entry', () => {
     await t.gateway.handle(messageEvent('fast-user', '你好'));
     await flush(); await flush();
     expect(t.transport.messages.map(m => m.text)).toEqual(['已经准备好了。']);
+    expect(t.transport.messages[0]?.presentation).toBeUndefined();
+    expect(t.transport.messages[0]?.cards).toEqual([]);
     await t.gateway.close();
   });
 
   it('preserves explicit unsubscribe and does not automatically create conversations in groups', async () => {
     const t = setup();
-    await select(t.gateway);
-    await t.gateway.handle(messageEvent('off', '/unsubscribe'));
+    await t.gateway.handle(messageEvent('start-chat', '你好'));
+    await t.gateway.handle(messageEvent('off', '/chat unsubscribe'));
     const client = onlyClient(t.clients);
     client.calls.length = 0;
     await t.gateway.handle(messageEvent('while-off', '执行现有任务'));
@@ -119,7 +121,7 @@ describe('Feishu conversational entry', () => {
       ? { ...capabilities, adapters: capabilities.adapters.map(a => ({ ...a, enabled: false, disabledReason: 'Unavailable' })),
         create: { ...capabilities.create, enabled: false, disabledReason: 'Unavailable' } } : undefined;
     expect((await t.gateway.handle(messageEvent('unavailable-chat', '你好'))).code).toBe('capability_unavailable');
-    expect(t.transport.messages.at(-1)?.presentation?.title).toBe('暂时无法完成');
+    expect(t.transport.messages.at(-1)?.presentation?.title).toBe('助手 · 暂时无法完成');
     expect(t.transport.messages.at(-1)?.text).toContain('登录');
     expect((await t.gateway.handle(messageEvent('unknown', '/missing-command'))).code).toBe('unknown_command');
     expect(t.transport.messages.at(-1)?.text).toContain('/help');

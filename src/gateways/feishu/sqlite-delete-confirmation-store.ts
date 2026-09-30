@@ -169,6 +169,11 @@ export class SqliteFeishuDeleteConfirmationStore {
         updatedAt, current.instanceId, current.credentialId, current.chatId, current.sessionId,
       );
       this.db.prepare(`
+        UPDATE contexts SET assistant_session_id = NULL,
+          assistant_generation = MIN(9007199254740991, assistant_generation + 1), updated_at = MAX(updated_at + 1, ?)
+        WHERE instance_id = ? AND credential_id = ? AND chat_id = ? AND assistant_session_id = ?
+      `).run(updatedAt, current.instanceId, current.credentialId, current.chatId, current.sessionId);
+      this.db.prepare(`
         DELETE FROM subscriptions
         WHERE instance_id = ? AND credential_id = ? AND chat_id = ? AND session_id = ?
       `).run(current.instanceId, current.credentialId, current.chatId, current.sessionId);

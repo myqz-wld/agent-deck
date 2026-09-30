@@ -1,4 +1,5 @@
 import { FeishuGatewayError } from './errors';
+import { removeFeishuSessionBinding } from './chat-context';
 import type {
   DeliveryClaim,
   EnrolledFeishuCredential,
@@ -12,7 +13,6 @@ import type {
   FeishuSubscriptionRecord,
 } from './types';
 import { InMemoryFeishuDeleteConfirmationStore } from './delete-confirmation-store';
-
 function subjectKey(subject: FeishuStableSubject): string {
   return `${subject.appId}\u001f${subject.tenantKey}\u001f${subject.openId}`;
 }
@@ -60,13 +60,8 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
         confirmation.chatId,
       );
       const context = this.contexts.get(key);
-      if (context?.activeSessionId === confirmation.sessionId) {
-        this.contexts.set(key, {
-          ...context,
-          activeSessionId: null,
-          updatedAt: Math.max(confirmation.updatedAt, context.updatedAt + 1),
-        });
-      }
+      if (context) this.contexts.set(key,
+        removeFeishuSessionBinding(context, confirmation.sessionId, confirmation.updatedAt));
       this.subscriptions.delete(subscriptionKey(
         confirmation.instanceId,
         confirmation.credentialId,
@@ -129,6 +124,12 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
   }
 
   putContext(context: FeishuChatContext): void {
+    const previous = this.getContext(context.instanceId, context.credentialId, context.chatId);
+    if (previous?.assistantSessionId && previous.assistantSessionId !== context.assistantSessionId) {
+      const subscription = this.getSubscription(context.instanceId, context.credentialId,
+        context.chatId, previous.assistantSessionId);
+      if (subscription) this.putSubscription({ ...subscription, status: 'inactive', updatedAt: context.updatedAt });
+    }
     this.contexts.set(
       contextKey(context.instanceId, context.credentialId, context.chatId),
       { ...context },

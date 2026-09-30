@@ -11,6 +11,7 @@ import {
 import { renderPending } from './render';
 import { truncateUtf8 } from './redaction';
 import { readFeishuAssistantMessage } from './notification-message';
+import { labelFeishuPendingSources } from './source-presentation';
 import type {
   EnrolledFeishuCredential,
   FeishuGatewayClock,
@@ -188,7 +189,8 @@ export async function deliverCoreNotification(
     await options.withinWindow(callback, async () => {
       const connected = await options.pool.getForGeneration(credential, chatId, options.epoch);
       const assistantMessage = event.persisted?.kind === 'message'
-        ? await readFeishuAssistantMessage(connected, event, options.limits, () => callback.remainingMs())
+        ? await readFeishuAssistantMessage(connected, event, options.limits, () => callback.remainingMs(),
+            subscriptions.find(s => s.sessionId === event.entityId)?.purpose === 'assistant' ? '/chat history' : '/history')
         : undefined;
       if (assistantMessage === null) return;
       const cards = [] as NonNullable<SessionConsoleView['cards']>[number][];
@@ -232,13 +234,16 @@ export async function deliverCoreNotification(
           credentialId: credential.credentialId,
           chatId,
           kind: 'notification',
+          ...(event.entityId && subscriptions.find(s => s.sessionId === event.entityId)?.purpose === 'session'
+            ? { presentation: { title: `工作会话 · ${event.entityId.slice(0, 8)}`, standalone: true } }
+            : assistantMessage === undefined ? { presentation: { title: 'Agent Deck · 待确认事项', standalone: true } } : {}),
           text: truncateUtf8(
             assistantMessage ?? (event.kind.startsWith('pending.') || event.persisted?.kind === 'waiting-for-user'
-              ? `Session 有新的 pending 状态（revision ${event.revision}）。`
-              : `Session 状态已更新：${event.kind}`),
+              ? '有新的待确认事项。'
+              : '状态已更新。'),
             options.limits.maxOutputBytes,
           ),
-          cards: cards.slice(0, options.limits.maxPendingCards),
+          cards: labelFeishuPendingSources(cards.slice(0, options.limits.maxPendingCards), subscriptions),
         },
         callback,
         deliveryLedgerHooks(

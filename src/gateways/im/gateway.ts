@@ -1,4 +1,5 @@
 import { classifyFeishuOperation } from './commands';
+import { labelFeishuPendingSources } from './source-presentation';
 import { FeishuChatCommandQueue } from './chat-command-queue';
 import { FeishuConversationRouter } from './conversation-router';
 import { startFeishuGateway } from './gateway-startup';
@@ -359,6 +360,8 @@ export class FeishuSessionConsoleGateway {
       chatType,
       openId,
       activeSessionId: null,
+      assistantSessionId: null,
+      assistantGeneration: 0,
       updatedAt,
     };
     this.store.putContext(created);
@@ -435,7 +438,8 @@ export class FeishuSessionConsoleGateway {
       chatId: event.chatId,
       kind: event.kind === 'card-action' ? 'card-update' : 'reply',
       text: truncateUtf8(view.text, this.limits.maxOutputBytes),
-      cards: (view.cards ?? []).slice(0, this.limits.maxPendingCards),
+      cards: labelFeishuPendingSources((view.cards ?? []).slice(0, this.limits.maxPendingCards),
+        this.store.listSubscriptions(credential.instanceId, credential.credentialId, event.chatId)),
       ...(view.presentation ? { presentation: view.presentation } : {}),
     };
   }

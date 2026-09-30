@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   statSync,
@@ -11,6 +12,9 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import { FEISHU_SCHEMA_V4 } from '@gateways/feishu/sqlite-schema-v4.fixture';
+import { initializeFeishuMetadataSchema } from '@gateways/feishu/sqlite-schema';
 import type { JsonValue } from '@contracts/index';
 import type { ServerControlConfig } from './config';
 import { FeishuControlService } from './feishu-control-service';
@@ -50,12 +54,13 @@ class FakeSystemd implements SystemdControlPort {
   }
   restart(): void {
     this.restartCalls += 1;
-    if (!this.active) throw new Error('inactive');
     if (this.restartFailures > 0) {
       this.restartFailures -= 1;
       throw new Error('systemd restart failed');
     }
+    this.active = true;
   }
+  stop(): void { this.active = false; }
   stopDisable(): void { this.active = false; }
   isActive(): boolean { return this.active; }
 }
@@ -419,5 +424,29 @@ describe.each(['relay', 'full'] as const)('Feishu one-click server control: %s',
       runtime: { activeDigest: nextDigest, previousDigest: FIRST_RUNTIME_DIGEST },
     });
     expect(readFileSync(test.paths.runtimeActive, 'utf8')).toBe(`${nextDigest}\n`);
+  });
+
+  it('restores pre-upgrade SQLite state when activation fails after schema migration', async () => {
+    const test = fixture(topology);
+    await test.service.connect(test.request);
+    const metadata = join(test.paths.stateDirectory, 'metadata.sqlite3');
+    const old = new Database(metadata); old.exec(FEISHU_SCHEMA_V4); old.close(); chmodSync(metadata, 0o600);
+    const before = readFileSync(metadata);
+    const nextDigest = 'b'.repeat(64);
+    createRuntimeRelease(test.paths.runtimeReleases, nextDigest);
+    writeFileSync(test.paths.runtimeDesired, `${nextDigest}\n`, { mode: 0o644 });
+    vi.spyOn(test.systemd, 'restart').mockImplementationOnce(() => {
+      const next = new Database(metadata); initializeFeishuMetadataSchema(next); next.close();
+      throw new Error('activation failed after migration');
+    });
+    await expect(test.service.upgrade()).rejects.toThrow('activation failed after migration');
+    expect(readFileSync(test.paths.runtimeActive, 'utf8')).toBe(`${FIRST_RUNTIME_DIGEST}\n`);
+    expect(readFileSync(metadata)).toEqual(before);
+    expect(statSync(metadata).mode & 0o777).toBe(0o600);
+    expect(test.systemd.active).toBe(true);
+    const checkpoint = readdirSync(test.paths.runtimeRoot).find(name => name.startsWith('.state-checkpoint-'))!;
+    expect(statSync(join(test.paths.runtimeRoot, checkpoint)).mode & 0o777).toBe(0o700);
+    const failed = new Database(join(test.paths.runtimeRoot, checkpoint, 'failed.sqlite3'), { readonly: true });
+    expect(failed.pragma('user_version', { simple: true })).toBe(5); failed.close();
   });
 });

@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { FeishuGatewayError } from '@gateways/im';
 
-export const FEISHU_METADATA_SCHEMA_VERSION = 4;
+export const FEISHU_METADATA_SCHEMA_VERSION = 5;
 
-const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+const V4_TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   credentials: [
     'app_id', 'tenant_key', 'open_id', 'instance_id', 'credential_id', 'connection_scope',
     'topology', 'status', 'authority',
@@ -40,7 +40,7 @@ const TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = Object.freeze
   ],
 });
 
-const CURRENT_SCHEMA = `
+const V4_SCHEMA = `
 CREATE TABLE credentials (
   app_id TEXT NOT NULL,
   tenant_key TEXT NOT NULL,
@@ -168,6 +168,20 @@ CREATE TABLE delete_confirmations (
 PRAGMA user_version = 4;
 `;
 
+const MIGRATION_V5 = `
+ALTER TABLE contexts ADD COLUMN assistant_session_id TEXT;
+ALTER TABLE contexts ADD COLUMN assistant_generation INTEGER NOT NULL DEFAULT 0
+  CHECK (assistant_generation >= 0);
+ALTER TABLE subscriptions ADD COLUMN purpose TEXT NOT NULL DEFAULT 'session'
+  CHECK (purpose IN ('assistant', 'session'));
+PRAGMA user_version = 5;
+`;
+const CURRENT_SCHEMA = V4_SCHEMA + MIGRATION_V5;
+const TABLE_COLUMNS = Object.freeze({ ...V4_TABLE_COLUMNS,
+  contexts: [...V4_TABLE_COLUMNS.contexts, 'assistant_session_id', 'assistant_generation'],
+  subscriptions: [...V4_TABLE_COLUMNS.subscriptions, 'purpose'],
+});
+
 function schemaFingerprint(database: Database.Database): string {
   const definitions = (database.prepare(`
     SELECT type, name, tbl_name, sql FROM sqlite_schema
@@ -180,21 +194,21 @@ function schemaFingerprint(database: Database.Database): string {
   return createHash('sha256').update(JSON.stringify(definitions), 'utf8').digest('hex');
 }
 
-function expectedFingerprint(): string {
+function expectedFingerprint(version: number): string {
   const database = new Database(':memory:');
   try {
-    database.exec(CURRENT_SCHEMA);
+    database.exec(version === 4 ? V4_SCHEMA : CURRENT_SCHEMA);
     return schemaFingerprint(database);
   } finally {
     database.close();
   }
 }
 
-let schemaFingerprintCache: string | null = null;
-
-function expectedSchemaFingerprint(): string {
-  schemaFingerprintCache ??= expectedFingerprint();
-  return schemaFingerprintCache;
+const schemaFingerprints = new Map<number, string>();
+function expectedSchemaFingerprint(version: number): string {
+  let fingerprint = schemaFingerprints.get(version);
+  if (!fingerprint) { fingerprint = expectedFingerprint(version); schemaFingerprints.set(version, fingerprint); }
+  return fingerprint;
 }
 
 function fail(): never {
@@ -210,11 +224,12 @@ function tableNames(db: Database.Database): string[] {
   ).all() as Array<{ name: string }>).map((row) => row.name);
 }
 
-function verifyExactSchema(db: Database.Database): void {
+function verifyExactSchema(db: Database.Database, version = FEISHU_METADATA_SCHEMA_VERSION): void {
+  const columnsByTable = version === 4 ? V4_TABLE_COLUMNS : TABLE_COLUMNS;
   const names = tableNames(db);
-  const expected = Object.keys(TABLE_COLUMNS).sort();
+  const expected = Object.keys(columnsByTable).sort();
   if (names.length !== expected.length || names.some((name, index) => name !== expected[index])) fail();
-  for (const [table, columns] of Object.entries(TABLE_COLUMNS)) {
+  for (const [table, columns] of Object.entries(columnsByTable)) {
     const actual = (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
       .map((row) => row.name);
     if (
@@ -229,7 +244,7 @@ function verifyExactSchema(db: Database.Database): void {
     LIMIT 1
   `).get();
   if (unexpected) fail();
-  if (schemaFingerprint(db) !== expectedSchemaFingerprint()) fail();
+  if (schemaFingerprint(db) !== expectedSchemaFingerprint(version)) fail();
 }
 
 export function initializeFeishuMetadataSchema(db: Database.Database): void {
@@ -247,6 +262,20 @@ export function initializeFeishuMetadataSchema(db: Database.Database): void {
       fail();
     }
     version = FEISHU_METADATA_SCHEMA_VERSION;
+  }
+  if (version === 4) {
+    // Validate the entire source schema before applying the supported migration.
+    verifyExactSchema(db, 4);
+    try {
+      db.exec('BEGIN IMMEDIATE');
+      db.exec(MIGRATION_V5);
+      verifyExactSchema(db);
+      db.exec('COMMIT');
+      version = FEISHU_METADATA_SCHEMA_VERSION;
+    } catch {
+      try { db.exec('ROLLBACK'); } catch { /* Preserve the original migration failure. */ }
+      fail();
+    }
   }
   if (version !== FEISHU_METADATA_SCHEMA_VERSION) {
     fail();

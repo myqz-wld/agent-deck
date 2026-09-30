@@ -43,6 +43,7 @@ function deliveryInput(updatedAt: number) {
 
 function context(store: SqliteFeishuGatewayStore): void {
   store.putContext({
+    assistantSessionId: null, assistantGeneration: 0,
     instanceId: binding.instanceId,
     credentialId: enrolled.credentialId,
     chatId: 'oc_chat_1',
@@ -90,6 +91,7 @@ describe('production metadata-only SQLite store', () => {
     const store = open(path);
     context(store);
     store.putSubscription({
+      purpose: 'session',
       instanceId: binding.instanceId,
       credentialId: enrolled.credentialId,
       chatId: 'oc_chat_1',
@@ -187,6 +189,7 @@ describe('production metadata-only SQLite store', () => {
     const store = open(path);
     context(store);
     store.putSubscription({
+      purpose: 'session',
       instanceId: binding.instanceId,
       credentialId: enrolled.credentialId,
       chatId: 'oc_chat_1',

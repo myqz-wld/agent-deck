@@ -35,6 +35,7 @@ describe('untrusted metadata and resource ceilings', () => {
     contexts.enroll(credential);
     for (const chatId of ['chat-a', 'chat-b']) {
       contexts.putContext({
+        assistantSessionId: null, assistantGeneration: 0,
         instanceId: credential.instanceId,
         credentialId: credential.credentialId,
         chatId,
@@ -58,6 +59,7 @@ describe('untrusted metadata and resource ceilings', () => {
     const store = new InMemoryFeishuGatewayStore();
     store.enroll(credential);
     store.putContext({
+      assistantSessionId: null, assistantGeneration: 0,
       instanceId: credential.instanceId,
       credentialId: credential.credentialId,
       chatId: 'mismatched-context',
@@ -75,6 +77,7 @@ describe('untrusted metadata and resource ceilings', () => {
     const store = new InMemoryFeishuGatewayStore();
     store.enroll(credential);
     store.putContext({
+      assistantSessionId: null, assistantGeneration: 0,
       instanceId: credential.instanceId,
       credentialId: credential.credentialId,
       chatId: 'existing-chat',

@@ -47,7 +47,8 @@ export function renderPreferences(value: FeishuPreferencesResult): SessionConsol
     '', '发送 /models 查看可用选项。',
     '设置聊天：/settings chat <adapter-id>', '设置新会话：/settings session <adapter-id>',
     '可追加模型选项，例如：{"model":"模型名","thinking":"high"}',
-    '发送 /new 开始使用聊天配置的新对话，保留原会话。',
+    '普通文字发给助手；/new 新建工作会话；/send <内容> 发给所选工作会话。',
+    '发送 /chat new 使用聊天配置重开助手聊天，保留旧记录。',
   ].join('\n') };
 }
 

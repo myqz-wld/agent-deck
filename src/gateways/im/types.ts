@@ -77,6 +77,8 @@ export interface FeishuChatContext {
   chatType: 'group' | 'p2p';
   openId: string;
   activeSessionId: string | null;
+  assistantSessionId: string | null;
+  assistantGeneration: number;
   updatedAt: number;
 }
 
@@ -85,6 +87,7 @@ export interface FeishuSubscriptionRecord {
   credentialId: string;
   chatId: string;
   sessionId: string;
+  purpose: 'assistant' | 'session';
   status: 'active' | 'inactive';
   updatedAt: number;
 }
