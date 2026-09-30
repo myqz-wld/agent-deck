@@ -138,11 +138,13 @@ new external-link dependency. Runtime schemas and native SDK serialization are t
 
 ## Residual risk and follow-up
 
-The new batch is source-validated; exact package audit and coordinated installation acceptance are
-separate evidence. Protocol 2.12 and SQLite v6 must activate together through the managed lifecycle,
-which checkpoints/restores the private database on failure. Keep the accepted current installer
-and one rollback package, and preserve all pairing/configuration data. Never reinstall a completed
-release as a diagnostic guess. Owner Feishu acceptance must still confirm natural work creation,
+The exact `b48d42f1` package passed inclusion/privacy, signature and DMG checks, then completed
+coordinated Desktop/Worker/Relay/Feishu activation. Independent verification confirms the installed
+commit/ASAR, one formal GUI, fresh wrapper, all service connections and exact Feishu runtime. Live
+SQLite is v6 with valid integrity and foreign keys; settings revision 3 and existing session controls
+remain unchanged. Cleanup retains current plus 410a fallback and removes temporary run artifacts.
+See [installation acceptance](../../plans/recent-3-days/PLAN_71_feishu-named-work-activation.md).
+Never reinstall a completed release as a diagnostic guess. Owner Feishu acceptance must still confirm natural work creation,
 readable card names and catgirl voice with existing history. Slash `/new` retains its ordinary
 Core initial name; `/rename` or natural-language named creation provides a chosen title.
 

@@ -36,8 +36,9 @@ to assistant chat. Subscribed private sends no longer append a redundant late re
   failure/rollback, canonical identity, early replies, concurrent selections/names, exact schema
   migrations, v4/v5 managed rollback, persona refresh, approval routing and lost receipt acceptance.
 - Typecheck/architecture, application build, Linux headless/native archive construction and
-  headless/deployment checks passed. Exact final package privacy and installation checks are
-  recorded separately during activation; the source tests do not claim live provider acceptance.
+  headless/deployment checks passed. The exact b48d42f1 package is installed and independently
+  verified; [installation acceptance](../../plans/recent-3-days/PLAN_71_feishu-named-work-activation.md)
+  records commit/ASAR, one GUI, live service health and retained configuration/history.
 - Both native archives (37 members / 26 regular files each) and all 11 headless bundles pass
   private-identifier scans with zero findings; the shared Electron SQLite binding is unchanged.
 - All changed source files are at most 494 lines. No split exemption is required.

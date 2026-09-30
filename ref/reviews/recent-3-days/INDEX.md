@@ -15,7 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-09-30 | `REVIEW_303_feishu-named-work-management.md` | Name work and suppress late receipts with native management | Source validated; live naming/persona acceptance pending |
+| 2026-09-30 | `REVIEW_303_feishu-named-work-management.md` | Name work and suppress late receipts with native management | Installed and healthy; live naming/persona acceptance pending |
 | 2026-09-30 | `REVIEW_302_feishu-native-settings-approvals.md` | Verify native settings and complete Feishu approval cards | 1 HIGH / 4 MEDIUM installed; cards and replies accepted |
 | 2026-09-30 | `REVIEW_301_feishu-work-directory-expiry.md` | Separate work discovery and discard expired Feishu input | 2 MEDIUM installed; owner query acceptance pending |
 | 2026-09-30 | `REVIEW_300_core-read-tool-annotations.md` | Restore read-only Core MCP discovery and approval semantics | 1 HIGH fixed, installed and live accepted |
