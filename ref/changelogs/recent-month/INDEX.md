@@ -15,6 +15,9 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-09-22 | `CHANGELOG_648_grok-native-model-selection.md` | Use native Grok defaults, discovery, and model-switch acknowledgements |
+| 2026-09-22 | `CHANGELOG_647_model-names-native-defaults.md` | Refresh model names and delegate unconfigured session models to CLIs |
+| 2026-09-22 | `CHANGELOG_646_provider-runtime-acp-refresh.md` | Refresh Claude, Codex, Grok runtimes and handle ACP advisory notices |
 | 2026-09-20 | `CHANGELOG_645_shared-iab-login.md` | Share persistent IAB website login across sessions |
 | 2026-09-16 | `CHANGELOG_644_privacy-and-compatibility-cleanup.md` | Remove identifying paths and retired Browser/RPC compatibility |
 | 2026-09-15 | `CHANGELOG_643_provider-runtime-bundle-refresh.md` | Refresh Claude, Codex, Grok dependencies and macOS bundled runtimes |

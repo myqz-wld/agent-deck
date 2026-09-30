@@ -65,7 +65,10 @@ callback deadline led to a successful retry; the bootstrap also ran a setup turn
 message. The owner confirmed that a later turn recalled the synthetic test word quickly. This patch
 does not change the selected model/thinking level or redesign cold-start admission.
 
-The source repair is validated; the installed release still needs the new Worker/Core payload.
-After activation, repeat the owner's read-only session-list request without resetting the assistant.
+The repair is installed as `0a4299b96ce21a66a0b22186dd021c589adddead`. Independent checks confirm
+the packaged Worker contains all six annotations, one GUI process is running, and Worker/Relay/
+Feishu health passes. The owner was asked to retry the read-only session-list request in the same
+assistant chat; its real tool result is still pending. Installation evidence is archived in
+[PLAN_69](../../plans/recent-3-days/PLAN_69_core-read-tool-activation.md).
 Work-session routing/cards and a real pending-card decision remain separate open acceptance checks.
 The overall Feishu plans remain active. No new follow-up issue is created for this in-scope repair.

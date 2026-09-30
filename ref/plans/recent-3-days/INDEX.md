@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-30 | `PLAN_69_core-read-tool-activation.md` | completed | Activate read-only Core tools and verify the installed Worker | `REVIEW_300_core-read-tool-annotations.md` |
 | 2026-09-29 | `PLAN_68_feishu-assistant-activation.md` | completed | Verify installed assistant/work-session release and clean artifacts | `CHANGELOG_659_feishu-assistant-contexts.md` |
 | 2026-09-29 | `PLAN_67_codex-resets-dialogs.md` | completed | Compact quota resets and unified confirmation dialogs | `CHANGELOG_658_codex-resets-dialogs.md` |
 | 2026-09-29 | `PLAN_66_feishu-model-selection-activation.md` | completed | Activate model selections and remove duplicate app copies | `CHANGELOG_657_feishu-conversation-model-selections.md` |
