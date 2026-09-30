@@ -100,7 +100,8 @@ src/hosts/server-core/session-manager-observer.ts
 
 - Reactions require the official message-reaction write grant. The owner approved that exact grant
   and publication. Browser confirms the single added app-identity grant is enabled and all current
-  changes are published. Real reaction/message acceptance remains pending.
+  changes are published. The owner confirms the real assistant reply and processing-to-completion
+  reaction test succeeds; native work creation/approval remains pending.
 - Reaction metadata is intentionally transient. An abrupt process crash may leave an old indicator
   on Feishu; no success is inferred from elapsed time. This does not alter durable messages,
   approvals or business state.

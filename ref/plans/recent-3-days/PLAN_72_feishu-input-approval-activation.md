@@ -50,7 +50,8 @@ and duplicate-package cleanup. No agents, worktrees or feature branches were cre
 Installation and duplicate-app cleanup are complete. Do not reinstall this accepted package.
 The owner-approved app-identity reaction grant is enabled. Browser confirms all current changes
 are published, the existing 1.0.0 release remains published, and no extra draft is needed. Only that
-permission was added; availability settings were left intact. Real message/approval acceptance
+permission was added; availability settings were left intact. The owner confirms the real assistant
+reply and processing-to-completion reaction test succeeds. Natural work creation/approval acceptance
 continues in the active Feishu plans. Earlier catgirl/test-word
 acceptance remains valid; the old warm-channel stall's precise cause is still unproven.
 

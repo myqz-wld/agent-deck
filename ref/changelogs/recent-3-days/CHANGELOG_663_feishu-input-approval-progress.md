@@ -33,7 +33,8 @@ headless/native builds and deployment checks pass. See
 [local review](../../reviews/recent-3-days/REVIEW_304_feishu-input-approval-progress.md) for race,
 redaction and retry evidence. [Installation acceptance](../../plans/recent-3-days/PLAN_72_feishu-input-approval-activation.md)
 records actual artifact audits, exact installed release, duplicate-application cleanup and healthy
-Worker/Relay/Feishu. Real message/approval acceptance continues in the active plan.
+Worker/Relay/Feishu. The owner confirms assistant replies and progress reactions work. Natural
+work creation/approval acceptance continues in the active plan.
 
 ## Do Not Split Protection
 
