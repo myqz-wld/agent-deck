@@ -19,6 +19,7 @@ import {
 
 import {
   requireServerCoreMcpCaller,
+  SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS,
   type ServerCoreMcpCallContext,
 } from './mcp-tool-host';
 import { serverCoreMcpError, serverCoreMcpOk } from './mcp-result';
@@ -57,6 +58,7 @@ export function registerServerCoreSessionTools(
       'List related Server Core sessions using Workspace-relative paths and no host identity.',
     inputSchema: LIST_SESSIONS_SCHEMA,
     outputSchema: LIST_SESSIONS_OUTPUT_SCHEMA,
+    annotations: SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS,
   }, (args: ListSessionsArgs) => read(
     context,
     (callerId) => context.host.collaboration.list(callerId, args),
@@ -65,6 +67,7 @@ export function registerServerCoreSessionTools(
     description: 'Read one Server Core session using a Workspace-relative projection.',
     inputSchema: GET_SESSION_SCHEMA,
     outputSchema: GET_SESSION_OUTPUT_SCHEMA,
+    annotations: SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS,
   }, (args: GetSessionArgs) => read(
     context,
     (callerId) => context.host.collaboration.get(callerId, args.sessionId),
@@ -74,6 +77,7 @@ export function registerServerCoreSessionTools(
       'Read bounded normalized activity for a related session without raw provider transcripts.',
     inputSchema: LIST_SESSION_EVENTS_SCHEMA,
     outputSchema: LIST_SESSION_EVENTS_OUTPUT_SCHEMA,
+    annotations: SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS,
   }, (args: ListSessionEventsArgs) => read(
     context,
     (callerId) => context.host.collaboration.listEvents(callerId, args),

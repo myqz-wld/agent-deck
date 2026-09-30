@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { parseFeishuPreferences } from '@contracts/index';
-import { requireServerCoreMcpCaller, type ServerCoreMcpCallContext } from './mcp-tool-host';
+import { requireServerCoreMcpCaller, SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS, type ServerCoreMcpCallContext } from './mcp-tool-host';
 import { serverCoreMcpError, serverCoreMcpOk } from './mcp-result';
 
 const preference = z.object({ adapterId: z.enum(['claude-code', 'codex-cli', 'grok-build']).nullable(),
@@ -13,6 +13,7 @@ export function registerServerCoreFeishuPreferenceTool(server: McpServer, contex
     description: 'Read the paired owner\'s last Feishu conversation and new-session model selections. Read again before a user-requested new work session, so later Feishu/Desktop edits take effect. Null adapter means no saved choice: ask the owner to choose. Empty model/provider/thinking values follow native defaults. This read-only tool does not create sessions, change settings, or grant permissions; explicit user overrides still win.',
     inputSchema: {},
     outputSchema: { conversation: preference, session: preference, settingsRevision: z.number().int().nonnegative() },
+    annotations: SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS,
   }, () => {
     try {
       requireServerCoreMcpCaller(context);

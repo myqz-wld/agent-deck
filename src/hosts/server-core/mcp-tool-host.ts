@@ -10,6 +10,13 @@ import type { ServerCoreMcpPresentationPort } from './mcp-presentation-port';
 import type { ServerCoreMcpHandOffPort } from './mcp-handoff-port';
 import type { ServerCoreSessionTaskReadRepository } from './session-task-read-repository';
 
+export const SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+});
+
 export interface ServerCoreMcpCaller {
   readonly sessionId: string;
   readonly adapterId: SessionAdapterId;

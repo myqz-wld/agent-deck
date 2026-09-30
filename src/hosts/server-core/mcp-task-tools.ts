@@ -22,6 +22,7 @@ import {
   activeTeamIds,
   isActiveTeamMember,
   requireServerCoreMcpCaller,
+  SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS,
   type ServerCoreMcpCallContext,
 } from './mcp-tool-host';
 import { serverCoreMcpError, serverCoreMcpOk } from './mcp-result';
@@ -224,11 +225,13 @@ export function registerServerCoreTaskTools(
     description: 'List personal and active-team tasks visible to this authenticated session.',
     inputSchema: TASK_LIST_SCHEMA,
     outputSchema: TASK_LIST_OUTPUT_SCHEMA,
+    annotations: SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS,
   }, (args) => listTasks(args, context));
   server.registerTool('task_get', {
     description: 'Read one task visible to this authenticated session.',
     inputSchema: TASK_GET_SCHEMA,
     outputSchema: TASK_GET_OUTPUT_SCHEMA,
+    annotations: SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS,
   }, (args) => getTask(args, context));
   server.registerTool('task_update', {
     description: 'Update one task writable by this authenticated session.',
