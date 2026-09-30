@@ -9,8 +9,9 @@ describe('spawn runtime schema', () => {
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-6-astra');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('grok-4.7');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('grok-4.6');
-    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-6-sol');
-    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-6-terra');
+    expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-6.1-sol');
+    expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('gpt-6-sol');
+    expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('gpt-6-terra');
     expect(SPAWN_SESSION_SCHEMA.model.description).toContain('gpt-6-luna');
     expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('gpt-5.5');
     expect(SPAWN_SESSION_SCHEMA.model.description).not.toContain('gpt-5.4');

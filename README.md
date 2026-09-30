@@ -31,6 +31,9 @@ for each Gateway; when no valid value is configured, the creation form uses `hig
 
 ## Development
 
+Bundled providers: Claude Agent SDK `0.3.285`, Codex CLI `0.159.2`, and Grok Build `1.0.44`.
+Supporting SDKs: Anthropic `0.129.0`, MCP `1.31.0`, and ACP `1.5.1`.
+
 | Command | Purpose |
 | --- | --- |
 | `pnpm typecheck` | Check architecture and types |
