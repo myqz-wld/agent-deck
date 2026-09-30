@@ -99,7 +99,8 @@ a matching operator-owned state backup; they are not silently inferred from a ru
 - Upgrade tests perform an actual SQLite migration, fail activation, then verify original bytes,
   prior runtime health, mode-0600 state and a private preserved failed v5 database.
 - Source suite: 6,743 passed, three existing skips. Integrated latest main: 6,767 passed, three skips.
-  Architecture/typecheck and the app build pass; Linux/runtime/package acceptance follows separately.
+  Architecture/typecheck, app build, Linux reproducibility, headless/package and deployment gates pass.
+  Both pinned Feishu runtime archives pass content/privacy/ABI audits; macOS activation follows separately.
 - Shared Electron SQLite ABI remains unchanged. Changed source files are at or below 500 lines;
   context persistence and authority-test fixtures were extracted instead of adding exemptions.
 

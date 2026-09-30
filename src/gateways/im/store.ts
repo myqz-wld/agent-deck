@@ -135,7 +135,6 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
       { ...context },
     );
   }
-
   getSubscription(
     instanceId: string,
     credentialId: string,

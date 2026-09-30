@@ -43,7 +43,8 @@ credential ownership, idempotency and pending-card action contracts are preserve
 Integrated typecheck and 6,767 tests pass, with three existing skips. Source app build passes.
 Regressions cover stable creation handles, independent routing/history, gateway reopen, assistant
 reset/restore, source presentation, strict schema migration and rollback after a real migration.
-Runtime packaging and real owner acceptance remain in the active delivery plan.
+Linux/runtime packaging and deployment checks pass, including both architecture archives and privacy/ABI
+audits. macOS activation and real owner acceptance remain in the active delivery plan.
 
 ## Prompt assets and file structure
 
