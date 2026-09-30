@@ -93,7 +93,9 @@ export class ServerCoreFeishuPreferencesRuntime implements DaemonCoreRuntime {
         throw new DaemonRequestError(AgentDeckClientErrorCode.Conflict, 'Preference revision exhausted');
       }
       const next = { ...current, [params.purpose]: params.preference, settingsRevision: current.settingsRevision + 1 };
-      this.store.write(next); written = true;
+      // A file write may report an fsync error after rename; retain the claim on any write attempt.
+      written = true;
+      this.store.write(next);
       const revision = this.metadata.appendChange('feishu.preferences.updated', null, { settingsRevision: next.settingsRevision });
       const result = { ...next, revision };
       this.metadata.completeMutation(identity, result as unknown as JsonValue, revision);

@@ -51,6 +51,9 @@ coding, terminal execution and management tools without a second execution engin
   group privacy, private persistence, unavailable choices, profile switching and delayed loading.
 - Linux headless reproducibility, both pinned Feishu runtime builds, static packaging and
   deployment automation checks pass. The shared Electron SQLite binding is unchanged.
+- Actual archives each contain 37 members / 26 files; both archives and all 11 Node bundles pass
+  private-identifier checks. A focused durability regression also fences a file replacement that
+  succeeds before a directory fsync failure, avoiding an unsafe mutation retry.
 - macOS artifact validation and installed end-to-end acceptance are recorded separately after
   packaging/activation. These source checks do not claim real provider or pending-card acceptance.
 

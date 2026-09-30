@@ -97,6 +97,15 @@ describe('Core-owned Feishu selections', () => {
       .rejects.toMatchObject({ code: 'invalid_request' });
     expect(t.store.write).not.toHaveBeenCalled();
   });
+  it('retains an uncertain claim when the file replacement succeeds but its durability check fails', async () => {
+    const t = harness(); const write = t.store.write.getMockImplementation()!;
+    t.store.write.mockImplementationOnce((next) => { write(next); throw new Error('directory fsync failed'); });
+    const input = t.request({ purpose: 'session', preference: choice, expectedSettingsRevision: 0 });
+    await expect(t.runtime.execute(input)).rejects.toThrow('directory fsync failed');
+    await expect(t.runtime.execute(input)).rejects.toMatchObject({ code: 'provider_lost' });
+    expect(t.store.read().session).toEqual(choice);
+    expect(t.store.write).toHaveBeenCalledTimes(1);
+  });
 });
 
 const temporary: string[] = [];

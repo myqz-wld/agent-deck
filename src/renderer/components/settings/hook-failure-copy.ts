@@ -17,4 +17,3 @@ export const HOOK_FAILURE_COPY = {
 } as const;
 
 export type HookAdapterId = keyof typeof HOOK_FAILURE_COPY;
-
