@@ -1,7 +1,7 @@
 ---
 review_id: 297
 reviewed_at: 2026-09-29
-baseline_commit: 38c133365a20adfd8a7b49342b31d84822e06d6b
+baseline_commit: 3001b359ae287128a4124e8f6608790b508c97e5
 expired: false
 ---
 
@@ -19,6 +19,22 @@ src/gateways/feishu/message-semantics.test.ts
 scripts/build-linux-headless.mjs
 scripts/check-linux-headless.mjs
 scripts/check-feishu-websocket-bundle.mjs
+scripts/deployment/remote-storage-budget.mjs
+scripts/deployment/server.mjs
+scripts/deployment/storage-budget.mjs
+scripts/deployment/storage-budget.test.mjs
+src/gateways/im/audit-transport-retirement.test.ts
+src/gateways/im/client-pool.ts
+src/gateways/im/types.ts
+src/hosts/feishu/client-factory.ts
+src/hosts/feishu/client-factory.test.ts
+src/hosts/server-control/feishu-control-service.ts
+src/hosts/server-control/feishu-runtime-integrity.ts
+src/hosts/server-control/feishu-runtime-references.ts
+src/hosts/server-control/feishu-runtime-release.ts
+src/hosts/server-control/feishu-runtime-retention.ts
+src/hosts/server-control/feishu-runtime-retention.test.ts
+src/hosts/server-control/feishu-runtime-upgrade.ts
 ```
 
 ## Findings and fixes
@@ -122,6 +138,39 @@ accepted runtime, and preserved credentials, databases, provider installations a
 Two runtime releases remain; root free space recovered to about 846 MiB. Feishu verification
 passed again with owner pairing, Core and long connection intact, without a process restart.
 
-The deployment workflow still needs free-space budgeting and bounded runtime retention; this
-material follow-up is tracked separately. No cloud disk resize was authorized or performed.
-Post-recovery directory delivery, provider response and card acceptance remain pending.
+The owner explicitly brought free-space budgeting and bounded runtime retention into this delivery.
+Issue `2665f501-3a71-4408-a61c-160ec2b52a48` is in progress. No cloud disk resize was authorized or
+performed. Post-recovery directory delivery, provider response and card acceptance remain pending.
+
+## Terminal transport recovery and storage prevention
+
+HIGH: A cached chat client outlived its permanently failed SSH transport. A fresh connection could
+read the project catalog and directory list, but the service had no live SSH child and repeatedly
+returned `internal_error` for the existing chat. Synthetic reproduction confirmed the cache never
+retired the failed transport. Observe permanent offline/incompatible/closed states, fence the old
+generation and wait for its retirement barrier before admitting the next client. Transient SSH
+reconnects remain transport-owned. Synchronous terminal snapshots and stale listeners are covered.
+
+HIGH: Release upload/extraction lacked a free-space check, and each successful runtime upgrade
+retained all previous immutable versions. Calculate compressed and expanded archive allocations,
+combine budgets on shared filesystems and require 256 MiB of free headroom before uploading.
+The budget checks release staging, runtime installation and the service filesystem; it does not
+reserve space against unrelated writers or predict arbitrary uncached container image downloads.
+
+After runtime health acceptance, record the known preceding runtime as rollback and prune obsolete
+digest directories. Verify complete internal checksums, canonical paths, ownership, modes and file
+types. Preserve active/desired, the verified rollback, live executable/cwd/mapped/open-file references,
+unknown files and any changed tree. Missing history or unreadable process references skips cleanup.
+Repeated activation of the same release preserves recorded rollback. Partial cleanup reports its
+status without reverting the healthy service. Credential rotation and databases are outside scope.
+
+Extract upgrade orchestration from the control service to keep every changed source below 500
+lines. Its rollback now also covers daemon-reload failure before restart. Forty-one focused tests,
+typecheck and the full four-worker suite passed: 6,696 tests, three existing skips, and 1,081 passing
+files. Linux headless/runtime and deployment gates passed. Both actual archives (37 members and
+26 files each) and eleven Node bundles passed privacy inspection; the SQLite binding was unchanged.
+Official activation and actual cleanup results remain to be recorded before resolving the issue.
+
+The user also requested conversational operation. Initial inspection found that ordinary text
+requires manual session selection and subscriptions deliver state notices without assistant text.
+That feature remains under the active plan; it is not covered as completed by these repairs.

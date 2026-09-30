@@ -43,6 +43,8 @@ its controlled shutdown. See the [development workflow](CLAUDE.md) for validatio
 
 ## Documentation
 
+Server upgrades check free disk space; accepted Feishu upgrades retain an active and rollback runtime.
+
 - [Runtime configuration](resources/README.md)
 - [Relay deployment](deploy/linux/relay/README.snippet.md)
 - [Full deployment](deploy/linux/full/README.snippet.md)
