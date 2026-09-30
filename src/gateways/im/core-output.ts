@@ -174,7 +174,9 @@ export function validatePendingRequests(
   sessionId: string,
   limits: FeishuGatewayLimits,
 ): PendingRequestDto[] {
-  assertBoundedCoreValue(value, limits, 'pending requests', limits.maxPendingResults);
+  // Array -> request -> display -> input are transport/schema containers, not tool input.
+  assertBoundedCoreValue(value, { ...limits, maxCoreJsonDepth: limits.maxCoreJsonDepth + 3 },
+    'pending requests', limits.maxPendingResults);
   return (value as PendingRequestDto[]).map((item) => {
     const request = exactObject(
       item,
@@ -186,6 +188,11 @@ export function validatePendingRequests(
     if (!PENDING_KINDS.has(request.kind)) fail('pending.kind');
     if (!PENDING_STATES.has(request.status)) fail('pending.status');
     if (!jsonObject(request.display)) fail('pending.display');
+    // Permission previews wrap their payload in `input`. Keep the configured depth budget
+    // for that payload; other pending kinds use the display itself as their payload root.
+    assertBoundedCoreValue(request.display, {
+      ...limits, maxCoreJsonDepth: limits.maxCoreJsonDepth + (request.kind === 'permission' ? 1 : 0),
+    }, 'pending display');
     const expiresAt = request.expiresAt === null
       ? null
       : coreTime(request.expiresAt, 'pending.expiresAt');
@@ -264,7 +271,9 @@ export function validatePendingListResult(
   sessionId: string,
   limits: FeishuGatewayLimits,
 ) {
-  return contractResult(value, limits, 'pending list result', () => {
+  // The list result adds one more fixed wrapper around the independently bounded requests.
+  const envelopeLimits = { ...limits, maxCoreJsonDepth: limits.maxCoreJsonDepth + 4 };
+  return contractResult(value, envelopeLimits, 'pending list result', () => {
     const result = exactObject(value, ['requests', 'revision'], 'pending list result');
     return {
       requests: validatePendingRequests(result.requests, sessionId, limits),
