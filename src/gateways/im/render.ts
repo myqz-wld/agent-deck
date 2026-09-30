@@ -111,12 +111,13 @@ export function renderSessionList(
 ): SessionConsoleView {
   const lines = sessions.map(
     (session) =>
-      `${session.id} · ${session.adapterId} · ${session.status} · ${session.title ?? '未命名'}`,
+      `${session.title ?? '未命名会话'}\n${session.adapterId} · ${session.status}\nID：${session.id}`,
   );
-  const count = total === null ? `${sessions.length}` : `${sessions.length}/${total}`;
+  const count = total === null || total === sessions.length ? `${sessions.length}` : `${sessions.length}/${total}`;
   const next = nextCursor ? `\n下一页：/sessions ${nextCursor}` : '';
   return {
-    text: truncateUtf8(`Sessions（本页 ${count}）\n${lines.join('\n')}${next}`, maximumBytes),
+    text: truncateUtf8(lines.length === 0 ? '还没有可用会话。直接发送消息即可开始对话。'
+      : `${lines.join('\n\n')}\n\n本页 ${count} 个会话${next}`, maximumBytes),
     sessions,
     revision,
   };
@@ -131,14 +132,15 @@ export function renderDirectoryList(
 ): SessionConsoleView {
   const lines = projects.map(
     (project) => project.projectRef === '.'
-      ? '. · Workspace 根目录'
-      : `${project.projectRef}${project.title ? ` · ${project.title}` : ''}`,
+      ? 'Workspace 根目录\n路径：.'
+      : `${project.title ?? project.projectRef}\n路径：${project.projectRef}`,
   );
-  const count = total === null ? `${projects.length}` : `${projects.length}/${total}`;
+  const count = total === null || total === projects.length ? `${projects.length}` : `${projects.length}/${total}`;
   const next = nextCursor ? `\n下一页：/directories ${nextCursor}` : '';
   return {
     text: truncateUtf8(
-      `Workspace 工作目录建议（本页 ${count}）\n${lines.join('\n')}${next}`,
+      lines.length === 0 ? '暂时没有可用的工作目录。'
+        : `${lines.join('\n\n')}\n\n${nextCursor ? '本页' : '共'} ${count} 个工作目录${next}`,
       maximumBytes,
     ),
     projects,

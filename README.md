@@ -12,7 +12,7 @@ Manage agent sessions, project work, and collaboration in one place.
 - Git worktree isolation and provider-native runtime controls.
 - Bundled Agents, Skills, and session-owned Browser tabs.
 - Local projects and remote workspaces through Full or Relay deployments.
-- Feishu commands, subscribed assistant replies, and approval cards.
+- Feishu conversations, saved model choices, commands, and approval cards.
 
 ## Quick Start
 

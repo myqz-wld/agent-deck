@@ -162,7 +162,7 @@ export class SqliteFeishuDeleteConfirmationStore {
       if (changed !== 1) return false;
       const current = this.getRequired(instanceId, confirmationId);
       this.db.prepare(`
-        UPDATE contexts SET active_session_id = NULL, updated_at = ?
+        UPDATE contexts SET active_session_id = NULL, updated_at = MAX(updated_at + 1, ?)
         WHERE instance_id = ? AND credential_id = ? AND chat_id = ?
           AND active_session_id = ?
       `).run(

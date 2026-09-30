@@ -66,6 +66,10 @@ export class FeishuNotificationLanes {
     this.lanes.get(this.key(credential, chatId))?.start(epoch);
   }
 
+  hold(credential: EnrolledFeishuCredential, chatId: string): () => void {
+    return this.lanes.get(this.key(credential, chatId))?.hold() ?? (() => undefined);
+  }
+
   async retire(
     credential: EnrolledFeishuCredential,
     chatId: string,

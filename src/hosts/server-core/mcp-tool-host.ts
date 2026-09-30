@@ -1,4 +1,4 @@
-import type { JsonValue } from '@contracts/index';
+import type { FeishuPreferences, JsonValue } from '@contracts/index';
 import type { SessionAdapterId, SessionRecord } from '@shared/types';
 
 import type { ServerCoreIssueRepository } from './issue-repository';
@@ -17,6 +17,7 @@ export interface ServerCoreMcpCaller {
 }
 
 export interface ServerCoreMcpToolHost {
+  readonly feishuPreferences?: { read(): FeishuPreferences };
   readonly workspaceRoot: string;
   readonly privateRoots: readonly string[];
   readonly sessions: {

@@ -1,4 +1,5 @@
-import { SESSION_CONSOLE_CREATE_OPTION_KEYS, type SessionConsoleCreateOptions } from '@contracts/index';
+import { createFeishuSession } from './session-create';
+import { readModelCapabilities, readPreferences, renderModels, renderPreferences, savePreference } from './preferences';
 import { FEISHU_HELP_TEXT, type FeishuCommand } from './commands';
 import { assertFeishuMethod } from './client-pool';
 import {
@@ -9,8 +10,6 @@ import {
   validateSubscriptionResult,
   validateProjectListResult,
   validateRuntimeControls,
-  validateSessionConsoleCreateResult,
-  validateSessionConsoleCapabilitiesResult,
   validateSessionConsoleGetResult,
   validateSessionConsoleListResult,
 } from './core-output';
@@ -167,70 +166,24 @@ export class FeishuCommandExecutor {
       return {
         ...view,
         text: truncateUtf8(
-          `已选择 session ${command.sessionId}\n${view.text}`,
+          `${result.session.title ?? '未命名会话'}\nID：${command.sessionId}\n\n${view.cards?.length ? view.text : '直接发送消息即可继续。'}`,
           this.options.limits.maxOutputBytes,
         ),
       };
     }
     if (command.kind === 'create') {
-      assertFeishuMethod(connected.hello, 'session.console.capabilities');
-      assertFeishuMethod(connected.hello, 'session.console.create');
+      return createFeishuSession(this.options, command, event, credential, context, connected, remaining);
+    }
+    if (command.kind === 'new') throw new FeishuGatewayError('invalid_command', '请在私聊中开始新对话');
+    if (command.kind === 'preferences-get' || command.kind === 'preferences-set' || command.kind === 'models') {
+      if (event.chatType === 'group') return { text: '请在机器人私聊中查看或修改模型配置。', revision: null };
+      if (command.kind === 'models') return renderModels(await readModelCapabilities(connected,
+        remaining, this.options.limits, command.adapterId, command.provider), this.options.limits.maxOutputBytes);
+      const current = await readPreferences(connected, remaining);
+      if (command.kind === 'preferences-get') return renderPreferences(current);
       await this.options.beforeMutation(credential, event.chatId);
-      const capabilityRaw = await client.request(
-        'session.console.capabilities',
-        {
-          adapterId: command.adapterId,
-          provider: '',
-          workingDirectory: command.workingDirectory,
-        },
-        { deadlineMs: remaining() },
-      );
-      const capabilities = validateSessionConsoleCapabilitiesResult(
-        capabilityRaw,
-        this.options.limits,
-        {
-          adapterId: command.adapterId,
-          provider: '',
-          workingDirectory: command.workingDirectory,
-        },
-      );
-      if (!capabilities.create.enabled) {
-        throw new FeishuGatewayError(
-          'capability_unavailable',
-          capabilities.create.disabledReason ?? 'Remote adapter 当前不可用',
-        );
-      }
-      const createOptions = Object.fromEntries(
-        SESSION_CONSOLE_CREATE_OPTION_KEYS.map((key) => [
-          key,
-          capabilities.create.options[key].defaultValue,
-        ]),
-      ) as unknown as SessionConsoleCreateOptions;
-      const raw = await client.request(
-        'session.console.create',
-        {
-          adapterId: command.adapterId,
-          attachments: [],
-          capabilityRevision: capabilities.capabilityRevision,
-          initialMessage: command.initialMessage,
-          projectTrust: {
-            revision: capabilities.projectTrust.revision,
-            grant: false,
-          },
-          workingDirectory: command.workingDirectory,
-          options: createOptions,
-        },
-        { ...mutation, deadlineMs: remaining() },
-      );
-      const result = validateSessionConsoleCreateResult(raw, this.options.limits);
-      const sessionId = result.sessionId;
-      const revision = result.revision;
-      this.options.store.putContext({
-        ...context,
-        activeSessionId: sessionId,
-        updatedAt: this.options.now(),
-      });
-      return { text: `已创建并选择 session ${sessionId}`, revision };
+      return renderPreferences(await savePreference(connected, remaining, current,
+        command.purpose, command.preference, event.eventId));
     }
     if (command.kind === 'session-delete-prepare') {
       return this.deleteController.prepare(event, credential, context, connected, remaining);
@@ -282,7 +235,7 @@ export class FeishuCommandExecutor {
       );
       const result = validateSendResult(raw, this.options.limits);
       return {
-        text: `消息已由 Core 接受（sequence ${result.sequence}）`,
+        text: '消息已发送，正在处理。',
         revision: result.revision,
       };
     }
@@ -407,7 +360,7 @@ export class FeishuCommandExecutor {
         updatedAt: this.options.now(),
       });
       return {
-        text: result.subscribed ? '已订阅当前 session。' : '已取消订阅当前 session。',
+        text: result.subscribed ? '已开启当前会话的回复通知。' : '已关闭当前会话的回复通知。',
         revision,
       };
     });

@@ -64,7 +64,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
         this.contexts.set(key, {
           ...context,
           activeSessionId: null,
-          updatedAt: confirmation.updatedAt,
+          updatedAt: Math.max(confirmation.updatedAt, context.updatedAt + 1),
         });
       }
       this.subscriptions.delete(subscriptionKey(

@@ -5,3 +5,4 @@ export * from './plan-review';
 export * from './public-errors';
 export * from './recovery';
 export * from './types';
+export * from './feishu-preferences';

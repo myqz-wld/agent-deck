@@ -26,6 +26,7 @@ export function remoteHostResourcesForCoreEvent(
 ): readonly RemoteHostResourceKind[] {
   if (eventKind.startsWith('usage.')) return ['usage'];
   if (eventKind.startsWith('issue.')) return ['issues'];
+  if (eventKind.startsWith('feishu.preferences.')) return ['node-configuration'];
   if (eventKind.startsWith('node.hook.')) return ['node-configuration'];
   if (eventKind.startsWith('node.asset.')) return ['node-assets'];
   if (eventKind.startsWith('team.')) return SESSION_EVENT_RESOURCES;

@@ -58,6 +58,7 @@ import { RemoteHostDetailReader } from './service-detail-reader';
 import { RemoteHostIssueController } from './service-issues';
 import { RemoteHostPlanReviewController } from './service-plan-review';
 import { RemoteHostUsageController } from './service-usage';
+import { RemoteHostFeishuPreferencesController } from './service-feishu-preferences';
 import { RemoteHostNodeConfigurationController } from './service-node-configuration';
 import { RemoteHostNodeAssetController } from './service-node-assets';
 import { RemoteHostSessionMutationController } from './service-session-mutations';
@@ -91,6 +92,7 @@ export class RemoteHostService {
   readonly detail: RemoteHostDetailReader; readonly issues: RemoteHostIssueController;
   readonly planReviews: RemoteHostPlanReviewController;
   readonly usage: RemoteHostUsageController;
+  readonly feishuPreferences: RemoteHostFeishuPreferencesController;
   readonly nodeConfiguration: RemoteHostNodeConfigurationController;
   readonly nodeAssets: RemoteHostNodeAssetController;
   readonly handoff: RemoteHostSessionHandOffController;
@@ -146,6 +148,7 @@ export class RemoteHostService {
       mutationId,
     );
     this.usage = new RemoteHostUsageController(requestScoped);
+    this.feishuPreferences = new RemoteHostFeishuPreferencesController(requestScoped, mutationId);
     this.nodeConfiguration = new RemoteHostNodeConfigurationController(requestScoped);
     this.nodeAssets = new RemoteHostNodeAssetController(requestScoped);
     this.sessionMutations = new RemoteHostSessionMutationController(requestScoped, mutationId);

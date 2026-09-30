@@ -283,6 +283,7 @@ export interface FeishuOutboundMessage {
   kind: 'card-update' | 'notification' | 'reply';
   text: string;
   cards: readonly FeishuPendingCard[];
+  presentation?: { title: string; standalone: boolean };
 }
 
 export interface FeishuTransportPort {
@@ -428,6 +429,9 @@ export interface ConnectedFeishuClient {
 
 export interface SessionConsoleView {
   text: string;
+  presentation?: FeishuOutboundMessage['presentation'];
+  silent?: boolean;
+  errorCode?: string;
   sessions?: readonly SessionConsoleSummaryDto[];
   projects?: readonly ProjectReferenceDto[];
   history?: readonly SessionHistoryEntryDto[];

@@ -272,6 +272,24 @@ describe('strict Feishu SDK event mapping', () => {
 });
 
 describe('official API transport and modern cards', () => {
+  it('sends standalone command cards in private chat while retaining quoted group replies', async () => {
+    const { api, calls } = fakeApi();
+    const sources = new FeishuSourceRegistry();
+    const transport = new OfficialFeishuTransport({ instanceId: 'instance_1' }, api, sources, signer());
+    await sources.within({ eventId: 'evt_message_1', chatId: 'oc_chat_1', messageId: 'om_message_1',
+      kind: 'message', occurredAt: NOW }, async () => {
+      await transport.deliver(outbound({ text: 'Workspace 根目录\n路径：.\n\n共 1 个工作目录',
+        presentation: { title: '工作目录', standalone: true } }), attempt());
+      await transport.deliver(outbound({ presentation: { title: '使用帮助', standalone: false } }), attempt());
+    });
+    expect(calls.map(c => c.operation)).toEqual(['create', 'reply']);
+    const input = calls[0].input as { content: string; messageType: string; uuid: string };
+    expect(input.messageType).toBe('interactive');
+    expect(JSON.parse(input.content)).toMatchObject({ schema: '2.0', header: { title: { content: '工作目录' } } });
+    expect(input.content).not.toContain('1/1');
+    expect(input.uuid).toMatch(/^ad-[A-Za-z0-9_-]{43}$/);
+  });
+
   it('reuses one bounded provider uuid for safe reply reconciliation', async () => {
     const { api, calls } = fakeApi();
     const sources = new FeishuSourceRegistry();

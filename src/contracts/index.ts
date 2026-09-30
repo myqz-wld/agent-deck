@@ -13,6 +13,7 @@ export * from './pending-index';
 export * from './provider-session-container';
 export * from './session-console';
 export * from './session-console-capabilities';
+export * from './feishu-preferences';
 export * from './session-console-attachments';
 export * from './session-console-directories';
 export * from './session-detail';

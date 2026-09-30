@@ -1,3 +1,4 @@
+import { remoteMutationAuthority } from './remote-source-utils';
 import type { RemoteSessionSourceView } from './source-types';
 
 function base(source: RemoteSessionSourceView) {
@@ -15,6 +16,8 @@ export function remoteConfigurationDialogContext(
 ) {
   return remoteMode ? {
     ...base(source),
+    supportsFeishuPreferences: source.capabilities.has('feishu.configuration'),
+    expectedAuthority: remoteMutationAuthority(source.state),
     supportsNodeConfiguration: source.capabilities.has('node.configuration'),
     supportsNodeHooksRead: source.capabilities.has('node.hooks.read'),
   } : null;

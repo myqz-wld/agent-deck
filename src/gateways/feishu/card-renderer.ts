@@ -162,11 +162,11 @@ export function renderFeishuCard(
   message: FeishuOutboundMessage,
   signer: FeishuPresentationActionSigner,
 ): string {
-  const title = message.kind === 'notification'
-    ? 'Agent Deck notification'
+  const title = message.presentation?.title ?? (message.kind === 'notification'
+    ? '会话通知'
     : message.kind === 'card-update'
-      ? 'Agent Deck update'
-      : 'Agent Deck';
+      ? '操作结果'
+      : 'Agent Deck');
   const card = {
     schema: '2.0',
     config: {

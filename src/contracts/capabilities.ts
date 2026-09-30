@@ -36,6 +36,7 @@ export const AgentDeckCapability = {
   Browser: 'browser',
   Assets: 'assets',
   Replay: 'events.replay',
+  FeishuConfiguration: 'feishu.configuration',
 } as const;
 
 export type AgentDeckCapability =

@@ -116,6 +116,7 @@ function settingsFieldStructure(container: HTMLElement): Array<[string, string[]
 }
 
 const GENERAL_STRUCTURE: Array<[string, string[]]> = [
+  ['飞书机器人', []],
   ['会话', ['生命周期', '会话续接上下文', '间歇总结']],
   ['提醒与外观', ['提醒', '窗口', '快捷键']],
   ['集成与运行环境', ['Hook Server（本地端口）', '外部工具', '实验功能', '日志']],
@@ -182,7 +183,7 @@ describe('SettingsDialog adapter views', () => {
     }) as HTMLButtonElement).disabled)
       .toBe(true);
     expect(screen.getAllByText(
-      '远端运行设置仅供查看。提醒、窗口和日志仍可在这里修改；快捷键显示的是这台电脑当前使用的按键。',
+      '远端运行设置仅供查看，飞书模型选择可在下方管理。提醒、窗口和日志仍可修改；快捷键显示本机按键。',
     )).toHaveLength(1);
     expect(localHookStatus).not.toHaveBeenCalled();
     expect(remoteHookStatus).toHaveBeenCalledTimes(3);

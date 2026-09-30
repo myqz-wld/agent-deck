@@ -107,8 +107,31 @@ cards, action values, history, diffs, blobs, secrets, paths, or Core frames.
 
 ## Delivery and group-chat behavior
 
-In a paired p2p chat, select a session and send `/subscribe` to receive assistant replies and
-pending cards. Core's `event.persisted` notification carries only an event identity; the gateway
+In a paired p2p chat, `/settings` manages separate last selections for bot conversations and new
+work sessions. The same configuration is available in the connected Core's Desktop settings.
+`/models [adapter-id] [provider]` lists live choices. Save a choice with
+`/settings chat <adapter-id>` or `/settings session <adapter-id>`, optionally followed by a JSON
+object containing `model`, `provider`, and/or `thinking` strings. Empty option values follow native
+settings. No initial adapter is silently selected, and unavailable saved choices never fall back.
+
+Ordinary text automatically starts a conversation using the saved chat selection when no session
+is selected. New p2p conversations and explicitly created sessions subscribe to assistant replies
+and pending cards. `/new` starts another chat with the saved selection and preserves old sessions.
+`/create last <directory> -- <message>` reuses the saved work selection. An explicit adapter and
+optional `--model`, `--provider`, or `--thinking` flags override and remember that work selection.
+Existing selected sessions keep their native runtime controls; explicit `/unsubscribe` remains
+in effect. A request to create a work session in natural language reads current preferences through
+Core's read-only MCP tool before using the existing session creation tools.
+
+Commands use compact cards with standalone p2p responses and quoted group replies. Groups cannot
+read or modify the shared model configuration, bootstrap a conversation, or use private saved
+selections. Explicit group session creation does not alter the private last choices.
+
+Core owns a bounded, owner-only, atomically replaced configuration file. Desktop/Feishu saves use
+an independent settings revision to detect concurrent edits. Protocol 2.9 requires matching Desktop,
+Worker, Server and Feishu artifacts during activation; no credential re-enrollment is required.
+
+Assistant reply delivery preserves the existing metadata-only notification path. Core's `event.persisted` notification carries only an event identity; the gateway
 reads that exact history entry before sending text. User messages and thinking are not echoed,
 and group chats never fetch assistant bodies. Older entries outside the bounded history lookup
 produce an explicit `/history` notice. Ordinary text uses the selected session's existing tools

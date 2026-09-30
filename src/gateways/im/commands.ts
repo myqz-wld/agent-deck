@@ -3,12 +3,16 @@ import {
   parseWorkspaceDirectoryRef,
   type JsonObject,
 } from '@contracts/index';
+import { parsePreferenceCommand, parseCreateOverrides, type PreferenceCommand } from './preference-commands';
+import type { FeishuModelPreference, FeishuPreferencePurpose } from '@contracts/index';
 import { FeishuGatewayError } from './errors';
 import type { FeishuInboundEvent } from './types';
 import { requireBoundedText, stableToken } from './validation';
 
 export type FeishuCommand =
-  | { kind: 'create'; adapterId: string; initialMessage: string; workingDirectory: string }
+  | PreferenceCommand
+  | { kind: 'new' }
+  | { kind: 'create'; adapterId: string | null; initialMessage: string; workingDirectory: string; selection?: Partial<FeishuModelPreference>; purpose?: FeishuPreferencePurpose }
   | { kind: 'directories'; cursor?: string }
   | { kind: 'help' }
   | { kind: 'history'; cursor?: string }
@@ -47,6 +51,9 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
     throw new FeishuGatewayError('invalid_command', '消息不能为空');
   }
   if (!input.startsWith('/')) return { kind: 'send', text: bounded };
+  const preferenceCommand = parsePreferenceCommand(input);
+  if (preferenceCommand) return preferenceCommand;
+  if (input === '/new') return { kind: 'new' };
   if (input === '/help') return { kind: 'help' };
   if (input === '/sessions') return { kind: 'sessions' };
   if (input.startsWith('/sessions ')) {
@@ -72,10 +79,14 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
       /^\/create ([^\s]+) ([\s\S]+?) -- ([\s\S]+)$/,
       '/create <adapter-id> <workspace-relative-directory> -- <first-message>',
     );
+    if (!['last', 'default', 'claude-code', 'codex-cli', 'grok-build'].includes(adapterId)) {
+      throw new FeishuGatewayError('invalid_command', '使用 /models 查看可用助手，或用 last 沿用上次选择');
+    }
+    const overrides = parseCreateOverrides(rawWorkingDirectory);
     let workingDirectory: string;
     try {
       workingDirectory = parseWorkspaceDirectoryRef(
-        rawWorkingDirectory,
+        overrides.directory,
         'workingDirectory',
       );
     } catch {
@@ -86,7 +97,8 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
     }
     return {
       kind: 'create',
-      adapterId: stableToken(adapterId, 'adapterId'),
+      adapterId: ['last', 'default'].includes(adapterId) ? null : stableToken(adapterId, 'adapterId'),
+      ...(Object.keys(overrides.selection).length ? { selection: overrides.selection } : {}),
       initialMessage: requireBoundedText(rawInitialMessage, maximumTextBytes),
       workingDirectory,
     };
@@ -134,10 +146,15 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
 }
 
 export const FEISHU_HELP_TEXT = [
+  '直接发送消息即可聊天或安排任务。首次使用先发送 /settings 选择助手。',
+  '/settings — 查看或修改机器人聊天、新建会话的上次选择',
+  '/models [adapter-id] [provider] — 查看可用助手与模型选项',
+  '/new — 沿用聊天配置开始新对话，保留原会话',
   '/sessions [cursor] — 分页列出 session',
   '/directories [cursor] — 查看 Workspace 内的工作目录建议',
   '/select <session-id> — 选择 session',
-  '/create <adapter-id> <workspace-relative-directory> -- <first-message> — 在 Workspace 内创建 session',
+  '/create last <目录> -- <需求> — 沿用上次的新建会话配置',
+  '/create <adapter-id> <目录> [--model <模型>] [--provider <网关>] [--thinking <程度>] -- <需求> — 覆盖并记住选择',
   '/history [cursor] — 查看历史',
   '/send <text> — 发送消息（普通文本也会发送）',
   '/runtime — 查看 adapter runtime controls',

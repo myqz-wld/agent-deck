@@ -44,6 +44,8 @@ import { appendServerCoreChangeSafely, createServerCoreSessionManagerObserver } 
 import { ServerCorePlanReviewRuntime } from './plan-review-runtime';
 import { ServerCoreUsageRuntime } from './usage-runtime';
 import { ServerCoreNodeConfigurationRuntime } from './node-configuration-runtime';
+import { ServerCoreFeishuPreferencesRuntime } from './feishu-preferences-runtime';
+import { FileFeishuPreferenceStore } from './feishu-preference-store';
 import { ServerCoreNodeHookProjectionState } from './node-hook-projection-state';
 import { ServerCoreNodeAssetRuntime } from './node-asset-runtime';
 import { ServerCoreNodeAssetCatalog } from './node-asset-catalog';
@@ -283,7 +285,9 @@ export function createServerCoreRuntimeWithOverrides(
   const background = createServerCoreBackgroundComposition({
     settings: providerSettings, registry, metadata, diagnostics: runtimeDiagnostics,
   });
+  const feishuPreferences = new FileFeishuPreferenceStore(input.paths.stateDirectory);
   const { desktopBroker, handoff, mcpBroker, presentations } = createServerCoreMcpComposition({
+    feishuPreferences,
     workspaceRoot,
     privateRoots,
     repositories,
@@ -433,7 +437,9 @@ export function createServerCoreRuntimeWithOverrides(
     registry,
     currentRevision: () => metadata.currentRevision(),
   });
-  const configurationRuntime = new ServerCoreNodeConfigurationRuntime(usageRuntime, {
+  const preferenceRuntime = new ServerCoreFeishuPreferencesRuntime(usageRuntime,
+    feishuPreferences, metadata, createCapabilities);
+  const configurationRuntime = new ServerCoreNodeConfigurationRuntime(preferenceRuntime, {
     settings: providerSettings,
     sessionLifecycle: sessionLifecycleSettings,
     registry,

@@ -72,6 +72,9 @@ import type {
   RemoteHostUsageProviderRequestDto,
   RemoteHostUsageTokenDto,
   RemoteHostUsageTokenRequestDto,
+  RemoteHostFeishuPreferencesDto,
+  RemoteHostFeishuPreferencesRequestDto,
+  RemoteHostFeishuPreferencesUpdateDto,
   RemoteHostNodeConfigurationDto,
   RemoteHostNodeConfigurationRequestDto,
   RemoteHostNodeHookRequestDto,
@@ -173,6 +176,10 @@ export const remoteHostApi = {
     request: RemoteHostUsageProviderRequestDto,
   ): Promise<RemoteHostUsageProviderDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.UsageProvidersGet, request),
+  getRemoteHostFeishuPreferences: (request: RemoteHostFeishuPreferencesRequestDto): Promise<RemoteHostFeishuPreferencesDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.FeishuPreferencesGet, request),
+  updateRemoteHostFeishuPreferences: (request: RemoteHostFeishuPreferencesUpdateDto): Promise<RemoteHostFeishuPreferencesDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.FeishuPreferencesUpdate, request),
   getRemoteHostNodeConfiguration: (
     request: RemoteHostNodeConfigurationRequestDto,
   ): Promise<RemoteHostNodeConfigurationDto> =>

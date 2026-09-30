@@ -1,4 +1,5 @@
 import type { JsonValue } from '@contracts/index';
+import type { FeishuPreferenceStore } from './feishu-preference-store';
 
 import { ServerCoreDesktopBroker } from './desktop-broker';
 import { ServerCoreMcpBroker } from './mcp-broker';
@@ -21,6 +22,7 @@ import type { ServerCoreSessionCreateCapabilities } from './session-create-capab
 import type { AgentAdapter } from '@main/adapters/types';
 
 export function createServerCoreMcpComposition(input: {
+  readonly feishuPreferences: Pick<FeishuPreferenceStore, 'read'>;
   readonly workspaceRoot: string;
   readonly privateRoots: readonly string[];
   readonly repositories: ServerCoreRepositoryHost;
@@ -73,6 +75,7 @@ export function createServerCoreMcpComposition(input: {
   });
   const mcpBroker = new ServerCoreMcpBroker({
     host: createServerCoreMcpToolHost({
+      feishuPreferences: input.feishuPreferences,
       workspaceRoot: input.workspaceRoot,
       privateRoots: input.privateRoots,
       repositories: input.repositories,

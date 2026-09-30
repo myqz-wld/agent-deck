@@ -156,6 +156,8 @@ export const RemoteHostIpcInvoke = {
   TasksList: 'remote-host:tasks-list',
   UsageTokensGet: 'remote-host:usage-tokens-get',
   UsageProvidersGet: 'remote-host:usage-providers-get',
+  FeishuPreferencesGet: 'remote-host:feishu-preferences-get',
+  FeishuPreferencesUpdate: 'remote-host:feishu-preferences-update',
   NodeConfigurationGet: 'remote-host:node-configuration-get',
   NodeHookStatus: 'remote-host:node-hook-status',
   NodeAssetsList: 'remote-host:node-assets-list',

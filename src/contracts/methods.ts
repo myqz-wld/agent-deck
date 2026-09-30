@@ -1,5 +1,6 @@
 import { AgentDeckCapability, type AgentDeckCapability as Capability } from './capabilities';
 import type { JsonObject, JsonValue } from './json';
+import type { FeishuPreferencesResult, FeishuPreferencesUpdateParams } from './feishu-preferences';
 import type {
   SessionConsoleCapabilitiesParams,
   SessionConsoleCapabilitiesResult,
@@ -312,6 +313,8 @@ export type CoreMethodMap = {
     params: { sessionId: string; subscribed: boolean };
     result: { subscribed: boolean; revision: number };
   };
+  'feishu.preferences.get': { params: Record<string, never>; result: FeishuPreferencesResult };
+  'feishu.preferences.update': { params: FeishuPreferencesUpdateParams; result: FeishuPreferencesResult };
 };
 
 export interface CoreMethodMetadata {
@@ -417,6 +420,8 @@ export const CORE_METHOD_METADATA = {
   'session.handoff.preview': readMethod(AgentDeckCapability.SessionHandOff),
   'session.handoff.commit': mutationMethod(AgentDeckCapability.SessionHandOff, 'none'),
   'subscription.set': mutationMethod(AgentDeckCapability.SubscriptionsWrite),
+  'feishu.preferences.get': readMethod(AgentDeckCapability.FeishuConfiguration),
+  'feishu.preferences.update': mutationMethod(AgentDeckCapability.FeishuConfiguration, 'none'),
 } as const satisfies Record<keyof CoreMethodMap, CoreMethodMetadata>;
 
 export type CoreMethod = keyof CoreMethodMap;

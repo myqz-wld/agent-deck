@@ -7,11 +7,11 @@ import {
 } from './version';
 
 describe('protocol version negotiation', () => {
-  it('advertises adapter session commands as protocol 2.8', () => {
-    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 8 });
+  it('advertises shared Feishu configuration as protocol 2.9', () => {
+    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 9 });
   });
   it('accepts only one exact protocol contract', () => {
-    expect(negotiateProtocolVersion({ major: 2, minor: 8 })).toEqual({ major: 2, minor: 8 });
+    expect(negotiateProtocolVersion({ major: 2, minor: 9 })).toEqual({ major: 2, minor: 9 });
   });
 
   it('rejects a major mismatch before ordinary calls', () => {
@@ -26,7 +26,7 @@ describe('protocol version negotiation', () => {
 
   it('rejects minor skew before ordinary calls', () => {
     expect(() =>
-      negotiateProtocolVersion({ major: 2, minor: 6 }, { major: 2, minor: 8 }),
+      negotiateProtocolVersion({ major: 2, minor: 6 }, { major: 2, minor: 9 }),
     ).toThrowError('Protocol version mismatch');
   });
 });

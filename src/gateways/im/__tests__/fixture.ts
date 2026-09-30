@@ -1,5 +1,8 @@
 import {
   CORE_METHOD_METADATA,
+  defaultFeishuModelPreference,
+  parseFeishuPreferencesUpdate,
+  type FeishuPreferences,
   createPermissionPreviewDisplay,
   issueRemoteOwnerAccessContext,
   type AgentDeckClient,
@@ -81,6 +84,10 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
   subscriptionCloseCalls = 0;
   closed = false;
   revision = 10;
+  preferences: FeishuPreferences = {
+    conversation: { ...defaultFeishuModelPreference(), adapterId: 'codex-cli' },
+    session: { ...defaultFeishuModelPreference(), adapterId: 'codex-cli' }, settingsRevision: 1,
+  };
 
   constructor(
     input: Parameters<FeishuAgentDeckClientFactory>[0],
@@ -131,6 +138,13 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
       if (hooked !== undefined) return hooked;
     }
     switch (method) {
+      case 'feishu.preferences.get': return { ...structuredClone(this.preferences), revision: this.revision };
+      case 'feishu.preferences.update': {
+        const update = parseFeishuPreferencesUpdate(params);
+        if (update.expectedSettingsRevision !== this.preferences.settingsRevision) throw Object.assign(new Error('stale selection'), { code: 'conflict' });
+        this.preferences = { ...this.preferences, [update.purpose]: update.preference, settingsRevision: this.preferences.settingsRevision + 1 };
+        return { ...structuredClone(this.preferences), revision: ++this.revision };
+      }
       case 'session.console.list': {
         const sessions = [...this.sessions.values()];
         const offset = fakeCursorOffset(params.cursor);
@@ -165,7 +179,7 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
       case 'session.console.capabilities':
         return {
           ...sessionConsoleCapabilitiesFixture(
-            params.adapterId as 'claude-code' | 'codex-cli' | 'grok-build',
+            (params.adapterId ?? 'codex-cli') as 'claude-code' | 'codex-cli' | 'grok-build',
             params.workingDirectory as string,
           ),
           revision: this.revision,

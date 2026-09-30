@@ -81,7 +81,7 @@ export class OfficialFeishuTransport implements FeishuTransportPort {
     if (source && source.chatId !== message.chatId) {
       throw new FeishuGatewayError('event_identity_mismatch', 'Outbound chat differs from provider source');
     }
-    const hasCard = message.cards.length > 0 || message.kind === 'card-update';
+    const hasCard = message.presentation !== undefined || message.cards.length > 0 || message.kind === 'card-update';
     const content = hasCard ? renderFeishuCard(message, this.signer) : renderFeishuText(message);
     const messageType = hasCard ? 'interactive' as const : 'text' as const;
     const uuid = providerUuid(message);
@@ -103,7 +103,9 @@ export class OfficialFeishuTransport implements FeishuTransportPort {
         throw new FeishuGatewayError('invalid_event', 'Reply has no active provider message source');
       }
       const response = await providerCall(
-        this.api.reply({ messageId: source.messageId, content, messageType, uuid }),
+        message.presentation?.standalone
+          ? this.api.create({ chatId: message.chatId, content, messageType, uuid })
+          : this.api.reply({ messageId: source.messageId, content, messageType, uuid }),
         attempt.signal,
       );
       assertSuccess(response, true);

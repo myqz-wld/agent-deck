@@ -22,6 +22,8 @@ import { AdapterConfigHelp } from './settings/AdapterConfigHelp';
 import { ResetSettingsButton } from './settings/ResetSettingsButton';
 import { useModalFocus } from './use-modal-focus';
 import type { NodeConfigurationGetResult } from '@contracts/index';
+import { FeishuPreferencesSection, type FeishuPreferencesSource } from './settings/FeishuPreferencesSection';
+import { HOOK_FAILURE_COPY, type HookAdapterId } from './settings/hook-failure-copy';
 import { presentRemoteSettings } from './settings/remote-settings-presentation';
 import {
   presentLocalHookStatus,
@@ -33,7 +35,7 @@ import { remoteHookUnavailableReason } from './settings/remote-settings-availabi
 interface Props {
   open: boolean;
   onClose: () => void;
-  remote?: {
+  remote?: FeishuPreferencesSource & {
     identity: string;
     label: string;
     profileId: string | null;
@@ -42,26 +44,6 @@ interface Props {
     usable: boolean;
   } | null;
 }
-
-const HOOK_FAILURE_COPY = {
-  'claude-code': {
-    status: 'Claude Code 终端 Hook 状态读取失败，请重试。',
-    install: 'Claude Code 终端 Hook 安装失败，请重试。',
-    uninstall: 'Claude Code 终端 Hook 卸载失败，请重试。',
-  },
-  'codex-cli': {
-    status: 'Codex CLI 终端 Hook 状态读取失败，请重试。',
-    install: 'Codex CLI 终端 Hook 安装失败，请重试。',
-    uninstall: 'Codex CLI 终端 Hook 卸载失败，请重试。',
-  },
-  'grok-build': {
-    status: 'Grok Build 终端 Hook 状态读取失败，请重试。',
-    install: 'Grok Build 终端 Hook 安装失败，请重试。',
-    uninstall: 'Grok Build 终端 Hook 卸载失败，请重试。',
-  },
-} as const;
-
-type HookAdapterId = keyof typeof HOOK_FAILURE_COPY;
 
 /**
  * Owns settings and Hook status loading, update IPC calls, and section layout.
@@ -335,12 +317,15 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
 
             {remote && (
               <div className="mb-3 rounded border border-deck-border/70 bg-white/[0.025] px-2 py-1.5 text-[10px] leading-relaxed text-deck-muted/75">
-                远端运行设置仅供查看。提醒、窗口和日志仍可在这里修改；快捷键显示的是这台电脑当前使用的按键。
+                远端运行设置仅供查看，飞书模型选择可在下方管理。提醒、窗口和日志仍可修改；快捷键显示本机按键。
               </div>
             )}
 
             {activeTab === 'general' && (
               <>
+                <SectionGroup title="飞书机器人">
+                  <FeishuPreferencesSection source={remote} />
+                </SectionGroup>
                 {remote && remoteConfigurationStatus(
                   remote,
                   nodeConfiguration,

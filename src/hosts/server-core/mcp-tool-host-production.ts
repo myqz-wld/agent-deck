@@ -1,6 +1,7 @@
 import { findSessionHandOffSuccessor } from '@main/store/session-handoff-alias-repo';
 
 import type { ServerCoreMcpToolHost } from './mcp-tool-host';
+import type { FeishuPreferenceStore } from './feishu-preference-store';
 import type { ServerCoreMcpSessionPort } from './mcp-session-port';
 import type { ServerCoreMcpSpawnPort } from './mcp-spawn-port';
 import type { ServerCoreMcpWorktreePort } from './mcp-worktree-port';
@@ -30,6 +31,7 @@ function isCurrentOwner(
 }
 
 export function createServerCoreMcpToolHost(input: {
+  readonly feishuPreferences?: Pick<FeishuPreferenceStore, 'read'>;
   readonly workspaceRoot: string;
   readonly privateRoots: readonly string[];
   readonly repositories: ServerCoreRepositoryHost;
@@ -45,6 +47,7 @@ export function createServerCoreMcpToolHost(input: {
   >;
 }): ServerCoreMcpToolHost {
   return Object.freeze({
+    feishuPreferences: input.feishuPreferences,
     workspaceRoot: input.workspaceRoot,
     privateRoots: Object.freeze([...input.privateRoots]),
     sessions: input.repositories.sessions,

@@ -77,6 +77,7 @@ export class FeishuDeliveryService {
 export class FeishuNotificationLane {
   private readonly queued: Array<{ epoch: number; event: NotificationEvent }> = [];
   private running = false;
+  private holds = 0;
   private state: 'attaching' | 'closed' | 'open' | 'resync-required' = 'resync-required';
   private epoch: number | null = null;
   private readonly idleWaiters = new Set<() => void>();
@@ -94,6 +95,7 @@ export class FeishuNotificationLane {
       return false;
     }
     this.queued.length = 0;
+    this.holds = 0;
     this.epoch = epoch;
     this.state = 'attaching';
     return true;
@@ -106,9 +108,22 @@ export class FeishuNotificationLane {
   }
 
   start(epoch: number): void {
-    if (this.state === 'open' && this.epoch === epoch && !this.running && this.queued.length > 0) {
+    if (this.state === 'open' && this.epoch === epoch && !this.running && this.holds === 0 && this.queued.length > 0) {
       void this.drain();
     }
+  }
+
+  hold(): () => void {
+    const epoch = this.epoch;
+    if (this.state !== 'open' || epoch === null) return () => undefined;
+    this.holds += 1;
+    let released = false;
+    return () => {
+      if (released || this.epoch !== epoch) return;
+      released = true;
+      this.holds -= 1;
+      this.start(epoch);
+    };
   }
 
   push(epoch: number, event: NotificationEvent): boolean {
@@ -122,14 +137,14 @@ export class FeishuNotificationLane {
       return false;
     }
     this.queued.push({ epoch, event: { ...event } });
-    if (this.state === 'open' && !this.running) void this.drain();
+    if (this.state === 'open' && !this.running && this.holds === 0) void this.drain();
     return true;
   }
 
   private async drain(): Promise<void> {
     this.running = true;
     try {
-      while (this.queued.length > 0) {
+      while (this.queued.length > 0 && this.holds === 0) {
         const item = this.queued.shift() as { epoch: number; event: NotificationEvent };
         if (this.state !== 'open' || item.epoch !== this.epoch) break;
         try {
@@ -145,7 +160,7 @@ export class FeishuNotificationLane {
       }
     } finally {
       this.running = false;
-      if (this.state === 'open' && this.queued.length > 0) void this.drain();
+      if (this.state === 'open' && this.holds === 0 && this.queued.length > 0) void this.drain();
       if (!this.running) {
         for (const resolve of this.idleWaiters) resolve();
         this.idleWaiters.clear();
