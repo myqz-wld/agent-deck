@@ -23,6 +23,7 @@ import { createFeishuCoreProbe } from './core-verification';
 import { createOfficialFeishuConnectionFactory, createOfficialFeishuOpenApi } from './sdk';
 import type { FeishuEventMapperOptions } from './mapper';
 import { FeishuSourceRegistry } from './source-registry';
+import { FeishuMessageReactions } from './message-reactions';
 import { SqliteFeishuGatewayStore } from './sqlite-store';
 import { OfficialFeishuTransport } from './transport';
 import type {
@@ -309,6 +310,9 @@ function buildWithSecrets(
       config.callbackWindowMs,
     );
     const gateway = new FeishuSessionConsoleGateway({
+      progress: new FeishuMessageReactions(api, sources, clock, config.appId,
+        credential => store!.resolveCredential(credential)?.status === 'active',
+        code => audit.runtime('message-reaction', 'rejected', code)),
       appVersion: options.appVersion,
       binding,
       store,

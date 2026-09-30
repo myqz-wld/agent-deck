@@ -171,7 +171,7 @@ export const FEISHU_HELP_TEXT = [
   '/chat history 或 /chat pending — 查看助手历史或待确认事项',
   '/chat list 或 /chat select <ID> — 查看、切回以前的助手聊天',
   '/sessions [cursor] — 分页列出 session',
-  '/directories [cursor] — 查看 Workspace 内的工作目录建议',
+  '/directories [cursor] — 查看工作区内的目录建议',
   '/select <session-id> — 选择工作会话，不切换助手聊天',
   '/create last <目录> -- <需求> — 沿用上次的新建会话配置',
   '/create <adapter-id> <目录> [--model <模型>] [--provider <网关>] [--thinking <程度>] -- <需求> — 覆盖并记住选择',
@@ -183,10 +183,10 @@ export const FEISHU_HELP_TEXT = [
   '/chat runtime-set <revision> <JSON-patch> — 修改当前聊天助手的设置',
   '/runtime — 查看所选工作会话的设置',
   '/runtime-set <revision> <JSON-patch> — 修改所选工作会话的设置',
-  '/pending — 查看仍在 pending 的请求',
-  '/delete — 预览并生成当前 session 的删除确认',
+  '/pending — 查看待确认事项',
+  '/delete — 预览并生成当前工作会话的删除确认',
   '/delete-confirm <confirmation-token> — 确认删除当前 session',
-  '/subscribe 或 /unsubscribe — 管理当前 session 通知',
+  '/subscribe 或 /unsubscribe — 管理当前工作会话通知',
 ].join('\n');
 
 export function classifyFeishuOperation(event: FeishuInboundEvent): string {

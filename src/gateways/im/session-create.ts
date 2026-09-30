@@ -69,6 +69,7 @@ export async function createFeishuSession(options: FeishuCommandExecutorOptions,
       assistantGeneration: context.assistantGeneration + Number(context.assistantSessionId !== result.sessionId),
     } : { activeSessionId: result.sessionId }),
   });
-  if (event.chatType === 'group') return { text: '会话已创建。请在机器人私聊中查看详情。', revision: result.revision };
-  return { text: `${purpose === 'conversation' ? '机器人助手' : '工作会话'}：${capabilities.create.displayName}\n模型：${createOptions.model || '跟随原生设置'} · ${createOptions.thinking}\n工作目录：${command.workingDirectory}\nID：${result.sessionId}\n\n${purpose === 'conversation' ? '直接发送文字即可与助手聊天。' : '使用 /send <内容> 向此会话发送消息。普通文字仍发给助手。'}`, revision: result.revision };
+  const processing = { sessionId: result.sessionId, afterRevision: capabilities.revision };
+  if (event.chatType === 'group') return { text: '会话已创建。请在机器人私聊中查看详情。', revision: result.revision, processing };
+  return { text: `${purpose === 'conversation' ? '机器人助手' : '工作会话'}：${capabilities.create.displayName}\n模型：${createOptions.model || '跟随原生设置'} · ${createOptions.thinking}\n工作目录：${command.workingDirectory}\nID：${result.sessionId}\n\n${purpose === 'conversation' ? '直接发送文字即可与助手聊天。' : '使用 /send <内容> 向此会话发送消息。普通文字仍发给助手。'}`, revision: result.revision, processing };
 }

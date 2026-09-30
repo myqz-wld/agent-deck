@@ -278,7 +278,7 @@ describe('official API transport and modern cards', () => {
     const transport = new OfficialFeishuTransport({ instanceId: 'instance_1' }, api, sources, signer());
     await sources.within({ eventId: 'evt_message_1', chatId: 'oc_chat_1', messageId: 'om_message_1',
       kind: 'message', occurredAt: NOW }, async () => {
-      await transport.deliver(outbound({ text: 'Workspace 根目录\n路径：.\n\n共 1 个工作目录',
+      await transport.deliver(outbound({ text: '工作区根目录\n路径：.\n\n共 1 个工作目录',
         presentation: { title: '工作目录', standalone: true } }), attempt());
       await transport.deliver(outbound({ presentation: { title: '使用帮助', standalone: false } }), attempt());
     });

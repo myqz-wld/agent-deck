@@ -7,6 +7,7 @@ import {
 } from '@larksuiteoapi/node-sdk';
 import { FeishuGatewayError } from '@gateways/im/errors';
 import { stableToken } from '@gateways/im/validation';
+import type { FeishuReactionResponse } from './message-reactions';
 import type {
   FeishuOpenApiPort,
   FeishuSdkConnectionFactory,
@@ -70,6 +71,18 @@ export class OfficialFeishuOpenApi implements FeishuOpenApiPort {
       path: { message_id: input.messageId },
       data: { content: input.content },
     });
+  }
+
+  addReaction(messageId: string, emoji: string): Promise<FeishuReactionResponse> {
+    return this.client.request({ method: 'POST',
+      url: `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/reactions`,
+      data: { reaction_type: { emoji_type: emoji } }, timeout: 3_000 });
+  }
+
+  deleteReaction(messageId: string, reactionId: string): Promise<FeishuReactionResponse> {
+    return this.client.request({ method: 'DELETE',
+      url: `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(reactionId)}`,
+      timeout: 3_000 });
   }
 }
 

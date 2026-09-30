@@ -14,6 +14,7 @@ import { readFeishuAssistantMessage } from './notification-message';
 import { labelFeishuPendingSources } from './source-presentation';
 import { feishuSessionFooter, feishuWorkName, readFeishuSessionTitle } from './session-names';
 import { registerFeishuWorkEvent } from './work-registration';
+import { notifyFeishuProgress, type FeishuMessageProgressPort } from './message-progress';
 import type {
   EnrolledFeishuCredential,
   FeishuGatewayClock,
@@ -25,6 +26,7 @@ import type {
 } from './types';
 
 export interface NotificationDeliveryOptions {
+  progress?: FeishuMessageProgressPort;
   store: FeishuGatewayStore;
   pool: FeishuClientPool;
   delivery: FeishuDeliveryService;
@@ -113,6 +115,11 @@ export async function deliverCoreNotification(
     throw new FeishuGatewayError('invalid_configuration', 'Notification chat context is missing');
   }
   if (cursor && event.revision <= cursor.revision) return;
+  notifyFeishuProgress(() => options.progress?.notification(credential, chatId, event));
+  if (event.persisted?.kind === 'finished' || event.persisted?.kind === 'session-end') {
+    // Completion updates the reaction on the input, never adds an empty status card.
+    return advanceCursor(options, credential, chatId, event.revision);
+  }
   // Initial user metadata can precede a Codex canonical-ID rename. It never needs a history read.
   if (event.persisted?.kind === 'message' && event.persisted.role && event.persisted.role !== 'assistant') {
     return advanceCursor(options, credential, chatId, event.revision);
@@ -240,6 +247,8 @@ export async function deliverCoreNotification(
           ).cards ?? []),
         );
       }
+      if (assistantMessage === undefined) notifyFeishuProgress(() =>
+        options.progress?.notification(credential, chatId, event, cards.length > 0));
       if (assistantMessage === undefined && cards.length === 0 &&
         (event.kind.startsWith('pending.') || event.persisted?.kind === 'waiting-for-user')) return;
       const workSessionId = event.entityId && (registrationNotice || subscriptions.find(s => s.sessionId === event.entityId)?.purpose === 'session')

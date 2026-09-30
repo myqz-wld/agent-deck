@@ -1,4 +1,6 @@
 import { classifyFeishuOperation } from './commands';
+import { feishuCallbackToast } from './display-labels';
+import { notifyFeishuProgress } from './message-progress';
 import { feishuPendingSource, labelFeishuPendingSources } from './source-presentation';
 import { FeishuChatCommandQueue } from './chat-command-queue';
 import { FeishuConversationRouter } from './conversation-router';
@@ -156,6 +158,7 @@ export class FeishuSessionConsoleGateway {
     const poolResults = await Promise.allSettled([this.pool.close()]);
     const laneResults = await Promise.allSettled([this.lanes.close()]);
     const barrierResults = await Promise.allSettled([this.lifecycle.waitForBarrier()]);
+    try { await this.options.progress?.close(); } catch { /* Reactions do not own gateway shutdown. */ }
     this.lifecycle.finishClose();
     const failures = [...poolResults, ...laneResults, ...barrierResults]
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
@@ -232,6 +235,7 @@ export class FeishuSessionConsoleGateway {
     this.ensureContext(
       credential, event.chatId, event.chatType, event.openId, now,
     );
+    if (event.kind === 'message') notifyFeishuProgress(() => this.options.progress?.begin(event, credential));
 
     const callback = new FeishuCallbackAttempt(
       claim.record.attempts,
@@ -265,7 +269,10 @@ export class FeishuSessionConsoleGateway {
               ...(result.presentation ? { presentation: { ...result.presentation, footer: feishuSessionFooter(event.action.sessionId) } } : {}) };
           }
           callback.remainingMs();
-          if (result.silent) return result;
+          if (result.silent) {
+            notifyFeishuProgress(() => this.options.progress?.accepted(event.eventId, result));
+            return result;
+          }
           markPreTransport(
             this.store,
             credential.instanceId,
@@ -287,11 +294,16 @@ export class FeishuSessionConsoleGateway {
               () => this.assertActiveCredential(credential, event.chatId),
             ),
           );
+          notifyFeishuProgress(() => {
+            if (event.kind === 'message') this.options.progress?.accepted(event.eventId, result);
+            else if (!result.errorCode) this.options.progress?.resumed(credential, event.chatId, event.action.sessionId);
+          });
           return result;
         } finally { resumeNotifications(); }
       }, event.kind === 'message' && ['send', 'create', 'select', 'new', 'rename'].includes(operation)));
     } catch (error) {
       const classified = classifyGatewayError(error);
+      if (event.kind === 'message') notifyFeishuProgress(() => this.options.progress?.failed(event.eventId, classified.retryable));
       finishDeliveryOrFence(
         this.store,
         credential.instanceId,
@@ -385,6 +397,7 @@ export class FeishuSessionConsoleGateway {
     return deliverCoreNotification(
       {
         store: this.store,
+        progress: this.options.progress,
         pool: this.pool,
         delivery: this.delivery,
         nonce: this.options.nonce,
@@ -460,8 +473,7 @@ export class FeishuSessionConsoleGateway {
       acknowledged: true,
       duplicate,
       code,
-      toast: duplicate ? '该事件已处理。' : code === 'accepted' ? '已接受。'
-        : code === 'already_decided' ? '该审批已结束，无需再次操作。' : `请求未执行：${code}`,
+      toast: feishuCallbackToast(code, duplicate),
     };
   }
 

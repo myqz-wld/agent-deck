@@ -1,15 +1,15 @@
 import { isJsonObject, type JsonObject, type JsonValue } from '@contracts/index';
 import { redactJson, truncateUtf8, type FeishuPendingCard } from '@gateways/im';
+import { FEISHU_FIELD_LABELS, feishuDisplayValue } from '@gateways/im/display-labels';
 
 const MAX_DETAIL_BYTES = 12_000;
-const FIELD_LABELS: Readonly<Record<string, string>> = {
-  subject: '标题', description: '内容', command: '命令', cwd: '工作目录', workingDirectory: '工作目录',
-  path: '路径', file_path: '文件', sessionId: '目标会话', adapter: '助手', model: '模型', thinking: '思考程度',
-};
 const TOOL_LABELS: Readonly<Record<string, string>> = {
   task_create: '创建待办', task_update: '更新待办', task_delete: '删除待办',
   spawn_session: '创建工作会话', send_message: '发送消息', shutdown_session: '关闭会话',
+  create_work_session: '创建工作会话', rename_work_session: '重命名工作会话',
+  update_feishu_preferences: '保存聊天与工作会话设置',
 };
+const MANAGEMENT_TOOLS = new Set(['create_work_session', 'rename_work_session', 'update_feishu_preferences']);
 const STATES: Record<FeishuPendingCard['state'], string> = {
   pending: '等待确认', resolved: '已处理', denied: '已拒绝', cancelled: '已取消', expired: '已过期', stale: '已失效',
 };
@@ -25,9 +25,11 @@ function valueText(value: JsonValue): string {
   return typeof safe === 'string' ? safe : JSON.stringify(safe, null, 2);
 }
 
-function fields(value: JsonObject): string[] {
+function fields(value: JsonObject, localized = false): string[] {
   return Object.entries(value).map(([key, value]) =>
-    `**${safeCardMarkdown(FIELD_LABELS[key] ?? key)}**\n${safeCardMarkdown(valueText(value))}`);
+    `**${safeCardMarkdown(FEISHU_FIELD_LABELS[key] ?? key)}**\n${localized && isJsonObject(value)
+      ? fields(value, true).join('\n') : safeCardMarkdown(typeof value === 'string' && localized
+        ? feishuDisplayValue(key, value) : valueText(value))}`);
 }
 
 function permissionDetails(details: JsonObject): string {
@@ -37,8 +39,12 @@ function permissionDetails(details: JsonObject): string {
     const message = typeof input.message === 'string' ? input.message : '';
     const match = message.match(/^Allow the .+ MCP server to run tool "([A-Za-z0-9_.:-]+)"\?$/);
     const tool = typeof meta.tool_name === 'string' ? meta.tool_name : match?.[1];
-    const operation = tool ? `${TOOL_LABELS[tool] ?? '调用工具'} · ${tool}` : message || String(details.tool ?? '工具调用');
-    return [`**${safeCardMarkdown(operation)}**`, ...fields(meta.tool_params)].join('\n\n');
+    const known = input.serverName === 'agent-deck' && tool !== undefined;
+    const operation = tool ? (known && TOOL_LABELS[tool]) || `调用工具 · ${tool}` : message || String(details.tool ?? '工具调用');
+    const parameters = known && MANAGEMENT_TOOLS.has(tool!)
+      ? Object.fromEntries(Object.entries(meta.tool_params).filter(([key]) => !['requestId', 'expectedSettingsRevision'].includes(key)))
+      : meta.tool_params;
+    return [`**${safeCardMarkdown(operation)}**`, ...fields(parameters, known)].join('\n\n');
   }
   // Unknown tools retain every input field; presentation never guesses away an authorization parameter.
   return [`**${safeCardMarkdown(String(details.tool ?? '工具调用'))}**`, ...fields(input)].join('\n\n');

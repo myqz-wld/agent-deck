@@ -38,7 +38,7 @@ describe('group-chat Core egress policy', () => {
     expect(client.calls.filter((call) => call.method === 'project.list'))
       .toHaveLength(projectCalls);
     expect(transport.messages.map((message) => message.text)).toEqual([
-      '群聊中已隐藏 session 列表。请使用完整客户端查看。',
+      '群聊中已隐藏会话列表。请使用完整客户端查看。',
       '群聊中已隐藏工作目录建议。请使用完整客户端查看。',
     ]);
     expect(JSON.stringify(transport.messages)).not.toMatch(
@@ -74,8 +74,8 @@ describe('group-chat Core egress policy', () => {
     expect(client.calls.filter((call) => call.method === 'session.runtime.get')).toHaveLength(runtimeCalls);
     expect(JSON.stringify(transport.messages)).not.toMatch(/postgres|Password=secret/);
     expect(transport.messages.map((message) => message.text)).toEqual([
-      '群聊中已隐藏 history 内容。请使用完整客户端查看。',
-      '群聊中已隐藏 runtime 值。请使用完整客户端查看。',
+      '群聊中已隐藏聊天历史。请使用完整客户端查看。',
+      '群聊中已隐藏运行设置。请使用完整客户端查看。',
     ]);
   });
 
@@ -98,7 +98,7 @@ describe('group-chat Core egress policy', () => {
     expect(commandCard?.buttons).toEqual([]);
     expect(commandCard?.display).toEqual({
       requestKind: 'permission',
-      notice: '群聊中已隐藏敏感的 pending 详情。请使用完整客户端查看。',
+      notice: '群聊中已隐藏敏感的待确认事项详情。请使用完整客户端查看。',
     });
     expect(JSON.stringify(commandCard)).not.toMatch(/kubectl|postgres|secret/);
 

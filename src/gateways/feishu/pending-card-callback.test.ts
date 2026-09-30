@@ -55,6 +55,9 @@ describe('native approval presentation and callback completion', () => {
     expect(rendered.body.elements.find((e: { tag: string }) => e.tag === 'column_set').columns)
       .toHaveLength(2);
     const action = shown.cards[0].buttons[0].action;
+    // Usage or another session advances the global revision while this approval is unchanged.
+    client.revision += 7;
+    const currentRevision = client.revision;
     const audit = createFeishuAuditBundle({ appId: credential.appId, tenantKey: credential.tenantKey,
       instanceId: credential.instanceId, topology: 'full' }, clock, () => undefined);
     const adapter = new FeishuSdkEventAdapter(t.gateway, { appId: credential.appId,
@@ -68,6 +71,7 @@ describe('native approval presentation and callback completion', () => {
     expect(sources.size()).toBe(0);
     expect(sources.getCallbackCard('approve-once')).toBeUndefined();
     expect(client.calls.filter(c => c.method === 'pending.respond')).toHaveLength(1);
+    expect(client.calls.find(c => c.method === 'pending.respond')?.options?.expectedRevision).toBe(currentRevision);
     expect(await adapter.onCardAction(rawCard(action, 'stale-second-click'))).toMatchObject({
       card: { data: { header: { title: { content: expect.stringContaining('审批已结束') } },
         body: { elements: [{ tag: 'markdown', content: '该请求已处理，无需再次操作。' }] } } },
@@ -75,6 +79,29 @@ describe('native approval presentation and callback completion', () => {
     expect(client.calls.filter(c => c.method === 'pending.respond')).toHaveLength(1);
     expect(t.store.exportMetadataSnapshot()).not.toContain('审批测试');
     await t.gateway.close();
+  });
+
+  it('uses Chinese management labels, hides only known tracking fields and keeps unknown parameters', () => {
+    const params = { expectedSettingsRevision: 3, requestId: 'request-synthetic', title: '连接验证',
+      initialMessage: '只回复连接正常', selection: { adapterId: 'codex-cli', model: 'model-test',
+        approvalPolicy: 'on-request', codexSandbox: 'workspace-write' } };
+    const display = (serverName: string) => createPermissionPreviewDisplay('Codex CLI MCP 工具调用', {
+      serverName, message: `Allow the ${serverName} MCP server to run tool "create_work_session"?`,
+      _meta: { codex_approval_kind: 'mcp_tool_call', tool_params: params },
+    });
+    const card: FeishuPendingCard = { title: '助手 · 操作审批', requestId: 'pending-1', sessionId: 'session-1',
+      state: 'pending', createdAt: NOW, presentedAt: NOW, expiresAt: null, presentationLifetimeMs: 0,
+      buttons: [], display: { requestKind: 'permission', details: display('agent-deck') } };
+    const result = pendingCardContent(card);
+    expect(result.canApprove).toBe(true);
+    expect(result.content).toContain('**创建工作会话**');
+    expect(result.content).toContain('**会话名称**\n连接验证');
+    expect(result.content).toContain('**首条任务**\n只回复连接正常');
+    expect(result.content).toContain('按需审批');
+    expect(result.content).not.toMatch(/expectedSettingsRevision|requestId|create_work_session|approvalPolicy/);
+    const unknown = pendingCardContent({ ...card, display: { requestKind: 'permission', details: display('another-server') } });
+    expect(unknown.content).toContain('expectedSettingsRevision');
+    expect(unknown.content).toContain('request-synthetic');
   });
 
   it('keeps unknown tool parameters visible and disables approval for incomplete or clipped previews', () => {

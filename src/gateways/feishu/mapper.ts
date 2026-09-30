@@ -10,7 +10,8 @@ import {
   type FeishuQuestionFieldBinding,
 } from './action-envelope';
 import type { MappedFeishuEvent } from './types';
-import { CONTROL_DATA_CHARACTERS, FORBIDDEN_TEXT_CHARACTERS } from '@gateways/im/text-policy';
+import { CONTROL_DATA_CHARACTERS } from '@gateways/im/text-policy';
+import { feishuMessageText } from './message-content';
 
 const UTF8 = new TextEncoder();
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:@/$-]*$/;
@@ -183,8 +184,8 @@ export function mapFeishuMessageEvent(
     'message_id', 'message_type', 'parent_id', 'root_id', 'thread_id', 'update_time',
     'user_agent',
   ], ['chat_id', 'chat_type', 'content', 'create_time', 'message_id', 'message_type'], 'message');
-  if (!['group', 'p2p'].includes(String(message.chat_type)) || message.message_type !== 'text') {
-    fail('unknown_command', 'Only Feishu text messages in p2p or group chats are supported');
+  if (!['group', 'p2p'].includes(String(message.chat_type)) || !['text', 'post'].includes(String(message.message_type))) {
+    fail('unknown_command', 'Only Feishu text and post messages in p2p or group chats are supported');
   }
   const messageCreatedAt = timestamp(message.create_time, 'message.create_time');
   if (message.update_time !== undefined) timestamp(message.update_time, 'message.update_time');
@@ -199,15 +200,7 @@ export function mapFeishuMessageEvent(
   }
   const botMentions = validateMentions(message.mentions, options);
   const contentText = bounded(message.content, 'message.content', 32_768);
-  let content: unknown;
-  try {
-    content = JSON.parse(contentText);
-  } catch {
-    return fail('invalid_event', 'Feishu text message content is not valid JSON');
-  }
-  const contentObject = record(content, 'message.content');
-  exact(contentObject, ['text'], ['text'], 'message.content');
-  const text = bounded(contentObject.text, 'message.content.text', 16_384, FORBIDDEN_TEXT_CHARACTERS);
+  const text = feishuMessageText(message.message_type as 'text' | 'post', contentText);
   const addressed = text.trimStart();
   const prefix = message.chat_type === 'group' ? botMentions.find((key) =>
     addressed.startsWith(key) && /^[ \t\r\n]/.test(addressed.slice(key.length)),

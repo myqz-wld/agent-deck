@@ -93,7 +93,7 @@ describe('Feishu message text and addressed commands', () => {
       expect(calls.filter((call) => call.method === 'session.send')).toEqual([]);
       expect(f.transport.messages).toHaveLength(2);
       await f.send('@_user_1 /history', true);
-      expect(f.transport.messages.at(-1)?.text).toContain('群聊中已隐藏 history');
+      expect(f.transport.messages.at(-1)?.text).toContain('群聊中已隐藏聊天历史');
       expect(calls.some((call) => call.method === 'session.history')).toBe(false);
     } finally { await f.gateway.close(); }
   });

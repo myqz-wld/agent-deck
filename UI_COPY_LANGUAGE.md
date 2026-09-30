@@ -17,5 +17,8 @@ This file does not govern code identifiers, protocol names, internal logs, debug
 - Write new UI/CLI copy in natural Simplified Chinese unless this file is updated first.
 - Keep established product, adapter, and technical terms in English or as written in code: Agent Deck, Claude, Codex, Deepseek, MCP, SDK, provider, adapter, session, prompt, token, worktree, model names, tool names, command names, config keys, file paths, event names, and enum/status values.
 - When adding a new user-facing surface, write the surrounding sentence in natural Simplified Chinese and leave the technical identifier unchanged.
+- Feishu cards and status messages use Chinese labels for known operations, parameters, modes, and
+  states. Keep model names and executable command/JSON syntax unchanged; hide internal tracking
+  fields when they are not needed for the user's decision. Protocol identifiers remain unchanged.
 - If a user requests UI/CLI copy in a different language or locale, update this file first and then make the copy change.
 - If project code and this file disagree, stop and update this file or ask for the intended language mode before changing UI/CLI copy.

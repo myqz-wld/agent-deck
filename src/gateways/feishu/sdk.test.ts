@@ -3,6 +3,17 @@ import type { Client } from '@larksuiteoapi/node-sdk';
 import { OfficialFeishuOpenApi } from './sdk';
 
 describe('official Feishu OpenAPI wrapper', () => {
+  it('uses authenticated bounded reaction APIs and encodes opaque reaction ids', async () => {
+    const request = vi.fn(async () => ({ code: 0 }));
+    const api = new OfficialFeishuOpenApi({ request } as unknown as Client);
+    await api.addReaction('om_input', 'Typing');
+    await api.deleteReaction('om_input', 'reaction/opaque');
+    expect(request.mock.calls).toEqual([
+      [{ method: 'POST', url: '/open-apis/im/v1/messages/om_input/reactions',
+        data: { reaction_type: { emoji_type: 'Typing' } }, timeout: 3_000 }],
+      [{ method: 'DELETE', url: '/open-apis/im/v1/messages/om_input/reactions/reaction%2Fopaque', timeout: 3_000 }],
+    ]);
+  });
   it('uses the pinned SDK reply/create/patch surfaces with provider idempotency fields', async () => {
     const reply = vi.fn(async () => ({ code: 0, data: { message_id: 'om_reply' } }));
     const create = vi.fn(async () => ({ code: 0, data: { message_id: 'om_created' } }));

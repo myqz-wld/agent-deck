@@ -413,6 +413,7 @@ export interface FeishuGatewayBinding {
 }
 
 export interface FeishuGatewayOptions {
+  progress?: import('./message-progress').FeishuMessageProgressPort;
   appVersion: string;
   binding: FeishuGatewayBinding;
   store: FeishuGatewayStore;
@@ -441,6 +442,7 @@ export interface ConnectedFeishuClient {
 }
 
 export interface SessionConsoleView {
+  processing?: import('./message-progress').FeishuProcessingTarget;
   replacementSessionId?: string | null;
   sessionTitles?: Readonly<Record<string, string>>;
   text: string;
@@ -466,7 +468,8 @@ export type NotificationEvent = Pick<
   AgentDeckEventEnvelope,
   'entityId' | 'instanceId' | 'kind' | 'revision'
 > & {
-  persisted?: { eventId: number; kind: 'message' | 'waiting-for-user'; role?: 'assistant' | 'user' | 'system' };
+  persisted?: { eventId: number; kind: 'message' | 'waiting-for-user' | 'finished' | 'session-end';
+    role?: 'assistant' | 'user' | 'system'; correlationId?: string; ok?: boolean };
   workRegistration?: FeishuWorkEvent;
   renamedSession?: { fromId: string; toId: string };
 };

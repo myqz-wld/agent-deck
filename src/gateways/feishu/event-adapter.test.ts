@@ -156,7 +156,7 @@ describe('Feishu official-SDK event adapter', () => {
     await expect(state.adapter.handle(raw)).resolves.toMatchObject({
       acknowledged: true,
       code: 'unknown_field',
-      toast: 'Unsupported or invalid Feishu action',
+      toast: '无法识别这次飞书操作，请刷新后重试。',
     });
     expect(JSON.stringify(state.entries)).not.toContain('private text');
   });

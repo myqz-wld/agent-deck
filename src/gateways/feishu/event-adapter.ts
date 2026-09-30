@@ -17,7 +17,7 @@ const SAFE_REJECTION: FeishuCallbackResult = {
   acknowledged: true,
   duplicate: false,
   code: 'invalid_event',
-  toast: 'Unsupported or invalid Feishu action',
+  toast: '无法识别这次飞书操作，请刷新后重试。',
 };
 
 const MAX_MESSAGE_AGE_MS = 5 * 60 * 1_000;

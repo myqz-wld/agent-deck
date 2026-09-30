@@ -1,4 +1,5 @@
 import { createFeishuSession } from './session-create';
+import { feishuDisplayValue } from './display-labels';
 import { mergeFeishuModelPreference, parseSessionNameUpdateResult } from '@contracts/index';
 import { registerFeishuAssistants } from './assistant-registration';
 import { refreshFeishuAssistantSetup } from './assistant-setup';
@@ -90,7 +91,7 @@ export class FeishuCommandExecutor {
     if (command.kind === 'sessions') {
       if (event.chatType === 'group') {
         return {
-          text: '群聊中已隐藏 session 列表。请使用完整客户端查看。',
+          text: '群聊中已隐藏会话列表。请使用完整客户端查看。',
           revision: null,
         };
       }
@@ -247,7 +248,7 @@ export class FeishuCommandExecutor {
     if (command.kind === 'history') {
       if (event.chatType === 'group') {
         return {
-          text: '群聊中已隐藏 history 内容。请使用完整客户端查看。',
+          text: '群聊中已隐藏聊天历史。请使用完整客户端查看。',
           revision: null,
         };
       }
@@ -283,6 +284,7 @@ export class FeishuCommandExecutor {
       return {
         text: '消息已发送。',
         revision: result.revision,
+        processing: { sessionId, correlationId: mutation.idempotencyKey },
       };
     }
     if (command.kind === 'pending') {
@@ -302,7 +304,7 @@ export class FeishuCommandExecutor {
     if (command.kind === 'runtime-get') {
       if (event.chatType === 'group') {
         return {
-          text: '群聊中已隐藏 runtime 值。请使用完整客户端查看。',
+          text: '群聊中已隐藏运行设置。请使用完整客户端查看。',
           revision: null,
         };
       }
@@ -354,10 +356,10 @@ export class FeishuCommandExecutor {
         );
       }
       const replacement = result.replacementSessionId && event.chatType === 'p2p'
-        ? `；replacement session ${result.replacementSessionId}`
+        ? `；新会话 ${result.replacementSessionId}`
         : '';
       return {
-        text: `当前${command.target === 'assistant' ? '聊天助手' : '工作会话'}的设置已更新：${result.effect}${replacement}\n新建默认配置保持不变；发送 /settings 可查看。`,
+        text: `当前${command.target === 'assistant' ? '聊天助手' : '工作会话'}的设置已更新：${feishuDisplayValue('effect', result.effect)}${replacement}\n新建默认配置保持不变；发送 /settings 可查看。`,
         revision: controls.revision,
         replacementSessionId: result.replacementSessionId,
       };

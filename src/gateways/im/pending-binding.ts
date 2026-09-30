@@ -54,7 +54,7 @@ export function pendingSecurityDisplay(
   if (chatType === 'group') {
     return {
       requestKind: request.kind,
-      notice: '群聊中已隐藏敏感的 pending 详情。请使用完整客户端查看。',
+      notice: '群聊中已隐藏敏感的待确认事项详情。请使用完整客户端查看。',
     };
   }
   const projected: JsonObject = {

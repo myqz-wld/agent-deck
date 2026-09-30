@@ -251,7 +251,9 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
           params.sessionId,
           params.text,
           attachments.length > 0 ? attachments : undefined,
-          { idempotencyKey: input.idempotencyKey! },
+          { idempotencyKey: input.idempotencyKey!, ...(input.access.surface === 'feishu' ? {
+            deferUserEventUntilTurnStart: true, turnCorrelationId: input.idempotencyKey!,
+          } : {}) },
         );
       } catch (error) {
         await this.options.attachmentStore?.remove(attachments);

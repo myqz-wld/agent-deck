@@ -9,6 +9,7 @@ import { FeishuGatewayError } from './errors';
 import { pendingContentDigest, pendingSecurityDisplay } from './pending-binding';
 import { boundedJsonText, redactJson, truncateUtf8 } from './redaction';
 import { stableToken } from './validation';
+import { FEISHU_FIELD_LABELS, feishuDisplayValue } from './display-labels';
 import type {
   EnrolledFeishuCredential,
   FeishuPendingCard,
@@ -112,7 +113,7 @@ export function renderSessionList(
 ): SessionConsoleView {
   const lines = sessions.map(
     (session) =>
-      `${session.title ?? '未命名会话'}\n${session.adapterId} · ${session.status}\nID：${session.id}`,
+      `${session.title ?? '未命名会话'}\n${feishuDisplayValue('adapterId', session.adapterId)} · ${feishuDisplayValue('status', session.status)}\nID：${session.id}`,
   );
   const count = total === null || total === sessions.length ? `${sessions.length}` : `${sessions.length}/${total}`;
   const next = nextCursor ? `\n下一页：${target === 'assistant' ? '/chat list' : '/sessions'} ${nextCursor}` : '';
@@ -134,7 +135,7 @@ export function renderDirectoryList(
 ): SessionConsoleView {
   const lines = projects.map(
     (project) => project.projectRef === '.'
-      ? 'Workspace 根目录\n路径：.'
+      ? '工作区根目录\n路径：.'
       : `${project.title ?? project.projectRef}\n路径：${project.projectRef}`,
   );
   const count = total === null || total === projects.length ? `${projects.length}` : `${projects.length}/${total}`;
@@ -160,16 +161,16 @@ export function renderHistory(
 ): SessionConsoleView {
   if (chatType === 'group') {
     return {
-      text: '群聊中已隐藏 history 内容。请使用完整客户端查看。',
+      text: '群聊中已隐藏聊天历史。请使用完整客户端查看。',
       revision,
     };
   }
   const lines = entries.map(
-    (entry) => `${entry.sequence} ${entry.role}: ${boundedJsonText(entry.content, 1_024)}`,
+    (entry) => `${entry.sequence} ${feishuDisplayValue('role', entry.role)}： ${boundedJsonText(entry.content, 1_024)}`,
   );
   const next = nextCursor ? `\n下一页：${historyCommand} ${nextCursor}` : '';
   return {
-    text: truncateUtf8(`History\n${lines.join('\n')}${next}`, maximumBytes),
+    text: truncateUtf8(`聊天历史\n${lines.join('\n')}${next}`, maximumBytes),
     history: entries.map((entry) => ({ ...entry, content: redactJson(entry.content) })),
     revision,
   };
@@ -185,7 +186,7 @@ export function renderPending(
   const pendingCount = requests.filter((request) => request.status === 'pending').length;
   return {
     text: truncateUtf8(
-      pendingCount === 0 ? '当前没有仍在 pending 的请求。' : `当前有 ${pendingCount} 个 pending 请求。`,
+      pendingCount === 0 ? '当前没有待确认事项。' : `当前有 ${pendingCount} 个待确认事项。`,
       context.maxOutputBytes,
     ),
     pending: bounded.map((request) => ({
@@ -205,13 +206,14 @@ export function renderRuntime(
 ): SessionConsoleView {
   if (chatType === 'group') {
     return {
-      text: '群聊中已隐藏 runtime 值。请使用完整客户端查看。',
+      text: '群聊中已隐藏运行设置。请使用完整客户端查看。',
       revision: controls.revision,
     };
   }
+  const values = redactJson(controls.values) as typeof controls.values;
   return {
     text: truncateUtf8(
-      `${controls.adapterId} · 当前${target === 'assistant' ? '聊天助手' : '工作会话'}设置（revision ${controls.revision}）\n${boundedJsonText(controls.values, maximumBytes)}\n\n修改当前设置：${target === 'assistant' ? '/chat runtime-set' : '/runtime-set'} ${controls.revision} <JSON-patch>\n新建默认配置使用 /settings ${target === 'assistant' ? 'chat' : 'session'}；已有会话保持原设置。`,
+      `${feishuDisplayValue('adapterId', controls.adapterId)} · 当前${target === 'assistant' ? '聊天助手' : '工作会话'}设置\n${Object.entries(values).map(([key, value]) => `${FEISHU_FIELD_LABELS[key] ?? key}：${typeof value === 'string' ? feishuDisplayValue(key, value) : boundedJsonText(value, 1024)}`).join('\n')}\n\n修改当前设置：${target === 'assistant' ? '/chat runtime-set' : '/runtime-set'} ${controls.revision} <JSON-patch>\n新建默认配置使用 /settings ${target === 'assistant' ? 'chat' : 'session'}；已有会话保持原设置。`,
       maximumBytes,
     ),
     revision: controls.revision,

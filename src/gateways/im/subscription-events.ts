@@ -58,14 +58,21 @@ export function validateCoreNotificationEvent(
   }
   if (kind === 'event.persisted' && isJsonObject(event.payload) &&
     typeof event.payload.kind === 'string' &&
-    ['message', 'waiting-for-user'].includes(event.payload.kind)) {
+    ['message', 'waiting-for-user', 'finished', 'session-end'].includes(event.payload.kind)) {
     const id = event.payload.eventId;
     if (!entityId || !Number.isSafeInteger(id) || Number(id) < 1) {
       throw new FeishuGatewayError('invalid_core_event', 'Persisted message identity is invalid');
     }
     const role = event.payload.role;
-    persisted = { eventId: Number(id), kind: event.payload.kind as 'message' | 'waiting-for-user',
-      ...(role === 'assistant' || role === 'user' || role === 'system' ? { role } : {}) };
+    const correlationId = event.payload.correlationId;
+    if (correlationId !== undefined) boundedToken(correlationId, 'turn correlation', 512);
+    if (event.payload.ok !== undefined && typeof event.payload.ok !== 'boolean') {
+      throw new FeishuGatewayError('invalid_core_event', 'Provider completion is malformed');
+    }
+    persisted = { eventId: Number(id), kind: event.payload.kind as NonNullable<NotificationEvent['persisted']>['kind'],
+      ...(role === 'assistant' || role === 'user' || role === 'system' ? { role } : {}),
+      ...(role === 'user' && typeof correlationId === 'string' ? { correlationId } : {}),
+      ...(typeof event.payload.ok === 'boolean' ? { ok: event.payload.ok } : {}) };
   }
   return {
     instanceId: credential.instanceId,

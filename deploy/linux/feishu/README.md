@@ -26,6 +26,11 @@ grant; product entry points remain channel-specific.
    required receive/send/card permissions, use long-connection delivery for
    `im.message.receive_v1` and `card.action.trigger`, publish it, and install it in the tenant. These
    Feishu-owned steps cannot be automated by Agent Deck.
+   Message progress reactions additionally use `im:message.reactions:write_only` (or the existing
+   `im:message` grant). The bot replaces its own reaction with `Typing` while processing, `OneSecond`
+   while awaiting approval, `DONE` after completion, or `CrossMark` on failure. Reaction API failures
+   do not block replies. Correlation metadata stays in bounded memory; graceful shutdown removes
+   unfinished indicators, while an abrupt process failure can leave an old indicator visible.
 3. Copy the matching topology's `server-control.config.example.json` and the Feishu connect request
    from `/opt/agent-deck/share`, replace every binding, and make both files root-owned mode 0600.
    Set `feishuIdentityOwner.uid/gid` to the actual results of

@@ -45,7 +45,7 @@ describe('Feishu terminal Core transport recovery', () => {
     await flush();
     await expect(gateway.handle(messageEvent('after-disconnect', '/directories')))
       .resolves.toMatchObject({ code: 'accepted' });
-    expect(transport.messages.at(-1)?.text).toContain('Workspace 根目录');
+    expect(transport.messages.at(-1)?.text).toContain('工作区根目录');
     expect(old.closed).toBe(true);
     expect(old.terminalListeners.size).toBe(0);
     const current = clients.at(-1)!;

@@ -60,6 +60,11 @@ export function createServerCoreSessionManagerObserver(input: {
         timestamp: event.ts,
         ...(event.kind === 'message' && typeof event.payload.role === 'string' && ['assistant', 'user', 'system'].includes(event.payload.role)
           ? { role: event.payload.role } : {}),
+        ...(event.kind === 'message' && event.payload.role === 'user' &&
+          typeof event.payload.turnCorrelationId === 'string' &&
+          /^feishu:[A-Za-z0-9._:@/$-]{1,256}$/.test(event.payload.turnCorrelationId)
+          ? { correlationId: event.payload.turnCorrelationId } : {}),
+        ...(event.kind === 'finished' && typeof event.payload.ok === 'boolean' ? { ok: event.payload.ok } : {}),
       });
       publish(() => eventBus.emit('agent-event', event));
     },
