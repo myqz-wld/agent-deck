@@ -265,6 +265,8 @@ FeishuGatewayStore, FeishuHealthStore, FeishuPairingStore {
     return this.contextStore.listSubscriptions(i, c, chat);
   }
   putSubscription(value: FeishuSubscriptionRecord): void { this.contextStore.putSubscription(value); }
+  removeSubscription(i: string, c: string, h: string, s: string): void { this.contextStore.removeSubscription(i, c, h, s); }
+  moveSubscription(i: string, c: string, h: string, f: string, t: string): void { this.contextStore.moveSubscription(i, c, h, f, t); }
 
   claimDelivery(input: SqliteDeliveryInput, maximum: number, lifetimeMs = 30_000): DeliveryClaim {
     return this.deliveryStore.claim(input, maximum, lifetimeMs);

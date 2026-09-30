@@ -120,7 +120,7 @@ describe('FeishuSessionConsoleGateway identity and chat state', () => {
     const sends = client.calls.filter((call) => call.method === 'session.send');
     expect(sends).toHaveLength(1);
     expect(sends[0].options?.idempotencyKey).toBe('feishu:send-once');
-    expect(transport.messages.filter((message) => message.eventId === 'send-once')).toHaveLength(1);
+    expect(transport.messages.filter((message) => message.eventId === 'send-once')).toHaveLength(0);
   });
 
   it('rejects a replayed event id under another chat identity', async () => {

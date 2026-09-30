@@ -60,7 +60,7 @@ describe('Server Core session manager observer', () => {
     expect(state.appendChange).toHaveBeenCalledWith(
       'event.persisted',
       'session-a',
-      { adapterId: 'codex-cli', eventId: 9, kind: 'message', timestamp: 1_000 },
+      { adapterId: 'codex-cli', eventId: 9, kind: 'message', timestamp: 1_000, role: 'assistant' },
     );
 
     const usage = event('token-usage');

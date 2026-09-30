@@ -148,6 +148,7 @@ function cardElements(
     if (buttons.length) elements.push({ tag: 'column_set', flex_mode: 'none', horizontal_spacing: '8px',
       columns: buttons.map(button => ({ tag: 'column', width: 'auto', elements: [button] })) });
   }
+  if (message.presentation?.footer) elements.push({ tag: 'markdown', content: safeCardMarkdown(message.presentation.footer) });
   return elements;
 }
 

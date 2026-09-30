@@ -426,11 +426,16 @@ describe.each(['relay', 'full'] as const)('Feishu one-click server control: %s',
     expect(readFileSync(test.paths.runtimeActive, 'utf8')).toBe(`${nextDigest}\n`);
   });
 
-  it('restores pre-upgrade SQLite state when activation fails after schema migration', async () => {
+  it.each([4, 5])('restores SQLite v%s when activation fails after schema migration', async version => {
     const test = fixture(topology);
     await test.service.connect(test.request);
     const metadata = join(test.paths.stateDirectory, 'metadata.sqlite3');
-    const old = new Database(metadata); old.exec(FEISHU_SCHEMA_V4); old.close(); chmodSync(metadata, 0o600);
+    const old = new Database(metadata); old.exec(FEISHU_SCHEMA_V4);
+    if (version === 5) old.exec(`ALTER TABLE contexts ADD COLUMN assistant_session_id TEXT;
+      ALTER TABLE contexts ADD COLUMN assistant_generation INTEGER NOT NULL DEFAULT 0 CHECK (assistant_generation >= 0);
+      ALTER TABLE subscriptions ADD COLUMN purpose TEXT NOT NULL DEFAULT 'session' CHECK (purpose IN ('assistant', 'session'));
+      PRAGMA user_version = 5;`);
+    old.close(); chmodSync(metadata, 0o600);
     const before = readFileSync(metadata);
     const nextDigest = 'b'.repeat(64);
     createRuntimeRelease(test.paths.runtimeReleases, nextDigest);
@@ -447,6 +452,6 @@ describe.each(['relay', 'full'] as const)('Feishu one-click server control: %s',
     const checkpoint = readdirSync(test.paths.runtimeRoot).find(name => name.startsWith('.state-checkpoint-'))!;
     expect(statSync(join(test.paths.runtimeRoot, checkpoint)).mode & 0o777).toBe(0o700);
     const failed = new Database(join(test.paths.runtimeRoot, checkpoint, 'failed.sqlite3'), { readonly: true });
-    expect(failed.pragma('user_version', { simple: true })).toBe(5); failed.close();
+    expect(failed.pragma('user_version', { simple: true })).toBe(6); failed.close();
   });
 });

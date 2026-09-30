@@ -216,6 +216,29 @@ describe('ServerCoreRuntimeMetadataStore', () => {
     });
   });
 
+  it('publishes work selection only with its durable result and rolls back a lost claim', () => {
+    const metadata = store();
+    const input = identity({ method: 'feishu.work.create', accessSurface: 'feishu' });
+    const fields = { sessionId: 'work-a', title: '连接验证', settingsRevision: 2,
+      preference: { adapterId: 'codex-cli' as const, model: 'work-model', provider: '', thinking: 'medium' } };
+    const event = { assistantSessionId: 'assistant-a', requestId: 'work-request-a' };
+    const listener = vi.fn(() => metadata.claimMutation(input));
+    metadata.subscribe(listener);
+    // Missing ledger claim fails after the transaction tried to append its change event.
+    expect(() => metadata.commitFeishuWorkCreate(input, fields, event)).toThrow(/claim was lost/);
+    expect(metadata.currentRevision()).toBe(0);
+    expect(metadata.replay(0)).toEqual([]);
+    expect(listener).not.toHaveBeenCalled();
+    metadata.claimMutation(input);
+    expect(metadata.commitFeishuWorkCreate(input, fields, event)).toEqual({ ...fields, revision: 1 });
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener.mock.results[0].value).toMatchObject({ state: 'completed', result: { ...fields, revision: 1 } });
+    expect(metadata.replay(0)).toEqual([{ revision: 1, kind: 'feishu.work.committed', entityId: 'work-a', payload: event }]);
+    expect(() => metadata.commitFeishuWorkCreate(input, fields, event)).toThrow(/claim was lost/);
+    expect(metadata.currentRevision()).toBe(1);
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
   it('releases only the exact invoking mutation claim', () => {
     const metadata = store();
     const input = identity();

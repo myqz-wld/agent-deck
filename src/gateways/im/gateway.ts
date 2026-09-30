@@ -44,6 +44,7 @@ import {
 import { FeishuGatewayLifecycle } from './gateway-lifecycle';
 import { ValidatedFeishuGatewayStore } from './validated-store';
 import { FeishuNotificationLanes } from './notification-lanes';
+import { feishuSessionFooter, readFeishuSessionTitle } from './session-names';
 import { FeishuGatewayObservability } from './gateway-observability';
 import {
   DEFAULT_GATEWAY_CLOCK,
@@ -245,7 +246,7 @@ export class FeishuSessionConsoleGateway {
         const connected = await this.pool.get(credential, event.chatId);
         const resumeNotifications = this.lanes.hold(credential, event.chatId);
         try {
-          const result = event.kind === 'message'
+          let result = event.kind === 'message'
             ? await this.conversations.execute(event, credential, connected, () => callback.remainingMs())
             : await executePendingCardAction(
                 event,
@@ -256,6 +257,13 @@ export class FeishuSessionConsoleGateway {
                 this.limits,
                 () => this.assertActiveCredential(credential, event.chatId),
               );
+          if (event.kind === 'card-action' && event.chatType === 'p2p' &&
+            this.store.getSubscription(credential.instanceId, credential.credentialId, event.chatId,
+              event.action.sessionId)?.purpose === 'session') {
+            const title = await readFeishuSessionTitle(connected, event.action.sessionId, this.limits, () => callback.remainingMs());
+            result = { ...result, ...(title ? { sessionTitles: { [event.action.sessionId]: title } } : {}),
+              ...(result.presentation ? { presentation: { ...result.presentation, footer: feishuSessionFooter(event.action.sessionId) } } : {}) };
+          }
           callback.remainingMs();
           if (result.silent) return result;
           markPreTransport(
@@ -281,7 +289,7 @@ export class FeishuSessionConsoleGateway {
           );
           return result;
         } finally { resumeNotifications(); }
-      }, event.kind === 'message' && ['send', 'create', 'select', 'new'].includes(operation)));
+      }, event.kind === 'message' && ['send', 'create', 'select', 'new', 'rename'].includes(operation)));
     } catch (error) {
       const classified = classifyGatewayError(error);
       finishDeliveryOrFence(
@@ -439,10 +447,10 @@ export class FeishuSessionConsoleGateway {
       kind: event.kind === 'card-action' ? 'card-update' : 'reply',
       text: truncateUtf8(view.text, this.limits.maxOutputBytes),
       cards: labelFeishuPendingSources((view.cards ?? []).slice(0, this.limits.maxPendingCards),
-        this.store.listSubscriptions(credential.instanceId, credential.credentialId, event.chatId)),
+        this.store.listSubscriptions(credential.instanceId, credential.credentialId, event.chatId), view.sessionTitles),
       ...(view.presentation ? { presentation: event.kind === 'card-action'
         ? { ...view.presentation, title: `${feishuPendingSource(event.action.sessionId,
-          this.store.listSubscriptions(credential.instanceId, credential.credentialId, event.chatId))} · ${view.presentation.title}` }
+          this.store.listSubscriptions(credential.instanceId, credential.credentialId, event.chatId), view.sessionTitles)} · ${view.presentation.title}` }
         : view.presentation } : {}),
     };
   }

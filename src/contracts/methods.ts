@@ -3,6 +3,7 @@ import type { JsonObject, JsonValue } from './json';
 import type { UsageProviderResetParams, UsageProviderResetResult } from './usage-reset';
 import type { FeishuPreferencesResult, FeishuPreferencesUpdateParams } from './feishu-preferences';
 import type { FeishuAssistantsRegisterParams, FeishuAssistantsRegisterResult } from './feishu-assistants';
+import type { SessionNameUpdateParams, SessionNameUpdateResult } from './session-name';
 import type {
   SessionConsoleCapabilitiesParams,
   SessionConsoleCapabilitiesResult,
@@ -252,6 +253,7 @@ export type CoreMethodMap = {
     params: { sessionId: string; text: string; attachments?: SessionConsoleAttachmentInput[] };
     result: { messageId: string; sequence: number; revision: number };
   };
+  'session.name.update': { params: SessionNameUpdateParams; result: SessionNameUpdateResult };
   'session.interrupt': {
     params: { sessionId: string };
     result: { accepted: boolean; revision: number };
@@ -406,6 +408,7 @@ export const CORE_METHOD_METADATA = {
     'required',
   ),
   'session.send': mutationMethod(AgentDeckCapability.SessionsWrite),
+  'session.name.update': mutationMethod(AgentDeckCapability.SessionsWrite),
   'session.interrupt': mutationMethod(AgentDeckCapability.SessionsWrite),
   'session.steer': mutationMethod(AgentDeckCapability.SessionsWrite),
   'pending.list': readMethod(AgentDeckCapability.PendingRead),

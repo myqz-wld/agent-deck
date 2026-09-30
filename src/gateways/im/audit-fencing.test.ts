@@ -170,6 +170,7 @@ describe('callback deadline and delivery generation fencing', () => {
       });
       await select(gateway);
       transport.holdEventId = 'late-transport';
+      await gateway.handle(messageEvent('off-before-late-transport', '/unsubscribe'));
       const event = messageEvent('late-transport', '/send once');
       const handling = gateway.handle(event);
       await flush();
@@ -201,6 +202,7 @@ describe('callback deadline and delivery generation fencing', () => {
     const clock = new ManualClock();
     const { gateway, store } = setup({ transport, callbackWindowMs: 10, clock });
     await select(gateway);
+    await gateway.handle(messageEvent('off-before-reclaimed-transport', '/unsubscribe'));
     const event = messageEvent('late-definitely-not-accepted', '/send once');
     transport.holdEventId = event.eventId;
     const first = gateway.handle(event);
@@ -252,7 +254,7 @@ describe('callback deadline and delivery generation fencing', () => {
       new Set(['feishu:late-core-mutation']),
     );
     expect(transport.messages.filter((message) => message.eventId === event.eventId)).toHaveLength(
-      1,
+      0,
     );
   });
 

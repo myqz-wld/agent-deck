@@ -2,6 +2,7 @@ import {
   isJsonObject,
   parseWorkspaceDirectoryRef,
   type JsonObject,
+  parseSessionName,
 } from '@contracts/index';
 import { parsePreferenceCommand, parseCreateOverrides, type PreferenceCommand } from './preference-commands';
 import type { FeishuModelPreference, FeishuPreferencePurpose } from '@contracts/index';
@@ -18,6 +19,7 @@ export type FeishuCommand = (
   | { kind: 'help' }
   | { kind: 'history'; cursor?: string }
   | { kind: 'pending' }
+  | { kind: 'rename'; title: string }
   | { kind: 'runtime-get' }
   | { kind: 'runtime-update'; expectedRevision: number; patch: JsonObject }
   | { kind: 'select'; sessionId: string }
@@ -61,10 +63,14 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
   if (input === '/chat list' || input.startsWith('/chat list ')) return {
     ...parseFeishuCommand('/sessions' + input.slice('/chat list'.length), maximumTextBytes), target: 'assistant',
   };
-  const chatControl = input.match(/^\/chat (history|pending|runtime|runtime-set|subscribe|unsubscribe|select)(?: ([\s\S]*))?$/);
+  const chatControl = input.match(/^\/chat (history|pending|runtime|runtime-set|subscribe|unsubscribe|select|rename)(?: ([\s\S]*))?$/);
   if (chatControl) return { ...parseFeishuCommand('/' + chatControl[1] +
     (chatControl[2] ? ' ' + chatControl[2] : ''), maximumTextBytes), target: 'assistant' };
   if (input === '/help') return { kind: 'help' };
+  if (input === '/rename' || input.startsWith('/rename ')) {
+    try { return { kind: 'rename', title: parseSessionName(input.slice('/rename'.length).trim()) }; }
+    catch { throw new FeishuGatewayError('invalid_command', '用法：/rename <名称>；名称须为单行、非空且不超过 512 UTF-8 字节'); }
+  }
   if (input === '/sessions') return { kind: 'sessions' };
   if (input.startsWith('/sessions ')) {
     const [, cursor] = exactArgument(input, /^\/sessions ([^\s]+)$/, '/sessions [cursor]');
@@ -171,6 +177,8 @@ export const FEISHU_HELP_TEXT = [
   '/create <adapter-id> <目录> [--model <模型>] [--provider <网关>] [--thinking <程度>] -- <需求> — 覆盖并记住选择',
   '/history [cursor] — 查看所选工作会话历史',
   '/send <内容> — 发送给所选工作会话',
+  '/rename <名称> — 重命名所选工作会话',
+  '/chat rename <名称> — 重命名当前助手聊天',
   '/chat runtime — 查看当前聊天助手的设置',
   '/chat runtime-set <revision> <JSON-patch> — 修改当前聊天助手的设置',
   '/runtime — 查看所选工作会话的设置',

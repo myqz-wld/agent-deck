@@ -6,6 +6,8 @@ import {
   isJsonValue,
   type JsonValue,
   type SessionConsoleCreateResult,
+  type FeishuWorkCreateResult,
+  type FeishuWorkEvent,
 } from '@contracts/index';
 import type { DaemonInstancePaths } from '@hosts/daemon';
 import { initializeRuntimeMetadataSchema } from './runtime-metadata-schema';
@@ -328,6 +330,29 @@ export class ServerCoreRuntimeMetadataStore {
         WHERE status = 'completed'
           AND json_extract(result_json, '$.sessionId') = ?`,
     ).run(toId, now, fromId);
+  }
+
+  /** Publish work ownership only after the creation result and event commit together. */
+  commitFeishuWorkCreate(identity: ServerCoreMutationIdentity,
+    fields: Omit<FeishuWorkCreateResult, 'revision'>, payload: FeishuWorkEvent,
+    now = Date.now()): FeishuWorkCreateResult {
+    this.validateMutationIdentity(identity);
+    if (identity.method !== 'feishu.work.create') throw new Error('Invalid work creation identity');
+    token(fields.sessionId, 'work session', 256);
+    const result = this.db().transaction(() => {
+      const revision = this.currentRevision() + 1;
+      const value = { ...fields, revision };
+      this.db().prepare('UPDATE core_state SET current_revision = ? WHERE singleton = 1').run(revision);
+      this.db().prepare(`INSERT INTO change_log(revision, kind, entity_id, payload_json, created_at)
+        VALUES (?, 'feishu.work.committed', ?, ?, ?)`).run(revision, fields.sessionId, json(payload as unknown as JsonValue), now);
+      this.completeMutation(identity, value as unknown as JsonValue, revision, now);
+      this.db().prepare('DELETE FROM change_log WHERE revision <= ?').run(Math.max(0, revision - CHANGE_RETENTION));
+      return value;
+    })();
+    const change = Object.freeze({ revision: result.revision, kind: 'feishu.work.committed',
+      entityId: fields.sessionId, payload: payload as unknown as JsonValue });
+    for (const listener of [...this.listeners]) { try { listener(change); } catch {} }
+    return result;
   }
 
   releaseMutationClaim(identity: ServerCoreMutationIdentity): void {

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { FeishuGatewayError } from '@gateways/im';
 
-export const FEISHU_METADATA_SCHEMA_VERSION = 5;
+export const FEISHU_METADATA_SCHEMA_VERSION = 6;
 
 const V4_TABLE_COLUMNS: Readonly<Record<string, readonly string[]>> = Object.freeze({
   credentials: [
@@ -176,10 +176,22 @@ ALTER TABLE subscriptions ADD COLUMN purpose TEXT NOT NULL DEFAULT 'session'
   CHECK (purpose IN ('assistant', 'session'));
 PRAGMA user_version = 5;
 `;
-const CURRENT_SCHEMA = V4_SCHEMA + MIGRATION_V5;
-const TABLE_COLUMNS = Object.freeze({ ...V4_TABLE_COLUMNS,
+const MIGRATION_V6 = `
+ALTER TABLE subscriptions ADD COLUMN work_creation TEXT
+  CHECK (work_creation IS NULL OR (json_valid(work_creation) AND json_type(work_creation) = 'object'
+    AND length(CAST(work_creation AS BLOB)) <= 4096));
+ALTER TABLE subscriptions ADD COLUMN assistant_setup_version INTEGER NOT NULL DEFAULT 0
+  CHECK (assistant_setup_version >= 0);
+PRAGMA user_version = 6;
+`;
+const V5_SCHEMA = V4_SCHEMA + MIGRATION_V5;
+const CURRENT_SCHEMA = V5_SCHEMA + MIGRATION_V6;
+const V5_TABLE_COLUMNS = Object.freeze({ ...V4_TABLE_COLUMNS,
   contexts: [...V4_TABLE_COLUMNS.contexts, 'assistant_session_id', 'assistant_generation'],
   subscriptions: [...V4_TABLE_COLUMNS.subscriptions, 'purpose'],
+});
+const TABLE_COLUMNS = Object.freeze({ ...V5_TABLE_COLUMNS,
+  subscriptions: [...V5_TABLE_COLUMNS.subscriptions, 'work_creation', 'assistant_setup_version'],
 });
 
 function schemaFingerprint(database: Database.Database): string {
@@ -197,7 +209,7 @@ function schemaFingerprint(database: Database.Database): string {
 function expectedFingerprint(version: number): string {
   const database = new Database(':memory:');
   try {
-    database.exec(version === 4 ? V4_SCHEMA : CURRENT_SCHEMA);
+    database.exec(version === 4 ? V4_SCHEMA : version === 5 ? V5_SCHEMA : CURRENT_SCHEMA);
     return schemaFingerprint(database);
   } finally {
     database.close();
@@ -225,7 +237,7 @@ function tableNames(db: Database.Database): string[] {
 }
 
 function verifyExactSchema(db: Database.Database, version = FEISHU_METADATA_SCHEMA_VERSION): void {
-  const columnsByTable = version === 4 ? V4_TABLE_COLUMNS : TABLE_COLUMNS;
+  const columnsByTable = version === 4 ? V4_TABLE_COLUMNS : version === 5 ? V5_TABLE_COLUMNS : TABLE_COLUMNS;
   const names = tableNames(db);
   const expected = Object.keys(columnsByTable).sort();
   if (names.length !== expected.length || names.some((name, index) => name !== expected[index])) fail();
@@ -263,12 +275,13 @@ export function initializeFeishuMetadataSchema(db: Database.Database): void {
     }
     version = FEISHU_METADATA_SCHEMA_VERSION;
   }
-  if (version === 4) {
+  if (version === 4 || version === 5) {
     // Validate the entire source schema before applying the supported migration.
-    verifyExactSchema(db, 4);
+    verifyExactSchema(db, version);
     try {
       db.exec('BEGIN IMMEDIATE');
-      db.exec(MIGRATION_V5);
+      if (version === 4) db.exec(MIGRATION_V5);
+      db.exec(MIGRATION_V6);
       verifyExactSchema(db);
       db.exec('COMMIT');
       version = FEISHU_METADATA_SCHEMA_VERSION;

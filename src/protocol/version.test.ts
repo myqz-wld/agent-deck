@@ -7,12 +7,12 @@ import {
 } from './version';
 
 describe('protocol version negotiation', () => {
-  it('advertises Feishu adapter-native configuration as protocol 2.11', () => {
-    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 11 });
+  it('advertises named work management and registration metadata as protocol 2.12', () => {
+    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 12 });
   });
   it('accepts only one exact protocol contract', () => {
-    expect(negotiateProtocolVersion({ major: 2, minor: 11 })).toEqual({ major: 2, minor: 11 });
-    expect(() => negotiateProtocolVersion({ major: 2, minor: 10 })).toThrowError('Protocol version mismatch');
+    expect(negotiateProtocolVersion({ major: 2, minor: 12 })).toEqual({ major: 2, minor: 12 });
+    expect(() => negotiateProtocolVersion({ major: 2, minor: 11 })).toThrowError('Protocol version mismatch');
   });
 
   it('rejects a major mismatch before ordinary calls', () => {

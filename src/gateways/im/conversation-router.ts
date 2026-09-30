@@ -3,6 +3,7 @@ import { FEISHU_CONVERSATION_SETUP, FEISHU_WORK_SESSION_SETUP } from './conversa
 import { parseFeishuCommand, type FeishuCommand } from './commands';
 import type { FeishuCommandExecutor } from './command-executor';
 import { classifyGatewayError, FeishuGatewayError } from './errors';
+import { feishuSessionFooter, feishuWorkName, readFeishuSessionTitle } from './session-names';
 import type {
   ConnectedFeishuClient, EnrolledFeishuCredential, FeishuChatContext, FeishuGatewayLimits,
   FeishuGatewayStore, FeishuMessageEvent, SessionConsoleView,
@@ -11,7 +12,7 @@ import type {
 const TITLES: Record<FeishuCommand['kind'], string> = {
   'preferences-get': '聊天与工作会话配置', 'preferences-set': '选择已保存', models: '可用配置', new: '新建工作会话', 'new-conversation': '新聊天',
   create: '会话已创建', directories: '工作目录', help: '使用帮助', history: '会话历史',
-  pending: '待确认事项', 'runtime-get': '会话设置', 'runtime-update': '设置已更新',
+  pending: '待确认事项', rename: '名称已更新', 'runtime-get': '会话设置', 'runtime-update': '设置已更新',
   select: '当前会话', send: '消息已发送', sessions: '会话列表',
   'session-delete-confirm': '删除结果', 'session-delete-prepare': '确认删除会话',
   subscribe: '回复通知',
@@ -61,7 +62,7 @@ export class FeishuConversationRouter {
         ? '配置已发生变化。请发送 /settings 查看最新选择，再重新设置。' : USER_ERRORS[classified.code];
       const text = event.text.trimStart();
       const source = !text.startsWith('/') || text.startsWith('/chat ') ? '助手'
-        : /^\/(new|create|select|send|history|runtime|pending|delete|subscribe|unsubscribe)\b/.test(text) ? '工作会话' : 'Agent Deck';
+        : /^\/(new|create|select|send|history|runtime|pending|delete|subscribe|unsubscribe|rename)\b/.test(text) ? '工作会话' : 'Agent Deck';
       if (source === '助手' && classified.code === 'not_found') {
         message = '没有找到这段助手聊天。发送 /chat list 查看已保留的聊天，或 /chat new 开始新聊天。';
       }
@@ -75,6 +76,7 @@ export class FeishuConversationRouter {
     connected: ConnectedFeishuClient, remaining: () => number,
   ): Promise<SessionConsoleView> {
     let command = parseFeishuCommand(event.text, this.limits.maxTextBytes);
+    let initializedAssistant = false;
     const context = (): FeishuChatContext => {
       const value = this.store.getContext(credential.instanceId, credential.credentialId, event.chatId);
       if (!value) throw new FeishuGatewayError('invalid_configuration', 'Chat context is missing');
@@ -114,6 +116,7 @@ export class FeishuConversationRouter {
       await run({ kind: 'create', adapterId: null, purpose: 'conversation', workingDirectory: '.', initialMessage: FEISHU_CONVERSATION_SETUP }, {
         ...event, eventId: `conversation-${key(credential.instanceId, credential.credentialId, event.chatId, current.assistantGeneration)}`,
       });
+      initializedAssistant = true;
     }
     const selected = (): string | null => assistantTarget ? context().assistantSessionId : context().activeSessionId;
     if (assistantTarget && !['create', 'sessions', 'select'].includes(command.kind) && !selected()) {
@@ -122,6 +125,7 @@ export class FeishuConversationRouter {
     if (command.kind === 'send' && event.chatType === 'p2p') await subscribe(selected(), false);
     if (assistantTarget && command.kind === 'send') {
       await this.executor.registerAssistants(event, credential, context(), connected, remaining);
+      await this.executor.refreshAssistantSetup(event, credential, context(), connected, remaining, initializedAssistant);
     }
     if (assistantTarget && command.kind === 'runtime-update' && context().assistantGeneration === Number.MAX_SAFE_INTEGER &&
       ('claudeCodeSandbox' in command.patch || 'grokSandbox' in command.patch)) {
@@ -139,7 +143,9 @@ export class FeishuConversationRouter {
       if (previous) {
         this.store.putSubscription({ ...previous, status: 'inactive', updatedAt: this.now() });
         // Preserve explicit unsubscribe across provider replacements, including older assistant histories.
-        this.store.putSubscription({ ...previous, sessionId: result.replacementSessionId, status: 'inactive', updatedAt: this.now() });
+        // A new provider identity may have a fresh context; initialize its assistant rules on the next turn.
+        const { assistantSetupVersion: _oldSetup, creation: _oldCreation, ...retained } = previous;
+        this.store.putSubscription({ ...retained, sessionId: result.replacementSessionId, status: 'inactive', updatedAt: this.now() });
       }
       try {
         if (event.chatType === 'p2p' && previous?.status === 'active') await subscribe(selected(), true);
@@ -153,18 +159,30 @@ export class FeishuConversationRouter {
     if (assistantTarget && command.kind === 'select') await subscribe(selected(), true);
     if (assistantTarget && ['create', 'select'].includes(command.kind)) {
       await this.executor.registerAssistants(event, credential, context(), connected, remaining);
+      await this.executor.refreshAssistantSetup(event, credential, context(), connected, remaining, command.kind === 'create');
     }
     const sessionId = selected();
     const subscribed = sessionId && this.store.getSubscription(
       credential.instanceId, credential.credentialId, event.chatId, sessionId,
     )?.status === 'active';
-    if (ordinaryChat) {
-      return subscribed ? { ...result, silent: true }
-        : { ...result, text: '消息已发送。助手回复通知已关闭，发送 /chat subscribe 可以恢复。' };
+    if (command.kind === 'send' && event.chatType === 'p2p') {
+      // Core may accept a send whose response is lost. A later callback retry must not
+      // append an obsolete receipt after its subscribed provider reply has arrived.
+      if (subscribed) return { ...result, silent: true };
+      const text = assistantTarget
+        ? '消息已发送。助手回复通知已关闭，发送 /chat subscribe 可以恢复。'
+        : '消息已发送。工作会话回复通知已关闭，发送 /subscribe 可以恢复。';
+      result = { ...result, text };
+      if (ordinaryChat) return result;
     }
-    const sessionScoped = ['create', 'select', 'send', 'history', 'pending', 'runtime-get', 'runtime-update',
+    const sessionScoped = ['create', 'select', 'send', 'history', 'pending', 'runtime-get', 'runtime-update', 'rename',
       'subscribe', 'session-delete-prepare', 'session-delete-confirm'].includes(command.kind);
-    const source = assistantTarget ? '助手' : sessionScoped ? `工作会话${sessionId ? ' · ' + sessionId.slice(0, 8) : ''}` : 'Agent Deck';
-    return { ...result, presentation: { title: `${source} · ${TITLES[command.kind]}`, standalone: event.chatType === 'p2p' } };
+    const title = !assistantTarget && sessionScoped && sessionId && event.chatType === 'p2p'
+      ? await readFeishuSessionTitle(connected, sessionId, this.limits, remaining) : null;
+    const source = assistantTarget ? '助手' : sessionScoped ? feishuWorkName(title) : 'Agent Deck';
+    return { ...result, ...(title && sessionId ? { sessionTitles: { [sessionId]: title } } : {}),
+      presentation: { title: `${source} · ${TITLES[command.kind]}`, standalone: event.chatType === 'p2p',
+      ...(!assistantTarget && sessionScoped && sessionId && event.chatType === 'p2p'
+        ? { footer: feishuSessionFooter(sessionId) } : {}) } };
   }
 }

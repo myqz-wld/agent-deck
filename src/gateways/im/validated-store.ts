@@ -86,14 +86,27 @@ function context(value: unknown): FeishuChatContext {
 }
 
 function subscription(value: unknown): FeishuSubscriptionRecord {
-  exact(value, ['chatId', 'credentialId', 'instanceId', 'sessionId', 'purpose', 'status', 'updatedAt']);
+  const optional = ['assistantSetupVersion', 'creation'].filter(k => !!value && typeof value === 'object' && Object.hasOwn(value, k));
+  exact(value, ['chatId', 'credentialId', 'instanceId', 'sessionId', 'purpose', 'status', 'updatedAt', ...optional]);
   if (!['active', 'inactive'].includes(String(value.status))) fail();
   if (!['assistant', 'session'].includes(String(value.purpose))) fail();
+  let creation: FeishuSubscriptionRecord['creation'];
+  if (Object.hasOwn(value, 'creation')) {
+    if (value.purpose !== 'session') fail();
+    const raw = value.creation;
+    exact(raw, ['assistantSessionId', 'requestId', 'previousWorkSessionId', 'contextUpdatedAt']);
+    creation = { assistantSessionId: token(raw.assistantSessionId), requestId: token(raw.requestId),
+      previousWorkSessionId: raw.previousWorkSessionId === null ? null : token(raw.previousWorkSessionId),
+      contextUpdatedAt: integer(raw.contextUpdatedAt) };
+  }
+  if (Object.hasOwn(value, 'assistantSetupVersion') && value.purpose !== 'assistant') fail();
   return {
     instanceId: token(value.instanceId), credentialId: token(value.credentialId),
     chatId: token(value.chatId), sessionId: token(value.sessionId),
     status: value.status as FeishuSubscriptionRecord['status'], updatedAt: integer(value.updatedAt),
     purpose: value.purpose as FeishuSubscriptionRecord['purpose'],
+    ...(creation ? { creation } : {}),
+    ...(Object.hasOwn(value, 'assistantSetupVersion') ? { assistantSetupVersion: integer(value.assistantSetupVersion, true) } : {}),
   };
 }
 
@@ -299,6 +312,17 @@ export class ValidatedFeishuGatewayStore implements FeishuGatewayStore {
         this.limits.maxSubscriptionsPerChat
     ) fail();
     this.raw.putSubscription(valid);
+  }
+
+  removeSubscription(instanceId: string, credentialId: string, chatId: string, sessionId: string): void {
+    this.getSubscription(instanceId, credentialId, chatId, sessionId);
+    this.raw.removeSubscription(instanceId, credentialId, chatId, sessionId);
+  }
+
+  moveSubscription(instanceId: string, credentialId: string, chatId: string, fromId: string, toId: string): void {
+    this.getSubscription(instanceId, credentialId, chatId, fromId);
+    this.getSubscription(instanceId, credentialId, chatId, toId);
+    this.raw.moveSubscription(instanceId, credentialId, chatId, fromId, toId);
   }
 
   claimDelivery(

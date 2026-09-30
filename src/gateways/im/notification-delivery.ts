@@ -12,6 +12,8 @@ import { renderPending } from './render';
 import { truncateUtf8 } from './redaction';
 import { readFeishuAssistantMessage } from './notification-message';
 import { labelFeishuPendingSources } from './source-presentation';
+import { feishuSessionFooter, feishuWorkName, readFeishuSessionTitle } from './session-names';
+import { registerFeishuWorkEvent } from './work-registration';
 import type {
   EnrolledFeishuCredential,
   FeishuGatewayClock,
@@ -111,7 +113,23 @@ export async function deliverCoreNotification(
     throw new FeishuGatewayError('invalid_configuration', 'Notification chat context is missing');
   }
   if (cursor && event.revision <= cursor.revision) return;
-  if (!relevant(event)) return advanceCursor(options, credential, chatId, event.revision);
+  // Initial user metadata can precede a Codex canonical-ID rename. It never needs a history read.
+  if (event.persisted?.kind === 'message' && event.persisted.role && event.persisted.role !== 'assistant') {
+    return advanceCursor(options, credential, chatId, event.revision);
+  }
+  let registrationNotice: string | undefined;
+  if (event.workRegistration || event.renamedSession) {
+    const callback = new FeishuCallbackAttempt(1, options.callbackWindowMs, options.clock);
+    const registration = await options.withinWindow(callback, () => registerFeishuWorkEvent({
+      store: options.store, credential, chatId, event, limits: options.limits,
+      now: () => options.clock.now(), remaining: () => callback.remainingMs(),
+      connected: () => options.pool.getForGeneration(credential, chatId, options.epoch),
+      beforeMutation: () => options.beforeDeliver(credential, chatId),
+    }));
+    if (registration.handled && !registration.notice) return advanceCursor(options, credential, chatId, event.revision);
+    registrationNotice = registration.notice;
+  }
+  if (!registrationNotice && !relevant(event)) return advanceCursor(options, credential, chatId, event.revision);
   if (context.chatType === 'group' && event.persisted?.kind === 'message') {
     return advanceCursor(options, credential, chatId, event.revision);
   }
@@ -133,7 +151,7 @@ export async function deliverCoreNotification(
       'Persisted notification subscriptions exceed the bounded Core request fanout',
     );
   }
-  if (subscriptions.length === 0) {
+  if (subscriptions.length === 0 && !registrationNotice) {
     return advanceCursor(options, credential, chatId, event.revision);
   }
 
@@ -187,13 +205,16 @@ export async function deliverCoreNotification(
   try {
     await options.withinWindow(callback, async () => {
       const connected = await options.pool.getForGeneration(credential, chatId, options.epoch);
-      const assistantMessage = event.persisted?.kind === 'message'
+      let coreReads = 0;
+      const assistantMessage = registrationNotice ?? (event.persisted?.kind === 'message'
         ? await readFeishuAssistantMessage(connected, event, options.limits, () => callback.remainingMs(),
-            subscriptions.find(s => s.sessionId === event.entityId)?.purpose === 'assistant' ? '/chat history' : '/history')
-        : undefined;
+            subscriptions.find(s => s.sessionId === event.entityId)?.purpose === 'assistant' ? '/chat history' : '/history',
+            () => { coreReads++; })
+        : undefined);
       if (assistantMessage === null) return;
       const cards = [] as NonNullable<SessionConsoleView['cards']>[number][];
       for (const subscription of assistantMessage === undefined ? subscriptions : []) {
+        coreReads++;
         assertFeishuMethod(connected.hello, 'pending.list');
         const raw = await connected.client.request(
           'pending.list',
@@ -221,6 +242,10 @@ export async function deliverCoreNotification(
       }
       if (assistantMessage === undefined && cards.length === 0 &&
         (event.kind.startsWith('pending.') || event.persisted?.kind === 'waiting-for-user')) return;
+      const workSessionId = event.entityId && (registrationNotice || subscriptions.find(s => s.sessionId === event.entityId)?.purpose === 'session')
+        ? event.entityId : null;
+      const title = workSessionId && context.chatType === 'p2p' && coreReads < options.limits.maxNotificationCoreRequests
+        ? await readFeishuSessionTitle(connected, workSessionId, options.limits, () => callback.remainingMs()) : null;
       markPreTransport(
         options.store,
         credential.instanceId,
@@ -235,8 +260,9 @@ export async function deliverCoreNotification(
           credentialId: credential.credentialId,
           chatId,
           kind: 'notification',
-          ...(event.entityId && subscriptions.find(s => s.sessionId === event.entityId)?.purpose === 'session'
-            ? { presentation: { title: `工作会话 · ${event.entityId.slice(0, 8)}`, standalone: true } }
+          ...(workSessionId
+            ? { presentation: { title: feishuWorkName(title), standalone: true,
+              ...(context.chatType === 'p2p' ? { footer: feishuSessionFooter(workSessionId) } : {}) } }
             : assistantMessage === undefined ? { presentation: { title: 'Agent Deck · 待确认事项', standalone: true } } : {}),
           text: truncateUtf8(
             assistantMessage ?? (event.kind.startsWith('pending.') || event.persisted?.kind === 'waiting-for-user'
@@ -244,7 +270,8 @@ export async function deliverCoreNotification(
               : '状态已更新。'),
             options.limits.maxOutputBytes,
           ),
-          cards: labelFeishuPendingSources(cards.slice(0, options.limits.maxPendingCards), subscriptions),
+          cards: labelFeishuPendingSources(cards.slice(0, options.limits.maxPendingCards), subscriptions,
+            workSessionId && title ? { [workSessionId]: title } : {}),
         },
         callback,
         deliveryLedgerHooks(
@@ -257,7 +284,7 @@ export async function deliverCoreNotification(
           options.transportIdempotencyWindowMs,
           async () => {
             await options.beforeDeliver(credential, chatId);
-            if (assistantMessage !== undefined && (
+            if (assistantMessage !== undefined && !registrationNotice && (
               options.store.getContext(credential.instanceId, credential.credentialId, chatId)?.chatType !== 'p2p' ||
               options.store.getSubscription(
                 credential.instanceId, credential.credentialId, chatId, event.entityId!,

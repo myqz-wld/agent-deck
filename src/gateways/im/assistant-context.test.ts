@@ -89,7 +89,8 @@ describe('independent Feishu assistant and work contexts', () => {
     expect(t.transport.messages[0]).toMatchObject({ text: '这是助手回答。', cards: [] });
     expect(t.transport.messages[0].presentation).toBeUndefined();
     expect(t.transport.messages[1]).toMatchObject({ text: '这是工作结果。',
-      presentation: { title: `工作会话 · ${state.activeSessionId!.slice(0, 8)}`, standalone: true } });
+      presentation: { title: `工作会话 · Title ${state.activeSessionId}`, standalone: true,
+        footer: `会话 ID：${state.activeSessionId}` } });
     await t.gateway.close();
   });
 

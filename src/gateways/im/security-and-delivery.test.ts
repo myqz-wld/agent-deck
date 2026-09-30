@@ -171,6 +171,8 @@ describe('callback acceptance window and transport retries', () => {
     transport.failures = 1;
     const { gateway, clients } = setup({ transport });
     await select(gateway);
+    // Explicitly disabled replies still need an accepted-send receipt and recovery hint.
+    await gateway.handle(messageEvent('disable-replies', '/unsubscribe'));
     await expect(gateway.handle(messageEvent('retry-delivery', '/send one'))).resolves.toMatchObject({
       code: 'accepted',
     });

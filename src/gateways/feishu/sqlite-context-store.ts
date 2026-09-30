@@ -95,18 +95,33 @@ export class SqliteFeishuContextStore {
       status: row.status as FeishuSubscriptionRecord['status'],
       purpose: row.purpose as FeishuSubscriptionRecord['purpose'],
       updatedAt: row.updated_at as number,
+      ...(row.work_creation === null ? {} : { creation: JSON.parse(row.work_creation as string) }),
+      ...(Number(row.assistant_setup_version) > 0 ? { assistantSetupVersion: row.assistant_setup_version as number } : {}),
     };
   }
 
   putSubscription(value: FeishuSubscriptionRecord): void {
     this.db.prepare(`
-      INSERT INTO subscriptions VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO subscriptions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(instance_id, credential_id, chat_id, session_id) DO UPDATE SET
-        status = excluded.status, updated_at = excluded.updated_at, purpose = excluded.purpose
+        status = excluded.status, updated_at = excluded.updated_at, purpose = excluded.purpose,
+        work_creation = excluded.work_creation, assistant_setup_version = excluded.assistant_setup_version
     `).run(
       value.instanceId, value.credentialId, value.chatId,
       value.sessionId, value.status, value.updatedAt, value.purpose,
+      value.creation ? JSON.stringify(value.creation) : null, value.assistantSetupVersion ?? 0,
     );
+  }
+
+  removeSubscription(instanceId: string, credentialId: string, chatId: string, sessionId: string): void {
+    this.db.prepare('DELETE FROM subscriptions WHERE instance_id = ? AND credential_id = ? AND chat_id = ? AND session_id = ?')
+      .run(instanceId, credentialId, chatId, sessionId);
+  }
+
+  moveSubscription(instanceId: string, credentialId: string, chatId: string, fromId: string, toId: string): void {
+    if (fromId === toId) return;
+    this.db.prepare('UPDATE subscriptions SET session_id = ? WHERE instance_id = ? AND credential_id = ? AND chat_id = ? AND session_id = ?')
+      .run(toId, instanceId, credentialId, chatId, fromId);
   }
 
 }

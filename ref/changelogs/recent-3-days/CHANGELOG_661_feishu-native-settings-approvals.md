@@ -30,7 +30,9 @@ state after a click.
 
 6,815 tests passed with three existing skips. Typecheck/architecture, application build, Linux
 reproducibility, native archives, headless/deployment gates and actual artifact privacy checks passed.
-See REVIEW_302 for live native-approval evidence and the pending installation/visual acceptance.
+The coordinated release is installed and independently verified; the authorized assistant policy
+is saved at preference revision 3. See REVIEW_302 and PLAN_70 for activation evidence and the
+remaining owner checks of the new card presentation and terminal state.
 
 ## Do Not Split Protection
 

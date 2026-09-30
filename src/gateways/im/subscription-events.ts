@@ -1,4 +1,4 @@
-import { isJsonObject, type AgentDeckEventEnvelope } from '@contracts/index';
+import { isJsonObject, parseFeishuWorkEvent, type AgentDeckEventEnvelope } from '@contracts/index';
 import { FeishuGatewayError } from './errors';
 import type { EnrolledFeishuCredential, NotificationEvent } from './types';
 
@@ -42,6 +42,20 @@ export function validateCoreNotificationEvent(
     ? null
     : boundedToken(event.entityId, 'event.entityId', 256);
   let persisted: NotificationEvent['persisted'];
+  let workRegistration: NotificationEvent['workRegistration'];
+  let renamedSession: NotificationEvent['renamedSession'];
+  if (['feishu.work.registered', 'feishu.work.committed', 'feishu.work.failed'].includes(kind)) {
+    if (!entityId) throw new FeishuGatewayError('invalid_core_event', 'Work registration has no session identity');
+    try { workRegistration = parseFeishuWorkEvent(event.payload); }
+    catch { throw new FeishuGatewayError('invalid_core_event', 'Work registration is malformed'); }
+  }
+  if (kind === 'session.renamed') {
+    if (!isJsonObject(event.payload)) throw new FeishuGatewayError('invalid_core_event', 'Session rename is malformed');
+    const fromId = boundedToken(event.payload.fromId, 'rename source', 256);
+    const toId = boundedToken(event.payload.toId, 'rename target', 256);
+    if (entityId !== toId) throw new FeishuGatewayError('invalid_core_event', 'Session rename target differs');
+    renamedSession = { fromId, toId };
+  }
   if (kind === 'event.persisted' && isJsonObject(event.payload) &&
     typeof event.payload.kind === 'string' &&
     ['message', 'waiting-for-user'].includes(event.payload.kind)) {
@@ -49,7 +63,9 @@ export function validateCoreNotificationEvent(
     if (!entityId || !Number.isSafeInteger(id) || Number(id) < 1) {
       throw new FeishuGatewayError('invalid_core_event', 'Persisted message identity is invalid');
     }
-    persisted = { eventId: Number(id), kind: event.payload.kind as 'message' | 'waiting-for-user' };
+    const role = event.payload.role;
+    persisted = { eventId: Number(id), kind: event.payload.kind as 'message' | 'waiting-for-user',
+      ...(role === 'assistant' || role === 'user' || role === 'system' ? { role } : {}) };
   }
   return {
     instanceId: credential.instanceId,
@@ -57,5 +73,7 @@ export function validateCoreNotificationEvent(
     kind,
     entityId,
     ...(persisted ? { persisted } : {}),
+    ...(workRegistration ? { workRegistration } : {}),
+    ...(renamedSession ? { renamedSession } : {}),
   };
 }

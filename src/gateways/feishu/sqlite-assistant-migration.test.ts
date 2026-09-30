@@ -21,7 +21,7 @@ function oldDatabase() {
 }
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-describe('Feishu v5 assistant context migration', () => {
+describe('Feishu assistant context migration', () => {
   it('preserves v4 work state and credentials, then persists separate assistant identity across reopen', () => {
     const old = oldDatabase(); old.db.close();
     const store = new SqliteFeishuGatewayStore(old.path, binding);
@@ -44,7 +44,7 @@ describe('Feishu v5 assistant context migration', () => {
     expect(next.getSubscription(binding.instanceId, 'credential-one', 'chat-one', 'work-one')?.status).toBe('active');
     next.close();
     const read = new Database(old.path, { readonly: true });
-    expect(read.pragma('user_version', { simple: true })).toBe(5);
+    expect(read.pragma('user_version', { simple: true })).toBe(6);
     expect(read.pragma('foreign_key_check')).toEqual([]); read.close();
   });
 
@@ -57,5 +57,40 @@ describe('Feishu v5 assistant context migration', () => {
     expect(read.prepare('SELECT active_session_id FROM contexts').get()).toEqual({ active_session_id: 'work-one' });
     expect((read.pragma('table_info(contexts)') as Array<{ name: string }>).map(c => c.name)).not.toContain('assistant_session_id');
     read.close();
+  });
+
+  it('migrates the prior v5 schema and retains provisional work and assistant setup across reopen', () => {
+    const old = oldDatabase();
+    // Frozen v5 migration from the previously installed release.
+    old.db.exec(`ALTER TABLE contexts ADD COLUMN assistant_session_id TEXT;
+      ALTER TABLE contexts ADD COLUMN assistant_generation INTEGER NOT NULL DEFAULT 0 CHECK (assistant_generation >= 0);
+      ALTER TABLE subscriptions ADD COLUMN purpose TEXT NOT NULL DEFAULT 'session' CHECK (purpose IN ('assistant', 'session'));
+      PRAGMA user_version = 5;
+      UPDATE contexts SET assistant_session_id = 'assistant-one', assistant_generation = 4;
+      INSERT INTO subscriptions VALUES ('instance-one','credential-one','chat-one','assistant-one','active',101,'assistant');`);
+    old.db.close();
+    const store = new SqliteFeishuGatewayStore(old.path, binding);
+    expect(store.getContext(binding.instanceId, 'credential-one', 'chat-one')).toMatchObject({
+      assistantSessionId: 'assistant-one', assistantGeneration: 4, activeSessionId: 'work-one' });
+    const assistant = store.getSubscription(binding.instanceId, 'credential-one', 'chat-one', 'assistant-one')!;
+    expect(assistant.assistantSetupVersion).toBeUndefined();
+    store.putSubscription({ ...assistant, assistantSetupVersion: 1 });
+    store.putSubscription({ instanceId: binding.instanceId, credentialId: 'credential-one', chatId: 'chat-one',
+      sessionId: 'temporary-work', purpose: 'session', status: 'active', updatedAt: 102,
+      creation: { assistantSessionId: 'assistant-one', requestId: 'creation-a', previousWorkSessionId: 'work-one', contextUpdatedAt: 100 } });
+    store.moveSubscription(binding.instanceId, 'credential-one', 'chat-one', 'temporary-work', 'canonical-work');
+    store.close();
+    const reopened = new SqliteFeishuGatewayStore(old.path, binding);
+    expect(reopened.getSubscription(binding.instanceId, 'credential-one', 'chat-one', 'temporary-work')).toBeNull();
+    expect(reopened.getSubscription(binding.instanceId, 'credential-one', 'chat-one', 'canonical-work')?.creation)
+      .toEqual({ assistantSessionId: 'assistant-one', requestId: 'creation-a', previousWorkSessionId: 'work-one', contextUpdatedAt: 100 });
+    expect(reopened.getSubscription(binding.instanceId, 'credential-one', 'chat-one', 'assistant-one')?.assistantSetupVersion).toBe(1);
+    expect(() => reopened.moveSubscription(binding.instanceId, 'credential-one', 'chat-one', 'canonical-work', 'work-one')).toThrow();
+    expect(reopened.getSubscription(binding.instanceId, 'credential-one', 'chat-one', 'canonical-work')).not.toBeNull();
+    reopened.removeSubscription(binding.instanceId, 'credential-one', 'chat-one', 'canonical-work');
+    expect(reopened.listSubscriptions(binding.instanceId, 'credential-one', 'chat-one')).toHaveLength(2);
+    expect(reopened.listActiveCredentials()).toHaveLength(1);
+    expect(reopened.getCursor(binding.instanceId, 'credential-one', 'chat-one')?.revision).toBe(17);
+    reopened.close();
   });
 });

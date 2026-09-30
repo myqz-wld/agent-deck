@@ -52,6 +52,7 @@ export const REMOTE_DESKTOP_PRODUCT_METHODS = Object.freeze([
   'plan.review.feedback',
   'session.runtime.get',
   'session.runtime.update',
+  'session.name.update',
   'session.context.get',
   'session.input.capabilities',
   'session.handoff.preview',

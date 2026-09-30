@@ -44,10 +44,7 @@ import { appendServerCoreChangeSafely, createServerCoreSessionManagerObserver } 
 import { ServerCorePlanReviewRuntime } from './plan-review-runtime';
 import { ServerCoreUsageRuntime } from './usage-runtime';
 import { ServerCoreNodeConfigurationRuntime } from './node-configuration-runtime';
-import { ServerCoreFeishuPreferencesRuntime } from './feishu-preferences-runtime';
-import { FileFeishuPreferenceStore } from './feishu-preference-store';
-import { FileFeishuAssistantStore } from './feishu-assistant-store';
-import { ServerCoreFeishuAssistantsRuntime } from './feishu-assistants-runtime';
+import { createServerCoreFeishuComposition } from './feishu-composition';
 import { ServerCoreNodeHookProjectionState } from './node-hook-projection-state';
 import { ServerCoreNodeAssetRuntime } from './node-asset-runtime';
 import { ServerCoreNodeAssetCatalog } from './node-asset-catalog';
@@ -287,11 +284,13 @@ export function createServerCoreRuntimeWithOverrides(
   const background = createServerCoreBackgroundComposition({
     settings: providerSettings, registry, metadata, diagnostics: runtimeDiagnostics,
   });
-  const feishuPreferences = new FileFeishuPreferenceStore(input.paths.stateDirectory);
-  const feishuAssistants = new FileFeishuAssistantStore(input.paths.stateDirectory);
+  const feishu = createServerCoreFeishuComposition({ stateDirectory: input.paths.stateDirectory,
+    repositories, metadata, capabilities: createCapabilities, authority: sessionConsoleAuthority,
+    spawn, rollback: rollbackCreatedSession });
   const { desktopBroker, handoff, mcpBroker, presentations } = createServerCoreMcpComposition({
-    feishuPreferences,
-    feishuAssistants,
+    feishuPreferences: feishu.preferences,
+    feishuAssistants: feishu.assistants,
+    feishuManagement: feishu.management,
     workspaceRoot,
     privateRoots,
     repositories,
@@ -441,11 +440,7 @@ export function createServerCoreRuntimeWithOverrides(
     registry,
     currentRevision: () => metadata.currentRevision(),
   });
-  const preferenceRuntime = new ServerCoreFeishuPreferencesRuntime(usageRuntime,
-    feishuPreferences, metadata, createCapabilities);
-  const assistantRuntime = new ServerCoreFeishuAssistantsRuntime(preferenceRuntime,
-    feishuAssistants, metadata, repositories.sessions);
-  const configurationRuntime = new ServerCoreNodeConfigurationRuntime(assistantRuntime, {
+  const configurationRuntime = new ServerCoreNodeConfigurationRuntime(feishu.wrap(usageRuntime), {
     settings: providerSettings,
     sessionLifecycle: sessionLifecycleSettings,
     registry,

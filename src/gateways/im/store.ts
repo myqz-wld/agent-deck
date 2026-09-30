@@ -13,27 +13,7 @@ import type {
   FeishuSubscriptionRecord,
 } from './types';
 import { InMemoryFeishuDeleteConfirmationStore } from './delete-confirmation-store';
-function subjectKey(subject: FeishuStableSubject): string {
-  return `${subject.appId}\u001f${subject.tenantKey}\u001f${subject.openId}`;
-}
-
-function contextKey(instanceId: string, credentialId: string, chatId: string): string {
-  return `${instanceId}\u001f${credentialId}\u001f${chatId}`;
-}
-
-function subscriptionKey(
-  instanceId: string,
-  credentialId: string,
-  chatId: string,
-  sessionId: string,
-): string {
-  return `${contextKey(instanceId, credentialId, chatId)}\u001f${sessionId}`;
-}
-
-function deliveryKey(instanceId: string, eventId: string): string {
-  return `${instanceId}\u001f${eventId}`;
-}
-
+import { subjectKey, contextKey, subscriptionKey, deliveryKey } from './store-keys';
 function safeDeadline(now: number, lifetimeMs: number): number {
   if (!Number.isSafeInteger(now) || now < 0 || !Number.isSafeInteger(lifetimeMs) || lifetimeMs <= 0) {
     throw new FeishuGatewayError('invalid_configuration', 'Delivery attempt lifetime is invalid');
@@ -116,11 +96,11 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
     chatId: string,
   ): FeishuChatContext | null {
     const value = this.contexts.get(contextKey(instanceId, credentialId, chatId));
-    return value ? { ...value } : null;
+    return value ? structuredClone(value) : null;
   }
 
   listContexts(): readonly FeishuChatContext[] {
-    return [...this.contexts.values()].map((value) => ({ ...value }));
+    return [...this.contexts.values()].map((value) => structuredClone(value));
   }
 
   putContext(context: FeishuChatContext): void {
@@ -144,7 +124,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
     const value = this.subscriptions.get(
       subscriptionKey(instanceId, credentialId, chatId, sessionId),
     );
-    return value ? { ...value } : null;
+    return value ? structuredClone(value) : null;
   }
 
   listSubscriptions(
@@ -159,7 +139,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
           value.credentialId === credentialId &&
           value.chatId === chatId,
       )
-      .map((value) => ({ ...value }));
+      .map((value) => structuredClone(value));
   }
 
   putSubscription(subscription: FeishuSubscriptionRecord): void {
@@ -170,8 +150,23 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
         subscription.chatId,
         subscription.sessionId,
       ),
-      { ...subscription },
+      structuredClone(subscription),
     );
+  }
+
+  removeSubscription(instanceId: string, credentialId: string, chatId: string, sessionId: string): void {
+    this.subscriptions.delete(subscriptionKey(instanceId, credentialId, chatId, sessionId));
+  }
+
+  moveSubscription(instanceId: string, credentialId: string, chatId: string, fromId: string, toId: string): void {
+    if (fromId === toId) return;
+    const from = subscriptionKey(instanceId, credentialId, chatId, fromId);
+    const to = subscriptionKey(instanceId, credentialId, chatId, toId);
+    const value = this.subscriptions.get(from);
+    if (!value) return;
+    if (this.subscriptions.has(to)) throw new FeishuGatewayError('conflict', 'Subscription target already exists');
+    this.subscriptions.set(to, { ...value, sessionId: toId });
+    this.subscriptions.delete(from);
   }
 
   claimDelivery(
@@ -400,7 +395,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
 
   getDelivery(instanceId: string, eventId: string): FeishuDeliveryRecord | null {
     const value = this.deliveries.get(deliveryKey(instanceId, eventId));
-    return value ? { ...value } : null;
+    return value ? structuredClone(value) : null;
   }
 
   requireDeliveryReconciliation(
@@ -428,7 +423,7 @@ export class InMemoryFeishuGatewayStore implements FeishuGatewayStore {
     chatId: string,
   ): FeishuCursorRecord | null {
     const value = this.cursors.get(contextKey(instanceId, credentialId, chatId));
-    return value ? { ...value } : null;
+    return value ? structuredClone(value) : null;
   }
 
   putCursor(cursor: FeishuCursorRecord): void {

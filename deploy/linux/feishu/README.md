@@ -135,26 +135,42 @@ remain scoped to work sessions. Groups do not bootstrap private assistant conver
 Natural-language work listing uses `list_work_sessions`: it excludes registered assistant chats,
 includes dormant work, and preserves the separate collaboration/history permission boundaries.
 Existing assistant identities reconcile from gateway metadata when a private conversation resumes.
+For owner-requested creation, the assistant uses `create_work_session` with a short task-based
+name or the owner's explicit name, keeping its own history and saved chat configuration intact.
+Core registers the work before its first reply; Feishu connects replies and selects the committed
+work unless a newer owner selection or a subscription-capacity limit prevents that switch.
+Creation retries keep the same request identity; an uncertain startup requires reconciliation.
+
+`/rename <name>` renames the selected work session, and `/chat rename <name>` renames the assistant
+conversation. The assistant can use `rename_work_session` for an explicit work rename request.
+Names persist in Core; work cards put the readable name in their heading and the ID in a footer.
+Concurrent renames preserve the newer manual name. Natural-language configuration requests use
+`update_feishu_preferences` with the last settings revision and the same adapter-specific rules.
 
 `/create last <directory> -- <message>` offers explicit directory selection. Adapter and optional
 `--model`, `--provider`, or `--thinking` flags override and remember the work selection. Existing
 sessions retain their native controls. `/unsubscribe` applies to the selected work session;
 `/chat unsubscribe` applies to the assistant. Natural-language work creation reads the current
-preferences through Core's read-only MCP tool before using the exposed session tools.
+preferences through Core's read-only MCP tool before using the dedicated work tool.
 
 Ordinary assistant replies are unlabelled text. Work replies use cards identifying the session;
-commands and interactive approvals identify their target. Approval cards show the operation and
+subscribed private `/send` requests omit a redundant receipt that could arrive after the result.
+An explicitly unsubscribed target still returns a recovery hint. Assistant conversations use the
+owner-requested light catgirl voice, while work prompts and approval details remain task-focused.
+Existing assistant history receives one versioned setup update on its next message or selection.
+Commands and interactive approvals identify their target. Approval cards show the operation and
 parameters with one-time approval or denial. The terminal card is returned in the Feishu callback,
 never patched before acknowledgement; already-decided requests cannot execute again. Approval
 notifications query only their owning session, so missing unrelated subscriptions cannot block replies. P2p command results are standalone;
 group results quote the request. Groups cannot read/change private preferences or use saved choices.
 
-Gateway metadata schema v5 stores independent assistant identity/generation and subscription
-purpose. A verified v4 migration preserves pairing, work selection and delivery state; chat bodies
+Gateway metadata schema v6 retains independent assistant identity/generation and subscription
+purpose, and adds bounded work-registration metadata plus the assistant setup version. Verified
+v4/v5 migrations preserve pairing, work selection and delivery state; chat bodies
 remain in authoritative Core history. Remote creation commits only canonical provider session IDs.
 
 Core owns a bounded, owner-only, atomically replaced configuration file. Desktop/Feishu saves use
-an independent settings revision to detect concurrent edits. Protocol 2.11 requires matching Desktop,
+an independent settings revision to detect concurrent edits. Protocol 2.12 requires matching Desktop,
 Worker, Server and Feishu artifacts during activation; no credential re-enrollment is required.
 
 Assistant reply delivery preserves the existing metadata-only notification path. Core's `event.persisted` notification carries only an event identity; the gateway

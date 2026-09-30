@@ -11,6 +11,7 @@ export async function readFeishuAssistantMessage(
   limits: FeishuGatewayLimits,
   remaining: () => number,
   historyCommand = '/history',
+  onRead: () => void = () => undefined,
 ): Promise<string | null> {
   if (!event.entityId || event.persisted?.kind !== 'message') return null;
   assertFeishuMethod(connected.hello, 'session.history');
@@ -19,6 +20,7 @@ export async function readFeishuAssistantMessage(
   let cursor: string | undefined;
   const seenCursors = new Set<string>();
   for (let page = 0; page < limits.maxNotificationCoreRequests; page += 1) {
+    onRead();
     const raw = await connected.client.request('session.history', {
       sessionId: event.entityId, limit: pageSize, ...(cursor ? { cursor } : {}),
     }, { deadlineMs: remaining() });

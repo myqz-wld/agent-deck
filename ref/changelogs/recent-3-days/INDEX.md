@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-09-30 | `CHANGELOG_662_feishu-named-work-management.md` | Name work sessions and preserve assistant history and native controls |
 | 2026-09-30 | `CHANGELOG_661_feishu-native-settings-approvals.md` | Remember native settings and complete readable approval cards |
 | 2026-09-30 | `CHANGELOG_660_feishu-work-directory-expiry.md` | List work separately and ignore Feishu messages older than five minutes |
 | 2026-09-29 | `CHANGELOG_659_feishu-assistant-contexts.md` | Separate assistant chat, work targets and reply presentation |

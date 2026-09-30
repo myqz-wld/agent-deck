@@ -210,6 +210,13 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
       }
       case 'session.send':
         return { messageId: `message-${this.calls.length}`, sequence: this.calls.length, revision: ++this.revision };
+      case 'session.name.update': {
+        const row = this.sessions.get(params.sessionId as string);
+        if (!row) throw Object.assign(new Error('Session missing'), { code: 'not_found' });
+        if (row.title !== params.expectedTitle && row.title !== params.title) throw Object.assign(new Error('Name changed'), { code: 'conflict' });
+        this.sessions.set(row.id, { ...row, title: params.title as string });
+        return { sessionId: row.id, title: params.title, revision: ++this.revision };
+      }
       case 'session.interrupt':
       case 'session.steer':
         return { accepted: true, revision: ++this.revision };

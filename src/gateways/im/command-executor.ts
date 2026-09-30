@@ -1,6 +1,7 @@
 import { createFeishuSession } from './session-create';
-import { mergeFeishuModelPreference } from '@contracts/index';
+import { mergeFeishuModelPreference, parseSessionNameUpdateResult } from '@contracts/index';
 import { registerFeishuAssistants } from './assistant-registration';
+import { refreshFeishuAssistantSetup } from './assistant-setup';
 import { readModelCapabilities, readPreferences, renderModels, renderPreferences, savePreference } from './preferences';
 import { FEISHU_HELP_TEXT, type FeishuCommand } from './commands';
 import { assertFeishuMethod } from './client-pool';
@@ -65,6 +66,12 @@ export class FeishuCommandExecutor {
   registerAssistants(event: FeishuMessageEvent, credential: EnrolledFeishuCredential,
     context: FeishuChatContext, connected: ConnectedFeishuClient, remaining: () => number): Promise<void> {
     return registerFeishuAssistants(this.options, event, credential, context, connected, remaining);
+  }
+
+  refreshAssistantSetup(event: FeishuMessageEvent, credential: EnrolledFeishuCredential,
+    context: FeishuChatContext, connected: ConnectedFeishuClient, remaining: () => number,
+    initialized = false): Promise<void> {
+    return refreshFeishuAssistantSetup(this.options, event, credential, context, connected, remaining, initialized);
   }
 
   async execute(
@@ -183,7 +190,7 @@ export class FeishuCommandExecutor {
         ...(command.target === 'assistant' ? { assistantSessionId: command.sessionId,
           assistantGeneration: context.assistantGeneration + Number(context.assistantSessionId !== command.sessionId) }
           : { activeSessionId: command.sessionId }),
-        updatedAt: this.options.now(),
+        updatedAt: Math.max(this.options.now(), context.updatedAt + 1),
       });
       return {
         ...view,
@@ -222,6 +229,21 @@ export class FeishuCommandExecutor {
     }
 
     const sessionId = selectedSession(context);
+    if (command.kind === 'rename') {
+      assertFeishuMethod(connected.hello, 'session.console.get');
+      assertFeishuMethod(connected.hello, 'session.name.update');
+      const current = validateSessionConsoleGetResult(await client.request('session.console.get',
+        { sessionId }, { deadlineMs: remaining() }), sessionId, this.options.limits);
+      if (!current.session) throw new FeishuGatewayError('not_found', 'Session 不存在');
+      await this.options.beforeMutation(credential, event.chatId);
+      const result = parseSessionNameUpdateResult(await client.request('session.name.update', {
+        sessionId, title: command.title, expectedTitle: current.session.title,
+      }, { ...mutation, deadlineMs: remaining() }));
+      if (result.sessionId !== sessionId || result.title !== command.title) {
+        throw new FeishuGatewayError('invalid_core_response', 'Name update returned an unexpected target');
+      }
+      return { text: `会话名称已改为「${result.title}」。`, revision: result.revision };
+    }
     if (command.kind === 'history') {
       if (event.chatType === 'group') {
         return {
@@ -259,7 +281,7 @@ export class FeishuCommandExecutor {
       );
       const result = validateSendResult(raw, this.options.limits);
       return {
-        text: '消息已发送，正在处理。',
+        text: '消息已发送。',
         revision: result.revision,
       };
     }
@@ -378,6 +400,7 @@ export class FeishuCommandExecutor {
       const result = validateSubscriptionResult(raw, this.options.limits);
       const revision = result.revision;
       this.options.store.putSubscription({
+        ...subscriptions.find(s => s.sessionId === sessionId),
         instanceId: credential.instanceId,
         credentialId: credential.credentialId,
         chatId: event.chatId,

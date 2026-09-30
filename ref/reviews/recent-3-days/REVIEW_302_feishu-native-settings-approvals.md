@@ -91,7 +91,8 @@ The owner received a real Codex MCP permission card for a harmless personal test
 it. Core normalized history records successful `task_create`, a matching completion response and
 an empty pending queue. The conditional authorization is satisfied: the existing assistant now uses
 on-request with its prior model and Workspace sandbox unchanged; existing work remains never.
-This proves native decision delivery, not acceptance of the new card presentation or new defaults.
+Subsequent owner screenshots on the installed 410a release also confirm the readable terminal card,
+no restored buttons, successful task completion, /send work output and preserved assistant recall.
 No task/chat body, credential, pairing code, app identifier or private host path is retained here.
 
 ## Validation
@@ -108,7 +109,7 @@ No task/chat body, credential, pairing code, app identifier or private host path
   remain readable; no SQLite migration or credential enrollment is introduced.
 - Official Browser documentation verified callback sequencing, raw schema 2.0 response cards and
   the native column/button layout. The temporary documentation tab was closed; the owner's existing
-  event-log tab remains. Actual new-card appearance and post-click state await installed acceptance.
+  event-log tab remains. The owner later accepted the installed card appearance and terminal state.
 - All changed source files are within the 500-line guardrail. No exemption is requested.
 
 ## Prompt asset checks
@@ -122,14 +123,19 @@ The separate proposal for new natural-language mutation tools is not implemented
 
 ## Residual risk and next action
 
-Source validation is complete; this source is not installed yet. Activate the final coordinated
-Desktop/Worker/Relay/Feishu bundle once, then verify the real terminal card and /send reply. Cloud
+The coordinated `410a6db9` Desktop/Worker/Relay/Feishu release is installed and independently
+verified. Feishu/Core negotiate protocol 2.11; both connections are healthy. The authorized
+assistant on-request default is persisted at preference revision 3 with both selected models,
+the work default and existing runtimes unchanged. The final text-only button refinement passed
+34 card/transport checks. See [installation acceptance](../../plans/recent-3-days/PLAN_70_feishu-native-controls-activation.md).
+The real terminal card and /send reply passed owner acceptance. A delayed redundant receipt is
+handled by the next combined naming/receipt change. Cloud
 storage was recovered under the existing artifact-cleanup authorization: three exact retired Relay
 image identities were removed without force, pruning commands, service actions or data/config edits.
 All managed record checksums, live-container images and current/previous generation images were
 checked before removal. Root free space increased from about 340 MiB to 1,210 MiB; both protected
-images and manager records remain intact. Recheck the exact release budget before mutation.
-The overall Feishu acceptance plans and the separate natural-management proposal remain active.
+images and manager records remained intact. The exact release budget passed before this upgrade.
+The overall Feishu acceptance plans and the now-approved separate natural-management implementation remain active.
 
 Official sources: [callback update sequencing](https://open.feishu.cn/document/common-capabilities/message-card/message-card#915623ac),
 [callback response contract](https://open.feishu.cn/document/feishu-cards/card-callback-communication),

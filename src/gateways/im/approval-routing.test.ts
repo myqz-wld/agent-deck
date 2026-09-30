@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseFeishuCommand } from './commands';
+import { FEISHU_CONVERSATION_UPDATE } from './conversation-prompt';
 import { credential, flush, messageEvent, onlyClient, session, setup } from './__tests__/fixture';
 
 describe('separate assistant and work runtime controls', () => {
@@ -38,6 +39,17 @@ describe('separate assistant and work runtime controls', () => {
     expect(client.calls.filter(call => call.method === 'session.runtime.update')).toHaveLength(1);
     expect(client.preferences.conversation.claudeCodeSandbox).toBeUndefined();
     expect(client.preferences.session.claudeCodeSandbox).toBeUndefined();
+    expect(t.store.getSubscription(credential.instanceId, credential.credentialId, 'chat-1', 'replacement-session')?.assistantSetupVersion)
+      .toBeUndefined();
+    if (target === 'assistant' && !failSubscribe) {
+      await t.gateway.handle(messageEvent('next-turn', '继续'));
+      expect(client.calls.filter(c => c.method === 'session.send').slice(-2).map(c => c.params)).toEqual([
+        { sessionId: 'replacement-session', text: FEISHU_CONVERSATION_UPDATE },
+        { sessionId: 'replacement-session', text: '继续' },
+      ]);
+      expect(t.store.getSubscription(credential.instanceId, credential.credentialId, 'chat-1', 'replacement-session')?.status)
+        .toBe(subscribed ? 'active' : 'inactive');
+    }
     await t.gateway.close();
   });
 

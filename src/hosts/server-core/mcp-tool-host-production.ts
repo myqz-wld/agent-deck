@@ -4,6 +4,7 @@ import type { ServerCoreMcpToolHost } from './mcp-tool-host';
 import type { FeishuPreferenceStore } from './feishu-preference-store';
 import type { FeishuAssistantStore } from './feishu-assistant-store';
 import { FeishuWorkSessionDirectory } from './feishu-work-session-directory';
+import type { FeishuWorkManagementPort } from './feishu-work-management';
 import type { ServerCoreMcpSessionPort } from './mcp-session-port';
 import type { ServerCoreMcpSpawnPort } from './mcp-spawn-port';
 import type { ServerCoreMcpWorktreePort } from './mcp-worktree-port';
@@ -35,6 +36,7 @@ function isCurrentOwner(
 export function createServerCoreMcpToolHost(input: {
   readonly feishuPreferences?: Pick<FeishuPreferenceStore, 'read'>;
   readonly feishuAssistants?: Pick<FeishuAssistantStore, 'read'>;
+  readonly feishuManagement?: FeishuWorkManagementPort;
   readonly workspaceRoot: string;
   readonly privateRoots: readonly string[];
   readonly repositories: ServerCoreRepositoryHost;
@@ -51,6 +53,7 @@ export function createServerCoreMcpToolHost(input: {
 }): ServerCoreMcpToolHost {
   return Object.freeze({
     feishuPreferences: input.feishuPreferences,
+    feishuManagement: input.feishuManagement,
     feishuWorkSessions: input.feishuAssistants ? new FeishuWorkSessionDirectory({
       assistants: input.feishuAssistants,
       sessions: input.repositories.sessions,

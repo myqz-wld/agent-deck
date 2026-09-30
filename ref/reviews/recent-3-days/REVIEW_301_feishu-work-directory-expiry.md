@@ -93,10 +93,11 @@ its subsequent provider replies retain their existing lifecycle.
 
 ## Residual risk and follow-ups
 
-Source validation does not activate protocol 2.10. Prepare an audited macOS package, use a coordinated managed
-release and verify the actual assistant query, work creation/message cards and pending action before
-closing the overall Feishu plan. Existing installation 0a4299b9 remains accepted for its narrower
-read-tool fix. Preserve all pairing and session history; no database migration is required here.
+This repair is installed in the coordinated protocol-2.11 release `410a6db9`; Desktop identity,
+Worker, Relay and exact active Feishu archive passed independent checks. No migration or pairing
+operation ran. See [installation acceptance](../../plans/recent-3-days/PLAN_70_feishu-native-controls-activation.md).
+Actual assistant work-directory results, work messages and the new pending-card presentation still
+need owner acceptance before closing the overall Feishu plan.
 Paged work metadata reflects current state, so concurrent session changes can move rows between
 pages. A non-null continuation is never proof that all work has already been listed.
 

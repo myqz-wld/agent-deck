@@ -10,6 +10,7 @@ import type { ServerCoreMcpPresentationPort } from './mcp-presentation-port';
 import type { ServerCoreMcpHandOffPort } from './mcp-handoff-port';
 import type { ServerCoreSessionTaskReadRepository } from './session-task-read-repository';
 import type { FeishuWorkSessionDirectoryPort } from './feishu-work-session-directory';
+import type { FeishuWorkManagementPort } from './feishu-work-management';
 
 export const SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS = Object.freeze({
   readOnlyHint: true,
@@ -27,6 +28,7 @@ export interface ServerCoreMcpCaller {
 export interface ServerCoreMcpToolHost {
   readonly feishuPreferences?: { read(): FeishuPreferences };
   readonly feishuWorkSessions?: FeishuWorkSessionDirectoryPort;
+  readonly feishuManagement?: FeishuWorkManagementPort;
   readonly workspaceRoot: string;
   readonly privateRoots: readonly string[];
   readonly sessions: {

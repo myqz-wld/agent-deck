@@ -14,6 +14,8 @@ export * from './provider-session-container';
 export * from './session-console';
 export * from './session-console-capabilities';
 export * from './feishu-preferences';
+export * from './feishu-work';
+export * from './session-name';
 export * from './feishu-assistants';
 export * from './session-console-attachments';
 export * from './session-console-directories';

@@ -58,6 +58,8 @@ export function createServerCoreSessionManagerObserver(input: {
         eventId,
         kind: event.kind,
         timestamp: event.ts,
+        ...(event.kind === 'message' && typeof event.payload.role === 'string' && ['assistant', 'user', 'system'].includes(event.payload.role)
+          ? { role: event.payload.role } : {}),
       });
       publish(() => eventBus.emit('agent-event', event));
     },

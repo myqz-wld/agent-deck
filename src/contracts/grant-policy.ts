@@ -50,6 +50,7 @@ export const REMOTE_OWNER_PRODUCT_V1_METHODS = Object.freeze([
   'issues.undelete',
   'issues.resolve-in-new-session',
   'session.send',
+  'session.name.update',
   'session.interrupt',
   'session.steer',
   'pending.list',

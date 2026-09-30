@@ -12,6 +12,7 @@ import type {
   ProjectReferenceDto,
   SessionHistoryEntryDto,
   SessionConsoleSummaryDto,
+  FeishuWorkEvent,
 } from '@contracts/index';
 
 export const DEFAULT_FEISHU_CALLBACK_WINDOW_MS = 2_800;
@@ -90,6 +91,13 @@ export interface FeishuSubscriptionRecord {
   purpose: 'assistant' | 'session';
   status: 'active' | 'inactive';
   updatedAt: number;
+  assistantSetupVersion?: number;
+  creation?: {
+    assistantSessionId: string;
+    requestId: string;
+    previousWorkSessionId: string | null;
+    contextUpdatedAt: number;
+  };
 }
 
 export interface FeishuDeliveryRecord {
@@ -161,6 +169,8 @@ export interface FeishuGatewayStore {
     chatId: string,
   ): readonly FeishuSubscriptionRecord[];
   putSubscription(subscription: FeishuSubscriptionRecord): void;
+  removeSubscription(instanceId: string, credentialId: string, chatId: string, sessionId: string): void;
+  moveSubscription(instanceId: string, credentialId: string, chatId: string, fromId: string, toId: string): void;
   claimDelivery(
     record: Omit<
       FeishuDeliveryRecord,
@@ -286,7 +296,7 @@ export interface FeishuOutboundMessage {
   kind: 'card-update' | 'notification' | 'reply';
   text: string;
   cards: readonly FeishuPendingCard[];
-  presentation?: { title: string; standalone: boolean };
+  presentation?: { title: string; standalone: boolean; footer?: string };
 }
 
 export interface FeishuTransportPort {
@@ -432,6 +442,7 @@ export interface ConnectedFeishuClient {
 
 export interface SessionConsoleView {
   replacementSessionId?: string | null;
+  sessionTitles?: Readonly<Record<string, string>>;
   text: string;
   presentation?: FeishuOutboundMessage['presentation'];
   silent?: boolean;
@@ -455,5 +466,7 @@ export type NotificationEvent = Pick<
   AgentDeckEventEnvelope,
   'entityId' | 'instanceId' | 'kind' | 'revision'
 > & {
-  persisted?: { eventId: number; kind: 'message' | 'waiting-for-user' };
+  persisted?: { eventId: number; kind: 'message' | 'waiting-for-user'; role?: 'assistant' | 'user' | 'system' };
+  workRegistration?: FeishuWorkEvent;
+  renamedSession?: { fromId: string; toId: string };
 };

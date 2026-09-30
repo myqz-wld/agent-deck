@@ -45,6 +45,8 @@ describe('logical event attempt and reconciliation policy', () => {
       },
     });
     await select(gateway);
+    await gateway.handle(messageEvent('off-before-replay-budget', '/unsubscribe'));
+    transport.attempts.length = 0;
     transport.failures = 100;
     const event = messageEvent('event-budget', '/send bounded-replay');
     await expect(gateway.handle(event)).rejects.toMatchObject({ code: 'delivery_failed' });
@@ -58,7 +60,7 @@ describe('logical event attempt and reconciliation policy', () => {
     expect(onlyClient(clients).calls.filter((call) => call.method === 'session.send')).toHaveLength(
       2,
     );
-    expect(transport.attempts).toHaveLength(3);
+    expect(transport.attempts).toHaveLength(2);
   });
 
   it('never retries accepted-then-throw without an idempotent transport contract', async () => {
@@ -66,6 +68,7 @@ describe('logical event attempt and reconciliation policy', () => {
     const { gateway, clients, store } = setup({ transport });
     await select(gateway);
     transport.armedEventId = 'accepted-then-throw';
+    await gateway.handle(messageEvent('off-before-ambiguous-send', '/unsubscribe'));
     const event = messageEvent('accepted-then-throw', '/send once');
     await expect(gateway.handle(event)).rejects.toMatchObject({ code: 'delivery_ambiguous' });
     expect(store.getDelivery(credential.instanceId, event.eventId)?.status).toBe('reconciling');

@@ -347,6 +347,11 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
       : result;
   }
 
+  /** Dedicated owner work creation shares the same recursion, fan-out and rate accounting. */
+  reserveWork(caller: SessionRecord): ReturnType<ServerCoreSpawnGuard['reserve']> {
+    return this.guard.reserve(caller);
+  }
+
   private assertSpawnLink(
     callerSessionId: string,
     sessionId: string,
