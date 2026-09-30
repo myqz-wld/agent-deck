@@ -1,5 +1,7 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DEFAULT_SETTINGS } from '@shared/types';
 import { ResetSettingsButton } from '../ResetSettingsButton';
@@ -11,7 +13,7 @@ afterEach(() => {
 
 describe('ResetSettingsButton', () => {
   it('confirms and resets preferences without rotating installation tokens', async () => {
-    const confirmDialog = vi.fn().mockResolvedValue(true);
+    const confirmDialog = vi.mocked(requestConfirmation).mockReset().mockResolvedValue(true);
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: { confirmDialog },
@@ -41,13 +43,13 @@ describe('ResetSettingsButton', () => {
   it('does nothing when reset is cancelled', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { confirmDialog: vi.fn().mockResolvedValue(false) },
+      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset().mockResolvedValue(false) },
     });
     const update = vi.fn();
     render(<ResetSettingsButton busy={false} update={update} />);
 
     fireEvent.click(screen.getByRole('button', { name: '重置到默认配置' }));
-    await waitFor(() => expect(window.api.confirmDialog).toHaveBeenCalled());
+    await waitFor(() => expect(requestConfirmation).toHaveBeenCalled());
     expect(update).not.toHaveBeenCalled();
   });
 });

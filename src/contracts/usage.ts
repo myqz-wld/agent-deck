@@ -1,4 +1,5 @@
 import { SessionConsoleContractError } from './session-console-common';
+import { parseUsageResetCredits, type UsageResetCreditsDto } from './usage-reset';
 
 export const USAGE_RATE_MAX_ITEMS = 256;
 export const USAGE_DAILY_MAX_ITEMS = 5_000;
@@ -64,6 +65,7 @@ export interface UsageProviderSnapshotDto {
   windows: UsageProviderWindowDto[];
   updatedAt: number;
   message?: string;
+  resetCredits?: UsageResetCreditsDto;
 }
 
 export interface UsageProviderParams { force: boolean }
@@ -251,6 +253,7 @@ function snapshot(value: unknown, field: string): UsageProviderSnapshotDto {
   const keys = Object.hasOwn(raw, 'message')
     ? ['label', 'message', 'provider', 'status', 'updatedAt', 'windows']
     : ['label', 'provider', 'status', 'updatedAt', 'windows'];
+  if (Object.hasOwn(raw, 'resetCredits')) keys.push('resetCredits');
   exact(raw, keys, field);
   const providers: readonly UsageProviderIdDto[] = ['claude-code', 'codex-cli', 'grok-build'];
   const statuses: readonly UsageProviderStatusDto[] = [
@@ -271,6 +274,9 @@ function snapshot(value: unknown, field: string): UsageProviderSnapshotDto {
     status: raw.status as UsageProviderStatusDto,
     windows,
     updatedAt: integer(raw.updatedAt, `${field}.updatedAt`),
+    ...(Object.hasOwn(raw, 'resetCredits')
+      ? { resetCredits: parseUsageResetCredits(raw.resetCredits) }
+      : {}),
     ...(Object.hasOwn(raw, 'message')
       ? { message: text(raw.message, `${field}.message`, 4 * 1024) }
       : {}),

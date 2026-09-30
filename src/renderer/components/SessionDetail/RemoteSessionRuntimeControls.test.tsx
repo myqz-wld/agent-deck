@@ -1,7 +1,9 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { StrictMode } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 
 import { RemoteSessionRuntimeControls } from './RemoteSessionRuntimeControls';
 
@@ -129,7 +131,7 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
     const nextApply = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { confirmDialog: vi.fn(() => confirmation.promise) },
+      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset().mockImplementation(() => confirmation.promise) },
     });
     const view = render(
       <RemoteSessionRuntimeControls
@@ -144,7 +146,7 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
 
     fireEvent.click(screen.getByLabelText('沙盒'));
     fireEvent.click(screen.getByRole('option', { name: '完全开放' }));
-    await waitFor(() => expect(window.api.confirmDialog).toHaveBeenCalledOnce());
+    await waitFor(() => expect(requestConfirmation).toHaveBeenCalledOnce());
 
     view.rerender(
       <RemoteSessionRuntimeControls

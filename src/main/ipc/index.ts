@@ -4,7 +4,7 @@
  *
  * 子 module：
  * - _helpers.ts          on() / IpcInputError / 8 个 parseXxx
- * - window-app.ts        Window* + Dialog* + AppPlayTestSound + AppShowTestNotification + DialogConfirm
+ * - window-app.ts        Window* + Dialog* + AppPlayTestSound + AppShowTestNotification
  * - sessions.ts          Session* + SessionListHistory
  * - hooks.ts             HookInstall / Uninstall / Status
  * - settings.ts          SettingsGet / Set + 9 apply / warn helper + ClaudeMd*

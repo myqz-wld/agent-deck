@@ -68,10 +68,42 @@ function harness(getUsageSnapshotOverride?: AgentAdapter['getUsageSnapshot']) {
     registry: { get: (id) => id === 'codex-cli' ? codex : undefined },
     currentRevision: () => 9,
   });
-  return { base, getUsageSnapshot, runtime };
+  return { base, getUsageSnapshot, runtime, codex };
 }
 
 describe('ServerCoreUsageRuntime', () => {
+  it('invalidates earlier reads when a reset changes the authoritative allowance', async () => {
+    let resolveOld!: (value: Awaited<ReturnType<NonNullable<AgentAdapter['getUsageSnapshot']>>>) => void;
+    const previous = new Promise<Awaited<ReturnType<NonNullable<AgentAdapter['getUsageSnapshot']>>>>((resolve) => { resolveOld = resolve; });
+    const { runtime, codex, getUsageSnapshot } = harness(() => previous);
+    const resetParams = { provider: 'codex-cli', accountId: 'test-account', idempotencyKey: '00000000-0000-4000-8000-000000000001' };
+    codex.consumeUsageReset = vi.fn(async () => ({ outcome: 'reset' as const }));
+    const oldRead = runtime.execute(request('usage.providers.get', { force: true }));
+    await runtime.execute(request('usage.providers.reset', resetParams));
+    const fresh = buildCodexUsageSnapshot({ rateLimits: { primary: { usedPercent: 0 } },
+      accountId: 'test-account', rateLimitResetCredits: { availableCount: 3 } }, 100);
+    getUsageSnapshot.mockResolvedValue(fresh);
+    await runtime.execute(request('usage.providers.get', { force: true }));
+    resolveOld({ ...fresh, resetCredits: { accountId: 'test-account', availableCount: 4 } });
+    await oldRead;
+    const cached = await runtime.execute(request('usage.providers.get', { force: false }));
+    expect(cached.result).toMatchObject({ snapshots: expect.arrayContaining([
+      expect.objectContaining({ provider: 'codex-cli', resetCredits: { accountId: 'test-account', availableCount: 3 } }),
+    ]) });
+    expect(codex.consumeUsageReset).toHaveBeenCalledOnce();
+  });
+
+  it('rejects reset mutations without their explicit grant', async () => {
+    const { runtime, codex } = harness();
+    codex.consumeUsageReset = vi.fn();
+    const access = { ...desktop, grant: { ...desktop.grant,
+      productMethods: desktop.grant.productMethods.filter((method) => method !== 'usage.providers.reset'),
+    } };
+    await expect(runtime.execute(request('usage.providers.reset', {
+      provider: 'codex-cli', accountId: 'test-account', idempotencyKey: '00000000-0000-4000-8000-000000000001',
+    }, access))).rejects.toMatchObject({ code: 'access_denied' });
+    expect(codex.consumeUsageReset).not.toHaveBeenCalled();
+  });
   it('returns the exact bounded token ledger without exposing Worker paths', async () => {
     const { runtime } = harness();
     expect(runtime.supportedMethods).toContain('usage.tokens.get');

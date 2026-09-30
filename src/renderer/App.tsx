@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { FloatingFrame } from './components/FloatingFrame';
+import { ConfirmationDialogHost } from './components/ConfirmationDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { NewSessionDialog } from './components/NewSessionDialog';
 import { AssetsLibraryDialog } from './components/AssetsLibraryDialog';
@@ -359,6 +360,7 @@ export function App(): JSX.Element {
 
   return (
     <FloatingFrame transparent={windowTransparent}>
+      <ConfirmationDialogHost key={`${authority}:${remoteSource.identity}`} />
       <div className="flex h-full flex-col">
         <AppHeader
           view={view}

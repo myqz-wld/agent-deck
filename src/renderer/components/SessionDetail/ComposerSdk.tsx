@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import {
   isSelectablePermissionMode,
@@ -232,12 +233,9 @@ export function ComposerSdk({
     if (!isSelectablePermissionMode(next)) return;
     const selectableNext: SelectablePermissionMode = next;
     if (selectableNext === 'bypassPermissions') {
-      const ok = await window.api.confirmDialog({
-        title: '切换到完全免询问',
-        message: '需要重启当前会话',
-        detail:
-          '重启后，Claude Code 执行工具时不再向你确认 —— 包括文件修改、Bash 命令等所有操作。重启约需 5-10 秒。\n\n' +
-          '失败时会自动回到当前模式。继续？',
+      const ok = await confirmDialog({
+        title: '切换到完全免询问？',
+        message: '将重启当前会话，之后文件修改、命令执行等工具操作将不再询问。',
         okLabel: '重启并启用',
         cancelLabel: '取消',
         destructive: true,

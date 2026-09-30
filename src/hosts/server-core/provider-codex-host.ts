@@ -22,6 +22,7 @@ import {
 } from '@main/adapters/codex-cli/sdk-bridge/client-construction';
 import {
   readCodexUsageSnapshotWithHost,
+  consumeCodexUsageResetWithHost,
   type CodexUsageSnapshotHost,
 } from '@main/adapters/codex-cli/usage-snapshot-core';
 import { resolveCodexGatewayProfile } from '@main/codex-config/gateway-profiles';
@@ -290,6 +291,7 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
             }
           },
           getUsageSnapshot: () => readCodexUsageSnapshotWithHost(usageSnapshotHost),
+          consumeUsageReset: (_clients, request) => consumeCodexUsageResetWithHost(usageSnapshotHost, request),
           renameClient: (clients, oldId, newId) => {
             const client = clients.get(oldId);
             if (!client || clients.has(newId)) return;

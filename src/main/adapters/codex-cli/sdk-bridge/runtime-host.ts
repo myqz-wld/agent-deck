@@ -24,6 +24,7 @@ import {
 import {
   ensureCodexClient,
   getCodexUsageSnapshot,
+  consumeCodexResetCredit,
   invalidateCodexClientsForPathChange,
   renameCodexClient,
 } from './client-registry';
@@ -64,6 +65,7 @@ export const desktopCodexBridgeRuntimeHost: CodexBridgeRuntimeHost = {
     ensureClient: ensureCodexClient,
     invalidateForPathChange: invalidateCodexClientsForPathChange,
     getUsageSnapshot: getCodexUsageSnapshot,
+    consumeUsageReset: consumeCodexResetCredit,
     renameClient: renameCodexClient,
   },
   sessionModel: desktopSessionModelControllerHost,

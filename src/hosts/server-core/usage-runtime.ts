@@ -24,6 +24,7 @@ import {
   unavailableUsageSnapshot,
 } from '@main/adapters/provider-usage';
 import type { AgentAdapter } from '@main/adapters/types';
+import { createProviderUsageResetHandler } from '@main/adapters/provider-usage-reset';
 import { raceWithTimeout } from '@main/session/oneshot-llm/race-with-timeout';
 import { WINDOW_MS } from '@shared/model-normalize';
 import { PROVIDER_USAGE_CACHE_TTL_MS } from '@shared/constants/provider-usage';
@@ -32,6 +33,7 @@ import type { TokenDailyRow, TokenRateRow } from '@shared/types';
 export const SERVER_CORE_USAGE_METHODS = Object.freeze([
   'usage.tokens.get',
   'usage.providers.get',
+  'usage.providers.reset',
 ] as const satisfies readonly CoreMethod[]);
 
 type UsageMethod = (typeof SERVER_CORE_USAGE_METHODS)[number];
@@ -70,11 +72,16 @@ export class ServerCoreUsageRuntime implements DaemonCoreRuntime {
   readonly subscribe?: DaemonCoreRuntime['subscribe'];
   private providerCache: { fetchedAt: number; snapshots: UsageProviderSnapshotDto[] } | null = null;
   private providerRead: Promise<UsageProviderSnapshotDto[]> | null = null;
+  private providerEpoch = 0;
+  private readonly resetProvider: ReturnType<typeof createProviderUsageResetHandler>;
 
   constructor(
     private readonly base: DaemonCoreRuntime,
     private readonly options: ServerCoreUsageRuntimeOptions,
   ) {
+    this.resetProvider = createProviderUsageResetHandler(
+      (provider) => options.registry.get(provider), () => this.invalidateProviders(),
+    );
     this.supportedMethods = Object.freeze([
       ...new Set([...base.supportedMethods, ...SERVER_CORE_USAGE_METHODS]),
     ]);
@@ -86,8 +93,7 @@ export class ServerCoreUsageRuntime implements DaemonCoreRuntime {
 
   start(): Promise<void> { return this.base.start(); }
   stop(reason: string): Promise<void> {
-    this.providerCache = null;
-    this.providerRead = null;
+    this.invalidateProviders();
     return this.base.stop(reason);
   }
   currentRevision(...args: Parameters<DaemonCoreRuntime['currentRevision']>): Promise<number> | number {
@@ -103,6 +109,9 @@ export class ServerCoreUsageRuntime implements DaemonCoreRuntime {
       throw new DaemonRequestError(AgentDeckClientErrorCode.Cancelled, 'Request was cancelled');
     }
     try {
+      if (input.method === 'usage.providers.reset') {
+        return this.result(await this.resetProvider(input.params), this.options.currentRevision());
+      }
       return input.method === 'usage.tokens.get'
         ? this.tokens(input)
         : await this.providers(input);
@@ -134,6 +143,7 @@ export class ServerCoreUsageRuntime implements DaemonCoreRuntime {
   }
 
   private async providers(input: DaemonRequestInput): Promise<DaemonRequestResult> {
+    const epoch = this.providerEpoch;
     const params = parseUsageProviderParams(input.params);
     const now = Date.now();
     let snapshots: UsageProviderSnapshotDto[];
@@ -144,7 +154,7 @@ export class ServerCoreUsageRuntime implements DaemonCoreRuntime {
       if (input.signal.aborted) {
         throw new DaemonRequestError(AgentDeckClientErrorCode.Cancelled, 'Request was cancelled');
       }
-      this.providerCache = { fetchedAt: Date.now(), snapshots };
+      if (epoch === this.providerEpoch) this.providerCache = { fetchedAt: Date.now(), snapshots };
     }
     const revision = this.options.currentRevision();
     return this.result(parseUsageProviderResult({ snapshots, revision }), revision);
@@ -152,9 +162,16 @@ export class ServerCoreUsageRuntime implements DaemonCoreRuntime {
 
   private readProviders(): Promise<UsageProviderSnapshotDto[]> {
     if (this.providerRead) return this.providerRead;
-    this.providerRead = Promise.all(PROVIDER_ORDER.map((provider) => this.readProvider(provider)))
-      .finally(() => { this.providerRead = null; });
-    return this.providerRead;
+    const read = Promise.all(PROVIDER_ORDER.map((provider) => this.readProvider(provider)))
+      .finally(() => { if (this.providerRead === read) this.providerRead = null; });
+    this.providerRead = read;
+    return read;
+  }
+
+  private invalidateProviders(): void {
+    this.providerEpoch += 1;
+    this.providerCache = null;
+    this.providerRead = null;
   }
 
   private async readProvider(provider: (typeof PROVIDER_ORDER)[number]): Promise<UsageProviderSnapshotDto> {

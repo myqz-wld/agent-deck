@@ -1,5 +1,7 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { SessionRecord } from '@shared/types';
 import { SessionSandboxControls } from '../composer-sdk/SessionSandboxControls';
@@ -33,7 +35,7 @@ beforeEach(() => {
   setCodexSandbox = vi.fn().mockResolvedValue(undefined);
   restartWithClaudeCodeSandbox = vi.fn().mockResolvedValue('claude-session');
   setCodexApprovalPolicy = vi.fn().mockResolvedValue(undefined);
-  confirmDialog = vi.fn().mockResolvedValue(true);
+  confirmDialog = vi.mocked(requestConfirmation).mockReset().mockResolvedValue(true);
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
@@ -115,11 +117,9 @@ describe('Codex live approval control', () => {
 
     await waitFor(() => {
       expect(confirmDialog).toHaveBeenCalledWith({
-        title: '关闭 Codex CLI 沙盒（完全开放）',
-        message: '将从 Codex CLI 的下一轮对话起生效',
-        detail:
-          '关闭后，Codex CLI 可以读写任意文件、执行任意命令。当前正在运行的轮次不会中断，后续消息会使用新设置。\n\n失败时会自动恢复当前沙盒设置。继续？',
-        okLabel: '关闭沙盒',
+        title: '将 Codex CLI 沙盒设为完全开放？',
+        message: '下一轮起可读写任意文件、执行任意命令，当前轮次继续运行。',
+        okLabel: '设为完全开放',
         cancelLabel: '取消',
         destructive: true,
       });
@@ -145,10 +145,8 @@ describe('Claude Code live sandbox control', () => {
 
     await waitFor(() => {
       expect(confirmDialog).toHaveBeenCalledWith({
-        title: '关闭 Claude Code 系统沙盒',
-        message: '需要重启当前 Claude Code 会话',
-        detail:
-          '重启后，Claude Code 不再受系统沙盒约束（仅靠应用内授权弹窗管控）。重启约需 5–10 秒。\n\n失败时会自动恢复当前沙盒设置。继续？',
+        title: '关闭 Claude Code 沙盒？',
+        message: '将重启当前会话并解除系统沙盒限制，工具授权规则仍然生效。',
         okLabel: '重启并关闭沙盒',
         cancelLabel: '取消',
         destructive: true,
@@ -251,10 +249,8 @@ describe('Grok Build live sandbox control', () => {
 
     await waitFor(() => {
       expect(confirmDialog).toHaveBeenCalledWith({
-        title: '关闭 Grok Build 系统沙盒',
-        message: '将从 Grok Build 的下一轮对话起生效',
-        detail:
-          '关闭后，Grok Build 不再受系统沙盒约束，但工具授权规则仍然生效。当前正在运行的轮次不会中断；当前轮结束后会重启 Grok Build，再处理后续消息。失败时会自动恢复当前档位。\n\n继续？',
+        title: '关闭 Grok Build 沙盒？',
+        message: '当前轮结束后将重启会话并解除系统沙盒限制，工具授权规则仍然生效。',
         okLabel: '关闭沙盒',
         cancelLabel: '取消',
         destructive: true,

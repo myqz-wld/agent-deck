@@ -33,7 +33,7 @@ export function HandOffDialogFrame({
   ariaBusy?: boolean;
 }): JSX.Element {
   return (
-    <div data-session-handoff-frame className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div data-session-handoff-frame className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div
         ref={dialogRef}
         role="dialog"
@@ -41,7 +41,7 @@ export function HandOffDialogFrame({
         aria-labelledby={titleId}
         aria-busy={ariaBusy}
         tabIndex={-1}
-        className="no-drag flex max-h-[92%] w-[620px] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl"
+        className="deck-dialog-surface no-drag flex max-h-[92%] w-[min(620px,92vw)] flex-col overflow-hidden"
       >
         <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-4 py-3">
           <h2 id={titleId} className="flex items-center gap-1.5 text-[13px] font-medium">

@@ -22,6 +22,8 @@ export interface CodexRateLimitSnapshotLike {
 }
 
 export interface CodexAccountRateLimitsResponseLike {
+  accountId?: string | null;
+  rateLimitResetCredits?: { availableCount?: number | null } | null;
   rateLimits: CodexRateLimitSnapshotLike;
   rateLimitsByLimitId?: Record<string, CodexRateLimitSnapshotLike | undefined> | null;
 }
@@ -147,6 +149,24 @@ export function buildClaudeUsageSnapshot(
 export function buildCodexUsageSnapshot(
   response: CodexAccountRateLimitsResponseLike,
   updatedAt = Date.now(),
+): ProviderUsageSnapshot {
+  const snapshot = buildCodexUsageWindows(response, updatedAt);
+  if (response.rateLimitResetCredits === undefined) return snapshot;
+  const count = response.rateLimitResetCredits?.availableCount;
+  const accountId = response.accountId;
+  return {
+    ...snapshot,
+    resetCredits: {
+      availableCount: typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 ? count : null,
+      accountId: typeof accountId === 'string' && accountId.length > 0 && accountId.length <= 256 &&
+        !/[\u0000-\u0020\u007f-\u009f]/u.test(accountId) ? accountId : null,
+    },
+  };
+}
+
+function buildCodexUsageWindows(
+  response: CodexAccountRateLimitsResponseLike,
+  updatedAt: number,
 ): ProviderUsageSnapshot {
   const label = providerUsageLabel('codex-cli');
   const quotas = collectCodexRateLimitSnapshots(response);

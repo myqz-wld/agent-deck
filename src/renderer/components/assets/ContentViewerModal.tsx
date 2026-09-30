@@ -34,14 +34,14 @@ export function ContentViewerModal({
   useModalFocus({ dialogRef, onClose });
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div
         ref={dialogRef}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="no-drag flex h-[80%] w-[min(28rem,92vw)] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+        className="deck-dialog-surface no-drag flex h-[80%] w-[min(28rem,92vw)] flex-col p-4"
       >
         <header className="mb-2 flex items-start justify-between gap-2">
           <div className="flex flex-col gap-0.5 min-w-0">

@@ -1,6 +1,8 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 
 import type {
   RemoteHostProfileDto,
@@ -197,7 +199,7 @@ describe('RemoteHostManagerDialog', () => {
   it('runs select, connect, edit, and confirmed remove actions from the same card', async () => {
     const profile = remoteProfile(1);
     const current = hosts([profile], [remoteState(profile.id)]);
-    const confirmDialog = vi.fn(async () => true);
+    const confirmDialog = vi.mocked(requestConfirmation).mockReset().mockResolvedValue(true);
     window.api = { confirmDialog } as unknown as typeof window.api;
     render(<RemoteHostManagerDialog open hosts={current} onClose={vi.fn()} />);
 

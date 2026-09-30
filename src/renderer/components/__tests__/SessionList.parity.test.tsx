@@ -1,6 +1,8 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 
 import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
 import type { SessionRecord } from '@shared/types';
@@ -104,7 +106,7 @@ beforeEach(() => {
     configurable: true,
     value: {
       getSessionGitBranch,
-      confirmDialog: vi.fn(async () => true),
+      confirmDialog: vi.mocked(requestConfirmation).mockReset().mockResolvedValue(true),
       setSessionPinned: vi.fn(async () => undefined),
     },
   });
@@ -241,7 +243,7 @@ describe('Local and Remote session-list parity', () => {
 
     fireEvent.contextMenu(screen.getByText('Live Remote'), { clientX: 90, clientY: 60 });
     fireEvent.click(screen.getByRole('menuitem', { name: '删除' }));
-    await waitFor(() => expect(window.api.confirmDialog).toHaveBeenCalledWith(
+    await waitFor(() => expect(requestConfirmation).toHaveBeenCalledWith(
       expect.objectContaining({ title: '删除会话', destructive: true }),
     ));
     await waitFor(() => expect(deleteHistorySession).toHaveBeenCalledWith(

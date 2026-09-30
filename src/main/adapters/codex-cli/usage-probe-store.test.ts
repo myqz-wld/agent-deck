@@ -41,7 +41,7 @@ describe('Codex usage probe store', () => {
 
     expect(client.request).toHaveBeenCalledWith(
       'account/rateLimits/read',
-      undefined,
+      { excludeResetCreditDetails: true },
     );
     expect(client.dispose).toHaveBeenCalledOnce();
     expect(snapshot.status).toBe('ok');

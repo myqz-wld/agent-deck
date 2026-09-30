@@ -1,4 +1,5 @@
-import { useEffect, useRef, type JSX } from 'react';
+import { useModalFocus } from './use-modal-focus';
+import { useEffect, useLayoutEffect, useRef, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import { useImageBlob } from '@renderer/hooks/useImageBlob';
 import { useLightboxControls } from '@renderer/hooks/useLightboxControls';
@@ -20,7 +21,7 @@ import { CloseIcon, SaveIcon } from './icons';
  *   `if (!open) return null` 会违反 hook 规则(hook 已调用后 return null);所以条件 mount
  *   是唯一正确路径。API 同步去掉 `open` 让 prop 含义明确 — 减少 reader 误以为父传
  *   `open={false}` 时仍 mount 但隐藏的歧义。
- * - **Esc 键关闭**:在 document capture 阶段拦截，并在 cleanup 中移除 listener；
+ * - **Esc 键关闭**:使用共用模态层和焦点管理；
  *   从放大输入框打开时，一次 Esc 只关灯箱，不同时关闭外层输入框。
  * - **共享 cache**:`useImageBlob(loader, path, sharedImageBlobCache)` 与
  *   `UploadedImageThumb` 共享 cache(两者 cache key 同款 = `path`),点缩略图开 lightbox 时
@@ -52,49 +53,20 @@ function LightboxFrame({
 }: LightboxFrameProps): JSX.Element {
   const controls = useLightboxControls(saving, notice);
   const visibility = controls.visible ? 'opacity-100' : 'pointer-events-none opacity-0';
-  // Esc 键关闭(React 标准 idiom — useEffect cleanup function 内 remove listener)。
-  // REVIEW_102 INFO（reviewer-claude）：用 ref 持有最新 onClose，effect deps=[] 只在
-  // mount/unmount 各挂/卸一次 listener。caller 普遍传 inline `onClose={() => setX(null)}`
-  // （如 message-row.tsx:291），若 deps=[onClose] 则每次父 render onClose 新引用 → 反复
-  // remove/add window keydown listener。ref 模式让 listener 对 onClose 引用变化免疫。
-  // capture 阶段拦截 Escape：当灯箱从放大输入框里打开时，不让同一次
-  // Escape 继续气泡到外层对话框，否则会同时关闭灯箱和输入框。
-  const onCloseRef = useRef(onClose);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
-  onCloseRef.current = onClose;
+  useModalFocus({ dialogRef: frameRef, onClose });
+  useLayoutEffect(() => { closeButtonRef.current?.focus(); }, []);
   useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    closeButtonRef.current?.focus();
-    const handler = (e: KeyboardEvent) => {
-      controls.onKeyboard();
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        onCloseRef.current();
-      } else if (e.key === 'Tab') {
-        // Keep keyboard focus on the image actions instead of the obscured page.
-        e.preventDefault();
-        e.stopPropagation();
-        const buttons = [...(frameRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])];
-        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-        const next = index < 0 ? (e.shiftKey ? buttons.length - 1 : 0)
-          : (index + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length;
-        buttons[next]?.focus();
-      }
-    };
-    document.addEventListener('keydown', handler, true);
-    return () => {
-      document.removeEventListener('keydown', handler, true);
-      previousFocus?.focus();
-    };
+    const onKeyboard = (): void => controls.onKeyboard();
+    document.addEventListener('keydown', onKeyboard, true);
+    return () => document.removeEventListener('keydown', onKeyboard, true);
   }, [controls.onKeyboard]);
 
   return createPortal(
     <div
       ref={frameRef}
+      tabIndex={-1}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
       onPointerMove={controls.onPointerMove}

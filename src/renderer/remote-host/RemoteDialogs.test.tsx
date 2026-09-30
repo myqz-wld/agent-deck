@@ -1,6 +1,8 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 
 import { createPermissionPreviewDisplay } from '@contracts/index';
 import { sessionConsoleCapabilitiesFixture } from '@contracts/session-console-capabilities.fixture';
@@ -316,7 +318,7 @@ describe('remote source surfaces', () => {
     current.capabilities = new Set(['sessions.history.write']);
     const row = presentation('archived-a', 'Archived Remote row', 'closed', 'finished');
     current.historySessions = [row];
-    const confirmDialog = vi.fn(async () => true);
+    const confirmDialog = vi.mocked(requestConfirmation).mockReset().mockResolvedValue(true);
     window.api = { confirmDialog } as unknown as typeof window.api;
     render(<HistoryPanel remoteSource={current} onSelect={vi.fn()} />);
     const title = screen.getByText('Archived Remote row');

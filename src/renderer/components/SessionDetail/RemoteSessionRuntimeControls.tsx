@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { useEffect, useRef, useState, type JSX } from 'react';
 
 import type { SessionThinkingChoice } from '../SessionModelFields';
@@ -396,10 +397,9 @@ async function confirmClaudeSandbox(
   next: ClaudeSandboxMode,
   apply: (patch: RemoteHostJsonObject) => Promise<boolean>,
 ): Promise<void> {
-  if (next === 'off' && !await window.api.confirmDialog({
-    title: '关闭 Claude Code 系统沙盒',
-    message: '需要重启当前 Claude Code 会话',
-    detail: '重启后，Claude Code 不再受系统沙盒约束。失败时会自动恢复当前设置。继续？',
+  if (next === 'off' && !await confirmDialog({
+    title: '关闭 Claude Code 沙盒？',
+    message: '将重启当前会话并解除系统沙盒限制，工具授权规则仍然生效。',
     okLabel: '重启并关闭沙盒', cancelLabel: '取消', destructive: true,
   })) return;
   await apply({ claudeCodeSandbox: next });
@@ -409,11 +409,10 @@ async function confirmCodexSandbox(
   next: CodexSandboxMode,
   apply: (patch: RemoteHostJsonObject) => Promise<boolean>,
 ): Promise<void> {
-  if (next === 'danger-full-access' && !await window.api.confirmDialog({
-    title: '关闭 Codex CLI 沙盒（完全开放）',
-    message: '将从 Codex CLI 的下一轮对话起生效',
-    detail: '关闭后，Codex CLI 可以读写任意文件、执行任意命令。失败时会自动恢复当前设置。继续？',
-    okLabel: '关闭沙盒', cancelLabel: '取消', destructive: true,
+  if (next === 'danger-full-access' && !await confirmDialog({
+    title: '将 Codex CLI 沙盒设为完全开放？',
+    message: '下一轮起可读写任意文件、执行任意命令，当前轮次继续运行。',
+    okLabel: '设为完全开放', cancelLabel: '取消', destructive: true,
   })) return;
   await apply({ codexSandbox: next });
 }

@@ -107,14 +107,14 @@ export function LogViewerModal({ open, onClose }: Props): JSX.Element | null {
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="log-viewer-title"
         tabIndex={-1}
-        className="no-drag flex h-[80%] w-[min(900px,92vw)] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+        className="deck-dialog-surface no-drag flex h-[80%] w-[min(900px,92vw)] flex-col p-4"
       >
         <header className="mb-2 flex items-center justify-between gap-2">
           <div className="flex min-w-0 flex-col gap-0.5">

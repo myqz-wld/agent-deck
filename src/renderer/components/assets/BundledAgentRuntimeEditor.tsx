@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import {
   ASSET_LIMITS,
@@ -160,7 +161,7 @@ export function BundledAgentRuntimeEditor({
       onClose();
       return;
     }
-    const discard = await window.api.confirmDialog({
+    const discard = await confirmDialog({
       title: '关闭编辑',
       message: '有未保存改动，确定要丢弃吗？',
       okLabel: '丢弃并关闭',
@@ -177,14 +178,14 @@ export function BundledAgentRuntimeEditor({
   });
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="bundled-agent-runtime-editor-title"
         tabIndex={-1}
-        className="no-drag flex w-[min(400px,92vw)] flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+        className="deck-dialog-surface no-drag flex w-[min(400px,92vw)] flex-col p-4"
       >
         <header className="mb-3 flex items-start justify-between gap-2">
           <div className="min-w-0">

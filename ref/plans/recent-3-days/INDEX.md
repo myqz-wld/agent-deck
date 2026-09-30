@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-29 | `PLAN_67_codex-resets-dialogs.md` | completed | Compact quota resets and unified confirmation dialogs | `CHANGELOG_658_codex-resets-dialogs.md` |
 | 2026-09-29 | `PLAN_66_feishu-model-selection-activation.md` | completed | Activate model selections and remove duplicate app copies | `CHANGELOG_657_feishu-conversation-model-selections.md` |
 | 2026-09-29 | `PLAN_65_session-output-gateway-thinking.md` | completed | Readable output and isolated Gateway thinking defaults | `CHANGELOG_655_session-output-gateway-thinking.md` |
 | 2026-09-29 | `PLAN_64_feishu-desktop-activation.md` | completed | Install Browser/menu repairs and verify managed runtime health | `REVIEW_290_browser-styled-controls-monaco.md` |

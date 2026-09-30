@@ -272,7 +272,7 @@ describe('ComposerSdk unified input routing', () => {
     fireEvent.change(expanded, { target: { value: 'edited in expanded view' } });
     expect(input.value).toBe('edited in expanded view');
 
-    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.keyDown(expanded, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog', {
       name: '放大消息输入框',
     })).toBeNull());

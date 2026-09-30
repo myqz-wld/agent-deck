@@ -1,3 +1,4 @@
+import type { ProviderUsageResetRequest, ProviderUsageResetResult } from '@shared/types';
 import type {
   AgentAdapter,
   AgentCwdTransition,
@@ -401,6 +402,11 @@ export class CodexCliAdapter implements AgentAdapter {
       );
     }
     return this.bridge.getUsageSnapshot();
+  }
+
+  async consumeUsageReset(request: ProviderUsageResetRequest): Promise<ProviderUsageResetResult> {
+    if (!this.bridge) throw new Error('Codex CLI 尚未就绪');
+    return this.bridge.consumeUsageReset(request);
   }
 
   /** Persist and apply a Codex sandbox selection to subsequent turns. */

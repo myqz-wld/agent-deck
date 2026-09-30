@@ -84,7 +84,7 @@ export function RemoteProfileForm({
 
   const endpoint = selection?.endpoint ?? profile?.endpoint ?? null;
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
       <form
         ref={dialogRef}
         tabIndex={-1}
@@ -92,7 +92,7 @@ export function RemoteProfileForm({
         aria-modal="true"
         aria-labelledby={titleId}
         onSubmit={(event) => void submit(event)}
-        className="max-h-[90%] w-full max-w-lg overflow-y-auto rounded-xl border border-white/[0.09] bg-deck-bg-strong p-4 shadow-2xl scrollbar-deck"
+        className="deck-dialog-surface max-h-[90%] w-full max-w-lg overflow-y-auto p-4 scrollbar-deck"
       >
         <div className="mb-4 flex items-center justify-between">
           <div>

@@ -49,6 +49,7 @@ beforeEach(() => {
   window.api = {
     getRemoteHostTokenUsage: vi.fn(async (request) => tokenResult(request.profileId)),
     getRemoteHostProviderUsage: vi.fn(async () => ({ snapshots: [], revision: 1 })),
+    resetRemoteHostProviderUsage: vi.fn(async () => ({ outcome: 'reset' })),
   } as unknown as typeof window.api;
 });
 
@@ -58,6 +59,20 @@ afterEach(() => {
 });
 
 describe('useRemoteUsageSource', () => {
+  it('refreshes after a reset and rejects a callback retained from another source', async () => {
+    const params = { provider: 'codex-cli' as const, accountId: 'test-account', idempotencyKey: '00000000-0000-4000-8000-000000000001' };
+    const hook = renderHook(({ current }) => useRemoteUsageSource(current, true),
+      { initialProps: { current: source('remote-a', 1) } });
+    const consume = hook.result.current.consumeReset!;
+    await act(async () => { await consume(params); });
+    expect(window.api.resetRemoteHostProviderUsage).toHaveBeenCalledWith({ ...params,
+      profileId: 'remote-a', expectedAuthority: { authoritativeCoreId: null, workerGeneration: null },
+    });
+    expect(window.api.getRemoteHostProviderUsage).toHaveBeenCalledWith({ profileId: 'remote-a', force: true });
+    hook.rerender({ current: source('remote-b', 1) });
+    await expect(consume(params)).rejects.toThrow('连接已变化');
+    expect(window.api.resetRemoteHostProviderUsage).toHaveBeenCalledOnce();
+  });
   it('loads rates, daily rows, and provider windows only from the selected Remote profile', async () => {
     const hook = renderHook(() => useRemoteUsageSource(source('remote-a', 1), true));
     await waitFor(() => expect(hook.result.current.rates[0]?.bucketKey).toBe('remote-a'));

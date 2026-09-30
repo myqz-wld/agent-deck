@@ -16,6 +16,8 @@ import type {
   SessionSummaryListResult,
   SessionTaskListResult,
   UsageProviderResult,
+  UsageProviderResetParams,
+  UsageProviderResetResult,
   UsageTokenResult,
   WorkspaceDirectoryListResult,
   WorkspaceDirectoryCreateResult,
@@ -269,6 +271,11 @@ export interface RemoteHostUsageProviderRequestDto {
 
 export type RemoteHostUsageTokenDto = UsageTokenResult;
 export type RemoteHostUsageProviderDto = UsageProviderResult;
+export interface RemoteHostUsageResetRequestDto extends UsageProviderResetParams {
+  profileId: string;
+  expectedAuthority: import('./session-request-types').RemoteHostMutationAuthorityDto;
+}
+export type RemoteHostUsageResetResultDto = UsageProviderResetResult;
 
 export interface RemoteHostNodeConfigurationRequestDto {
   profileId: string;

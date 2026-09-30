@@ -1,8 +1,7 @@
 /**
  * App / Window / Dialog 通用 IPC handler。
  */
-import { app, dialog, nativeImage, Notification, type OpenDialogOptions } from 'electron';
-import { join } from 'node:path';
+import { app, dialog, Notification, type OpenDialogOptions } from 'electron';
 import { IpcInvoke } from '@shared/ipc-channels';
 import { getFloatingWindow } from '@main/window';
 import { playSoundOnce } from '@main/notify/sound';
@@ -79,36 +78,6 @@ export function registerWindowAppIpc(): void {
     } catch (err) {
       return { ok: false, reason: (err as Error).message };
     }
-  });
-
-  on(IpcInvoke.DialogConfirm, async (_e, opts) => {
-    const o = (opts ?? {}) as {
-      title?: string;
-      message?: string;
-      detail?: string;
-      okLabel?: string;
-      cancelLabel?: string;
-      destructive?: boolean;
-    };
-    const win = getFloatingWindow().window;
-    const iconPath = join(app.getAppPath(), 'resources', 'icon.png');
-    const icon = nativeImage.createFromPath(iconPath);
-    const buttons = [o.okLabel ?? '确定', o.cancelLabel ?? '取消'];
-    const showOpts = {
-      type: 'question' as const,
-      title: o.title ?? '确认操作',
-      message: o.message ?? '',
-      detail: o.detail,
-      buttons,
-      defaultId: o.destructive ? 1 : 0,
-      cancelId: 1,
-      icon: icon.isEmpty() ? undefined : icon,
-      noLink: true,
-    };
-    const r = win
-      ? await dialog.showMessageBox(win, showOpts)
-      : await dialog.showMessageBox(showOpts);
-    return r.response === 0; // 0 = ok, 1 = cancel
   });
 }
 

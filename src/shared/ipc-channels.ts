@@ -61,7 +61,6 @@ export const IpcInvoke = {
   DialogChooseExecutable: 'dialog:choose-executable',
   AppPlayTestSound: 'app:play-test-sound',
   AppShowTestNotification: 'app:show-test-notification',
-  DialogConfirm: 'dialog:confirm',
   ImageLoadBlob: 'image:load-blob',
   UploadedImageLoad: 'image:load-uploaded',
   ImageSave: 'image:save',
@@ -103,6 +102,7 @@ export const IpcInvoke = {
   TokenUsageDaily: 'token-usage:daily',
   /** Claude / Codex 订阅窗口用量快照（数据 tab）。 */
   ProviderUsageSnapshot: 'provider-usage:snapshot',
+  ProviderUsageReset: 'provider-usage:reset',
 
   // Session collaboration message projection.
   /** List cross-session messages sent or received by one session. */
@@ -156,6 +156,7 @@ export const RemoteHostIpcInvoke = {
   TasksList: 'remote-host:tasks-list',
   UsageTokensGet: 'remote-host:usage-tokens-get',
   UsageProvidersGet: 'remote-host:usage-providers-get',
+  UsageProvidersReset: 'remote-host:usage-providers-reset',
   FeishuPreferencesGet: 'remote-host:feishu-preferences-get',
   FeishuPreferencesUpdate: 'remote-host:feishu-preferences-update',
   NodeConfigurationGet: 'remote-host:node-configuration-get',

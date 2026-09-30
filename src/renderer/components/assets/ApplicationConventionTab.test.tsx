@@ -1,5 +1,7 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ApplicationConventionTab } from './ApplicationConventionTab';
 
@@ -22,7 +24,7 @@ describe('ApplicationConventionTab', () => {
         resetClaudeMd: vi.fn(),
         resetCodexAgentsMd: vi.fn(),
         resetGrokAgentsMd: vi.fn(),
-        confirmDialog: vi.fn(),
+        confirmDialog: vi.mocked(requestConfirmation).mockReset(),
       },
     });
 

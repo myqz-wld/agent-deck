@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, type JSX } from 'react';
+import type { ProviderUsageResetRequest, ProviderUsageResetResult } from '@shared/types';
 import { PROVIDER_USAGE_RENDERER_STALE_MS } from '../hooks/use-startup-data-preload';
 import { useTokenRatesPoll } from '../hooks/use-token-rates-poll';
 import {
@@ -73,6 +74,14 @@ function LocalDataPanel(): JSX.Element {
     [runProviderRequest],
   );
 
+  const consumeReset = useCallback(async (request: ProviderUsageResetRequest): Promise<ProviderUsageResetResult> => {
+    try {
+      return await window.api.providerUsageReset(request);
+    } finally {
+      await runProviderRequest(true, true);
+    }
+  }, [runProviderRequest]);
+
   const today = useMemo(() => {
     const date = new Date();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -96,6 +105,7 @@ function LocalDataPanel(): JSX.Element {
     usageLoading={usageLoading}
     usageError={usageError}
     onRefreshProviders={refreshProviders}
+    onConsumeReset={consumeReset}
   />;
 }
 
@@ -117,7 +127,7 @@ function RemoteDataPanel({ remoteUsage }: { remoteUsage: RemoteUsageSourceView }
     [remoteUsage],
   );
 
-  return <DataPanelView
+  return <DataPanelView key={remoteUsage.identity}
     rates={remoteUsage.rates}
     ratesLoading={remoteUsage.ratesLoading}
     ratesError={remoteUsage.ratesError}
@@ -133,5 +143,7 @@ function RemoteDataPanel({ remoteUsage }: { remoteUsage: RemoteUsageSourceView }
     usageLoading={remoteUsage.providerLoading}
     usageError={remoteUsage.providerError}
     onRefreshProviders={refreshProviders}
+    usageSourceKey={remoteUsage.identity}
+    onConsumeReset={remoteUsage.enabled ? remoteUsage.consumeReset : undefined}
   />;
 }

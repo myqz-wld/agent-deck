@@ -1,4 +1,5 @@
-import { useEffect, useRef, type JSX, type ReactNode } from 'react';
+import { useModalFocus } from '../use-modal-focus';
+import { useRef, type JSX, type ReactNode } from 'react';
 import { CloseIcon } from '../icons';
 
 export function ExpandedDiffOverlay({
@@ -12,35 +13,15 @@ export function ExpandedDiffOverlay({
   fileNav?: JSX.Element;
   children: ReactNode;
 }): JSX.Element {
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
   const dialog = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    dialog.current?.focus();
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeRef.current(); }
-      if (event.key !== 'Tab') return;
-      const buttons = dialog.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
-      if (!buttons?.length) return;
-      const first = buttons[0];
-      const last = buttons[buttons.length - 1];
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
-        event.preventDefault(); last.focus();
-      } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) {
-        event.preventDefault(); first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => { document.removeEventListener('keydown', onKey, true); previous?.focus(); };
-  }, []);
+  useModalFocus({ dialogRef: dialog, onClose });
   const lastSlash = filePath.lastIndexOf('/');
   const dirPart = lastSlash >= 0 ? filePath.slice(0, lastSlash + 1) : '';
   const filePart = lastSlash >= 0 ? filePath.slice(lastSlash + 1) : filePath;
 
   return (
     <div
-      className="absolute inset-0 z-50 flex flex-col bg-black/40 backdrop-blur-sm"
+      className="absolute inset-0 z-50 flex flex-col bg-black/50 backdrop-blur-sm"
       role="dialog"
       ref={dialog}
       tabIndex={-1}

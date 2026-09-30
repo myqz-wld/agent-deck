@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { useEffect, useRef, useState, type JSX } from 'react';
 
 import type { RemoteHostProfileDto } from '@shared/remote-host';
@@ -33,7 +34,7 @@ export function RemoteHostManagerDialog({
   if (!open) return null;
 
   const removeProfile = async (profileId: string): Promise<void> => {
-    const confirmed = await window.api.confirmDialog({
+    const confirmed = await confirmDialog({
       title: '删除远程主机配置',
       message: '仅删除本机配置并关闭本机 SSH 传输。',
       detail: '远端服务和远端会话不会停止。',
@@ -51,7 +52,7 @@ export function RemoteHostManagerDialog({
     state.status === 'connected').length ?? 0;
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
       <section
         ref={dialogRef}
         tabIndex={-1}
@@ -59,7 +60,7 @@ export function RemoteHostManagerDialog({
         aria-modal="true"
         aria-labelledby="remote-host-manager-title"
         data-layout="single-column"
-        className="no-drag relative flex h-[85%] max-h-[42rem] w-[min(34rem,92%)] flex-col overflow-hidden rounded-xl border border-white/[0.09] bg-deck-bg-strong shadow-2xl"
+        className="deck-dialog-surface no-drag relative flex h-[85%] max-h-[42rem] w-[min(34rem,92%)] flex-col overflow-hidden"
       >
         <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] bg-black/[0.05] px-4 py-3.5">
           <div className="min-w-0">

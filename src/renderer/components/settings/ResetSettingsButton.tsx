@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { type JSX } from 'react';
 import { DEFAULT_SETTINGS, type AppSettings } from '@shared/types';
 import { RefreshIcon } from '../icons';
@@ -22,7 +23,7 @@ export function ResetSettingsButton({
   update: (patch: Partial<AppSettings>) => Promise<void>;
 }): JSX.Element {
   const reset = async (): Promise<void> => {
-    const confirmed = await window.api.confirmDialog({
+    const confirmed = await confirmDialog({
       title: '重置到默认配置',
       message: '确定要重置 Agent Deck 配置吗？',
       detail:

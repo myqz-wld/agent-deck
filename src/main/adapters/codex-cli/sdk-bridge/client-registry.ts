@@ -1,3 +1,7 @@
+import type { ProviderUsageResetRequest, ProviderUsageResetResult } from '@shared/types';
+import { consumeCodexUsageReset } from '../usage-reset';
+import { consumeCodexUsageResetWithHost } from '../usage-snapshot-core';
+import { desktopCodexUsageSnapshotHost } from '../usage-snapshot-host';
 /**
  * Per-session Codex app-server client lifecycle.
  *
@@ -66,7 +70,7 @@ export async function getCodexUsageSnapshot(
   try {
     const response = await client.request<CodexAccountRateLimitsResponseLike>(
       'account/rateLimits/read',
-      undefined,
+      { excludeResetCreditDetails: true },
     );
     return buildCodexUsageSnapshot(response);
   } catch (err) {
@@ -75,6 +79,16 @@ export async function getCodexUsageSnapshot(
     }
     return errorUsageSnapshot('codex-cli', err);
   }
+}
+
+export function consumeCodexResetCredit(
+  clients: ReadonlyMap<string, CodexAppServerClient>,
+  request: ProviderUsageResetRequest,
+): Promise<ProviderUsageResetResult> {
+  const client = [...clients.values()].reverse().find((candidate) => candidate.isProcessAlive);
+  return client
+    ? consumeCodexUsageReset(client, request)
+    : consumeCodexUsageResetWithHost(desktopCodexUsageSnapshotHost, request);
 }
 
 /** Move a client key without overwriting an already-owned target key. */

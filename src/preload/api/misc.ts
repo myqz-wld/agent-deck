@@ -22,6 +22,8 @@ import type {
   GrokAuthProbeResult,
   LoadImageBlobResult,
   ProviderUsageSnapshotResult,
+  ProviderUsageResetRequest,
+  ProviderUsageResetResult,
   TokenRateRow,
   TokenDailyRow,
   TokenUsageQueryOptions,
@@ -79,14 +81,6 @@ export const miscApi = {
     ipcRenderer.invoke(IpcInvoke.AppPlayTestSound, kind),
   showTestNotification: (): Promise<{ ok: boolean; reason?: string; appName?: string }> =>
     ipcRenderer.invoke(IpcInvoke.AppShowTestNotification),
-  confirmDialog: (opts: {
-    title?: string;
-    message?: string;
-    detail?: string;
-    okLabel?: string;
-    cancelLabel?: string;
-    destructive?: boolean;
-  }): Promise<boolean> => ipcRenderer.invoke(IpcInvoke.DialogConfirm, opts),
 
   /**
    * 按需读取一张 file-change 图片为 dataURL（main 进程做白名单 + ext + size 校验）。
@@ -246,4 +240,6 @@ export const miscApi = {
   /** Claude / Codex 订阅窗口用量快照（数据 tab）。 */
   providerUsageSnapshot: (opts?: { force?: boolean }): Promise<ProviderUsageSnapshotResult> =>
     ipcRenderer.invoke(IpcInvoke.ProviderUsageSnapshot, opts),
+  providerUsageReset: (request: ProviderUsageResetRequest): Promise<ProviderUsageResetResult> =>
+    ipcRenderer.invoke(IpcInvoke.ProviderUsageReset, request),
 };

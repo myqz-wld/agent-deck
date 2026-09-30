@@ -70,6 +70,8 @@ import type {
   RemoteHostTaskListRequestDto,
   RemoteHostUsageProviderDto,
   RemoteHostUsageProviderRequestDto,
+  RemoteHostUsageResetRequestDto,
+  RemoteHostUsageResetResultDto,
   RemoteHostUsageTokenDto,
   RemoteHostUsageTokenRequestDto,
   RemoteHostFeishuPreferencesDto,
@@ -176,6 +178,10 @@ export const remoteHostApi = {
     request: RemoteHostUsageProviderRequestDto,
   ): Promise<RemoteHostUsageProviderDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.UsageProvidersGet, request),
+  resetRemoteHostProviderUsage: (
+    request: RemoteHostUsageResetRequestDto,
+  ): Promise<RemoteHostUsageResetResultDto> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.UsageProvidersReset, request),
   getRemoteHostFeishuPreferences: (request: RemoteHostFeishuPreferencesRequestDto): Promise<RemoteHostFeishuPreferencesDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.FeishuPreferencesGet, request),
   updateRemoteHostFeishuPreferences: (request: RemoteHostFeishuPreferencesUpdateDto): Promise<RemoteHostFeishuPreferencesDto> =>

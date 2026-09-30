@@ -43,7 +43,7 @@ export function createCodexUsageProbeStore(): CodexUsageProbeStore {
       const response = await raceWithTimeout({
         work: client.request<CodexAccountRateLimitsResponseLike>(
           'account/rateLimits/read',
-          undefined,
+          { excludeResetCreditDetails: true },
         ),
         timeoutMs: input.timeoutMs,
         errorMessage: '__codex_usage_timeout__',
