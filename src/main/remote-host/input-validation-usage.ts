@@ -1,13 +1,15 @@
 import {
   isJsonObject,
   parseUsageProviderParams,
+  parseUsageProviderResetParams,
   parseUsageTokenParams,
 } from '@contracts/index';
 import type {
   RemoteHostUsageProviderRequestDto,
+  RemoteHostUsageResetRequestDto,
   RemoteHostUsageTokenRequestDto,
 } from '@shared/remote-host';
-import { parseRemoteHostProfileId, RemoteHostInputError } from './input-validation';
+import { parseRemoteHostProfileId, parseRemoteHostMutationAuthority, RemoteHostInputError } from './input-validation';
 
 function object(value: unknown, field: string): Record<string, unknown> {
   if (!isJsonObject(value)) throw new RemoteHostInputError(field, 'must be an object');
@@ -19,6 +21,20 @@ function exact(raw: Record<string, unknown>, keys: readonly string[], field: str
   const expected = [...keys].sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
     throw new RemoteHostInputError(field, 'contains unexpected fields');
+  }
+}
+
+export function parseRemoteHostUsageReset(value: unknown): RemoteHostUsageResetRequestDto {
+  const raw = object(value, 'usageReset');
+  exact(raw, ['provider', 'accountId', 'idempotencyKey', 'profileId', 'expectedAuthority'], 'usageReset');
+  try {
+    return {
+      ...parseUsageProviderResetParams({ provider: raw.provider, accountId: raw.accountId, idempotencyKey: raw.idempotencyKey }),
+      profileId: parseRemoteHostProfileId(raw.profileId),
+      expectedAuthority: parseRemoteHostMutationAuthority(raw.expectedAuthority),
+    };
+  } catch {
+    throw new RemoteHostInputError('usageReset', 'invalid reset request');
   }
 }
 

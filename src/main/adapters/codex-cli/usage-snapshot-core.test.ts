@@ -39,7 +39,7 @@ describe('Codex usage snapshot Core', () => {
       cwd: '/usage-probe',
       env: { AGENT_DECK_ORIGIN: 'sdk', PATH: '/usr/bin' },
     });
-    expect(request).toHaveBeenCalledWith('account/rateLimits/read', undefined);
+    expect(request).toHaveBeenCalledWith('account/rateLimits/read', { excludeResetCreditDetails: true });
     expect(dispose).toHaveBeenCalledOnce();
   });
 

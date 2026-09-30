@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-09-29 | `CHANGELOG_658_codex-resets-dialogs.md` | Add confirmed Codex resets and consistent application dialogs |
 | 2026-09-29 | `CHANGELOG_657_feishu-conversation-model-selections.md` | Share remembered Feishu models and start conversational sessions |
 | 2026-09-29 | `CHANGELOG_656_provider-runtimes-model-suggestions.md` | Upgrade bundled provider runtimes and refresh Codex model suggestions |
 | 2026-09-29 | `CHANGELOG_655_session-output-gateway-thinking.md` | Readable tool results and Gateway-specific thinking defaults |

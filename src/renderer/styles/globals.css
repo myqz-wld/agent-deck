@@ -2,6 +2,7 @@
 
 @theme {
   --color-deck-bg: rgba(20, 20, 24, 0.42);
+  --color-deck-dialog: #29292f;
   --color-deck-bg-strong: rgba(20, 20, 24, 0.78);
   --color-deck-border: rgba(255, 255, 255, 0.08);
   --color-deck-text: rgba(245, 245, 247, 1);
@@ -173,4 +174,12 @@ body,
 }
 .no-drag {
   -webkit-app-region: no-drag;
+}
+
+/* Shared chrome for application dialogs; content controls keep their own sizing. */
+.deck-dialog-surface {
+  background: var(--color-deck-dialog);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  box-shadow: 0 20px 65px rgba(0, 0, 0, 0.45);
 }

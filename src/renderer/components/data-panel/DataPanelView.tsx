@@ -4,6 +4,7 @@ import { normalizeModel, WINDOW_MS } from '@shared/model-normalize';
 import { buildFreshLiveByBucket, rankLiveAwareBuckets, type LiveRateEntry } from '../../lib/live-rate';
 import { RefreshIcon } from '../icons';
 import { formatTokenCount, TokenTotalCard } from './TokenTotalCard';
+import { ProviderUsageReset, type ConsumeProviderReset } from './ProviderUsageReset';
 
 interface DataPanelViewProps {
   rates: TokenRateRow[];
@@ -21,6 +22,8 @@ interface DataPanelViewProps {
   usageLoading: boolean;
   usageError: string | null;
   onRefreshProviders(force: boolean): Promise<void>;
+  usageSourceKey?: string;
+  onConsumeReset?: ConsumeProviderReset;
 }
 
 export function DataPanelView(props: DataPanelViewProps): JSX.Element {
@@ -77,7 +80,9 @@ export function DataPanelView(props: DataPanelViewProps): JSX.Element {
         {props.usageSnapshots.length > 0 ? (
           <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
             {props.usageSnapshots.map((snapshot) => (
-              <ProviderUsageCard key={snapshot.provider} snapshot={snapshot} />
+              <ProviderUsageCard key={snapshot.provider} snapshot={snapshot}
+                sourceKey={props.usageSourceKey ?? 'local'}
+                consumeReset={props.usageError || props.usageLoading ? undefined : props.onConsumeReset} />
             ))}
           </div>
         ) : (
@@ -209,7 +214,11 @@ function DailyRow({ row }: { row: TokenDailyRow }): JSX.Element {
 
 const HIDDEN_CODEX_QUOTAS = new Set(['gpt-reserve', 'gpt-5.3-codex-spark']);
 
-function ProviderUsageCard({ snapshot }: { snapshot: ProviderUsageSnapshot }): JSX.Element {
+function ProviderUsageCard({ snapshot, sourceKey, consumeReset }: {
+  snapshot: ProviderUsageSnapshot;
+  sourceKey: string;
+  consumeReset?: ConsumeProviderReset;
+}): JSX.Element {
   const windows = snapshot.windows.filter((window) => {
     if (snapshot.provider !== 'codex-cli') return true;
     // Display names also identify quotas whose provider ID is opaque.
@@ -238,6 +247,7 @@ function ProviderUsageCard({ snapshot }: { snapshot: ProviderUsageSnapshot }): J
         </div>
       )}
       <div className="mt-1 text-[10px] tabular-nums text-deck-muted/50">更新 {formatClock(snapshot.updatedAt)}</div>
+      <ProviderUsageReset snapshot={snapshot} sourceKey={sourceKey} consume={consumeReset} />
     </div>
   );
 }

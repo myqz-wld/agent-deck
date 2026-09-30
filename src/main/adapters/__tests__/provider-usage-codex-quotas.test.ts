@@ -10,6 +10,20 @@ const weekly = (usedPercent: number) => ({
 });
 
 describe('Codex model-specific quota projection', () => {
+  it('preserves reset counts and account affinity through the Remote DTO', () => {
+    for (const availableCount of [0, 4, null]) {
+      const snapshot = buildCodexUsageSnapshot({
+        accountId: 'test-account',
+        rateLimits: { primary: current(20) },
+        rateLimitResetCredits: { availableCount },
+      }, 100);
+      expect(parseUsageProviderResult({ snapshots: [snapshot], revision: 1 }).snapshots[0].resetCredits)
+        .toEqual({ availableCount, accountId: 'test-account' });
+    }
+    expect(buildCodexUsageSnapshot({ rateLimits: {} }).resetCredits).toBeUndefined();
+    expect(buildCodexUsageSnapshot({ rateLimits: {}, rateLimitResetCredits: null }).resetCredits)
+      .toEqual({ availableCount: null, accountId: null });
+  });
   it('retains the default and Astra windows through the real Remote result parser', () => {
     const snapshot = buildCodexUsageSnapshot({
       rateLimits: { limitId: 'codex', primary: current(99) },

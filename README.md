@@ -6,6 +6,7 @@ Manage agent sessions, project work, and collaboration in one place.
 ## Features
 
 - Live sessions, searchable history, context and usage tracking.
+- Codex quota-reset counts from usage reads, with confirmed redemption and safe retries.
 - Teammates, tasks, issues, reviews, and session handoffs.
 - Markdown, images, and inline file diffs.
 - Readable file and command output with expandable raw tool results.
@@ -28,6 +29,11 @@ Open a project, start a session, and describe the task.
 New-session thinking defaults follow the selected Gateway configuration, including Claude's
 `env.CLAUDE_CODE_EFFORT_LEVEL` and `effortLevel`. Explicit thinking choices are kept separately
 for each Gateway; when no valid value is configured, the creation form uses `high`.
+
+The usage panel shows available Codex resets on one compact line. Counts refresh with normal
+usage queries; using one requires confirmation and refreshes the provider's allowance afterward.
+Simple confirmations share an application dialog, while settings and content viewers retain
+their own layouts. Existing sandbox and approval switching rules remain unchanged.
 
 ## Development
 

@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { useMemo, useState, type JSX } from 'react';
 import type { AgentEvent, SessionRecord } from '@shared/types';
 import { useSessionStore } from '@renderer/stores/session-store';
@@ -71,7 +72,7 @@ export function SessionCard({
   const remove = async (): Promise<void> => {
     setActionError(null);
     try {
-      const ok = await window.api.confirmDialog({
+      const ok = await confirmDialog({
         title: '删除会话',
         message: `确定要删除会话「${session.title}」吗？`,
         detail: '此操作无法撤销，相关事件、文件改动和总结也会删除。',

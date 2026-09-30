@@ -1,3 +1,4 @@
+import type { UsageResetCreditsDto } from '@contracts/usage-reset';
 export type ProviderUsageProviderId =
   | 'claude-code'
   | 'codex-cli'
@@ -29,8 +30,13 @@ export interface ProviderUsageSnapshot {
   windows: ProviderUsageWindow[];
   updatedAt: number;
   message?: string;
+  resetCredits?: UsageResetCreditsDto;
 }
 
 export interface ProviderUsageSnapshotResult {
   snapshots: ProviderUsageSnapshot[];
 }
+export type {
+  UsageProviderResetParams as ProviderUsageResetRequest,
+  UsageProviderResetResult as ProviderUsageResetResult,
+} from '@contracts/usage-reset';

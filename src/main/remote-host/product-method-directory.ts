@@ -27,6 +27,7 @@ export const REMOTE_DESKTOP_PRODUCT_METHODS = Object.freeze([
   'session.tasks.list',
   'usage.tokens.get',
   'usage.providers.get',
+  'usage.providers.reset',
   'feishu.preferences.get',
   'feishu.preferences.update',
   'node.configuration.get',

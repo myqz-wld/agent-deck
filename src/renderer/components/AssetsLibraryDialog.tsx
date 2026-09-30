@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import {
   DEFAULT_SETTINGS,
@@ -282,7 +283,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
     if (!claudeMdDirtyRef.current) return true;
     closeInFlightRef.current = true;
     try {
-      return await window.api.confirmDialog({
+      return await confirmDialog({
         title: kind === 'close' ? '关闭资产库' : '切换标签',
         message: '应用约定有未保存的草稿，确定要丢弃吗？',
         detail: kind === 'close' ? '关闭后改动将丢失，无法恢复。' : '切换后改动将丢失，无法恢复。',
@@ -318,14 +319,14 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
   if (!open) return null;
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div
         ref={dialogRef}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="assets-library-title"
-        className="no-drag w-[min(28rem,92vw)] max-h-[85%] flex flex-col rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+        className="deck-dialog-surface no-drag w-[min(28rem,92vw)] max-h-[85%] flex flex-col p-4"
       >
         <header className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-1">

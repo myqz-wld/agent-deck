@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { useMemo, useState, type JSX } from 'react';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { selectLiveSessions } from '@renderer/lib/session-selectors';
@@ -165,7 +166,7 @@ function RemoteSessionList({ source }: { source: RemoteSessionSourceView }): JSX
   ): Promise<void> => {
     setActionFailure(null);
     try {
-      const confirmed = await window.api.confirmDialog({
+      const confirmed = await confirmDialog({
         title: '删除会话',
         message: `确定要删除会话「${session.title}」吗？`,
         detail: '此操作无法撤销，相关事件、文件改动和总结也会删除。',

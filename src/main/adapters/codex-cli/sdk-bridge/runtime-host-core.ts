@@ -1,3 +1,4 @@
+import type { ProviderUsageResetRequest, ProviderUsageResetResult } from '@shared/types';
 import type { SessionModelControllerHost } from '@main/adapters/session-model-controller-core';
 import type { AdapterHookServerPort } from '@main/adapters/types/adapter-context';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
@@ -74,6 +75,10 @@ export interface CodexBridgeClientRegistryPort {
   getUsageSnapshot(
     clients: ReadonlyMap<string, CodexAppServerClient>,
   ): Promise<ProviderUsageSnapshot>;
+  consumeUsageReset?(
+    clients: ReadonlyMap<string, CodexAppServerClient>,
+    request: ProviderUsageResetRequest,
+  ): Promise<ProviderUsageResetResult>;
   renameClient(
     clients: Map<string, CodexAppServerClient>,
     oldId: string,

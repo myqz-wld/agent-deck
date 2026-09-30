@@ -18,6 +18,18 @@ function scoped(clientRequest: ReturnType<typeof vi.fn>) {
 }
 
 describe('Remote usage service controller', () => {
+  it('pins a reset to its authority and forwards the same idempotency key', async () => {
+    const clientRequest = vi.fn(async () => ({ outcome: 'alreadyRedeemed' }));
+    const scope = scoped(clientRequest);
+    const controller = new RemoteHostUsageController(scope.request);
+    const expectedAuthority = { authoritativeCoreId: 'core-a', workerGeneration: 1 };
+    const params = { provider: 'codex-cli' as const, accountId: 'test-account', idempotencyKey: '00000000-0000-4000-8000-000000000001' };
+    await expect(controller.reset({ ...params, profileId: 'remote-a', expectedAuthority }))
+      .resolves.toEqual({ outcome: 'alreadyRedeemed' });
+    expect(scope.admitted).toHaveBeenCalledWith('remote-a', 'usage.providers.reset', expect.any(Function), [], expectedAuthority);
+    expect(clientRequest).toHaveBeenCalledWith('usage.providers.reset', params,
+      { deadlineMs: 45_000, idempotencyKey: params.idempotencyKey });
+  });
   it('forwards token and provider usage reads through capability admission', async () => {
     const clientRequest = vi.fn(async (method: string) => method === 'usage.tokens.get'
       ? {

@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { useCallback, useRef, useState, type JSX } from 'react';
 import { ClaudeMdEditor } from '../settings/ClaudeMdEditor';
 import { CodexAgentsMdEditor } from '../settings/CodexAgentsMdEditor';
@@ -43,7 +44,7 @@ export function ApplicationConventionTab({
 
   const guardSwitchAdapter = async (): Promise<boolean> => {
     if (!dirtyByAdapterRef.current[adapter]) return true;
-    const confirmed = await window.api.confirmDialog({
+    const confirmed = await confirmDialog({
       title: '切换视角',
       message: '应用约定有未保存的草稿，确定要丢弃吗？',
       detail: '切换后改动将丢失，无法恢复。',

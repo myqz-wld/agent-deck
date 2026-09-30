@@ -1,3 +1,4 @@
+import type { ProviderUsageResetRequest, ProviderUsageResetResult } from '@shared/types';
 // Codex bridge facade; lifecycle, turn-loop, recovery, and restart behavior lives in sibling modules.
 import { AGENT_ID } from './constants';
 import type { CodexBridgeOptions, CodexSessionHandle, InternalSession } from './types';
@@ -239,6 +240,12 @@ export class CodexSdkBridge {
 
   async getUsageSnapshot(): Promise<ProviderUsageSnapshot> {
     return this.opts.runtimeHost.clientRegistry.getUsageSnapshot(this.codexBySession);
+  }
+
+  async consumeUsageReset(request: ProviderUsageResetRequest): Promise<ProviderUsageResetResult> {
+    const consume = this.opts.runtimeHost.clientRegistry.consumeUsageReset;
+    if (!consume) throw new Error('当前 Codex CLI 暂不支持额度重置');
+    return consume(this.codexBySession, request);
   }
 
   private async ensureCodex(

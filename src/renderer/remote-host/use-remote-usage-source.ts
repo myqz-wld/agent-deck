@@ -3,10 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { USAGE_DAILY_MAX_ITEMS } from '@contracts/index';
 import type {
   ProviderUsageSnapshot,
+  ProviderUsageResetRequest,
+  ProviderUsageResetResult,
   TokenDailyRow,
   TokenRateRow,
 } from '@shared/types';
 import type { RemoteSessionSourceView } from './source-types';
+import { remoteMutationAuthority } from './remote-source-utils';
 
 const POLL_MS = 2_500;
 const PROVIDER_REFRESH_MS = 10 * 60_000;
@@ -29,6 +32,7 @@ export interface RemoteUsageSourceView {
   providerError: string | null;
   loadDaily(): Promise<void>;
   loadProviders(force?: boolean): Promise<void>;
+  consumeReset?(request: ProviderUsageResetRequest): Promise<ProviderUsageResetResult>;
 }
 
 export function useRemoteUsageSource(
@@ -268,6 +272,25 @@ export function useRemoteUsageSource(
     };
   }, [dailyActive, enabled, loadProviders]);
 
+  const consumeReset = useCallback(async (request: ProviderUsageResetRequest): Promise<ProviderUsageResetResult> => {
+    const identity = source.identity;
+    if (!enabledRef.current || identityRef.current !== identity || !profileId) {
+      throw new Error('连接已变化，请重新确认');
+    }
+    try {
+      return await window.api.resetRemoteHostProviderUsage({
+        ...request, profileId, expectedAuthority: remoteMutationAuthority(source.state),
+      });
+    } finally {
+      if (enabledRef.current && identityRef.current === identity) {
+        providerSeq.current += 1;
+        providerFlight.current = null;
+        queuedProviderForce.current = null;
+        await loadProviders(true);
+      }
+    }
+  }, [profileId, source.identity, source.state, loadProviders]);
+
   return useMemo(() => ({
     enabled,
     identity: source.identity,
@@ -286,8 +309,9 @@ export function useRemoteUsageSource(
     providerError: enabled ? providerError : null,
     loadDaily: () => loadTokens(true),
     loadProviders,
+    consumeReset,
   }), [
-    daily, dailyError, dailyLoading, dailyTruncated, enabled, loadProviders, loadTokens,
+    daily, dailyError, dailyLoading, dailyTruncated, enabled, loadProviders, loadTokens, consumeReset,
     providerError, providerFetchedAt, providerLoading, providerSnapshots, rates, ratesError,
     ratesLoading, source.identity, today, topToday,
   ]);

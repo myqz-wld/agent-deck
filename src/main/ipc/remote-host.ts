@@ -27,6 +27,7 @@ import {
   parseRemoteHostSummaryRequest,
   parseRemoteHostTaskListRequest,
   parseRemoteHostUsageProvider,
+  parseRemoteHostUsageReset,
   parseRemoteHostUsageToken,
   parseRemoteHostFeishuPreferencesUpdate,
   parseRemoteHostNodeConfiguration,
@@ -158,6 +159,8 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().usage.tokens(parseRemoteHostUsageToken(request))));
   on(RemoteHostIpcInvoke.UsageProvidersGet, (_event, request) => safely(() =>
     getRemoteHostService().usage.providers(parseRemoteHostUsageProvider(request))));
+  on(RemoteHostIpcInvoke.UsageProvidersReset, (_event, request) => safely(() =>
+    getRemoteHostService().usage.reset(parseRemoteHostUsageReset(request))));
   on(RemoteHostIpcInvoke.FeishuPreferencesGet, (_event, request) => safely(() =>
     getRemoteHostService().feishuPreferences.get(parseRemoteHostNodeConfiguration(request))));
   on(RemoteHostIpcInvoke.FeishuPreferencesUpdate, (_event, request) => safely(() =>

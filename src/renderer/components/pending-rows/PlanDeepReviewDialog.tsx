@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX, type KeyboardEvent,
   type MouseEvent as ReactMouseEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import {
   NO_PLAN_REVIEW_DIALOGUE_FEEDBACK,
   type ExitPlanModeRequest,
@@ -265,7 +266,12 @@ export function PlanDeepReviewDialog({
   const submitApprove = async (): Promise<void> => {
     if (
       feedback.trim()
-      && !window.confirm('修改意见尚未提交。批准计划将丢弃这些内容，是否仍要批准？')
+      && !await confirmDialog({
+        title: '批准计划并丢弃修改意见？',
+        message: '修改意见尚未提交，批准后将丢弃这些内容。',
+        okLabel: '批准并丢弃',
+        destructive: true,
+      })
     ) return;
     if (!beginOperation('decision')) return;
     setLocalDecisionBusy(true);

@@ -1,5 +1,7 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 import {
   cleanup,
   fireEvent,
@@ -41,7 +43,7 @@ describe('BundledAgentRuntimeEditor', () => {
       value: {
         saveBundledAgentRuntime: vi.fn(),
         resetBundledAgentRuntime: vi.fn(),
-        confirmDialog: vi.fn(),
+        confirmDialog: vi.mocked(requestConfirmation).mockReset(),
       },
     });
     render(
@@ -80,7 +82,7 @@ describe('BundledAgentRuntimeEditor', () => {
         ]),
         saveBundledAgentRuntime,
         resetBundledAgentRuntime: vi.fn(),
-        confirmDialog: vi.fn(),
+        confirmDialog: vi.mocked(requestConfirmation).mockReset(),
       },
     });
     const onSaved = vi.fn();
@@ -122,7 +124,7 @@ describe('BundledAgentRuntimeEditor', () => {
         listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
         saveBundledAgentRuntime: vi.fn(),
         resetBundledAgentRuntime,
-        confirmDialog: vi.fn(),
+        confirmDialog: vi.mocked(requestConfirmation).mockReset(),
       },
     });
     render(
@@ -156,7 +158,7 @@ describe('BundledAgentRuntimeEditor', () => {
         listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
         saveBundledAgentRuntime: vi.fn(),
         resetBundledAgentRuntime: vi.fn(),
-        confirmDialog: vi.fn(),
+        confirmDialog: vi.mocked(requestConfirmation).mockReset(),
       },
     });
     render(

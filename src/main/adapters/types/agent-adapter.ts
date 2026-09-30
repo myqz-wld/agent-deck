@@ -1,3 +1,4 @@
+import type { ProviderUsageResetRequest, ProviderUsageResetResult } from '@shared/types';
 // ────────────────────────────────────────────────────────────────────────────
 // Phase 4 Step 4.9 拆分:AgentAdapter 主接口 declaration(纯 declaration)。
 // 收纳:AgentAdapter (init/shutdown/createSession/interruptSession/closeSession/
@@ -262,6 +263,7 @@ export interface AgentAdapter {
 
   /** 数据 tab 读取 provider 订阅/限额窗口用量。未实现表示该 adapter 暂无可读来源。 */
   getUsageSnapshot?(): Promise<ProviderUsageSnapshot>;
+  consumeUsageReset?(request: ProviderUsageResetRequest): Promise<ProviderUsageResetResult>;
 
   installIntegration?(opts: {
     scope: 'user' | 'project';

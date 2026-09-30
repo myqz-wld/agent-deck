@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { ArchiveIcon } from './icons';
@@ -182,7 +183,7 @@ function LocalHistoryPanel({
   const remove = async (id: string): Promise<void> => {
     setError(null);
     try {
-      const ok = await window.api.confirmDialog({
+      const ok = await confirmDialog({
         title: '删除会话',
         message: '确定要删除该会话吗？',
         detail: '此操作无法撤销，相关事件、文件改动和总结也会删除。',
@@ -325,7 +326,7 @@ function RemoteHistoryPanel({
   const remove = async (session: RemoteSessionSourceView['historySessions'][number]): Promise<void> => {
     setActionError(null);
     try {
-      const ok = await window.api.confirmDialog({
+      const ok = await confirmDialog({
         title: '删除会话',
         message: '确定要删除该会话吗？',
         detail: '此操作无法撤销，相关事件、文件改动和总结也会删除。',

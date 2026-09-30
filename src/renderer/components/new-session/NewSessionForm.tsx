@@ -127,14 +127,14 @@ export function NewSessionForm(props: Props): JSX.Element | null {
       ref={modalRootRef}
       tabIndex={-1}
       data-new-session-modal-root
-      className="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      className="absolute inset-0 z-40 flex items-center justify-center bg-black/50 backdrop-blur-sm"
     >
       {presentation !== 'deferred' && <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-busy={presentation === 'fallback'}
-        className="no-drag max-h-[85%] w-[min(28rem,92vw)] overflow-y-auto scrollbar-deck rounded-xl border border-deck-border bg-deck-bg-strong p-4 shadow-2xl"
+        className="deck-dialog-surface no-drag max-h-[85%] w-[min(28rem,92vw)] overflow-y-auto scrollbar-deck p-4"
       >
         <header className="mb-3 flex items-center justify-between">
           <h2 id={titleId} className="text-[13px] font-medium">{props.title ?? '新建会话'}</h2>

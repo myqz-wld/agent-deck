@@ -6,6 +6,7 @@ import type {
   ProviderUsageStatus,
 } from '@shared/types';
 import { adapterRegistry } from '@main/adapters/registry';
+import { createProviderUsageResetHandler } from '@main/adapters/provider-usage-reset';
 import {
   errorUsageSnapshot,
   providerUsageLabel,
@@ -63,9 +64,23 @@ let cachedResult: { result: ProviderUsageSnapshotResult; fetchedAt: number; seq:
 let normalInFlightFetch: ProviderUsageInFlightFetch | null = null;
 let forceInFlightFetch: ProviderUsageInFlightFetch | null = null;
 let nextFetchSeq = 0;
+let minimumFetchSeq = 0;
 const lastSuccessfulSnapshots = new Map<ProviderUsageProviderId, SuccessfulProviderSnapshot>();
 const latestProviderReadSeq = new Map<ProviderUsageProviderId, number>();
 let providerUsageLogState = createProviderUsageLogState();
+
+export function invalidateProviderUsageSnapshots(): void {
+  minimumFetchSeq = ++nextFetchSeq;
+  cachedResult = null;
+  normalInFlightFetch = null;
+  forceInFlightFetch = null;
+  lastSuccessfulSnapshots.clear();
+  for (const provider of PROVIDER_ORDER) latestProviderReadSeq.set(provider, minimumFetchSeq);
+}
+
+export const providerUsageResetHandler = createProviderUsageResetHandler(
+  (provider) => adapterRegistry.get(provider), invalidateProviderUsageSnapshots,
+);
 
 function createProviderUsageLogState(): BoundedLogStateTracker<
   ProviderUsageProviderId,
@@ -134,7 +149,7 @@ async function fetchProviderUsageSnapshots(seq: number): Promise<ProviderUsageSn
     return lateSuccess?.seq === seq ? lateSuccess.snapshot : snapshot;
   });
   const result = { snapshots };
-  if (!cachedResult || seq >= cachedResult.seq) {
+  if (seq >= minimumFetchSeq && (!cachedResult || seq >= cachedResult.seq)) {
     cachedResult = { result, fetchedAt: Date.now(), seq };
   }
   return result;
@@ -146,12 +161,14 @@ export function _resetProviderUsageCacheForTesting(): void {
   normalInFlightFetch = null;
   forceInFlightFetch = null;
   nextFetchSeq = 0;
+  minimumFetchSeq = 0;
   lastSuccessfulSnapshots.clear();
   latestProviderReadSeq.clear();
   providerUsageLogState = createProviderUsageLogState();
 }
 
 export function registerProviderUsageIpc(): void {
+  on(IpcInvoke.ProviderUsageReset, (_e, request) => providerUsageResetHandler(request));
   on(IpcInvoke.ProviderUsageSnapshot, (_e, opts) =>
     providerUsageSnapshotHandler(normalizeProviderUsageSnapshotOptions(opts)),
   );

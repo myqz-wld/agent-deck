@@ -35,7 +35,7 @@ describe('readCodexUsageSnapshotInBackground', () => {
       cwd: '/agent-deck/userData/provider-usage-probe-cwd',
     });
     expect(request).toHaveBeenCalledTimes(1);
-    expect(request).toHaveBeenCalledWith('account/rateLimits/read', undefined);
+    expect(request).toHaveBeenCalledWith('account/rateLimits/read', { excludeResetCreditDetails: true });
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(snapshot).toMatchObject({
       provider: 'codex-cli',
@@ -57,7 +57,7 @@ describe('readCodexUsageSnapshotInBackground', () => {
       codexPathOverride: null,
     });
 
-    expect(request).toHaveBeenCalledWith('account/rateLimits/read', undefined);
+    expect(request).toHaveBeenCalledWith('account/rateLimits/read', { excludeResetCreditDetails: true });
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(snapshot).toMatchObject({
       provider: 'codex-cli',
@@ -77,7 +77,7 @@ describe('readCodexUsageSnapshotInBackground', () => {
       codexPathOverride: null,
     });
 
-    expect(request).toHaveBeenCalledWith('account/rateLimits/read', undefined);
+    expect(request).toHaveBeenCalledWith('account/rateLimits/read', { excludeResetCreditDetails: true });
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(snapshot).toMatchObject({
       provider: 'codex-cli',

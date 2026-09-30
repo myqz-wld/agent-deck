@@ -1,4 +1,5 @@
-import { useEffect, useRef, type DragEventHandler, type ClipboardEventHandler,
+import { useModalFocus } from '../../use-modal-focus';
+import { useLayoutEffect, useRef, type DragEventHandler, type ClipboardEventHandler,
   type JSX, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type { UploadedAttachmentEntry } from '@renderer/hooks/useImageAttachments';
@@ -43,70 +44,9 @@ export function ExpandedComposerOverlay(props: Props): JSX.Element {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
-  const busyRef = useRef(props.busy);
-  const onCloseRef = useRef(props.onClose);
   const firstCommand = matchingSessionCommands(props.commands ?? [], props.text, 1)[0];
-  busyRef.current = props.busy;
-  onCloseRef.current = props.onClose;
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    const previousFocus = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    const background = dialog?.parentElement
-      ? [...dialog.parentElement.children]
-        .filter((node): node is HTMLElement => node instanceof HTMLElement && node !== dialog)
-        .map((node) => ({
-          node,
-          ariaHidden: node.getAttribute('aria-hidden'),
-          inert: node.inert,
-        }))
-      : [];
-    for (const { node } of background) {
-      node.inert = true;
-      node.setAttribute('aria-hidden', 'true');
-    }
-    textareaRef.current?.focus();
-    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (!busyRef.current) onCloseRef.current();
-    };
-    const trapFocus = (event: globalThis.KeyboardEvent): void => {
-      if (event.key !== 'Tab' || !dialog) return;
-      const focusable = [...dialog.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      )].filter((node) => !node.hidden && node.getAttribute('aria-hidden') !== 'true');
-      if (focusable.length === 0) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-      const first = focusable[0]!;
-      const last = focusable.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    dialog?.addEventListener('keydown', trapFocus);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      dialog?.removeEventListener('keydown', trapFocus);
-      for (const { node, ariaHidden, inert } of background) {
-        node.inert = inert;
-        if (ariaHidden === null) node.removeAttribute('aria-hidden');
-        else node.setAttribute('aria-hidden', ariaHidden);
-      }
-      previousFocus?.focus();
-    };
-  }, []);
+  useModalFocus({ dialogRef, onClose: props.onClose, blocked: props.busy });
+  useLayoutEffect(() => { textareaRef.current?.focus(); }, []);
 
   const submit = async (): Promise<void> => {
     if (!props.canSubmit) return;
@@ -117,7 +57,7 @@ export function ExpandedComposerOverlay(props: Props): JSX.Element {
     <div
       ref={dialogRef}
       tabIndex={-1}
-      className="no-drag absolute inset-0 z-50 flex flex-col bg-black/40 backdrop-blur-sm"
+      className="no-drag absolute inset-0 z-50 flex flex-col bg-black/50 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="放大消息输入框"

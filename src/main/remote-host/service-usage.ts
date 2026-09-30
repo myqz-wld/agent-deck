@@ -1,10 +1,13 @@
 import {
   parseUsageProviderResult,
+  parseUsageProviderResetResult,
   parseUsageTokenResult,
 } from '@contracts/index';
 import type {
   RemoteHostUsageProviderDto,
   RemoteHostUsageProviderRequestDto,
+  RemoteHostUsageResetRequestDto,
+  RemoteHostUsageResetResultDto,
   RemoteHostUsageTokenDto,
   RemoteHostUsageTokenRequestDto,
 } from '@shared/remote-host';
@@ -13,6 +16,18 @@ import { REMOTE_HOST_INTERACTIVE_DEADLINE_MS } from './service-scope';
 
 export class RemoteHostUsageController {
   constructor(private readonly request: RemoteHostScopedRequest) {}
+
+  reset(request: RemoteHostUsageResetRequestDto): Promise<RemoteHostUsageResetResultDto> {
+    return this.request(request.profileId, 'usage.providers.reset', async (scope) =>
+      parseUsageProviderResetResult(await scope.client.request('usage.providers.reset', {
+        provider: request.provider,
+        accountId: request.accountId,
+        idempotencyKey: request.idempotencyKey,
+      }, {
+        deadlineMs: REMOTE_HOST_INTERACTIVE_DEADLINE_MS,
+        idempotencyKey: request.idempotencyKey,
+      })), [], request.expectedAuthority);
+  }
 
   tokens(request: RemoteHostUsageTokenRequestDto): Promise<RemoteHostUsageTokenDto> {
     return this.request(request.profileId, 'usage.tokens.get', async (scope) =>

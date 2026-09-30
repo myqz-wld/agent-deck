@@ -30,4 +30,5 @@ export * from './issues';
 export * from './session-tasks';
 export * from './topology';
 export * from './usage';
+export * from './usage-reset';
 export * from './workspace-sandbox';

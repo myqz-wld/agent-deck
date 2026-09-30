@@ -66,6 +66,7 @@ export const REMOTE_OWNER_PRODUCT_V1_METHODS = Object.freeze([
   'session.handoff.commit',
   'feishu.preferences.get',
   'feishu.preferences.update',
+  'usage.providers.reset',
 ] as const satisfies readonly CoreMethod[]);
 
 export const CHANNEL_INTERNAL_METHODS = Object.freeze({

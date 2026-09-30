@@ -210,7 +210,7 @@ describe('CodexSdkBridge getUsageSnapshot', () => {
 
     const snapshot = await bridge.getUsageSnapshot();
 
-    expect(request).toHaveBeenCalledWith('account/rateLimits/read', undefined);
+    expect(request).toHaveBeenCalledWith('account/rateLimits/read', { excludeResetCreditDetails: true });
     expect(snapshot).toMatchObject({
       provider: 'codex-cli',
       label: 'Codex CLI',
@@ -229,7 +229,7 @@ describe('CodexSdkBridge getUsageSnapshot', () => {
 
     const snapshot = await bridge.getUsageSnapshot();
 
-    expect(request).toHaveBeenCalledWith('account/rateLimits/read', undefined);
+    expect(request).toHaveBeenCalledWith('account/rateLimits/read', { excludeResetCreditDetails: true });
     expect(isExpectedCodexUsageUnavailable).toHaveBeenCalledTimes(1);
     expect(codexUsageUnavailableSnapshot).toHaveBeenCalledTimes(1);
     expect(snapshot).toMatchObject({

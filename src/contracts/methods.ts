@@ -1,5 +1,6 @@
 import { AgentDeckCapability, type AgentDeckCapability as Capability } from './capabilities';
 import type { JsonObject, JsonValue } from './json';
+import type { UsageProviderResetParams, UsageProviderResetResult } from './usage-reset';
 import type { FeishuPreferencesResult, FeishuPreferencesUpdateParams } from './feishu-preferences';
 import type {
   SessionConsoleCapabilitiesParams,
@@ -210,6 +211,7 @@ export type CoreMethodMap = {
   };
   'usage.tokens.get': { params: UsageTokenParams; result: UsageTokenResult };
   'usage.providers.get': { params: UsageProviderParams; result: UsageProviderResult };
+  'usage.providers.reset': { params: UsageProviderResetParams; result: UsageProviderResetResult };
   'node.configuration.get': {
     params: Record<string, never>;
     result: NodeConfigurationGetResult;
@@ -422,6 +424,7 @@ export const CORE_METHOD_METADATA = {
   'subscription.set': mutationMethod(AgentDeckCapability.SubscriptionsWrite),
   'feishu.preferences.get': readMethod(AgentDeckCapability.FeishuConfiguration),
   'feishu.preferences.update': mutationMethod(AgentDeckCapability.FeishuConfiguration, 'none'),
+  'usage.providers.reset': mutationMethod(AgentDeckCapability.Usage, 'none'),
 } as const satisfies Record<keyof CoreMethodMap, CoreMethodMetadata>;
 
 export type CoreMethod = keyof CoreMethodMap;

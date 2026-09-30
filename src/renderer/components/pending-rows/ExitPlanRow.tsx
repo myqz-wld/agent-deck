@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { useEffect, useState, type JSX, type KeyboardEvent } from 'react';
 import type {
   AgentEvent,
@@ -136,7 +137,7 @@ export function ExitPlanRow({
       return;
     }
     if (targetMode === 'bypassPermissions') {
-      const ok = await window.api.confirmDialog({
+      const ok = await confirmDialog({
         title: '批准并切换到完全免询问',
         message: '需要重启当前会话',
         detail:

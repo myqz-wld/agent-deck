@@ -1,5 +1,7 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { GrokAgentsMdEditor } from './GrokAgentsMdEditor';
 
@@ -23,7 +25,7 @@ describe('GrokAgentsMdEditor', () => {
         }),
         saveGrokAgentsMd: vi.fn(),
         resetGrokAgentsMd,
-        confirmDialog: vi.fn().mockResolvedValue(true),
+        confirmDialog: vi.mocked(requestConfirmation).mockReset().mockResolvedValue(true),
       },
     });
 
@@ -46,7 +48,7 @@ describe('GrokAgentsMdEditor', () => {
         }),
         saveGrokAgentsMd: vi.fn(),
         resetGrokAgentsMd: vi.fn(),
-        confirmDialog: vi.fn(),
+        confirmDialog: vi.mocked(requestConfirmation).mockReset(),
       },
     });
 

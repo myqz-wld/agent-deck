@@ -1,3 +1,4 @@
+import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import {
   useCallback,
   useEffect,
@@ -150,7 +151,7 @@ export function ConventionDocumentEditor({
   };
 
   const reset = async (): Promise<void> => {
-    const confirmed = await window.api.confirmDialog({
+    const confirmed = await confirmDialog({
       title: '恢复默认',
       message: `确定要删除自定义副本，恢复应用内置的 ${config.fileName} 吗？`,
       detail: config.resetDetail,
@@ -176,7 +177,7 @@ export function ConventionDocumentEditor({
     }
   };
 
-  const confirmExpandedClose = (): Promise<boolean> => window.api.confirmDialog({
+  const confirmExpandedClose = (): Promise<boolean> => confirmDialog({
     title: '收起展开编辑器',
     message: `${config.fileName} 还有未保存的草稿，仍要收起吗？`,
     detail: '草稿会保留在应用约定页面，可继续编辑或保存。',

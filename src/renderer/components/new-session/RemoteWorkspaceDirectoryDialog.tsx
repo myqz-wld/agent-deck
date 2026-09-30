@@ -90,14 +90,14 @@ export function RemoteWorkspaceDirectoryDialog({
   };
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-sm">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div
         ref={dialogRef}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="no-drag flex max-h-[72%] w-[min(24rem,92vw)] flex-col overflow-hidden rounded-xl border border-deck-border bg-deck-bg-strong shadow-2xl"
+        className="deck-dialog-surface no-drag flex max-h-[72%] w-[min(24rem,92vw)] flex-col overflow-hidden"
       >
         <header className="flex items-center justify-between border-b border-deck-border px-4 py-3">
           <h3 id={titleId} className="text-[13px] font-medium">选择 Workspace 目录</h3>

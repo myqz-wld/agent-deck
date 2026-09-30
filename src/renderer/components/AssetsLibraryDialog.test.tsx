@@ -1,5 +1,7 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { AssetsLibraryDialog } from './AssetsLibraryDialog';
@@ -28,7 +30,7 @@ function installApi() {
     getAssetContent: vi.fn(),
     setSettings: vi.fn(),
     revealAssetInFolder: vi.fn(),
-    confirmDialog: vi.fn(),
+    confirmDialog: vi.mocked(requestConfirmation).mockReset(),
   };
   const remote = {
     listRemoteHostNodeAssets: vi.fn().mockResolvedValue({

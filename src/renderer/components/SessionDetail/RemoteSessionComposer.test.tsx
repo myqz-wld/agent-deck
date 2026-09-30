@@ -1,5 +1,7 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
@@ -65,7 +67,7 @@ describe('RemoteSessionComposer parity and authority', () => {
   it('reuses the Local composer surface while routing message and runtime writes to Remote', async () => {
     const listLocalClaudeGateways = vi.fn();
     const listLocalCodexGateways = vi.fn();
-    const confirmDialog = vi.fn().mockResolvedValue(true);
+    const confirmDialog = vi.mocked(requestConfirmation).mockReset().mockResolvedValue(true);
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
@@ -97,7 +99,7 @@ describe('RemoteSessionComposer parity and authority', () => {
     fireEvent.click(screen.getByLabelText('沙盒'));
     fireEvent.click(screen.getByRole('option', { name: '完全开放' }));
     await waitFor(() => expect(confirmDialog).toHaveBeenCalledWith(expect.objectContaining({
-      title: '关闭 Claude Code 系统沙盒',
+      title: '关闭 Claude Code 沙盒？',
     })));
     await waitFor(() => expect(remote.updateRuntime).toHaveBeenCalledWith({
       claudeCodeSandbox: 'off',
@@ -110,7 +112,7 @@ describe('RemoteSessionComposer parity and authority', () => {
   it('routes active-turn Codex text and images through Remote steer', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { confirmDialog: vi.fn() },
+      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset() },
     });
     const remote = source({
       capabilities: new Set([
@@ -166,7 +168,7 @@ describe('RemoteSessionComposer parity and authority', () => {
   it('queues active-turn Claude images through Remote send instead of steer', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { confirmDialog: vi.fn() },
+      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset() },
     });
     const remote = source({
       capabilities: new Set([
@@ -211,7 +213,7 @@ describe('RemoteSessionComposer parity and authority', () => {
   it('does not infer active-turn steering without the negotiated input capability', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { confirmDialog: vi.fn() },
+      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset() },
     });
     const remote = source({
       capabilities: new Set([
@@ -247,7 +249,7 @@ describe('RemoteSessionComposer parity and authority', () => {
   it('keeps next-turn runtime controls editable while a provider turn is working', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { confirmDialog: vi.fn() },
+      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset() },
     });
     const remote = source({
       capabilities: new Set([
@@ -283,7 +285,7 @@ describe('RemoteSessionComposer parity and authority', () => {
   it('shows provider-default runtime values instead of inventing concrete policies', () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { confirmDialog: vi.fn() },
+      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset() },
     });
     const remote = source({
       selectedSession: {
@@ -306,7 +308,7 @@ describe('RemoteSessionComposer parity and authority', () => {
   it('renders and removes the Remote provider waiting queue without exposing attachment paths', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { confirmDialog: vi.fn() },
+      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset() },
     });
     const listOutgoing = vi.fn().mockResolvedValue({
       sessionId: 'session-a', adapterId: 'claude-code', revision: 7,
@@ -337,7 +339,7 @@ describe('RemoteSessionComposer parity and authority', () => {
   it('filters the file picker with the Worker-negotiated attachment MIME policy', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { confirmDialog: vi.fn() },
+      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset() },
     });
     const remote = source({
       getSessionCapabilities: vi.fn().mockResolvedValue({
@@ -367,7 +369,7 @@ describe('RemoteSessionComposer parity and authority', () => {
   it('persists one coherent Remote model selection when a debounced model and thinking change overlap', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { confirmDialog: vi.fn() },
+      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset() },
     });
     const remote = source();
     render(<RemoteSessionComposer

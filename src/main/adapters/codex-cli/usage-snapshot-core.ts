@@ -1,4 +1,6 @@
 import type { ProviderUsageSnapshot } from '@shared/types';
+import type { ProviderUsageResetRequest, ProviderUsageResetResult } from '@shared/types';
+import { consumeCodexUsageReset } from './usage-reset';
 import { PROVIDER_USAGE_REFETCH_MS } from '@shared/constants/provider-usage';
 import {
   createCodexUsageProbeStore,
@@ -58,6 +60,21 @@ export function readCodexUsageSnapshotWithHost(
 
 export function invalidateCodexUsageSnapshotClient(): void {
   usageProbeStore.invalidate();
+}
+
+export async function consumeCodexUsageResetWithHost(
+  host: CodexUsageSnapshotHost,
+  request: ProviderUsageResetRequest,
+  deps: CodexUsageProbeDeps = {},
+): Promise<ProviderUsageResetResult> {
+  const configured = deps.codexPathOverride !== undefined ? deps.codexPathOverride : host.readCodexCliPath();
+  const client = makeUsageClient(host, deps, configured?.trim() || null,
+    (deps.getProbeCwdFn ?? host.readProbeCwd)());
+  try {
+    return await consumeCodexUsageReset(client, request, deps.timeoutMs);
+  } finally {
+    client.dispose();
+  }
 }
 
 function makeUsageClient(

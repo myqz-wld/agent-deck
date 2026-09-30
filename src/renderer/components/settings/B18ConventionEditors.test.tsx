@@ -1,6 +1,8 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 import {
   cleanup,
   fireEvent,
@@ -44,7 +46,7 @@ describe('B18 application convention editors', () => {
       ok: true,
       content: '# 应用内置内容\n',
     });
-    const confirmDialog = vi.fn()
+    const confirmDialog = vi.mocked(requestConfirmation).mockReset()
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true)
       .mockResolvedValueOnce(true);
@@ -145,7 +147,7 @@ describe('B18 application convention editors', () => {
             isCustom: true,
           })),
           [resetKey]: vi.fn(),
-          confirmDialog: vi.fn().mockResolvedValue(true),
+          confirmDialog: vi.mocked(requestConfirmation).mockReset().mockResolvedValue(true),
         },
       });
 
@@ -188,7 +190,7 @@ describe('B18 application convention editors', () => {
         getClaudeMd,
         saveClaudeMd,
         resetClaudeMd,
-        confirmDialog: vi.fn().mockResolvedValue(true),
+        confirmDialog: vi.mocked(requestConfirmation).mockReset().mockResolvedValue(true),
       },
     });
 

@@ -1,5 +1,7 @@
+import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dialog';
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import type { PlanDeepReviewTransport } from '@renderer/plan-review/transport';
 import { usePlanDeepReviewStore } from '@renderer/stores/plan-deep-review-store';
@@ -324,9 +326,9 @@ describe('PlanDeepReviewDialog', () => {
   });
 
   it('keeps a non-empty feedback draft recoverable until approval discard is confirmed', async () => {
-    const confirm = vi.spyOn(window, 'confirm')
-      .mockReturnValueOnce(false)
-      .mockReturnValueOnce(true);
+    const confirm = vi.mocked(requestConfirmation).mockReset()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
     const { onApprove, onClose } = renderDialog();
     const feedback = screen.getByTestId('plan-review-feedback') as HTMLTextAreaElement;
     fireEvent.click(screen.getByRole('button', { name: '根据上下文生成意见' }));
@@ -335,7 +337,7 @@ describe('PlanDeepReviewDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: '批准计划' }));
 
     expect(confirm).toHaveBeenCalledWith(
-      '修改意见尚未提交。批准计划将丢弃这些内容，是否仍要批准？',
+      expect.objectContaining({ message: '修改意见尚未提交，批准后将丢弃这些内容。' }),
     );
     expect(onApprove).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
