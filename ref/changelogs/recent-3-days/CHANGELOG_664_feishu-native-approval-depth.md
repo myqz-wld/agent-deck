@@ -25,8 +25,9 @@ Nine focused regressions pass, including native notification delivery, approval 
 parameters, depth boundaries and retained resource limits. Full suite: 6,892 passing tests and
 three existing skips. Typecheck/architecture, headless build/check and deployment checks pass.
 See [local review](../../reviews/recent-3-days/REVIEW_305_feishu-native-approval-depth.md).
-Managed activation and owner approval acceptance continue in the active plan. This gateway change
-does not require replacing the accepted Desktop or Worker.
+[Managed activation](../../plans/recent-3-days/PLAN_73_feishu-native-approval-activation.md) is verified:
+the original approval notification was delivered successfully. Owner approval and work-reply
+acceptance continue in the active plan. Desktop and Worker were not replaced.
 
 ## Do Not Split Protection
 

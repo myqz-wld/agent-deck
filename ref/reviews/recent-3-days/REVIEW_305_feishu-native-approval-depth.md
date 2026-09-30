@@ -47,7 +47,9 @@ display reaches signing and callback verification without normalization or param
 
 ## Residual risk and acceptance
 
-Managed Server/Feishu activation and the owner's actual approval remain pending at source review.
-Preserve the current native request when possible; do not approve it or duplicate work for the
-owner. No Desktop reinstall, database migration, model change, prompt change or pairing is needed.
+Managed Server/Feishu activation is independently verified in
+[PLAN_73](../../plans/recent-3-days/PLAN_73_feishu-native-approval-activation.md). The activated bundle
+validates the original request with default limits; the failed notification is now delivered on
+attempt two. The owner has been asked to approve it. No duplicate work or proxy approval occurred.
+No Desktop reinstall, database migration, model change, prompt change or pairing is needed.
 The older warm-channel stall has a separate unproven cause and is not claimed as fixed here.
