@@ -92,13 +92,15 @@ src/hosts/server-core/session-manager-observer.ts
 - An initial full run inherited the diagnostic log's restrictive umask, causing 35 fixture-mode
   failures in three unchanged files. Re-running with the normal process umask passes. Logs remain
   in a mode-0700 private directory; no production permission policy was weakened.
-- All changed source files are below 500 lines. Public attribution and staged privacy checks are
-  required before release; actual package audits and activation acceptance are recorded separately.
+- All changed source files are below 500 lines. Public attribution, staged privacy and actual package audits passed.
+  [Installed acceptance](../../plans/recent-3-days/PLAN_72_feishu-input-approval-activation.md)
+  confirms the exact new release, a single formal application and healthy managed services.
 
 ## Residual risk and next acceptance
 
-- Reactions require the official message-reaction write grant. The live app lacks this grant;
-  the owner has been asked to approve only that permission and its publication.
+- Reactions require the official message-reaction write grant. The owner approved that exact grant
+  and publication. Browser confirms the single added app-identity grant is enabled and all current
+  changes are published. Real reaction/message acceptance remains pending.
 - Reaction metadata is intentionally transient. An abrupt process crash may leave an old indicator
   on Feishu; no success is inferred from elapsed time. This does not alter durable messages,
   approvals or business state.
@@ -111,3 +113,12 @@ src/hosts/server-core/session-manager-observer.ts
 - [Received message content](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/im-v1/message/events/message_content)
 - [Reaction creation and permissions](https://open.feishu.cn/document/server-docs/im-v1/message-reaction/create)
 - [Official emoji catalog](https://github.com/larksuite/cli/blob/main/skills/lark-im/references/lark-im-reactions.md)
+
+## Installed acceptance
+
+Release 3ea213cf is installed at the formal application path. Its ASAR matches the audited package;
+Worker/supervisor, Relay and Feishu/Core independently pass. The first attempt failed during a local
+Docker Hub pull before remote or Desktop mutation. The owner subsequently opened the temporary
+package; recovery installed that same verified package, removed it from build/dist and cleared both
+the temporary and hidden-backup Launch Services registrations. One formal GUI and one application
+registration remain. No reinstall is required.

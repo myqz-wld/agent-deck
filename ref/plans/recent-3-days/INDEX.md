@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-30 | `PLAN_72_feishu-input-approval-activation.md` | completed | Activate input/approval repairs and remove duplicate applications | `REVIEW_304_feishu-input-approval-progress.md` |
 | 2026-09-30 | `PLAN_71_feishu-named-work-activation.md` | completed | Activate named work and preserve assistant context | `REVIEW_303_feishu-named-work-management.md` |
 | 2026-09-30 | `PLAN_70_feishu-native-controls-activation.md` | completed | Activate native settings and approval repairs | `REVIEW_302_feishu-native-settings-approvals.md` |
 | 2026-09-30 | `PLAN_69_core-read-tool-activation.md` | completed | Activate read-only Core tools and verify the installed Worker | `REVIEW_300_core-read-tool-annotations.md` |
