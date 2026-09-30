@@ -46,6 +46,8 @@ import { ServerCoreUsageRuntime } from './usage-runtime';
 import { ServerCoreNodeConfigurationRuntime } from './node-configuration-runtime';
 import { ServerCoreFeishuPreferencesRuntime } from './feishu-preferences-runtime';
 import { FileFeishuPreferenceStore } from './feishu-preference-store';
+import { FileFeishuAssistantStore } from './feishu-assistant-store';
+import { ServerCoreFeishuAssistantsRuntime } from './feishu-assistants-runtime';
 import { ServerCoreNodeHookProjectionState } from './node-hook-projection-state';
 import { ServerCoreNodeAssetRuntime } from './node-asset-runtime';
 import { ServerCoreNodeAssetCatalog } from './node-asset-catalog';
@@ -286,8 +288,10 @@ export function createServerCoreRuntimeWithOverrides(
     settings: providerSettings, registry, metadata, diagnostics: runtimeDiagnostics,
   });
   const feishuPreferences = new FileFeishuPreferenceStore(input.paths.stateDirectory);
+  const feishuAssistants = new FileFeishuAssistantStore(input.paths.stateDirectory);
   const { desktopBroker, handoff, mcpBroker, presentations } = createServerCoreMcpComposition({
     feishuPreferences,
+    feishuAssistants,
     workspaceRoot,
     privateRoots,
     repositories,
@@ -439,7 +443,9 @@ export function createServerCoreRuntimeWithOverrides(
   });
   const preferenceRuntime = new ServerCoreFeishuPreferencesRuntime(usageRuntime,
     feishuPreferences, metadata, createCapabilities);
-  const configurationRuntime = new ServerCoreNodeConfigurationRuntime(preferenceRuntime, {
+  const assistantRuntime = new ServerCoreFeishuAssistantsRuntime(preferenceRuntime,
+    feishuAssistants, metadata, repositories.sessions);
+  const configurationRuntime = new ServerCoreNodeConfigurationRuntime(assistantRuntime, {
     settings: providerSettings,
     sessionLifecycle: sessionLifecycleSettings,
     registry,

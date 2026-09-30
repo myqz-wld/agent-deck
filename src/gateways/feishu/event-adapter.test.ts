@@ -7,7 +7,7 @@ import {
 import { createFeishuAuditBundle } from './audit';
 import { FeishuSdkEventAdapter } from './event-adapter';
 import { FeishuSourceRegistry } from './source-registry';
-import type { FeishuOperationalAuditEntry } from './types';
+import type { FeishuOperationalAuditEntry, FeishuPairingEventPort } from './types';
 
 const APP_ID = 'cli_0123456789abcdef';
 const TENANT_KEY = 'tenant_1';
@@ -44,7 +44,8 @@ function rawMessage(eventId: string, chatId: string, messageId: string): Record<
   };
 }
 
-function fixture(handle: (event: unknown) => Promise<FeishuCallbackResult>) {
+function fixture(handle: (event: unknown) => Promise<FeishuCallbackResult>, now = () => NOW,
+  pairing?: FeishuPairingEventPort) {
   const entries: FeishuOperationalAuditEntry[] = [];
   const sources = new FeishuSourceRegistry();
   const gateway = { handle: vi.fn(handle) } as unknown as FeishuSessionConsoleGateway;
@@ -54,7 +55,7 @@ function fixture(handle: (event: unknown) => Promise<FeishuCallbackResult>) {
     instanceId: 'instance_1',
     topology: 'full',
   }, {
-    now: () => NOW,
+    now,
     setTimer: () => ({ cancel: () => undefined }),
   }, (entry) => entries.push(entry));
   return {
@@ -62,14 +63,60 @@ function fixture(handle: (event: unknown) => Promise<FeishuCallbackResult>) {
     entries,
     adapter: new FeishuSdkEventAdapter(
       gateway,
-      { appId: APP_ID, tenantKey: TENANT_KEY, now: () => NOW },
+      { appId: APP_ID, tenantKey: TENANT_KEY, now },
       sources,
       audit,
+      pairing,
     ),
   };
 }
 
 describe('Feishu official-SDK event adapter', () => {
+  it.each([1, 1_000, 0.001])('silently acknowledges old message timestamps in supported units (%s)', async scale => {
+    const handle = vi.fn(async () => accepted); const pairing = { handle: vi.fn(async () => accepted) };
+    const state = fixture(handle, () => NOW, pairing);
+    const raw = rawMessage('old-command', 'oc_chat_1', 'om_old');
+    // Even a newly generated callback envelope must not make an old owner message fresh.
+    (raw.message as Record<string, unknown>).create_time = String((NOW - 10 * 60_000) * scale);
+    (raw.message as Record<string, unknown>).content = JSON.stringify({ text: '/directories' });
+    await expect(state.adapter.handle(raw)).resolves.toEqual({
+      acknowledged: true, duplicate: false, code: 'event_expired', toast: '',
+    });
+    await expect(state.adapter.onMessage(raw)).resolves.toBeUndefined();
+    expect(handle).not.toHaveBeenCalled(); expect(pairing.handle).not.toHaveBeenCalled();
+    expect(state.sources.size()).toBe(0);
+    expect(JSON.stringify(state.entries)).not.toContain('/directories');
+  });
+
+  it('admits messages at the five-minute boundary and drops older retries without invoking Core again', async () => {
+    let now = NOW; const handle = vi.fn(async () => accepted);
+    const state = fixture(handle, () => now);
+    const raw = rawMessage('boundary', 'oc_chat_1', 'om_boundary');
+    (raw.message as Record<string, unknown>).create_time = String(NOW - 5 * 60_000);
+    expect((await state.adapter.handle(raw)).code).toBe('accepted');
+    now++;
+    expect((await state.adapter.handle(raw)).code).toBe('event_expired');
+    expect(handle).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows already-admitted work to finish after five minutes and stops retrying an expired failed input', async () => {
+    let now = NOW; let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    const handle = vi.fn(async () => { await pending; return accepted; });
+    const state = fixture(handle, () => now);
+    const running = state.adapter.handle(rawMessage('running', 'oc_chat_1', 'om_running'));
+    await vi.waitFor(() => expect(handle).toHaveBeenCalledTimes(1));
+    now += 10 * 60_000; release();
+    await expect(running).resolves.toEqual(accepted);
+
+    const failing = vi.fn(async () => { throw new FeishuGatewayError('delivery_failed', 'synthetic', true); });
+    now = NOW; const retry = fixture(failing, () => now); const raw = rawMessage('retry', 'oc_chat_1', 'om_retry');
+    await expect(retry.adapter.onMessage(raw)).rejects.toThrow('Retryable');
+    now += 10 * 60_000;
+    await expect(retry.adapter.onMessage(raw)).resolves.toBeUndefined();
+    expect(failing).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps provider reply sources in memory only for the active callback', async () => {
     let seen: unknown;
     const state = fixture(async (event) => {

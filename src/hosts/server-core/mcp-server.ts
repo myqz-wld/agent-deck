@@ -4,6 +4,7 @@ import type { SessionAdapterId } from '@shared/types';
 
 import { registerServerCoreIssueTools } from './mcp-issue-tools';
 import { registerServerCoreFeishuPreferenceTool } from './mcp-feishu-preferences';
+import { registerServerCoreFeishuWorkSessionTool } from './mcp-feishu-work-sessions';
 import { registerServerCoreSessionTools } from './mcp-session-tools';
 import { registerServerCoreSpawnTool } from './mcp-spawn-tools';
 import { registerServerCoreTaskTools } from './mcp-task-tools';
@@ -32,6 +33,7 @@ export async function createServerCoreMcpServer(
   const context = Object.freeze({ host, callerSessionId, adapterId });
   registerServerCoreSessionTools(server, context);
   registerServerCoreFeishuPreferenceTool(server, context);
+  registerServerCoreFeishuWorkSessionTool(server, context);
   registerServerCoreSpawnTool(server, context);
   registerServerCoreHandOffTool(server, context);
   registerServerCoreWorktreeTools(server, context);

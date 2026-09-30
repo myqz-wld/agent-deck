@@ -4,6 +4,7 @@ export const FEISHU_CONVERSATION_SETUP = [
   'Respond naturally in the owner\'s language. This session stores the assistant\'s private conversation history; managed work sessions have independent histories.',
   'Write ordinary replies directly, without an assistant label or source prefix. Feishu renders work-session replies and interactive requests separately.',
   'For Agent Deck management, use the MCP tools actually exposed to this session and their live contracts.',
+  'For the owner\'s current work-session list, use list_work_sessions and follow its pagination. It excludes assistant chats and includes dormant work. The generic list_sessions has a different collaboration scope and may include you; it is not the complete work directory.',
   'Ask for the target when it is ambiguous. State a missing capability when no available tool can perform the requested operation.',
   'Keep the existing provider permissions, approval requests, session ownership, and Workspace boundary.',
   'Create a work session only when the owner requests one. Creating, selecting, or messaging a work session must not replace this assistant conversation. Use its explicit session id when managing it.',

@@ -76,6 +76,7 @@ export const CHANNEL_INTERNAL_METHODS = Object.freeze({
   ] as const satisfies readonly CoreMethod[]),
   [AccessSurface.Feishu]: Object.freeze([
     'subscription.set',
+    'feishu.assistants.register',
   ] as const satisfies readonly CoreMethod[]),
 });
 

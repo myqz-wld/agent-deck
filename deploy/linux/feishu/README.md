@@ -123,6 +123,10 @@ work target and `/send <text>` sends to that target. These operations preserve a
 and `/chat history` browse and resume earlier assistant conversations. `/sessions` and `/history`
 remain scoped to work sessions. Groups do not bootstrap private assistant conversations.
 
+Natural-language work listing uses `list_work_sessions`: it excludes registered assistant chats,
+includes dormant work, and preserves the separate collaboration/history permission boundaries.
+Existing assistant identities reconcile from gateway metadata when a private conversation resumes.
+
 `/create last <directory> -- <message>` offers explicit directory selection. Adapter and optional
 `--model`, `--provider`, or `--thinking` flags override and remember the work selection. Existing
 sessions retain their native controls. `/unsubscribe` applies to the selected work session;
@@ -138,7 +142,7 @@ purpose. A verified v4 migration preserves pairing, work selection and delivery 
 remain in authoritative Core history. Remote creation commits only canonical provider session IDs.
 
 Core owns a bounded, owner-only, atomically replaced configuration file. Desktop/Feishu saves use
-an independent settings revision to detect concurrent edits. Protocol 2.9 requires matching Desktop,
+an independent settings revision to detect concurrent edits. Protocol 2.10 requires matching Desktop,
 Worker, Server and Feishu artifacts during activation; no credential re-enrollment is required.
 
 Assistant reply delivery preserves the existing metadata-only notification path. Core's `event.persisted` notification carries only an event identity; the gateway
@@ -190,3 +194,7 @@ Feishu readiness/reconnect/send/action/revocation/multi-chat flows. Container va
 prove boot-time ownership, forced-command behavior, the live provider's one-hour UUID behavior,
 WebSocket redelivery ordering, group-card visibility, or post-crash reconciliation; capture those
 with disposable credentials before production acceptance.
+
+Incoming messages older than five minutes are acknowledged and ignored before pairing or Core
+execution. Age uses the original message creation time. This does not expire running tasks,
+provider reply notifications or the separate validity period of approval cards.

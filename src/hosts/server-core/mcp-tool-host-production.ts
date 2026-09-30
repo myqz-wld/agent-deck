@@ -2,6 +2,8 @@ import { findSessionHandOffSuccessor } from '@main/store/session-handoff-alias-r
 
 import type { ServerCoreMcpToolHost } from './mcp-tool-host';
 import type { FeishuPreferenceStore } from './feishu-preference-store';
+import type { FeishuAssistantStore } from './feishu-assistant-store';
+import { FeishuWorkSessionDirectory } from './feishu-work-session-directory';
 import type { ServerCoreMcpSessionPort } from './mcp-session-port';
 import type { ServerCoreMcpSpawnPort } from './mcp-spawn-port';
 import type { ServerCoreMcpWorktreePort } from './mcp-worktree-port';
@@ -32,6 +34,7 @@ function isCurrentOwner(
 
 export function createServerCoreMcpToolHost(input: {
   readonly feishuPreferences?: Pick<FeishuPreferenceStore, 'read'>;
+  readonly feishuAssistants?: Pick<FeishuAssistantStore, 'read'>;
   readonly workspaceRoot: string;
   readonly privateRoots: readonly string[];
   readonly repositories: ServerCoreRepositoryHost;
@@ -48,6 +51,12 @@ export function createServerCoreMcpToolHost(input: {
 }): ServerCoreMcpToolHost {
   return Object.freeze({
     feishuPreferences: input.feishuPreferences,
+    feishuWorkSessions: input.feishuAssistants ? new FeishuWorkSessionDirectory({
+      assistants: input.feishuAssistants,
+      sessions: input.repositories.sessions,
+      successor: findSessionHandOffSuccessor,
+      project: (callerId, sessionId) => input.collaboration.get(callerId, sessionId),
+    }) : undefined,
     workspaceRoot: input.workspaceRoot,
     privateRoots: Object.freeze([...input.privateRoots]),
     sessions: input.repositories.sessions,

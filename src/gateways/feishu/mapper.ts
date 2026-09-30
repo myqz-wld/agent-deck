@@ -77,7 +77,8 @@ function timestamp(value: unknown, label: string): number {
   }
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed)) fail('invalid_event', `${label} is malformed`);
-  return parsed >= 100_000_000_000_000 ? Math.floor(parsed / 1_000) : parsed;
+  return parsed >= 100_000_000_000_000 ? Math.floor(parsed / 1_000)
+    : parsed < 100_000_000_000 ? parsed * 1_000 : parsed;
 }
 
 function assertRawBound(value: unknown, maximum: number): void {
@@ -185,7 +186,7 @@ export function mapFeishuMessageEvent(
   if (!['group', 'p2p'].includes(String(message.chat_type)) || message.message_type !== 'text') {
     fail('unknown_command', 'Only Feishu text messages in p2p or group chats are supported');
   }
-  timestamp(message.create_time, 'message.create_time');
+  const messageCreatedAt = timestamp(message.create_time, 'message.create_time');
   if (message.update_time !== undefined) timestamp(message.update_time, 'message.update_time');
   for (const field of ['parent_id', 'root_id', 'thread_id'] as const) {
     if (message[field] !== undefined) token(message[field], `message.${field}`);
@@ -218,6 +219,7 @@ export function mapFeishuMessageEvent(
     schemaVersion: 1,
     kind: 'message',
     ...header,
+    occurredAt: messageCreatedAt,
     openId,
     chatId,
     chatType: message.chat_type as 'group' | 'p2p',
@@ -225,7 +227,7 @@ export function mapFeishuMessageEvent(
   });
   return {
     event,
-    source: { eventId: header.eventId, chatId, messageId, kind: 'message', occurredAt: header.occurredAt },
+    source: { eventId: header.eventId, chatId, messageId, kind: 'message', occurredAt: messageCreatedAt },
   };
 }
 

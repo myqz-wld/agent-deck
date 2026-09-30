@@ -138,6 +138,9 @@ export class FakeCoreClient implements AgentDeckClient<CoreMethodMap> {
       if (hooked !== undefined) return hooked;
     }
     switch (method) {
+      case 'feishu.assistants.register': return {
+        registeredSessionIds: (params.sessionIds as string[]).filter(id => this.sessions.has(id)), revision: this.revision,
+      };
       case 'feishu.preferences.get': return { ...structuredClone(this.preferences), revision: this.revision };
       case 'feishu.preferences.update': {
         const update = parseFeishuPreferencesUpdate(params);

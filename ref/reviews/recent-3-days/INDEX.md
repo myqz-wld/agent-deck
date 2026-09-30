@@ -15,7 +15,8 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-09-30 | `REVIEW_300_core-read-tool-annotations.md` | Restore read-only Core MCP discovery and approval semantics | 1 HIGH fixed and installed; live query pending |
+| 2026-09-30 | `REVIEW_301_feishu-work-directory-expiry.md` | Separate work discovery and discard expired Feishu input | 2 MEDIUM fixed in source; activation pending |
+| 2026-09-30 | `REVIEW_300_core-read-tool-annotations.md` | Restore read-only Core MCP discovery and approval semantics | 1 HIGH fixed, installed and live accepted |
 | 2026-09-29 | `REVIEW_299_feishu-assistant-contexts.md` | Stabilize session IDs and isolate assistant history | 3 HIGH / 1 MEDIUM fixed; live acceptance pending |
 | 2026-09-29 | `REVIEW_298_dialogs-quota-reset-safety.md` | Inspect all dialogs and quota-reset boundaries | 2 MEDIUM fixed; full suite and Browser checked |
 | 2026-09-29 | `REVIEW_297_feishu-event-metadata.md` | Repair Feishu delivery, terminal transports and storage growth | 6 HIGH fixed and active; final chat tests pending |

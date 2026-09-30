@@ -20,6 +20,8 @@ const SAFE_REJECTION: FeishuCallbackResult = {
   toast: 'Unsupported or invalid Feishu action',
 };
 
+const MAX_MESSAGE_AGE_MS = 5 * 60 * 1_000;
+
 export class FeishuSdkEventAdapter implements FeishuSdkEventHandlers {
   constructor(
     private readonly gateway: FeishuSessionConsoleGateway,
@@ -71,6 +73,11 @@ export class FeishuSdkEventAdapter implements FeishuSdkEventHandlers {
         throw new Error('Retryable Feishu event processing failure');
       }
       return this.reject(String(classified.code));
+    }
+    if (mapped.event.kind === 'message' && this.mapper.now() - mapped.event.occurredAt > MAX_MESSAGE_AGE_MS) {
+      // Resolve the SDK callback to stop retries; do not pair, call Core, or send a reply.
+      this.audit.runtime('provider-event', 'accepted', 'event_expired');
+      return { acknowledged: true, duplicate: false, code: 'event_expired', toast: '' };
     }
     try {
       return await this.sources.within(mapped.source, async () => {

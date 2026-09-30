@@ -7,11 +7,11 @@ import {
 } from './version';
 
 describe('protocol version negotiation', () => {
-  it('advertises shared Feishu configuration as protocol 2.9', () => {
-    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 9 });
+  it('advertises Feishu assistant identity registration as protocol 2.10', () => {
+    expect(CURRENT_PROTOCOL_VERSION).toEqual({ major: 2, minor: 10 });
   });
   it('accepts only one exact protocol contract', () => {
-    expect(negotiateProtocolVersion({ major: 2, minor: 9 })).toEqual({ major: 2, minor: 9 });
+    expect(negotiateProtocolVersion({ major: 2, minor: 10 })).toEqual({ major: 2, minor: 10 });
   });
 
   it('rejects a major mismatch before ordinary calls', () => {

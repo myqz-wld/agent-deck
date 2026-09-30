@@ -88,7 +88,7 @@ describe('Feishu Core access verification', () => {
       policyVersion: 1,
       policyRevision: 1,
       productMethodCount: REMOTE_OWNER_PRODUCT_V1_METHODS.length,
-      channelMethodCount: 1,
+      channelMethodCount: 2,
       broaderMethodDenied: true,
     });
     expect(fixture.client().calls).toEqual([

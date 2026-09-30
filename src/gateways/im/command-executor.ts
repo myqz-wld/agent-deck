@@ -1,4 +1,5 @@
 import { createFeishuSession } from './session-create';
+import { registerFeishuAssistants } from './assistant-registration';
 import { readModelCapabilities, readPreferences, renderModels, renderPreferences, savePreference } from './preferences';
 import { FEISHU_HELP_TEXT, type FeishuCommand } from './commands';
 import { assertFeishuMethod } from './client-pool';
@@ -58,6 +59,11 @@ export class FeishuCommandExecutor {
 
   constructor(private readonly options: FeishuCommandExecutorOptions) {
     this.deleteController = new FeishuSessionDeleteController(options);
+  }
+
+  registerAssistants(event: FeishuMessageEvent, credential: EnrolledFeishuCredential,
+    context: FeishuChatContext, connected: ConnectedFeishuClient, remaining: () => number): Promise<void> {
+    return registerFeishuAssistants(this.options, event, credential, context, connected, remaining);
   }
 
   async execute(

@@ -119,9 +119,15 @@ export class FeishuConversationRouter {
       throw new FeishuGatewayError('assistant_not_started', 'No assistant conversation has started');
     }
     if (command.kind === 'send' && event.chatType === 'p2p') await subscribe(selected(), false);
+    if (assistantTarget && command.kind === 'send') {
+      await this.executor.registerAssistants(event, credential, context(), connected, remaining);
+    }
     const result = await run(command, event, ['create', 'select'].includes(command.kind) ? undefined : selected());
     if (event.chatType === 'p2p' && command.kind === 'create') await subscribe(selected(), true);
     if (assistantTarget && command.kind === 'select') await subscribe(selected(), true);
+    if (assistantTarget && ['create', 'select'].includes(command.kind)) {
+      await this.executor.registerAssistants(event, credential, context(), connected, remaining);
+    }
     const sessionId = selected();
     const subscribed = sessionId && this.store.getSubscription(
       credential.instanceId, credential.credentialId, event.chatId, sessionId,
