@@ -67,8 +67,15 @@ does not change the selected model/thinking level or redesign cold-start admissi
 
 The repair is installed as `0a4299b96ce21a66a0b22186dd021c589adddead`. Independent checks confirm
 the packaged Worker contains all six annotations, one GUI process is running, and Worker/Relay/
-Feishu health passes. The owner was asked to retry the read-only session-list request in the same
-assistant chat; its real tool result is still pending. Installation evidence is archived in
+Feishu health passes. The owner's retry in the same assistant chat completed the real
+`mcp__agent-deck__list_sessions` call in about 8 ms, with no native approval denial or tool error.
+This accepts the read-only annotation repair. Installation evidence is archived in
 [PLAN_69](../../plans/recent-3-days/PLAN_69_core-read-tool-activation.md).
+
+The returned entry was the assistant itself. The owner console separately contains one dormant
+work session. Generic MCP listing defaults to active caller-related sessions, so successful tool
+execution does not establish correct work-session classification. That in-scope semantic repair
+remains open; preserve generic collaboration and event-history contracts while supplying an
+explicit work-session view. No session identifiers or reply bodies are included in this record.
 Work-session routing/cards and a real pending-card decision remain separate open acceptance checks.
 The overall Feishu plans remain active. No new follow-up issue is created for this in-scope repair.

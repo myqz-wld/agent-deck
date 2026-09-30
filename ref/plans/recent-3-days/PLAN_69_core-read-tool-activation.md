@@ -49,9 +49,11 @@ Current installer files and checksums are in `build/dist/`; one fallback remains
 ## Final status and continuing acceptance
 
 Installation and cleanup are complete. The owner has already accepted ordinary assistant text,
-cross-turn recall and a fast second reply. After this activation, the owner was asked to retry a
-read-only work-session list in the existing assistant chat. Its real MCP result, work-session
-creation/message cards and one pending-card decision remain business acceptance checks.
+cross-turn recall and a fast second reply. After this activation, the owner's retry completed the
+real read-only MCP session-list call without an approval denial. Its sole returned entry was the
+assistant itself, exposing a separate work-session classification gap. The dormant work selection
+is still present in the owner console. Correct classification, work-session creation/message cards
+and one pending-card decision remain business acceptance checks.
 Keep the Feishu workspace plans active. Documentation-only updates do not require another install.
 
 - [Repair and validation](../../reviews/recent-3-days/REVIEW_300_core-read-tool-annotations.md)
