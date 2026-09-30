@@ -105,3 +105,23 @@ service, WebSocket and restricted Core are connected. No Desktop process or bund
 Retain the active plan until new command delivery is acknowledged without retry, directory listing,
 a real provider response and a harmless card action are verified. The owner is testing a fresh
 `/directories` command; pairing must not be recreated.
+
+## Storage incident and recovery
+
+A later directory command arrived after the Relay root filesystem had exhausted its free space.
+The event mapped successfully, but handling failed with `internal_error`; Worker verification
+still passed. Feishu metadata integrity was intact. The cloud disk is 8 GiB with approximately
+7 GiB allocated to root. Eight Feishu runtimes occupied about 1 GiB, and a separate 1-GiB
+container filesystem had only about 64 KiB in use. Feishu metadata itself was about 104 KiB.
+These figures describe deployment overhead, not replicated conversation history.
+
+One inactive rotated log and six retired runtime directories were streamed to private local
+backups. The log content and every runtime file were verified against checksums before removal.
+Cleanup rechecked active/desired pointers and live executable/mapped paths, retained the preceding
+accepted runtime, and preserved credentials, databases, provider installations and active services.
+Two runtime releases remain; root free space recovered to about 846 MiB. Feishu verification
+passed again with owner pairing, Core and long connection intact, without a process restart.
+
+The deployment workflow still needs free-space budgeting and bounded runtime retention; this
+material follow-up is tracked separately. No cloud disk resize was authorized or performed.
+Post-recovery directory delivery, provider response and card acceptance remain pending.
