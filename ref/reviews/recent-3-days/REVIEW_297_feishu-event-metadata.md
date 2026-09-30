@@ -208,5 +208,10 @@ user/thinking suppression, group/unsubscribed/unrelated-session isolation, large
 bounded pagination and unsubscribe during a read. The full four-worker suite passed 6,705 tests
 with three existing skips and 1,082 passing files. Typecheck, reproducible headless and both runtime
 builds, deployment/package gates and actual archive/privacy/binding audits passed on stable source.
-Source commit `a57af041` is ready for official activation. Automatic conversational session creation
-and its shared prompt remain unfinished under the active plan and pending prompt-scope decision.
+Source commit `a57af041` was activated as release `8c7acfbd` through official Server
+check/dry-run/upgrade/verify, rebuilt artifact identity, Feishu upgrade/verify and Worker verify.
+The accepted arm64 artifact is active, owner pairing survived, and retention again completed with
+exactly the active runtime and its preceding accepted rollback. No Desktop replacement occurred.
+Actual owner command, provider reply and card acceptance are still pending. Automatic conversational
+session creation and its shared prompt remain unfinished under the active plan and pending
+prompt-scope decision.
