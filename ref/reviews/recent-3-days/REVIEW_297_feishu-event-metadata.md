@@ -169,7 +169,12 @@ lines. Its rollback now also covers daemon-reload failure before restart. Forty-
 typecheck and the full four-worker suite passed: 6,696 tests, three existing skips, and 1,081 passing
 files. Linux headless/runtime and deployment gates passed. Both actual archives (37 members and
 26 files each) and eleven Node bundles passed privacy inspection; the SQLite binding was unchanged.
-Official activation and actual cleanup results remain to be recorded before resolving the issue.
+Official activation completed for `4f49aec61e4a77573b5964602cb2d886aecdffd4`: Server
+check/dry-run/upgrade/verify, rebuilt artifact identity, Feishu upgrade/verify and Worker verify
+passed. Actual cleanup removed one obsolete release and retained exactly the new active runtime
+and its accepted predecessor. Active/desired, retention metadata and the live process executable
+agree. Root has about 845 MiB available, and owner pairing remains approved. The storage issue was
+resolved through the current session's MCP. No Desktop installation or cloud resize occurred.
 
 The user also requested conversational operation. Initial inspection found that ordinary text
 requires manual session selection and subscriptions deliver state notices without assistant text.
