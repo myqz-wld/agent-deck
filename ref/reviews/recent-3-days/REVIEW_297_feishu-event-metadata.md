@@ -1,7 +1,7 @@
 ---
 review_id: 297
 reviewed_at: 2026-09-29
-baseline_commit: 3001b359ae287128a4124e8f6608790b508c97e5
+baseline_commit: a57af041a97e6d3bc36519fafd8cd68a23ffc7d5
 expired: false
 ---
 
@@ -26,6 +26,11 @@ scripts/deployment/storage-budget.test.mjs
 src/gateways/im/audit-transport-retirement.test.ts
 src/gateways/im/client-pool.ts
 src/gateways/im/types.ts
+src/gateways/im/gateway-config.ts
+src/gateways/im/notification-delivery.ts
+src/gateways/im/notification-message.ts
+src/gateways/im/notification-message.test.ts
+src/gateways/im/subscription-events.ts
 src/hosts/feishu/client-factory.ts
 src/hosts/feishu/client-factory.test.ts
 src/hosts/server-control/feishu-control-service.ts
@@ -179,3 +184,29 @@ resolved through the current session's MCP. No Desktop installation or cloud res
 The user also requested conversational operation. Initial inspection found that ordinary text
 requires manual session selection and subscriptions deliver state notices without assistant text.
 That feature remains under the active plan; it is not covered as completed by these repairs.
+
+## Authoritative assistant reply delivery
+
+HIGH: Production Core publishes `event.persisted` for stored provider messages and native waiting
+events. The Feishu consumer instead awaited completion-event names that Core does not publish,
+and its notification body contained status text only. Subscribing could therefore never provide
+the expected assistant conversation. Recognize only the bounded persisted event ID and kind, then
+read that exact immutable history entry through the existing granted Core API. Never forward push
+payloads or substitute a newer response when replaying an older notification.
+
+Deliver assistant text through the existing idempotent notification ledger and monotonic cursor.
+Ignore user messages and thinking; native waiting events retrieve current pending cards. Groups
+never read assistant bodies, and private reply transport rechecks subscription after asynchronous
+lookup. Queue and database state remain metadata only; no schema change, new credential, or Worker
+replacement is required. Four-entry pages keep Core's clipped 8-KiB history fields within the
+existing frame budget. The default field guard now accommodates that documented Core response;
+explicit tighter limits remain effective. Requests stay bounded, with an explicit history notice
+when an older event cannot be found within the lookup limit.
+
+Nine targeted reply regressions passed, covering exact-event selection, native pending cards,
+user/thinking suppression, group/unsubscribed/unrelated-session isolation, large valid fields,
+bounded pagination and unsubscribe during a read. The full four-worker suite passed 6,705 tests
+with three existing skips and 1,082 passing files. Typecheck, reproducible headless and both runtime
+builds, deployment/package gates and actual archive/privacy/binding audits passed on stable source.
+Source commit `a57af041` is ready for official activation. Automatic conversational session creation
+and its shared prompt remain unfinished under the active plan and pending prompt-scope decision.
