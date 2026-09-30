@@ -55,7 +55,7 @@ export function createFeishuSshClientFactory(
     ) {
       throw new FeishuGatewayError('access_denied', 'Feishu Core credential is not active');
     }
-    return new SshAgentDeckClient({
+    const client = new SshAgentDeckClient({
       id: hashId(input.instanceId, input.credentialId, input.clientId),
       label: 'Feishu Core',
       topology: input.topology,
@@ -70,5 +70,16 @@ export function createFeishuSshClientFactory(
       ...(ssh.hostKeyAlias === null ? {} : { hostKeyAlias: ssh.hostKeyAlias }),
       sshBinary: '/usr/bin/ssh',
     }, options);
+    return Object.assign(client, {
+      onTerminal(listener: () => void) {
+        let notified = false;
+        return client.onConnectionState((state) => {
+          if (!notified && ['offline', 'incompatible', 'closed'].includes(state.status)) {
+            notified = true;
+            listener();
+          }
+        });
+      },
+    });
   };
 }

@@ -248,9 +248,14 @@ export interface FeishuClientFactoryInput {
   topology: Exclude<DeploymentTopology, 'standalone'>;
 }
 
+export interface FeishuAgentDeckClient extends AgentDeckClient<CoreMethodMap> {
+  /** Observe permanent transport termination; transient reconnects stay transport-owned. */
+  onTerminal?(listener: () => void): AgentDeckSubscription;
+}
+
 export type FeishuAgentDeckClientFactory = (
   input: FeishuClientFactoryInput,
-) => AgentDeckClient<CoreMethodMap>;
+) => FeishuAgentDeckClient;
 
 export interface FeishuCardButton {
   label: string;

@@ -51,7 +51,8 @@ function pointer(path: string): { readonly file: TrustedTextFile; readonly diges
   return { file, digest: match[1] };
 }
 
-function verifyRelease(paths: FeishuProvisioningPaths, digest: string): void {
+export function verifyFeishuRuntimeRelease(paths: FeishuProvisioningPaths, digest: string): void {
+  if (!/^[a-f0-9]{64}$/u.test(digest)) throw new Error('Invalid Feishu runtime digest');
   const owner = currentOwner();
   const root = join(paths.runtimeReleases, digest);
   const rootMetadata = lstatSync(root);
@@ -78,8 +79,8 @@ export function inspectFeishuRuntimeRelease(
   verifyDirectory(paths.runtimeReleases, 0o755);
   const active = pointer(paths.runtimeActive);
   const desired = pointer(paths.runtimeDesired);
-  verifyRelease(paths, active.digest);
-  verifyRelease(paths, desired.digest);
+  verifyFeishuRuntimeRelease(paths, active.digest);
+  verifyFeishuRuntimeRelease(paths, desired.digest);
   return Object.freeze({
     activeDigest: active.digest,
     desiredDigest: desired.digest,

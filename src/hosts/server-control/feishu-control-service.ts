@@ -34,7 +34,9 @@ import type {
   FeishuConnectRequest, FeishuDisconnectRequest, FeishuRotateCredentialRequest,
 } from './feishu-request';
 import { applyFeishuCredentialRotation, settleFeishuCredentialTransition } from './feishu-rotation';
-import { activateDesiredFeishuRuntime, inspectFeishuRuntimeRelease } from './feishu-runtime-release';
+import { inspectFeishuRuntimeRelease } from './feishu-runtime-release';
+import { FEISHU_RUNTIME_RETENTION, type FeishuRuntimeRetentionPort } from './feishu-runtime-retention';
+import { upgradeFeishuRuntime } from './feishu-runtime-upgrade';
 import {
   FEISHU_RUNTIME_VERIFIER,
   type FeishuRuntimeVerifierPort,
@@ -57,6 +59,7 @@ export interface FeishuControlServiceOptions {
   readonly now?: () => number;
   readonly managementClient?: FeishuManagementClientPort;
   readonly runtimeVerifier?: FeishuRuntimeVerifierPort;
+  readonly runtimeRetention?: FeishuRuntimeRetentionPort;
 }
 function actionSecret(): string {
   const bytes = randomBytes(32);
@@ -103,6 +106,7 @@ export class FeishuControlService {
   private readonly now: () => number;
   private readonly management: FeishuManagementClientPort;
   private readonly runtimeVerifier: FeishuRuntimeVerifierPort;
+  private readonly runtimeRetention: FeishuRuntimeRetentionPort;
 
   constructor(
     private readonly config: ServerControlConfig,
@@ -116,6 +120,7 @@ export class FeishuControlService {
       config.feishuIdentityOwner.uid,
     );
     this.runtimeVerifier = options.runtimeVerifier ?? FEISHU_RUNTIME_VERIFIER;
+    this.runtimeRetention = options.runtimeRetention ?? FEISHU_RUNTIME_RETENTION;
   }
 
   async connect(request: FeishuConnectRequest): Promise<JsonValue> {
@@ -284,29 +289,8 @@ export class FeishuControlService {
 
   async upgrade(): Promise<JsonValue> {
     this.verifyFiles();
-    const runtime = activateDesiredFeishuRuntime(inspectFeishuRuntimeRelease(this.paths));
-    this.systemd.daemonReload();
-    try {
-      this.systemd.restart(this.paths.serviceUnit);
-      return {
-        status: runtime.changed ? 'upgraded' : 'restarted-current',
-        runtime: {
-          activeDigest: runtime.activeDigest,
-          previousDigest: runtime.previousDigest,
-        },
-        management: await this.requireHealthyManagement(),
-      };
-    } catch (error) {
-      if (!runtime.changed) throw error;
-      try {
-        runtime.rollback();
-        this.systemd.restart(this.paths.serviceUnit);
-        await this.requireHealthyManagement();
-      } catch (rollbackError) {
-        throw new Error('Feishu runtime rollback was incomplete', { cause: rollbackError });
-      }
-      throw error;
-    }
+    return upgradeFeishuRuntime(this.paths, this.systemd,
+      () => this.requireHealthyManagement(), this.runtimeRetention);
   }
 
   async rotateCredential(request: FeishuRotateCredentialRequest): Promise<JsonValue> {

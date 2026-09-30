@@ -3,6 +3,7 @@ import {
   AgentDeckClientErrorCode,
   CORE_METHOD_METADATA,
   isCoreMethodGranted,
+  type AgentDeckSubscription,
   type CoreMethod,
   type HostHello,
 } from '@contracts/index';
@@ -63,6 +64,7 @@ interface PoolEntry {
   retirement: Promise<void> | null;
   streamBarrier: Promise<void> | null;
   closeBarrier: Promise<void> | null;
+  terminalSubscription: AgentDeckSubscription | null;
 }
 
 export class FeishuClientPool {
@@ -140,6 +142,7 @@ export class FeishuClientPool {
         key, epoch, credential: { ...credential }, chatId, terminal: false, ready: false,
         connection,
         retirement: null, streamBarrier: null, closeBarrier: null,
+        terminalSubscription: null,
       } satisfies PoolEntry;
       this.entries.set(key, entry);
       void this.connect(entry).then((connected) => {
@@ -218,6 +221,14 @@ export class FeishuClientPool {
       if (!this.prepareStream(credential, chatId, entry.epoch)) {
         throw new FeishuGatewayError('subscription_failed', 'Notification lane admission failed', true);
       }
+      entry.terminalSubscription = client.onTerminal?.(() => {
+        if (!this.isCurrent(entry)) return;
+        this.terminalize(entry);
+        if (entry.ready) void this.retireEntry(entry).catch(() => {
+          this.onObserverError('lifecycle_failed', 'core-transport-retire');
+        });
+      }) ?? null;
+      this.assertCurrent(entry);
       let lastObservedRevision = cursorRevision ?? helloRevision;
       try {
         subscription = client.subscribe(lastObservedRevision, (event) => {
@@ -274,6 +285,7 @@ export class FeishuClientPool {
       return connected;
     } catch (error) {
       const results = await Promise.allSettled([
+        Promise.resolve().then(() => this.closeTerminalSubscription(entry)),
         Promise.resolve().then(() => subscription?.close()),
         Promise.resolve().then(() => client.close()),
         entry.streamBarrier ?? Promise.resolve(),
@@ -331,6 +343,7 @@ export class FeishuClientPool {
     if (entry.closeBarrier) return entry.closeBarrier;
     entry.closeBarrier = entry.connection.then(async (connected) => {
       const results = await Promise.allSettled([
+        Promise.resolve().then(() => this.closeTerminalSubscription(entry)),
         Promise.resolve().then(() => connected.subscription?.close()),
         Promise.resolve().then(() => connected.client.close()),
       ]);
@@ -340,6 +353,11 @@ export class FeishuClientPool {
       if (failures.length > 0) throw new FeishuGatewayLifecycleError(failures, 'close');
     }, () => undefined);
     return entry.closeBarrier;
+  }
+
+  private closeTerminalSubscription(entry: PoolEntry): void {
+    entry.terminalSubscription?.close();
+    entry.terminalSubscription = null;
   }
 
   async close(): Promise<void> {

@@ -13,6 +13,7 @@ import {
 } from './artifacts.mjs';
 import { buildAcceptanceEvidence, renderManagedUnit, sha256 } from './evidence.mjs';
 import { runRemoteScript, uploadFile } from './process.mjs';
+import { releaseStorageBudget, verifyRemoteStorageBudget } from './storage-budget.mjs';
 
 const deploymentRoot = dirname(fileURLToPath(import.meta.url));
 export const RELEASE_UPLOAD_TIMEOUT_MS = 1_200_000;
@@ -41,6 +42,7 @@ async function remoteCheck(config) {
   if (result.stdout.trim() !== 'REMOTE_CHECK_OK') {
     throw new Error('远程部署预检返回了未知结果。');
   }
+  await verifyRemoteStorageBudget(config);
 }
 
 function parseImage(stdout) {
@@ -55,6 +57,7 @@ async function installRelease(config, release) {
   const prepared = await buildReleaseArchive(config);
   const remoteArchive = `/tmp/agent-deck-release-${randomUUID()}.tgz`;
   try {
+    await verifyRemoteStorageBudget(config, await releaseStorageBudget(config, prepared.archive));
     await uploadFile(config.ssh, prepared.archive, remoteArchive, {
       timeoutMs: RELEASE_UPLOAD_TIMEOUT_MS,
     });

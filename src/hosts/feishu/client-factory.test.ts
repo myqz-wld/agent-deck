@@ -6,7 +6,7 @@ import {
   makeClientHello,
   makeHostHello,
 } from '@clients/ssh/__tests__/fake-process';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createFeishuSshClientFactory } from './client-factory';
 import { parseFeishuCoreSshConfig } from './config';
@@ -74,6 +74,44 @@ function feishuHello(clientId: string, connectionScope = 'scope-feishu-credentia
 }
 
 describe('Feishu restricted SSH client factory', () => {
+  it('observes terminal SSH failure once while leaving transient reconnects to SSH', async () => {
+    vi.useFakeTimers();
+    const harness = new FakeSpawnHarness();
+    const clientId = 'feishu-terminal-fixture';
+    const client = createFeishuSshClientFactory(GATEWAY, sshConfig(), {
+      spawn: harness.spawn,
+      reconnect: { initialDelayMs: 10, maxDelayMs: 10, maxAttempts: 1 },
+      timing: { pingIntervalMs: 0, pongTimeoutMs: 0 },
+    })({ instanceId: 'tenant-a', credentialId: 'feishu-credential-a', clientId, topology: 'full' });
+    const terminal = vi.fn();
+    const observation = client.onTerminal!(terminal);
+    try {
+      const connecting = client.connect(makeClientHello(clientId));
+      harness.latest.emitMessage({
+        type: 'hello-result', requestId: helloRequestId(harness.latest),
+        hello: feishuHello(clientId),
+      } as unknown as JsonValue);
+      await connecting;
+      expect(terminal).not.toHaveBeenCalled();
+      harness.latest.exit(255);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(harness.calls).toHaveLength(2);
+      expect(terminal).not.toHaveBeenCalled();
+      harness.latest.exit(255);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(terminal).toHaveBeenCalledOnce();
+      const lateTerminal = vi.fn();
+      const lateObservation = client.onTerminal!(lateTerminal);
+      expect(lateTerminal).toHaveBeenCalledOnce();
+      lateObservation.close();
+    } finally {
+      observation.close();
+      await client.close();
+      vi.useRealTimers();
+    }
+    expect(terminal).toHaveBeenCalledOnce();
+  });
+
   it('uses the credential-specific key and accepts only a Feishu-bound host hello', async () => {
     const harness = new FakeSpawnHarness();
     const factory = createFeishuSshClientFactory(GATEWAY, sshConfig(), {
