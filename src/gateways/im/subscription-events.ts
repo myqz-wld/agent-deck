@@ -1,4 +1,4 @@
-import type { AgentDeckEventEnvelope } from '@contracts/index';
+import { isJsonObject, type AgentDeckEventEnvelope } from '@contracts/index';
 import { FeishuGatewayError } from './errors';
 import type { EnrolledFeishuCredential, NotificationEvent } from './types';
 
@@ -41,10 +41,21 @@ export function validateCoreNotificationEvent(
   const entityId = event.entityId === null
     ? null
     : boundedToken(event.entityId, 'event.entityId', 256);
+  let persisted: NotificationEvent['persisted'];
+  if (kind === 'event.persisted' && isJsonObject(event.payload) &&
+    typeof event.payload.kind === 'string' &&
+    ['message', 'waiting-for-user'].includes(event.payload.kind)) {
+    const id = event.payload.eventId;
+    if (!entityId || !Number.isSafeInteger(id) || Number(id) < 1) {
+      throw new FeishuGatewayError('invalid_core_event', 'Persisted message identity is invalid');
+    }
+    persisted = { eventId: Number(id), kind: event.payload.kind as 'message' | 'waiting-for-user' };
+  }
   return {
     instanceId: credential.instanceId,
     revision: event.revision,
     kind,
     entityId,
+    ...(persisted ? { persisted } : {}),
   };
 }

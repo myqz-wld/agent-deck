@@ -446,4 +446,6 @@ export interface ClassifiedGatewayError {
 export type NotificationEvent = Pick<
   AgentDeckEventEnvelope,
   'entityId' | 'instanceId' | 'kind' | 'revision'
->;
+> & {
+  persisted?: { eventId: number; kind: 'message' | 'waiting-for-user' };
+};

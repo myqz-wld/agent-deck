@@ -24,7 +24,7 @@ const DEFAULT_LIMITS: FeishuGatewayLimits = Object.freeze({
   maxCoreResponseBytes: 64_000,
   maxCoreJsonDepth: 8,
   maxCoreJsonEntries: 4_096,
-  maxCoreFieldBytes: 4_096,
+  maxCoreFieldBytes: 8_200,
   maxSubscriptionsPerChat: 16,
   maxNotificationCoreRequests: 8,
   deliveryAttemptLifetimeMs: 30_000,

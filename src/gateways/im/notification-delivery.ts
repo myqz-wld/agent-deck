@@ -10,6 +10,7 @@ import {
 } from './delivery-ledger';
 import { renderPending } from './render';
 import { truncateUtf8 } from './redaction';
+import { readFeishuAssistantMessage } from './notification-message';
 import type {
   EnrolledFeishuCredential,
   FeishuGatewayClock,
@@ -59,6 +60,7 @@ function advanceCursor(
 
 function relevant(event: NotificationEvent): boolean {
   return (
+    event.persisted !== undefined ||
     event.kind.startsWith('pending.') ||
     ['session.completed', 'session.failed', 'session.waiting-for-input'].includes(event.kind)
   );
@@ -109,13 +111,16 @@ export async function deliverCoreNotification(
   }
   if (cursor && event.revision <= cursor.revision) return;
   if (!relevant(event)) return advanceCursor(options, credential, chatId, event.revision);
+  if (context.chatType === 'group' && event.persisted?.kind === 'message') {
+    return advanceCursor(options, credential, chatId, event.revision);
+  }
 
   const subscriptions = options.store
     .listSubscriptions(credential.instanceId, credential.credentialId, chatId)
     .filter(
       (subscription) =>
         subscription.status === 'active' &&
-        (!event.kind.startsWith('session.') ||
+        ((!event.kind.startsWith('session.') && !event.persisted) ||
           event.entityId === null ||
           subscription.sessionId === event.entityId),
     );
@@ -182,8 +187,12 @@ export async function deliverCoreNotification(
   try {
     await options.withinWindow(callback, async () => {
       const connected = await options.pool.getForGeneration(credential, chatId, options.epoch);
+      const assistantMessage = event.persisted?.kind === 'message'
+        ? await readFeishuAssistantMessage(connected, event, options.limits, () => callback.remainingMs())
+        : undefined;
+      if (assistantMessage === null) return;
       const cards = [] as NonNullable<SessionConsoleView['cards']>[number][];
-      for (const subscription of subscriptions) {
+      for (const subscription of assistantMessage === undefined ? subscriptions : []) {
         assertFeishuMethod(connected.hello, 'pending.list');
         const raw = await connected.client.request(
           'pending.list',
@@ -224,9 +233,9 @@ export async function deliverCoreNotification(
           chatId,
           kind: 'notification',
           text: truncateUtf8(
-            event.kind.startsWith('pending.')
+            assistantMessage ?? (event.kind.startsWith('pending.') || event.persisted?.kind === 'waiting-for-user'
               ? `Session 有新的 pending 状态（revision ${event.revision}）。`
-              : `Session 状态已更新：${event.kind}`,
+              : `Session 状态已更新：${event.kind}`),
             options.limits.maxOutputBytes,
           ),
           cards: cards.slice(0, options.limits.maxPendingCards),
@@ -240,7 +249,15 @@ export async function deliverCoreNotification(
           () => options.clock.now(),
           options.transportSafety,
           options.transportIdempotencyWindowMs,
-          () => options.beforeDeliver(credential, chatId),
+          async () => {
+            await options.beforeDeliver(credential, chatId);
+            if (assistantMessage !== undefined && (
+              options.store.getContext(credential.instanceId, credential.credentialId, chatId)?.chatType !== 'p2p' ||
+              options.store.getSubscription(
+                credential.instanceId, credential.credentialId, chatId, event.entityId!,
+              )?.status !== 'active'
+            )) throw new FeishuGatewayError('access_denied', 'Reply subscription is no longer active');
+          },
         ),
       );
     });

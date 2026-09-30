@@ -107,6 +107,13 @@ cards, action values, history, diffs, blobs, secrets, paths, or Core frames.
 
 ## Delivery and group-chat behavior
 
+In a paired p2p chat, select a session and send `/subscribe` to receive assistant replies and
+pending cards. Core's `event.persisted` notification carries only an event identity; the gateway
+reads that exact history entry before sending text. User messages and thinking are not echoed,
+and group chats never fetch assistant bodies. Older entries outside the bounded history lookup
+produce an explicit `/history` notice. Ordinary text uses the selected session's existing tools
+and permissions.
+
 Feishu's provider UUID guarantee for message create/reply is exactly one hour. The adapter records
 that deadline at the first possibly accepted invocation and never extends it after another ambiguous
 try. A crash replay may reuse the UUID only before the recorded deadline. At or after the deadline,
