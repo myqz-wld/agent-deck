@@ -113,8 +113,17 @@ In a paired p2p chat, `/settings` manages separate last selections for bot conve
 work sessions. The same configuration is available in the connected Core's Desktop settings.
 `/models [adapter-id] [provider]` lists live choices. Save a choice with
 `/settings chat <adapter-id>` or `/settings session <adapter-id>`, optionally followed by a JSON
-object containing `model`, `provider`, and/or `thinking` strings. Empty option values follow native
-settings. No initial adapter is silently selected, and unavailable saved choices never fall back.
+object containing `model`, `provider`, `thinking`, and adapter-native mode/sandbox fields:
+Claude uses `permissionMode` / `claudeCodeSandbox`, Codex uses `approvalPolicy` / `codexSandbox`,
+and Grok uses `sessionMode` / `grokSandbox`. A same-adapter save patches only the specified fields;
+switching adapters clears incompatible choices. Null mode/sandbox fields follow live creation defaults.
+The Core Workspace ceiling remains enforced. No initial adapter is silently selected, and unavailable
+saved choices never fall back. `/models` includes the currently supported native options.
+
+Saved defaults affect new conversations and work sessions. To change a running target, use
+`/chat runtime` then `/chat runtime-set <revision> <JSON-patch>` for the assistant, or `/runtime`
+then `/runtime-set <revision> <JSON-patch>` for the selected work session. These explicit runtime
+edits keep future defaults unchanged.
 
 Ordinary p2p text always goes to the assistant, whose history has a separate persistent binding.
 `/new [task]` creates a work session using the saved work selection; `/select <id>` changes the
@@ -134,7 +143,10 @@ sessions retain their native controls. `/unsubscribe` applies to the selected wo
 preferences through Core's read-only MCP tool before using the exposed session tools.
 
 Ordinary assistant replies are unlabelled text. Work replies use cards identifying the session;
-commands and interactive approvals identify their target. P2p command results are standalone;
+commands and interactive approvals identify their target. Approval cards show the operation and
+parameters with one-time approval or denial. The terminal card is returned in the Feishu callback,
+never patched before acknowledgement; already-decided requests cannot execute again. Approval
+notifications query only their owning session, so missing unrelated subscriptions cannot block replies. P2p command results are standalone;
 group results quote the request. Groups cannot read/change private preferences or use saved choices.
 
 Gateway metadata schema v5 stores independent assistant identity/generation and subscription
@@ -142,7 +154,7 @@ purpose. A verified v4 migration preserves pairing, work selection and delivery 
 remain in authoritative Core history. Remote creation commits only canonical provider session IDs.
 
 Core owns a bounded, owner-only, atomically replaced configuration file. Desktop/Feishu saves use
-an independent settings revision to detect concurrent edits. Protocol 2.10 requires matching Desktop,
+an independent settings revision to detect concurrent edits. Protocol 2.11 requires matching Desktop,
 Worker, Server and Feishu artifacts during activation; no credential re-enrollment is required.
 
 Assistant reply delivery preserves the existing metadata-only notification path. Core's `event.persisted` notification carries only an event identity; the gateway

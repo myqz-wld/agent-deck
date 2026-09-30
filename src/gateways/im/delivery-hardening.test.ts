@@ -189,7 +189,7 @@ describe('notification replay churn', () => {
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
     })).toBe(true);
     await flush();
     await flush();

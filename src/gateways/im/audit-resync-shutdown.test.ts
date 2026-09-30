@@ -33,7 +33,7 @@ describe('notification resync fencing', () => {
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();
@@ -41,21 +41,21 @@ describe('notification resync fencing', () => {
       instanceId: credential.instanceId,
       revision: 12,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     clientA.emit({
       instanceId: credential.instanceId,
       revision: 13,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     clientB.emit({
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();
@@ -72,7 +72,7 @@ describe('notification resync fencing', () => {
       instanceId: credential.instanceId,
       revision: 14,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();
@@ -99,14 +99,14 @@ describe('notification resync fencing', () => {
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.\u0000created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     oldClient.emit({
       instanceId: credential.instanceId,
       revision: 12,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();
@@ -124,7 +124,7 @@ describe('notification resync fencing', () => {
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();
@@ -149,14 +149,14 @@ describe('notification resync fencing', () => {
       instanceId: 'wrong-instance',
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     clientB.emit({
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();

@@ -25,6 +25,38 @@ function api() {
 afterEach(() => { cleanup(); vi.useRealTimers(); Reflect.deleteProperty(window, 'api'); });
 
 describe('shared Feishu model settings', () => {
+  it('saves the selected purpose’s native mode and sandbox while retaining model choices', async () => {
+    const backend = api(); render(<FeishuPreferencesSection source={source} />);
+    fireEvent.click(await screen.findByLabelText('机器人聊天 审批策略'));
+    fireEvent.click(screen.getByRole('option', { name: '按需询问' }));
+    fireEvent.click(screen.getByLabelText('机器人聊天 沙盒'));
+    fireEvent.click(screen.getByRole('option', { name: 'Workspace 只读 · read-only' }));
+    expect(screen.queryByLabelText('机器人聊天 权限模式')).toBeNull();
+    expect(screen.getByLabelText('新建会话 权限模式')).toBeTruthy();
+    expect(screen.queryByLabelText('新建会话 审批策略')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '保存机器人聊天选择' }));
+    await waitFor(() => expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1));
+    expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'conversation',
+      preference: { adapterId: 'codex-cli', model: 'chat-model', provider: '', thinking: '',
+        approvalPolicy: 'on-request', codexSandbox: 'read-only' } }));
+  });
+
+  it('offers only live supported policies and keeps unavailable saved values visible without allowing a save', async () => {
+    const backend = api();
+    backend.getRemoteHostFeishuPreferences.mockResolvedValue({ ...settings(), conversation: {
+      ...settings().conversation, approvalPolicy: 'on-request' } });
+    backend.getRemoteHostSessionCapabilities.mockImplementation(({ adapterId }) => {
+      const value = sessionConsoleCapabilitiesFixture(adapterId ?? 'codex-cli');
+      if (adapterId === 'codex-cli') value.create.options.approvalPolicy = { ...value.create.options.approvalPolicy,
+        defaultValue: 'never', allowedValues: ['never'] };
+      return Promise.resolve(value);
+    });
+    render(<FeishuPreferencesSection source={source} />);
+    fireEvent.click(await screen.findByLabelText('机器人聊天 审批策略'));
+    expect(screen.queryByRole('option', { name: '按需询问' })).toBeNull();
+    expect((screen.getByRole('option', { name: 'on-request（暂不可用）' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '保存机器人聊天选择' }) as HTMLButtonElement).disabled).toBe(true);
+  });
   it('edits the two last choices separately through the selected Core and exact authority', async () => {
     const backend = api(); render(<FeishuPreferencesSection source={source} />);
     const chat = await screen.findByLabelText('机器人聊天 模型');

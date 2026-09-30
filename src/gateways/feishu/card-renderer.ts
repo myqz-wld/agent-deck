@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { FeishuGatewayError, boundedJsonText, truncateUtf8 } from '@gateways/im';
+import { FeishuGatewayError, truncateUtf8 } from '@gateways/im';
 import type { FeishuOutboundMessage, FeishuPendingAction, FeishuPendingCard } from '@gateways/im';
 import { parseRemoteHostAskQuestionDisplay } from '@shared/remote-host';
 import {
@@ -8,6 +8,7 @@ import {
   type FeishuQuestionFieldBinding,
 } from './action-envelope';
 import type { FeishuPresentationActionSigner } from './nonce';
+import { pendingCardContent, safeCardMarkdown } from './pending-card-content';
 
 const UTF8 = new TextEncoder();
 const MAX_FEISHU_CARD_BYTES = 29_000;
@@ -15,15 +16,6 @@ const MAX_FEISHU_CARD_BYTES = 29_000;
 function elementId(prefix: string, ...values: Array<string | number>): string {
   const digest = createHash('sha256').update(values.join('\u001f')).digest('hex').slice(0, 14);
   return `${prefix}_${digest}`;
-}
-
-function safeMarkdown(value: string): string {
-  return value
-    .replaceAll('<', '‹')
-    .replaceAll('>', '›')
-    .replaceAll('[', '［')
-    .replaceAll(']', '］')
-    .replaceAll('`', 'ˋ');
 }
 
 function presentationExpiry(card: FeishuPendingCard): number | null {
@@ -139,21 +131,22 @@ function cardElements(
   signer: FeishuPresentationActionSigner,
 ): Record<string, unknown>[] {
   const elements: Record<string, unknown>[] = [
-    { tag: 'markdown', content: safeMarkdown(message.text) },
+    { tag: 'markdown', content: safeCardMarkdown(message.text) },
   ];
   for (const [cardIndex, card] of message.cards.entries()) {
-    const detail = boundedJsonText(card.display, 4_096);
+    const detail = pendingCardContent(card);
     elements.push({
       tag: 'markdown',
-      content: safeMarkdown(`**${card.title}** · ${card.state}\n${detail}`),
+      content: detail.content,
     });
+    const buttons: Record<string, unknown>[] = [];
     for (const [buttonIndex, item] of card.buttons.entries()) {
-      elements.push(
-        item.action.action === 'submit'
-          ? form(card, cardIndex, buttonIndex, signer)
-          : button(card, cardIndex, buttonIndex, signer),
-      );
+      if (card.state !== 'pending' || (item.action.action === 'approve' && !detail.canApprove)) continue;
+      if (item.action.action === 'submit') elements.push(form(card, cardIndex, buttonIndex, signer));
+      else buttons.push(button(card, cardIndex, buttonIndex, signer));
     }
+    if (buttons.length) elements.push({ tag: 'column_set', flex_mode: 'none', horizontal_spacing: '8px',
+      columns: buttons.map(button => ({ tag: 'column', width: 'auto', elements: [button] })) });
   }
   return elements;
 }

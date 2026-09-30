@@ -36,12 +36,14 @@ export class FeishuSdkEventAdapter implements FeishuSdkEventHandlers {
   }
 
   async onCardAction(raw: unknown): Promise<unknown> {
-    const result = await this.mapAndHandle(() => mapFeishuCardActionEvent(raw, this.mapper));
+    let card: Record<string, unknown> | undefined;
+    const result = await this.mapAndHandle(() => mapFeishuCardActionEvent(raw, this.mapper), value => { card = value; });
     return {
       toast: {
         type: ['accepted', 'deduplicated'].includes(result.code) ? 'success' : 'warning',
         content: truncateUtf8(result.toast, 256),
       },
+      ...(card ? { card: { type: 'raw', data: card } } : {}),
     };
   }
 
@@ -62,7 +64,8 @@ export class FeishuSdkEventAdapter implements FeishuSdkEventHandlers {
     return this.reject('unknown_command');
   }
 
-  private async mapAndHandle(map: () => MappedFeishuEvent): Promise<FeishuCallbackResult> {
+  private async mapAndHandle(map: () => MappedFeishuEvent,
+    onCard?: (card: Record<string, unknown>) => void): Promise<FeishuCallbackResult> {
     let mapped: MappedFeishuEvent;
     try {
       mapped = map();
@@ -85,7 +88,10 @@ export class FeishuSdkEventAdapter implements FeishuSdkEventHandlers {
           const paired = await this.pairing?.handle(mapped.event);
           if (paired) return paired;
         }
-        return this.gateway.handle(mapped.event);
+        const result = await this.gateway.handle(mapped.event);
+        const card = this.sources.getCallbackCard(mapped.event.eventId);
+        if (card && ['accepted', 'deduplicated', 'already_decided'].includes(result.code)) onCard?.(card);
+        return result;
       });
     } catch (error) {
       const classified = classifyGatewayError(error);

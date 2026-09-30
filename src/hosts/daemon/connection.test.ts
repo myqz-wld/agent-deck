@@ -31,11 +31,11 @@ describe('daemon framed connection', () => {
     await host.start();
     const current = new TestDuplex();
     host.accept({ stream: current, createAccessContext: sshAccess });
-    current.feed(hello('desktop-v2-10', 'full', { major: 2, minor: 10 }));
+    current.feed(hello('desktop-v2-11', 'full', { major: 2, minor: 11 }));
     await waitFor(() => Boolean(findMessage(current, 'hello-result')), 'current hello-result');
     expect(findMessage(current, 'hello-result')).toMatchObject({
       hello: {
-        protocolVersion: { major: 2, minor: 10 },
+        protocolVersion: { major: 2, minor: 11 },
         capabilities: [
           'session-console.read', 'usage', 'node.configuration', 'node.assets', 'node.assets.bound',
           'sessions.context.read', 'sessions.input.read', 'sessions.handoff',

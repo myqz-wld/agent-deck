@@ -48,6 +48,21 @@ function harness() {
 }
 
 describe('Core-owned Feishu selections', () => {
+  it('persists native controls but rejects a sandbox choice outside current Core capabilities', async () => {
+    const t = harness();
+    const selected = { ...choice, approvalPolicy: 'on-request', codexSandbox: 'read-only' };
+    await t.runtime.execute(t.request({ purpose: 'conversation', preference: selected, expectedSettingsRevision: 0 }));
+    expect(t.store.read().conversation).toEqual(selected);
+    const caps = sessionConsoleCapabilitiesFixture();
+    caps.create.options.codexSandbox = { ...caps.create.options.codexSandbox,
+      defaultValue: 'read-only', allowedValues: ['read-only'] };
+    t.capabilities.describe.mockResolvedValue(caps);
+    await expect(t.runtime.execute(t.request({ purpose: 'session', preference: {
+      ...choice, codexSandbox: 'danger-full-access' }, expectedSettingsRevision: 1 }, 'sandbox-unavailable')))
+      .rejects.toMatchObject({ code: 'invalid_request' });
+    expect(t.store.write).toHaveBeenCalledTimes(1);
+    expect(t.store.read().session).toEqual(defaultFeishuModelPreference());
+  });
   it('keeps the two last choices separate and replays a committed mutation without writing again', async () => {
     const t = harness();
     const request = t.request({ purpose: 'conversation', preference: choice, expectedSettingsRevision: 0 });

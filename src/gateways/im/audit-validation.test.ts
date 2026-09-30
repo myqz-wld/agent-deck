@@ -78,7 +78,7 @@ describe('whole outbound message bounds', () => {
       instanceId: credential.instanceId,
       revision: 20,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: { mustNotBeDelivered: 'business body' },
     });
     await flush();

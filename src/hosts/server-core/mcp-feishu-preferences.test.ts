@@ -11,13 +11,15 @@ describe('live Feishu preferences in conversational MCP', () => {
     const { host } = createMcpServerHarness();
     let model = 'first-model';
     const server = await createServerCoreMcpServer({ ...host, feishuPreferences: { read: () => ({
-      conversation: defaultFeishuModelPreference(), session: { ...defaultFeishuModelPreference(), adapterId: 'codex-cli', model }, settingsRevision: 1,
+      conversation: { ...defaultFeishuModelPreference(), adapterId: 'claude-code', permissionMode: 'plan', claudeCodeSandbox: 'strict' },
+      session: { ...defaultFeishuModelPreference(), adapterId: 'codex-cli', model, approvalPolicy: 'on-request', codexSandbox: 'read-only' }, settingsRevision: 1,
     }) } }, () => 'caller-a', 'codex-cli', { McpServer });
     await withClient(server, async (client) => {
       const tools = await client.listTools();
       expect(tools.tools.filter(tool => tool.name.includes('feishu')).map(tool => tool.name)).toEqual(['get_feishu_preferences']);
       expect(structuredPayload(await client.callTool({ name: 'get_feishu_preferences', arguments: {} })))
-        .toMatchObject({ session: { model: 'first-model' }, conversation: { adapterId: null } });
+        .toMatchObject({ session: { model: 'first-model', approvalPolicy: 'on-request', codexSandbox: 'read-only' },
+          conversation: { adapterId: 'claude-code', permissionMode: 'plan', claudeCodeSandbox: 'strict' } });
       model = 'second-model';
       expect(structuredPayload(await client.callTool({ name: 'get_feishu_preferences', arguments: {} })))
         .toMatchObject({ session: { model: 'second-model' } });

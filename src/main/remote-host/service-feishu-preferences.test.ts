@@ -8,10 +8,12 @@ describe('Feishu settings IPC scope', () => {
   const request = { profileId: 'remote-a', purpose: 'session' as const,
     preference: { ...defaultFeishuModelPreference(), adapterId: 'codex-cli' as const }, expectedSettingsRevision: 4,
     expectedAuthority: { authoritativeCoreId: 'core-a', workerGeneration: 1 }, intentId: 'choice-1' };
-  it('rejects extra fields, native runtime controls and incomplete authority before transport', () => {
+  it('accepts adapter-owned controls and rejects foreign fields or incomplete authority before transport', () => {
     expect(parseRemoteHostFeishuPreferencesUpdate(request)).toEqual(request);
+    const configured = { ...request, preference: { ...request.preference, approvalPolicy: 'on-request', codexSandbox: 'read-only' } };
+    expect(parseRemoteHostFeishuPreferencesUpdate(configured)).toEqual(configured);
     for (const input of [{ ...request, unexpected: true }, { ...request, expectedAuthority: {} },
-      { ...request, preference: { ...request.preference, approvalPolicy: 'never' } }]) {
+      { ...request, preference: { ...request.preference, permissionMode: 'default' } }]) {
       expect(() => parseRemoteHostFeishuPreferencesUpdate(input)).toThrow();
     }
   });

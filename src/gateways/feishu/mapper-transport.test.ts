@@ -322,12 +322,13 @@ describe('official API transport and modern cards', () => {
     await sources.within({
       eventId: 'evt_card_1', chatId: 'oc_chat_1', messageId: 'om_card_1',
       kind: 'card-action', occurredAt: NOW,
-    }, () => transport.deliver(outbound({
-      eventId: 'evt_card_1', kind: 'card-update', text: 'Updated',
-    }), attempt()));
+    }, async () => {
+      await transport.deliver(outbound({ eventId: 'evt_card_1', kind: 'card-update', text: 'Updated' }), attempt());
+      expect(sources.getCallbackCard('evt_card_1')).toMatchObject({ schema: '2.0' });
+    });
+    expect(sources.getCallbackCard('evt_card_1')).toBeUndefined();
     expect(calls).toMatchObject([
       { operation: 'create', input: { chatId: 'oc_chat_2' } },
-      { operation: 'patch', input: { messageId: 'om_card_1' } },
     ]);
     await expect(sources.within({
       eventId: 'evt_message_1', chatId: 'oc_other', messageId: 'om_message_1',
@@ -347,7 +348,7 @@ describe('official API transport and modern cards', () => {
     }), signer());
     const card = JSON.parse(content);
     expect(card).toMatchObject({ schema: '2.0', config: { update_multi: true } });
-    const button = card.body.elements.find((element: { tag: string }) => element.tag === 'button');
+    const button = card.body.elements.find((element: { tag: string }) => element.tag === 'column_set').columns[0].elements[0];
     expect(button.behaviors[0]).toMatchObject({
       type: 'callback',
       value: {
@@ -376,7 +377,7 @@ describe('official API transport and modern cards', () => {
       }],
     }), signer());
     const card = JSON.parse(content);
-    const button = card.body.elements.find((element: { tag: string }) => element.tag === 'button');
+    const button = card.body.elements.find((element: { tag: string }) => element.tag === 'column_set').columns[0].elements[0];
     expect(button.behaviors[0].value.expiresAt).toBe(NOW + 30 * 60_000);
   });
 

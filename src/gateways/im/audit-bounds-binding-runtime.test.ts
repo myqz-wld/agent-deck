@@ -248,7 +248,7 @@ describe('revocation, subscription fanout, and runtime value domains', () => {
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();
@@ -340,7 +340,7 @@ describe('revocation, subscription fanout, and runtime value domains', () => {
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: null,
       payload: {},
     });
     await flush();

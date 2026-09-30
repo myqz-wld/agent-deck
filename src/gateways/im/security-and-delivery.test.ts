@@ -215,14 +215,14 @@ describe('subscription fanout and isolation', () => {
       instanceId: credential.instanceId,
       revision: 20,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: { mustNotBeQueued: 'business-body' },
     });
     clientB.emit({
       instanceId: credential.instanceId,
       revision: 20,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: { mustNotBeQueued: 'other-body' },
     });
     await flush();
@@ -274,7 +274,7 @@ describe('subscription fanout and isolation', () => {
       instanceId: credential.instanceId,
       revision: 31,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();

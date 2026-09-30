@@ -1,4 +1,4 @@
-import { defaultFeishuModelPreference, parseFeishuModelPreference, SESSION_CONSOLE_CREATE_OPTION_KEYS,
+import { defaultFeishuModelPreference, mergeFeishuModelPreference, FEISHU_PREFERENCE_OPTION_KEYS, SESSION_CONSOLE_CREATE_OPTION_KEYS,
   type SessionConsoleCreateOptions } from '@contracts/index';
 import type { FeishuCommandExecutorOptions } from './command-executor';
 import type { FeishuCommand } from './commands';
@@ -31,9 +31,8 @@ export async function createFeishuSession(options: FeishuCommandExecutorOptions,
     ? { conversation: defaultFeishuModelPreference(), session: defaultFeishuModelPreference(), settingsRevision: 0, revision: 0 }
     : await readPreferences(connected, remaining);
   const previous = current[purpose];
-  const preference = parseFeishuModelPreference({
-    ...(command.adapterId && command.adapterId !== previous.adapterId ? defaultFeishuModelPreference() : previous),
-    ...command.selection, adapterId: command.adapterId ?? previous.adapterId,
+  const preference = mergeFeishuModelPreference(previous, {
+    ...command.selection, adapterId: command.adapterId as typeof previous.adapterId ?? previous.adapterId,
   });
   if (!preference.adapterId) throw new FeishuGatewayError('model_selection_required', 'Choose a model first');
   const capabilities = await readModelCapabilities(connected, remaining, options.limits,
@@ -44,7 +43,7 @@ export async function createFeishuSession(options: FeishuCommandExecutorOptions,
   const createOptions = Object.fromEntries(SESSION_CONSOLE_CREATE_OPTION_KEYS.map((key) => [
     key, capabilities.create.options[key].defaultValue,
   ])) as unknown as SessionConsoleCreateOptions;
-  for (const key of ['provider', 'model', 'thinking'] as const) {
+  for (const key of FEISHU_PREFERENCE_OPTION_KEYS) {
     const value = preference[key];
     if (!value) continue;
     const descriptor = capabilities.create.options[key];

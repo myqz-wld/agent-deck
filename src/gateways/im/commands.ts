@@ -61,7 +61,7 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
   if (input === '/chat list' || input.startsWith('/chat list ')) return {
     ...parseFeishuCommand('/sessions' + input.slice('/chat list'.length), maximumTextBytes), target: 'assistant',
   };
-  const chatControl = input.match(/^\/chat (history|pending|runtime|subscribe|unsubscribe|select)(?: (.*))?$/);
+  const chatControl = input.match(/^\/chat (history|pending|runtime|runtime-set|subscribe|unsubscribe|select)(?: ([\s\S]*))?$/);
   if (chatControl) return { ...parseFeishuCommand('/' + chatControl[1] +
     (chatControl[2] ? ' ' + chatControl[2] : ''), maximumTextBytes), target: 'assistant' };
   if (input === '/help') return { kind: 'help' };
@@ -157,7 +157,7 @@ export function parseFeishuCommand(text: string, maximumTextBytes = 16_384): Fei
 
 export const FEISHU_HELP_TEXT = [
   '直接发送消息即可聊天或安排任务。首次使用先发送 /settings 选择助手。',
-  '/settings — 查看或修改机器人聊天、新建会话的上次选择',
+  '/settings — 分别保存机器人聊天和新建工作会话的模型、审批配置',
   '/models [adapter-id] [provider] — 查看可用助手与模型选项',
   '普通文字 → 机器人助手，独立保留聊天上下文',
   '/new [需求] — 沿用工作会话配置新建会话',
@@ -171,8 +171,10 @@ export const FEISHU_HELP_TEXT = [
   '/create <adapter-id> <目录> [--model <模型>] [--provider <网关>] [--thinking <程度>] -- <需求> — 覆盖并记住选择',
   '/history [cursor] — 查看所选工作会话历史',
   '/send <内容> — 发送给所选工作会话',
-  '/runtime — 查看 adapter runtime controls',
-  '/runtime-set <revision> <JSON-patch> — 更新 runtime controls',
+  '/chat runtime — 查看当前聊天助手的设置',
+  '/chat runtime-set <revision> <JSON-patch> — 修改当前聊天助手的设置',
+  '/runtime — 查看所选工作会话的设置',
+  '/runtime-set <revision> <JSON-patch> — 修改所选工作会话的设置',
   '/pending — 查看仍在 pending 的请求',
   '/delete — 预览并生成当前 session 的删除确认',
   '/delete-confirm <confirmation-token> — 确认删除当前 session',

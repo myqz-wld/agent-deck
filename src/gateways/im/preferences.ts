@@ -1,4 +1,4 @@
-import { parseFeishuPreferencesResult, type FeishuPreferencesResult, type FeishuModelPreference,
+import { parseFeishuPreferencesResult, feishuRuntimeOptionKeys, type FeishuPreferencesResult, type FeishuModelPreference,
   type FeishuPreferencePurpose, type SessionConsoleCapabilitiesResult } from '@contracts/index';
 import { assertFeishuMethod } from './client-pool';
 import { validateSessionConsoleCapabilitiesResult } from './core-output';
@@ -37,7 +37,8 @@ export async function readModelCapabilities(connected: ConnectedFeishuClient, re
 export function preferenceLabel(value: FeishuModelPreference): string {
   if (!value.adapterId) return '尚未选择';
   return [value.adapterId, value.provider && `网关 ${value.provider}`,
-    value.model || '模型跟随原生设置', value.thinking && `思考 ${value.thinking}`].filter(Boolean).join(' · ');
+    value.model || '模型跟随原生设置', value.thinking && `思考 ${value.thinking}`,
+    ...feishuRuntimeOptionKeys(value.adapterId).map(key => `${key.includes('Sandbox') ? '沙盒' : '模式'} ${value[key] ?? '跟随新建默认值'}`)].filter(Boolean).join(' · ');
 }
 
 export function renderPreferences(value: FeishuPreferencesResult): SessionConsoleView {
@@ -46,7 +47,10 @@ export function renderPreferences(value: FeishuPreferencesResult): SessionConsol
     '', '分别记住上次选择，与 Agent Deck 远端设置同步。已开始的会话保持原配置。',
     '', '发送 /models 查看可用选项。',
     '设置聊天：/settings chat <adapter-id>', '设置新会话：/settings session <adapter-id>',
-    '可追加模型选项，例如：{"model":"模型名","thinking":"high"}',
+    '同一 adapter 只更新指定项，其他选择会保留。',
+    '可追加模型、模式和沙盒选项，例如：{"approvalPolicy":"on-request","codexSandbox":"workspace-write"}',
+    '模式或沙盒设为 null 可恢复跟随新建默认值。发送 /models <adapter-id> 查看该助手支持的选项。',
+    '修改当前助手用 /chat runtime；修改所选工作会话用 /runtime。',
     '普通文字发给助手；/new 新建工作会话；/send <内容> 发给所选工作会话。',
     '发送 /chat new 使用聊天配置重开助手聊天，保留旧记录。',
   ].join('\n') };
@@ -60,6 +64,11 @@ export function renderModels(value: SessionConsoleCapabilitiesResult, limit: num
     if (!option.enabled) continue;
     lines.push(`${{ provider: '模型网关', model: '模型', thinking: '思考程度' }[key]}：${option.allowedValues?.join('、') || '使用原生设置'}${option.allowCustom ? '；支持自定义值' : ''}`);
   }
+  for (const key of feishuRuntimeOptionKeys(value.selectedAdapterId as FeishuModelPreference['adapterId'])) {
+    const option = value.create.options[key];
+    if (option.enabled) lines.push(`${key}：${option.allowedValues?.join('、') || '使用原生设置'}；当前默认 ${option.defaultValue}`);
+  }
+  lines.push('远端沙盒始终受 Core Workspace 边界约束。');
   lines.push('', '查看其他选项：/models <adapter-id> [provider]',
     '保存选择：/settings <chat|session> <adapter-id> [JSON]',
     '后续沿用上次选择，也可在 Agent Deck 远端设置中管理。');

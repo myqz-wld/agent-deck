@@ -4,6 +4,7 @@ import type { FeishuProviderSource } from './types';
 interface SourceEntry {
   source: FeishuProviderSource;
   references: number;
+  callbackCard?: Record<string, unknown>;
 }
 
 const DEFAULT_MAXIMUM_ACTIVE_EVENTS = 256;
@@ -71,6 +72,19 @@ export class FeishuSourceRegistry {
   get(eventId: string): FeishuProviderSource | null {
     const entry = this.entries.get(eventId);
     return entry ? { ...entry.source } : null;
+  }
+
+  /** Callback response only: never PATCH the message before Feishu has received its click response. */
+  setCallbackCard(eventId: string, card: Record<string, unknown>): void {
+    const entry = this.entries.get(eventId);
+    if (!entry || entry.source.kind !== 'card-action') {
+      throw new FeishuGatewayError('invalid_event', 'Card response has no active callback source');
+    }
+    entry.callbackCard = card;
+  }
+
+  getCallbackCard(eventId: string): Record<string, unknown> | undefined {
+    return this.entries.get(eventId)?.callbackCard;
   }
 
   size(): number {

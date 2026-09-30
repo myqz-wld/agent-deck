@@ -1,4 +1,5 @@
 import { createFeishuSession } from './session-create';
+import { mergeFeishuModelPreference } from '@contracts/index';
 import { registerFeishuAssistants } from './assistant-registration';
 import { readModelCapabilities, readPreferences, renderModels, renderPreferences, savePreference } from './preferences';
 import { FEISHU_HELP_TEXT, type FeishuCommand } from './commands';
@@ -205,7 +206,7 @@ export class FeishuCommandExecutor {
       if (command.kind === 'preferences-get') return renderPreferences(current);
       await this.options.beforeMutation(credential, event.chatId);
       return renderPreferences(await savePreference(connected, remaining, current,
-        command.purpose, command.preference, event.eventId));
+        command.purpose, mergeFeishuModelPreference(current[command.purpose], command.preference), event.eventId));
     }
     if (command.kind === 'session-delete-prepare') {
       return this.deleteController.prepare(event, credential, context, connected, remaining);
@@ -293,6 +294,7 @@ export class FeishuCommandExecutor {
         validateRuntimeControls(result, this.options.limits),
         this.options.limits.maxOutputBytes,
         event.chatType,
+        command.target === 'assistant' ? 'assistant' : 'session',
       );
     }
     if (command.kind === 'runtime-update') {
@@ -329,12 +331,13 @@ export class FeishuCommandExecutor {
           'Runtime response adapter does not match the selected session',
         );
       }
-      const replacement = result.replacementSessionId
+      const replacement = result.replacementSessionId && event.chatType === 'p2p'
         ? `；replacement session ${result.replacementSessionId}`
         : '';
       return {
-        text: `Runtime controls 已接受：${result.effect}${replacement}`,
+        text: `当前${command.target === 'assistant' ? '聊天助手' : '工作会话'}的设置已更新：${result.effect}${replacement}\n新建默认配置保持不变；发送 /settings 可查看。`,
         revision: controls.revision,
+        replacementSessionId: result.replacementSessionId,
       };
     }
 

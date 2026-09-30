@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
-  AgentDeckClientErrorCode, isCoreMethodGranted, parseFeishuPreferencesResult,
+  AgentDeckClientErrorCode, FEISHU_PREFERENCE_OPTION_KEYS, isCoreMethodGranted, parseFeishuPreferencesResult,
   parseFeishuPreferencesUpdate, type FeishuModelPreference, type FeishuPreferencesResult,
   type CoreMethod, type JsonValue, type SessionConsoleCapabilitiesResult,
 } from '@contracts/index';
@@ -18,12 +18,12 @@ export function validateFeishuPreferenceChoices(
   if (!capability.create.enabled || capability.selectedAdapterId !== preference.adapterId) {
     throw new DaemonRequestError(AgentDeckClientErrorCode.CapabilityUnavailable, 'Selected adapter is unavailable');
   }
-  for (const key of ['provider', 'model', 'thinking'] as const) {
+  for (const key of FEISHU_PREFERENCE_OPTION_KEYS) {
     const value = preference[key];
     if (!value) continue;
     const descriptor = capability.create.options[key];
     if (!descriptor.enabled || (!descriptor.allowCustom && !descriptor.allowedValues?.includes(value))) {
-      throw new DaemonRequestError(AgentDeckClientErrorCode.InvalidRequest, 'Selected model option is unavailable');
+      throw new DaemonRequestError(AgentDeckClientErrorCode.InvalidRequest, 'Selected session option is unavailable');
     }
   }
 }

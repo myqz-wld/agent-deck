@@ -151,7 +151,7 @@ describe('stream generation and replay barriers', () => {
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();
@@ -160,7 +160,7 @@ describe('stream generation and replay barriers', () => {
         instanceId: credential.instanceId,
         revision,
         kind: 'pending.created',
-        entityId: 'pending-1',
+        entityId: 'session-1',
         payload: {},
       });
     }
@@ -183,7 +183,7 @@ describe('stream generation and replay barriers', () => {
       instanceId: credential.instanceId,
       revision: 99,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();
@@ -252,7 +252,7 @@ describe('stream generation and replay barriers', () => {
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();
@@ -261,7 +261,7 @@ describe('stream generation and replay barriers', () => {
         instanceId: credential.instanceId,
         revision,
         kind: 'pending.created',
-        entityId: 'pending-1',
+        entityId: 'session-1',
         payload: {},
       });
     }

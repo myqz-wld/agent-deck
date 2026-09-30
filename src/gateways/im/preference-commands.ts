@@ -1,10 +1,10 @@
-import { defaultFeishuModelPreference, parseFeishuModelPreference, type FeishuModelPreference,
+import { defaultFeishuModelPreference, FEISHU_PREFERENCE_OPTION_KEYS, parseFeishuModelPreference, type FeishuModelPreference,
   type FeishuPreferencePurpose } from '@contracts/index';
 import { FeishuGatewayError } from './errors';
 
 export type PreferenceCommand =
   | { kind: 'preferences-get' }
-  | { kind: 'preferences-set'; purpose: FeishuPreferencePurpose; preference: FeishuModelPreference }
+  | { kind: 'preferences-set'; purpose: FeishuPreferencePurpose; preference: Partial<FeishuModelPreference> }
   | { kind: 'models'; adapterId: string | null; provider: string };
 
 export function parsePreferenceCommand(input: string): PreferenceCommand | null {
@@ -21,10 +21,11 @@ export function parsePreferenceCommand(input: string): PreferenceCommand | null 
   try {
     const options: unknown = match[3] ? JSON.parse(match[3]) : {};
     if (!options || typeof options !== 'object' || Array.isArray(options) ||
-      Object.keys(options).some((key) => !['provider', 'model', 'thinking'].includes(key))) throw new Error('options');
-    const preference = parseFeishuModelPreference({ ...defaultFeishuModelPreference(), ...options, adapterId: match[2] });
+      Object.keys(options).some((key) => !(FEISHU_PREFERENCE_OPTION_KEYS as readonly string[]).includes(key))) throw new Error('options');
+    parseFeishuModelPreference({ ...defaultFeishuModelPreference(), ...options, adapterId: match[2] });
+    const preference = { ...options, adapterId: match[2] as FeishuModelPreference['adapterId'] };
     return { kind: 'preferences-set', purpose: match[1] === 'chat' ? 'conversation' : 'session', preference };
-  } catch { throw new FeishuGatewayError('invalid_command', '模型选项必须是有效的 provider、model、thinking JSON 字符串字段'); }
+  } catch { throw new FeishuGatewayError('invalid_command', '配置 JSON 可包含 provider、model、thinking，以及所选 adapter 的模式、沙盒选项'); }
 }
 
 export function parseCreateOverrides(input: string): { directory: string; selection: Partial<FeishuModelPreference> } {

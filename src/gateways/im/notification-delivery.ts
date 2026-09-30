@@ -121,9 +121,8 @@ export async function deliverCoreNotification(
     .filter(
       (subscription) =>
         subscription.status === 'active' &&
-        ((!event.kind.startsWith('session.') && !event.persisted) ||
-          event.entityId === null ||
-          subscription.sessionId === event.entityId),
+        // Core pending changes identify the owning session, just like persisted/provider events.
+        (event.entityId === null || subscription.sessionId === event.entityId),
     );
   if (
     subscriptions.length > options.limits.maxSubscriptionsPerChat ||
@@ -220,6 +219,8 @@ export async function deliverCoreNotification(
           ).cards ?? []),
         );
       }
+      if (assistantMessage === undefined && cards.length === 0 &&
+        (event.kind.startsWith('pending.') || event.persisted?.kind === 'waiting-for-user')) return;
       markPreTransport(
         options.store,
         credential.instanceId,

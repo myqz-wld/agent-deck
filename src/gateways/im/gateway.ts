@@ -1,5 +1,5 @@
 import { classifyFeishuOperation } from './commands';
-import { labelFeishuPendingSources } from './source-presentation';
+import { feishuPendingSource, labelFeishuPendingSources } from './source-presentation';
 import { FeishuChatCommandQueue } from './chat-command-queue';
 import { FeishuConversationRouter } from './conversation-router';
 import { startFeishuGateway } from './gateway-startup';
@@ -132,7 +132,7 @@ export class FeishuSessionConsoleGateway {
       pendingPresentationLifetimeMs: this.pendingPresentationLifetimeMs,
       now: () => this.clock.now(),
       beforeMutation: (credential, chatId) => this.assertActiveCredential(credential, chatId),
-    }), this.store, this.limits);
+    }), this.store, this.limits, () => this.clock.now());
   }
 
   start(): Promise<void> {
@@ -440,7 +440,10 @@ export class FeishuSessionConsoleGateway {
       text: truncateUtf8(view.text, this.limits.maxOutputBytes),
       cards: labelFeishuPendingSources((view.cards ?? []).slice(0, this.limits.maxPendingCards),
         this.store.listSubscriptions(credential.instanceId, credential.credentialId, event.chatId)),
-      ...(view.presentation ? { presentation: view.presentation } : {}),
+      ...(view.presentation ? { presentation: event.kind === 'card-action'
+        ? { ...view.presentation, title: `${feishuPendingSource(event.action.sessionId,
+          this.store.listSubscriptions(credential.instanceId, credential.credentialId, event.chatId))} · ${view.presentation.title}` }
+        : view.presentation } : {}),
     };
   }
 
@@ -449,7 +452,8 @@ export class FeishuSessionConsoleGateway {
       acknowledged: true,
       duplicate,
       code,
-      toast: duplicate ? '该事件已处理。' : code === 'accepted' ? '已接受。' : `请求未执行：${code}`,
+      toast: duplicate ? '该事件已处理。' : code === 'accepted' ? '已接受。'
+        : code === 'already_decided' ? '该审批已结束，无需再次操作。' : `请求未执行：${code}`,
     };
   }
 

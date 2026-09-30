@@ -9,7 +9,7 @@ import type {
 } from './types';
 
 const TITLES: Record<FeishuCommand['kind'], string> = {
-  'preferences-get': '模型配置', 'preferences-set': '选择已保存', models: '可用模型', new: '新建工作会话', 'new-conversation': '新聊天',
+  'preferences-get': '聊天与工作会话配置', 'preferences-set': '选择已保存', models: '可用配置', new: '新建工作会话', 'new-conversation': '新聊天',
   create: '会话已创建', directories: '工作目录', help: '使用帮助', history: '会话历史',
   pending: '待确认事项', 'runtime-get': '会话设置', 'runtime-update': '设置已更新',
   select: '当前会话', send: '消息已发送', sessions: '会话列表',
@@ -44,6 +44,7 @@ export class FeishuConversationRouter {
     private readonly executor: FeishuCommandExecutor,
     private readonly store: FeishuGatewayStore,
     private readonly limits: FeishuGatewayLimits,
+    private readonly now: () => number = Date.now,
   ) {}
 
   async execute(
@@ -122,7 +123,32 @@ export class FeishuConversationRouter {
     if (assistantTarget && command.kind === 'send') {
       await this.executor.registerAssistants(event, credential, context(), connected, remaining);
     }
-    const result = await run(command, event, ['create', 'select'].includes(command.kind) ? undefined : selected());
+    if (assistantTarget && command.kind === 'runtime-update' && context().assistantGeneration === Number.MAX_SAFE_INTEGER &&
+      ('claudeCodeSandbox' in command.patch || 'grokSandbox' in command.patch)) {
+      throw new FeishuGatewayError('conflict', 'Assistant generation is exhausted');
+    }
+    const previousTarget = selected();
+    let result = await run(command, event, ['create', 'select'].includes(command.kind) ? undefined : previousTarget);
+    if (command.kind === 'runtime-update' && result.replacementSessionId &&
+      result.replacementSessionId !== previousTarget && previousTarget && selected() === previousTarget) {
+      const current = context();
+      const previous = this.store.getSubscription(credential.instanceId, credential.credentialId, event.chatId, previousTarget);
+      this.store.putContext({ ...current, updatedAt: this.now(), ...(assistantTarget ? {
+        assistantSessionId: result.replacementSessionId, assistantGeneration: current.assistantGeneration + 1,
+      } : { activeSessionId: result.replacementSessionId }) });
+      if (previous) {
+        this.store.putSubscription({ ...previous, status: 'inactive', updatedAt: this.now() });
+        // Preserve explicit unsubscribe across provider replacements, including older assistant histories.
+        this.store.putSubscription({ ...previous, sessionId: result.replacementSessionId, status: 'inactive', updatedAt: this.now() });
+      }
+      try {
+        if (event.chatType === 'p2p' && previous?.status === 'active') await subscribe(selected(), true);
+        if (assistantTarget) await this.executor.registerAssistants(event, credential, context(), connected, remaining);
+      } catch {
+        // The provider replacement committed. Never retry it against the new selected identity.
+        result = { ...result, text: `${result.text}\n回复连接需要恢复。请发送 ${assistantTarget ? '/chat subscribe' : '/subscribe'} 后继续。` };
+      }
+    }
     if (event.chatType === 'p2p' && command.kind === 'create') await subscribe(selected(), true);
     if (assistantTarget && command.kind === 'select') await subscribe(selected(), true);
     if (assistantTarget && ['create', 'select'].includes(command.kind)) {

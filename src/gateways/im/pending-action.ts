@@ -54,12 +54,9 @@ export async function executePendingCardAction(
   const revision = currentResult.revision;
   const pending = currentResult.requests.find((request) => request.id === action.requestId);
   if (!pending || pending.status !== 'pending') {
-    throw new FeishuGatewayError(
-      'already_decided',
-      '该请求已不是 pending 状态',
-      false,
-      revision,
-    );
+    // Repair a stale card without repeating the provider decision or inferring who approved it.
+    return { text: '该请求已处理，无需再次操作。', revision, cards: [], errorCode: 'already_decided',
+      presentation: { title: '审批已结束', standalone: true } };
   }
   if (
     action.revision !== revision ||
@@ -89,8 +86,9 @@ export async function executePendingCardAction(
   );
   const result = validatePendingRespondResult(raw, limits);
   return {
-    text: `请求已更新为 ${result.status}`,
+    text: result.status === 'denied' ? '已拒绝这次请求。' : '已确认，助手将继续处理。',
     revision: result.revision,
     cards: [],
+    presentation: { title: result.status === 'denied' ? '已拒绝' : action.action === 'approve' ? '已批准' : '已确认', standalone: true },
   };
 }

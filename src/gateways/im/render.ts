@@ -31,9 +31,9 @@ export interface RenderContext {
 function pendingTitle(request: PendingRequestDto): string {
   const labels: Record<PendingRequestDto['kind'], string> = {
     'ask-user-question': '等待回答',
-    'diff-review': 'Diff review',
-    'exit-plan': 'Plan approval',
-    permission: 'Permission request',
+    'diff-review': '变更确认',
+    'exit-plan': '计划确认',
+    permission: '操作审批',
   };
   return labels[request.kind];
 }
@@ -201,6 +201,7 @@ export function renderRuntime(
   controls: SessionRuntimeControlsDto,
   maximumBytes: number,
   chatType: 'group' | 'p2p' = 'p2p',
+  target: 'assistant' | 'session' = 'session',
 ): SessionConsoleView {
   if (chatType === 'group') {
     return {
@@ -210,7 +211,7 @@ export function renderRuntime(
   }
   return {
     text: truncateUtf8(
-      `${controls.adapterId} runtime controls (revision ${controls.revision})\n${boundedJsonText(controls.values, maximumBytes)}`,
+      `${controls.adapterId} · 当前${target === 'assistant' ? '聊天助手' : '工作会话'}设置（revision ${controls.revision}）\n${boundedJsonText(controls.values, maximumBytes)}\n\n修改当前设置：${target === 'assistant' ? '/chat runtime-set' : '/runtime-set'} ${controls.revision} <JSON-patch>\n新建默认配置使用 /settings ${target === 'assistant' ? 'chat' : 'session'}；已有会话保持原设置。`,
       maximumBytes,
     ),
     revision: controls.revision,

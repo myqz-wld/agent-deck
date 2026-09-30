@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
-import { defaultFeishuModelPreference, type FeishuModelPreference, type FeishuPreferencesResult,
+import { defaultFeishuModelPreference, FEISHU_PREFERENCE_OPTION_KEYS, feishuRuntimeOptionKeys,
+  type FeishuModelPreference, type FeishuPreferencesResult,
   type FeishuPreferencePurpose, type SessionConsoleCapabilitiesResult } from '@contracts/index';
 import type { RemoteHostMutationAuthorityDto } from '@shared/remote-host';
 import { DeckSelect } from '../DeckSelect';
 import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
+import { FeishuRuntimePreferenceFields } from './FeishuRuntimePreferenceFields';
 
 export interface FeishuPreferencesSource {
   identity: string;
@@ -42,7 +44,7 @@ function PreferenceEditor({ profileId, purpose, value, busy, onSave }: {
   const presentation = useInitialAsyncPresentation(!ready && !failed, identity);
   const changed = JSON.stringify(draft) !== serialized;
   const valid = draft.adapterId !== null && ready && !unavailable &&
-    (['model', 'provider', 'thinking'] as const).every((key) => !draft[key] ||
+    FEISHU_PREFERENCE_OPTION_KEYS.every((key) => !draft[key] ||
       (options?.[key].enabled && (options[key].allowCustom || options[key].allowedValues?.includes(draft[key]))));
   const adapterOptions = [{ value: '', label: '请选择助手' }, ...(capability?.value.adapters ?? []).map((adapter) => ({
     value: adapter.adapterId, label: `${adapter.displayName}${adapter.enabled ? '' : '（暂不可用）'}`, disabled: !adapter.enabled,
@@ -83,7 +85,13 @@ function PreferenceEditor({ profileId, purpose, value, busy, onSave }: {
             ariaLabel={`${LABELS[purpose]} ${label}`} onChange={(item) => setDraft({ ...draft, [field]: item })} />}
         </label>;
       })}
+      {feishuRuntimeOptionKeys(draft.adapterId).map(field => <FeishuRuntimePreferenceFields key={field}
+        field={field} purposeLabel={LABELS[purpose]} value={draft[field] ?? null}
+        descriptor={options?.[field]} sandbox={capability.value.create.sandbox}
+        disabled={busy || !ready || !draft.adapterId}
+        onChange={value => setDraft({ ...draft, [field]: value })} />)}
     </div>
+    <p className="text-[10px] text-deck-muted">模式与沙盒按所选助手分别保存；远端仍受 Core Workspace 边界约束。</p>
     {failed && <p role="alert" className="text-[10px] text-status-waiting">无法读取可用模型，请刷新后重试。</p>}
     {unavailable && <p role="alert" className="text-[10px] text-status-waiting">原选择暂不可用，请重新选择；不会自动切换助手。</p>}
     {presentation === 'fallback' && <p role="status" className="text-[10px] text-deck-muted">正在读取可用模型…</p>}

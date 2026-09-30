@@ -31,21 +31,21 @@ describe('subscription event identity and revision validation', () => {
       instanceId: 'wrong-instance',
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     client.emit({
       instanceId: credential.instanceId,
       revision: Number.NaN,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     client.emit({
       instanceId: credential.instanceId,
       revision: 99,
       kind: 'pending.\u0000created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     client.emit({
@@ -63,14 +63,14 @@ describe('subscription event identity and revision validation', () => {
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: { ignored: 'business' },
     });
     client.emit({
       instanceId: credential.instanceId,
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: {},
     });
     await flush();

@@ -108,7 +108,7 @@ describe('group-chat Core egress policy', () => {
       instanceId: 'instance-1',
       revision: 11,
       kind: 'pending.created',
-      entityId: 'pending-1',
+      entityId: 'session-1',
       payload: { ignored: 'provider-secret' },
     });
     await flush();

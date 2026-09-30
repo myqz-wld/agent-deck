@@ -90,11 +90,8 @@ export class OfficialFeishuTransport implements FeishuTransportPort {
       if (!source || source.kind !== 'card-action') {
         throw new FeishuGatewayError('invalid_event', 'Card update has no active provider card source');
       }
-      const response = await providerCall(
-        this.api.patchCard({ messageId: source.messageId, content }),
-        attempt.signal,
-      );
-      assertSuccess(response, false);
+      if (attempt.signal.aborted) throw new FeishuTransportNotAcceptedError();
+      this.sources.setCallbackCard(message.eventId, JSON.parse(content) as Record<string, unknown>);
       return;
     }
 

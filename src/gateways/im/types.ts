@@ -431,6 +431,7 @@ export interface ConnectedFeishuClient {
 }
 
 export interface SessionConsoleView {
+  replacementSessionId?: string | null;
   text: string;
   presentation?: FeishuOutboundMessage['presentation'];
   silent?: boolean;

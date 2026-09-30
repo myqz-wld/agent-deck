@@ -33,7 +33,7 @@ function emit(client: FakeCoreClient, revision: number): void {
     instanceId: credential.instanceId,
     revision,
     kind: 'pending.created',
-    entityId: 'pending-1',
+    entityId: 'session-1',
     payload: { ignored: 'business-body' },
   });
 }
