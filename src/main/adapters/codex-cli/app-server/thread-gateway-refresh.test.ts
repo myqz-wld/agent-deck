@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CodexAppServerClient } from './client';
 import type { CodexAppServerNotification, JsonObject } from './protocol';
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
@@ -23,6 +23,12 @@ class LoadedThreadClient extends CodexAppServerClient {
   private readonly observers = new Set<(notification: CodexAppServerNotification) => void>();
   loaded: LoadedRuntime | null = null;
   autoComplete = true;
+  completeOnInterrupt = true;
+  turnFailure: Error | null = null;
+  nativeTurnActive = false;
+  failedRuntime = false;
+  readonly interrupts: string[] = [];
+  readonly recycledGenerations: number[] = [];
   unsubscribeFailure: Error | string | null = null;
   beforeResume: (() => Promise<void>) | null = null;
 
@@ -36,11 +42,30 @@ class LoadedThreadClient extends CodexAppServerClient {
   }
 
   completeTurn(): void {
+    this.nativeTurnActive = false;
+    if (this.turnFailure) this.failedRuntime = true;
     const notification = {
       method: 'turn/completed',
-      params: { threadId: 'thread-1', turn: { id: `turn-${this.turns.length}`, status: 'completed' } },
+      params: { threadId: 'thread-1', turn: {
+        id: `turn-${this.turns.length}`, status: this.turnFailure ? 'failed' : 'completed',
+      } },
     };
     for (const observer of this.observers) observer(notification);
+  }
+
+  override sendTurnInterrupt(_generation: number, _threadId: string, turnId: string): boolean {
+    this.interrupts.push(turnId);
+    if (this.completeOnInterrupt) queueMicrotask(() => this.completeTurn());
+    return true;
+  }
+
+  override recycleGeneration(generation: number, error: Error, phase: string): boolean {
+    if (generation !== this.generation) return false;
+    this.recycledGenerations.push(generation);
+    this.loaded = null;
+    this.failedRuntime = false;
+    this.nativeTurnActive = false;
+    return super.recycleGeneration(generation, error, phase);
   }
 
   override async request<T = unknown>(method: string, input: unknown): Promise<T> {
@@ -50,7 +75,8 @@ class LoadedThreadClient extends CodexAppServerClient {
       if (this.unsubscribeFailure instanceof Error) throw this.unsubscribeFailure;
       if (this.unsubscribeFailure) return { status: this.unsubscribeFailure } as T;
       const status = this.loaded ? 'unsubscribed' : 'notLoaded';
-      this.loaded = null;
+      // A failed native runtime may remain loaded even after its turn/completed notification.
+      if (!this.nativeTurnActive && !this.failedRuntime) this.loaded = null;
       return { status } as T;
     }
     if (method === 'thread/start' || method === 'thread/resume') {
@@ -68,7 +94,17 @@ class LoadedThreadClient extends CodexAppServerClient {
     if (method === 'turn/start') {
       if (!this.loaded) throw new Error('Thread is not loaded');
       this.turns.push({ ...this.loaded, threadId: String(params.threadId), input: params.input });
-      if (this.autoComplete) queueMicrotask(() => this.completeTurn());
+      this.nativeTurnActive = true;
+      if (this.autoComplete) queueMicrotask(() => {
+        if (!this.turnFailure) return this.completeTurn();
+        for (const observer of this.observers) observer({
+          method: 'error',
+          params: {
+            threadId: 'thread-1', turnId: `turn-${this.turns.length}`, willRetry: false,
+            error: { message: this.turnFailure.message },
+          },
+        });
+      });
       return { turn: { id: `turn-${this.turns.length}` } } as T;
     }
     return {} as T;
@@ -105,7 +141,70 @@ function input(text = 'test') {
   return [{ type: 'text' as const, text, text_elements: [] }];
 }
 
+afterEach(() => vi.useRealTimers());
+
 describe('Codex loaded-thread Gateway refresh', () => {
+  it.each(['collected', 'streamed'])(
+    'cleans the failed native runtime before switching Gateway (%s output)', async (output) => {
+      const client = new LoadedThreadClient();
+      const thread = client.startThread(options());
+      client.turnFailure = new Error('stream disconnected before completion');
+      if (output === 'collected') {
+        await expect(thread.run(input('failed'))).rejects.toThrow('stream disconnected');
+      } else {
+        const { events } = await thread.runStreamed(input('failed'));
+        const methods: string[] = [];
+        for await (const event of events) {
+          if (event.type === 'server.notification') methods.push(event.notification.method);
+        }
+        expect(methods).toEqual(['error']);
+      }
+
+      client.turnFailure = null;
+      thread.stageGatewayOptions(gateway('new-provider'));
+      await thread.run(input('retry'));
+
+      expect(client.turns.map((turn) => turn.modelProvider)).toEqual(['old-provider', 'new-provider']);
+      expect(client.turns.map((turn) => turn.threadId)).toEqual(['thread-1', 'thread-1']);
+      expect(client.interrupts).toEqual(['turn-1']);
+      expect(client.recycledGenerations).toEqual([0]);
+    },
+  );
+
+  it('bounds missing native completion and retries the new Gateway in a clean generation', async () => {
+    vi.useFakeTimers();
+    const client = new LoadedThreadClient();
+    client.completeOnInterrupt = false;
+    client.turnFailure = new Error('stream disconnected before completion');
+    const thread = client.startThread(options());
+    let settled = false;
+    const failed = thread.run(input('failed')).catch((error: unknown) => {
+      settled = true;
+      return error;
+    });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(settled).toBe(false);
+    expect(client.interrupts).toEqual(['turn-1']);
+    expect(client.recycledGenerations).toEqual([]);
+    thread.stageGatewayOptions(gateway('new-provider'));
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await failed).toMatchObject({ message: 'stream disconnected before completion' });
+    expect(client.recycledGenerations).toEqual([0]);
+    client.turnFailure = null;
+    await thread.run(input('retry'));
+    expect(client.turns.map((turn) => turn.modelProvider)).toEqual(['old-provider', 'new-provider']);
+  });
+
+  it('keeps shared ephemeral summary processes after a drained terminal error', async () => {
+    const client = new LoadedThreadClient();
+    client.turnFailure = new Error('summary request failed');
+    const thread = client.startThread({ ...options(), ephemeral: true });
+    await expect(thread.run(input())).rejects.toThrow('summary request failed');
+    expect(client.nativeTurnActive).toBe(false);
+    expect(client.recycledGenerations).toEqual([]);
+  });
+
   it('uses the new Gateway for the next message while preserving thread id and model settings', async () => {
     const client = new LoadedThreadClient();
     const thread = client.startThread(options());
@@ -131,6 +230,7 @@ describe('Codex loaded-thread Gateway refresh', () => {
       model: 'explicit-next-model', runtimeProvider: 'new-provider',
       capacityConfigFingerprint: 'model-context-window:200000',
     });
+    expect(client.recycledGenerations).toEqual([]);
   });
 
   it('removes the previous Gateway layer when returning to native configuration', async () => {

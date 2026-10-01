@@ -15,6 +15,14 @@ export type CodexAppServerUserInput =
   | { type: 'skill'; name: string; path: string }
   | { type: 'mention'; name: string; path: string };
 
+export interface CodexAppServerRunOptions {
+  signal?: AbortSignal;
+  outputSchema?: JsonObject;
+  environments?: readonly [];
+  runtimeWorkspaceRoots?: readonly string[];
+  maxOutputBytes?: number;
+}
+
 export interface CodexAppServerThreadTurn {
   id: string;
   status: 'completed' | 'interrupted' | 'failed' | 'inProgress';

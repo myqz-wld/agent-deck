@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-09-30 | `REVIEW_306_codex-failed-gateway-recovery.md` | Recover Gateway routing after terminal Codex errors | 1 HIGH / 1 MEDIUM / 1 LOW fixed; native acceptance passed |
 | 2026-09-30 | `REVIEW_305_feishu-native-approval-depth.md` | Separate approval payload depth from response wrappers | 1 HIGH fixed; real owner approval and work reply accepted |
 | 2026-09-30 | `REVIEW_304_feishu-input-approval-progress.md` | Validate rich input, approval races and correlated reactions | 1 HIGH / 3 MEDIUM installed; single formal app verified |
 | 2026-09-30 | `REVIEW_303_feishu-named-work-management.md` | Name work and suppress late receipts with native management | Natural naming/persona accepted; explicit rename check remains |

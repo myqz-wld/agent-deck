@@ -12,6 +12,24 @@ function collect() {
 }
 
 describe('translateCodexAppServerNotification', () => {
+  it('honors a terminal native error even when its text mentions reconnection', () => {
+    const { emit, events } = collect();
+    translateCodexAppServerNotification({
+      method: 'error',
+      params: {
+        willRetry: false,
+        error: { message: 'stream disconnected before completion' },
+      },
+    }, emit);
+
+    expect(events).toEqual([
+      { kind: 'message', payload: {
+        text: '⚠ Codex 流级错误：stream disconnected before completion', error: true,
+      } },
+      { kind: 'finished', payload: { ok: false, subtype: 'error' } },
+    ]);
+  });
+
   it('keeps transient app-server stream errors open and finishes fatal stream errors', () => {
     const { emit, events } = collect();
 
@@ -31,7 +49,7 @@ describe('translateCodexAppServerNotification', () => {
     );
 
     expect(events).toEqual([
-      { kind: 'message', payload: { text: '🔄 Codex 正在重连... 重连尝试 2/5' } },
+      { kind: 'message', payload: { text: 'Codex 正在重连... 重连尝试 2/5' } },
       { kind: 'message', payload: { text: '⚠ Codex 流级错误：JSON parse failed', error: true } },
       { kind: 'finished', payload: { ok: false, subtype: 'error' } },
     ]);
