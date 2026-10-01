@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-30 | `PLAN_79_feishu-markdown-activation.md` | completed | Activate rich replies and consolidate accepted Feishu operations | `REVIEW_310_feishu-markdown-replies.md` |
 | 2026-09-30 | `PLAN_78_feishu-operations-approval-activation.md` | completed | Accept native operations and activate approval/voice refinements | `REVIEW_308_feishu-expired-approvals.md` |
 | 2026-09-30 | `PLAN_77_unified-ask-user.md` | completed | Unify MCP questions and Pending across adapters | `CHANGELOG_668_unified-ask-user.md` |
 | 2026-09-30 | `PLAN_76_remote-worker-activation.md` | completed | Activate stable Remote reads and independent owner work | `REVIEW_307_remote-worker-backpressure.md` |

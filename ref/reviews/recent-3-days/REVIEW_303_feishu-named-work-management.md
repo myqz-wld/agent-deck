@@ -149,8 +149,11 @@ commit/ASAR, one formal GUI, fresh wrapper, all service connections and exact Fe
 SQLite is v6 with valid integrity and foreign keys; settings revision 3 and existing session controls
 remain unchanged. Cleanup retains current plus 410a fallback and removes temporary run artifacts.
 See [installation acceptance](../../plans/recent-3-days/PLAN_71_feishu-named-work-activation.md).
-Never reinstall a completed release as a diagnostic guess. Owner Feishu acceptance must still confirm natural work creation,
-readable card names and catgirl voice with existing history. Slash `/new` retains its ordinary
+Never reinstall a completed release as a diagnostic guess. Subsequent owner acceptance confirmed
+natural creation and readable names in [PLAN_74](../../plans/recent-3-days/PLAN_74_feishu-relay-live-acceptance.md),
+then manual rename/named send and retained assistant history in
+[PLAN_78](../../plans/recent-3-days/PLAN_78_feishu-operations-approval-activation.md).
+Slash `/new` retains its ordinary
 Core initial name; `/rename` or natural-language named creation provides a chosen title.
 
 The prior 410a screenshot already proves /send provider output, assistant recall and persistent

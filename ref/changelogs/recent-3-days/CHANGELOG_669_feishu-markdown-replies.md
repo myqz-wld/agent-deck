@@ -32,6 +32,9 @@ code, entity handling, source/UUID preservation, payload limits and uncertain de
 integrated validation and managed activation are recorded in
 [REVIEW_310](../../reviews/recent-3-days/REVIEW_310_feishu-markdown-replies.md).
 
+Managed activation passed in [PLAN_79](../../plans/recent-3-days/PLAN_79_feishu-markdown-activation.md);
+the owner's real client display check remains pending.
+
 The [official Feishu message structure](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json)
 defines the title-less post and CommonMark/GFM md node used here. No model, prompt, runtime-control,
 pairing, schema or permission change is needed.
