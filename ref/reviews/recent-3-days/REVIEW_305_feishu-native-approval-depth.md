@@ -53,3 +53,12 @@ validates the original request with default limits; the failed notification is n
 attempt two. The owner has been asked to approve it. No duplicate work or proxy approval occurred.
 No Desktop reinstall, database migration, model change, prompt change or pairing is needed.
 The older warm-channel stall has a separate unproven cause and is not claimed as fixed here.
+
+## Subsequent owner check
+
+The owner later reported an offline click, followed by the generic rejection toast after reconnect.
+Read-only evidence shows the native creation approval timed out after 30 minutes and no work was
+created. Later clicks reject the expired presentation as invalid_nonce. The request is no longer
+pending, so acceptance requires a fresh owner request and approval. The generic expired-card toast
+needs clearer guidance; rejecting an expired action remains required. The delivered-card depth
+repair and managed health checks remain valid.

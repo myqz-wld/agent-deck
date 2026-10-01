@@ -47,10 +47,12 @@ private host identifiers or message bodies are included here.
 
 ## Final status and handoff
 
-The source repair and managed activation are complete. The current approval card is delivered;
-actual owner approval and the named work reply remain in the active business plans. Do not
-reinstall Desktop or repeat work creation. The older warm-channel stall remains a separate,
-unproven incident.
+The source repair and managed activation are complete. The original approval card was delivered,
+but its native operation later timed out after 30 minutes without approval. The owner's later
+offline/reconnected check confirms the old presentation is expired; Core has no pending request
+or successful creation. A fresh owner request and approval are needed for the remaining named
+work acceptance. Do not reinstall Desktop or automatically repeat work creation. The older
+warm-channel stall remains a separate, unproven incident.
 
 [Change](../../changelogs/recent-3-days/CHANGELOG_664_feishu-native-approval-depth.md)
 [Review](../../reviews/recent-3-days/REVIEW_305_feishu-native-approval-depth.md)
