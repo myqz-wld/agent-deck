@@ -3,12 +3,13 @@ import { FEISHU_ASSISTANT_SETUP_VERSION, FEISHU_CONVERSATION_SETUP, FEISHU_CONVE
 import { credential, messageEvent, onlyClient, select, setup } from './__tests__/fixture';
 
 describe('retained assistant setup', () => {
-  it('updates an older assistant once without creating a new chat or changing work selection', async () => {
+  it.each([undefined, 1])('updates assistant setup version %s once without creating a new chat or changing work selection', async olderVersion => {
     const t = setup(); await select(t.gateway);
     await t.gateway.handle(messageEvent('first-chat', 'Remember a test word.'));
     const before = t.store.getContext(credential.instanceId, credential.credentialId, 'chat-1')!;
     const row = t.store.getSubscription(credential.instanceId, credential.credentialId, 'chat-1', before.assistantSessionId!)!;
-    const { assistantSetupVersion: _older, ...legacy } = row; t.store.putSubscription(legacy);
+    const { assistantSetupVersion: _older, ...legacy } = row;
+    t.store.putSubscription({ ...legacy, ...(olderVersion === undefined ? {} : { assistantSetupVersion: olderVersion }) });
     const client = onlyClient(t.clients); client.calls.length = 0;
     await t.gateway.handle(messageEvent('after-upgrade', 'What was the test word?'));
     await t.gateway.handle(messageEvent('following-turn', 'Continue.'));
