@@ -56,6 +56,9 @@ importers:
       katex:
         specifier: ^0.16.47
         version: 0.16.47
+      mdast-util-from-markdown:
+        specifier: ^2.0.3
+        version: 2.0.3
       monaco-editor:
         specifier: 0.55.1
         version: 0.55.1
@@ -144,9 +147,6 @@ importers:
       happy-dom:
         specifier: ^20.14.0
         version: 20.14.0
-      mdast-util-from-markdown:
-        specifier: ^2.0.3
-        version: 2.0.3
       micromark-util-types:
         specifier: ^2.0.2
         version: 2.0.2

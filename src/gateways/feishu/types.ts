@@ -128,13 +128,13 @@ export interface FeishuOpenApiPort {
   reply(input: {
     messageId: string;
     content: string;
-    messageType: 'interactive' | 'text';
+    messageType: 'interactive' | 'text' | 'post';
     uuid: string;
   }): Promise<FeishuOpenApiResponse>;
   create(input: {
     chatId: string;
     content: string;
-    messageType: 'interactive' | 'text';
+    messageType: 'interactive' | 'text' | 'post';
     uuid: string;
   }): Promise<FeishuOpenApiResponse>;
   patchCard(input: { messageId: string; content: string }): Promise<FeishuOpenApiResponse>;

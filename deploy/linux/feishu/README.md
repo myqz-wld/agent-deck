@@ -158,7 +158,9 @@ sessions retain their native controls. `/unsubscribe` applies to the selected wo
 `/chat unsubscribe` applies to the assistant. Natural-language work creation reads the current
 preferences through Core's read-only MCP tool before using the dedicated work tool.
 
-Ordinary assistant replies are unlabelled text. Work replies use cards identifying the session;
+Ordinary assistant replies have no source label: short prose uses text, while Markdown uses an
+untitled rich-text post with native lists, code and tables. Local file links display copyable paths.
+Work replies use cards identifying the session;
 subscribed private `/send` requests omit a redundant receipt that could arrive after the result.
 An explicitly unsubscribed target still returns a recovery hint. Assistant conversations use the
 owner-requested light catgirl voice, while work prompts and approval details remain task-focused.

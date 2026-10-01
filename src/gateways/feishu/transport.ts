@@ -7,7 +7,8 @@ import {
   type FeishuOutboundMessage,
   type FeishuTransportPort,
 } from '@gateways/im';
-import { renderFeishuCard, renderFeishuText } from './card-renderer';
+import { renderFeishuCard } from './card-renderer';
+import { renderFeishuMessage } from './message-renderer';
 import type { FeishuPresentationActionSigner } from './nonce';
 import { FeishuSourceRegistry } from './source-registry';
 import type { FeishuOpenApiPort, FeishuOpenApiResponse } from './types';
@@ -82,8 +83,9 @@ export class OfficialFeishuTransport implements FeishuTransportPort {
       throw new FeishuGatewayError('event_identity_mismatch', 'Outbound chat differs from provider source');
     }
     const hasCard = message.presentation !== undefined || message.cards.length > 0 || message.kind === 'card-update';
-    const content = hasCard ? renderFeishuCard(message, this.signer) : renderFeishuText(message);
-    const messageType = hasCard ? 'interactive' as const : 'text' as const;
+    const { content, messageType } = hasCard
+      ? { content: renderFeishuCard(message, this.signer), messageType: 'interactive' as const }
+      : renderFeishuMessage(message.text);
     const uuid = providerUuid(message);
 
     if (message.kind === 'card-update') {

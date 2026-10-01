@@ -36,7 +36,7 @@ export class OfficialFeishuOpenApi implements FeishuOpenApiPort {
   reply(input: {
     messageId: string;
     content: string;
-    messageType: 'interactive' | 'text';
+    messageType: 'interactive' | 'text' | 'post';
     uuid: string;
   }) {
     return this.client.im.v1.message.reply({
@@ -52,7 +52,7 @@ export class OfficialFeishuOpenApi implements FeishuOpenApiPort {
   create(input: {
     chatId: string;
     content: string;
-    messageType: 'interactive' | 'text';
+    messageType: 'interactive' | 'text' | 'post';
     uuid: string;
   }) {
     return this.client.im.v1.message.create({
