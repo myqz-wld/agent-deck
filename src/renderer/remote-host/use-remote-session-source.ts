@@ -26,6 +26,7 @@ import { useRemoteBusinessRunner } from './use-remote-business-runner';
 import { createRemoteSessionActions } from './remote-session-actions';
 import { useRemotePresentationLists } from './use-remote-presentation-lists';
 import { useRemoteConnectionScope } from './use-remote-connection-scope';
+import { remoteSessionDetailCache } from './remote-session-detail-cache';
 
 export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSessionSourceView {
   const {
@@ -33,6 +34,9 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     recoveringWorker, state, usable,
   } = useRemoteSourceContext(hosts);
   const connectionScope = useRemoteConnectionScope(identity, usable);
+  const connectionScopeRef = useRef(connectionScope);
+  connectionScopeRef.current = connectionScope;
+  const [verifiedDetailKey, setVerifiedDetailKey] = useState<string | null>(null);
   const detailRevision = resourceRevisions['session-detail'];
   const [selection, setSelection] = useState<{ identity: string; sessionId: string | null }>({
     identity,
@@ -67,6 +71,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
   const detailSequence = useRef(0);
   const detailLoads = useRef(new Set<string>());
   const detailRefreshPending = useRef(new Set<string>());
+  useEffect(() => () => { detailSequence.current += 1; detailRefreshPending.current.clear(); }, []);
   const intents = useRef(new RemoteUserIntentLedger());
   const planReviews = useRef(new RemotePlanReviewTransports()).current;
   const addressableIdentityKey = hosts.snapshot === null ? null : hosts.snapshot.states.map(
@@ -111,6 +116,8 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
 
   useEffect(() => {
     if (!usable || !activeProfileId || !selectedSessionId) {
+      if (!usable) remoteSessionDetailCache.clear();
+      setVerifiedDetailKey(null);
       detailSequence.current += 1;
       setSelectedSession(null);
       setRuntime(null);
@@ -137,6 +144,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       const nextSession = await requests.session;
       if (sequence !== detailSequence.current || identityRef.current !== identity) return;
       if (!nextSession) {
+        remoteSessionDetailCache.delete(loadKey);
         navigation.current.set(identity, null);
         setSelection({ identity, sessionId: null });
         setSelectedSession(null);
@@ -164,6 +172,10 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
       } =
         await requests.optional;
       if (sequence !== detailSequence.current || identityRef.current !== identity) return;
+      setVerifiedDetailKey(loadKey);
+      remoteSessionDetailCache.set(loadKey, { session: nextSession,
+        context: contextResult.status === 'fulfilled' ? contextResult.value : null,
+        summaries: summaryResult.status === 'fulfilled' ? summaryResult.value : null });
       if (runtimeResult.status === 'fulfilled') {
         runtimeRef.current = runtimeResult.value;
         setRuntime(runtimeResult.value);
@@ -234,15 +246,17 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
     detailSequence.current += 1;
     navigation.current.set(currentIdentity, resolvedSessionId);
     setSelection({ identity: currentIdentity, sessionId: resolvedSessionId });
-    setSelectedSession(null);
+    const cached = resolvedSessionId ? remoteSessionDetailCache.get(`${connectionScopeRef.current}\u0000${resolvedSessionId}`) : null;
+    setVerifiedDetailKey(null);
+    setSelectedSession(cached?.session ?? null);
     setRuntime(null);
     setRuntimeLoadError(null);
-    setContext(null);
+    setContext(cached?.context ?? null);
     setContextLoadError(null);
     setInputCapabilities(null);
     setInputLoadError(null);
     runtimeRef.current = null;
-    setSummaries(null);
+    setSummaries(cached?.summaries ?? null);
     setSummaryLoadError(null);
     setError(null);
   }, []);
@@ -285,7 +299,7 @@ export function useRemoteSessionSource(hosts: RemoteHostSnapshotState): RemoteSe
 
   return {
     addressableIdentityKey,
-    busy: usable && busy,
+    busy: usable && (busy || Boolean(selectedSessionId && verifiedDetailKey !== `${connectionScope}\u0000${selectedSessionId}`)),
     capabilities,
     dataRevision: detailRevision,
     resourceRevisions,

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react';
+import { RemoteReadCache } from '@shared/remote-read-cache';
 
 import { ReadOnlyConventionDocument } from '../settings/b18/ConventionDocumentEditor';
 import { AdapterSubTab, type AssetAdapter } from './AdapterSubTab';
@@ -22,10 +23,12 @@ interface Props {
 }
 
 interface ConventionProjection {
+  sourceKey: string;
   adapter: AssetAdapter;
   content: string;
   requestIdentity: string;
 }
+const conventionCache = new RemoteReadCache<ConventionProjection>(24);
 
 interface ConventionError {
   message: string;
@@ -44,15 +47,18 @@ export function RemoteApplicationConventionTab({
   const [projection, setProjection] = useState<ConventionProjection | null>(null);
   const [error, setError] = useState<ConventionError | null>(null);
   const requestSeqRef = useRef(0);
-  const requestIdentity = `${identity}:${catalogRevision ?? 'none'}:${adapter}`;
+  const sourceKey = JSON.stringify([identity, profileId]);
+  const requestIdentity = `${sourceKey}:${catalogRevision ?? 'none'}:${adapter}`;
+  const currentProjection = projection?.requestIdentity === requestIdentity ? projection : conventionCache.get(requestIdentity);
   const currentError = error?.requestIdentity === requestIdentity ? error.message : null;
-  const pending = projection?.requestIdentity !== requestIdentity && currentError === null;
+  const pending = currentProjection === null && currentError === null;
   const visibleIdentity = useDeferredPendingIdentity(pending, requestIdentity);
   const initialPresentation = useInitialAsyncPresentation(
-    projection === null && pending,
+    (!projection || projection.sourceKey !== sourceKey) && pending,
     requestIdentity,
   );
-  const visibleProjection = projection?.requestIdentity === visibleIdentity ? projection : null;
+  const visibleProjection = currentProjection ?? (projection?.sourceKey === sourceKey &&
+    projection.requestIdentity === visibleIdentity ? projection : null);
 
   useEffect(() => {
     const seq = ++requestSeqRef.current;
@@ -64,7 +70,9 @@ export function RemoteApplicationConventionTab({
           onCatalogChanged();
           return;
         }
-        setProjection({ adapter, content: result.content, requestIdentity });
+        const next = { adapter, content: result.content, requestIdentity, sourceKey };
+        conventionCache.set(requestIdentity, next);
+        setProjection(next);
         setError(null);
       })
       .catch(() => {
@@ -77,7 +85,7 @@ export function RemoteApplicationConventionTab({
     return () => {
       ++requestSeqRef.current;
     };
-  }, [adapter, catalogRevision, identity, onCatalogChanged, profileId, requestIdentity]);
+  }, [adapter, catalogRevision, identity, onCatalogChanged, profileId, requestIdentity, sourceKey]);
 
   return (
     <div className="flex min-h-[310px] flex-col gap-2">

@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-10-01 | `REVIEW_311_remote-ui-readiness.md` | Remote read retention, 150 ms presentation and autosave races | 4 findings repaired |
 | 2026-09-30 | `REVIEW_310_feishu-markdown-replies.md` | Preserve message semantics while rendering native Markdown | 1 MEDIUM installed; real client display accepted |
 | 2026-09-30 | `REVIEW_309_feishu-assistant-voice.md` | Refine assistant voice while preserving runtime controls | Installed; natural reply and retained history observed |
 | 2026-09-30 | `REVIEW_308_feishu-expired-approvals.md` | Preserve expiry guidance without replaying approvals | 1 MEDIUM installed; native operation checks accepted |

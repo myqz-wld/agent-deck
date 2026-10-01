@@ -19,32 +19,34 @@ interface Selection {
   overrides: readonly FeishuPreferenceOptionKey[];
 }
 
-export function FeishuPreferenceEditor({ profileId, value, initialCapability, blocked, busy, onSave }: {
+export function FeishuPreferenceEditor({ profileId, value, initialCapability, blocked, busy, status, onChange }: {
   profileId: string;
   value: FeishuModelPreference;
   initialCapability: SessionConsoleCapabilitiesResult;
   blocked: boolean;
   busy: boolean;
-  onSave(value: FeishuModelPreference): Promise<void>;
+  status?: string | null;
+  onChange(value: FeishuModelPreference, capability: SessionConsoleCapabilitiesResult): void;
 }): JSX.Element {
   const [selection, setSelection] = useState<Selection>(() => ({
     draft: resolveFeishuPreference(value, initialCapability), overrides: feishuPreferenceOverrides(value),
   }));
   const { draft } = selection;
-  const [baseline, setBaseline] = useState(draft);
+  const [editVersion, setEditVersion] = useState(0);
+  const sentVersion = useRef(0);
   const identity = identityFor(profileId, draft);
   const [capability, setCapability] = useState({ identity, value: initialCapability });
   const [failedIdentity, setFailedIdentity] = useState<string | null>(null);
   const serialized = JSON.stringify(value);
-  const savedVersion = useRef(serialized);
+  const savedVersion = useRef({ serialized, capability: initialCapability });
   const gatewayThinking = useRef(new Map<string, string>(value.thinking ? [[thinkingKey(draft), value.thinking]] : []));
   useEffect(() => {
-    if (savedVersion.current === serialized) return;
-    savedVersion.current = serialized;
-    const next = resolveFeishuPreference(value, capability.value);
+    if (savedVersion.current.serialized === serialized && savedVersion.current.capability === initialCapability) return;
+    savedVersion.current = { serialized, capability: initialCapability };
+    const next = resolveFeishuPreference(value, initialCapability);
     setSelection({ draft: next, overrides: feishuPreferenceOverrides(value) });
-    setBaseline(next);
-  }, [serialized, value, capability.value]);
+    setCapability({ identity: identityFor(profileId, next), value: initialCapability });
+  }, [serialized, value, initialCapability, profileId]);
   useEffect(() => {
     if (capability.identity === identity) return;
     let cancelled = false;
@@ -69,18 +71,16 @@ export function FeishuPreferenceEditor({ profileId, value, initialCapability, bl
   const visible = ready ? { draft, capability: capability.value } : stable.current;
   const options = visible.capability.create.options;
   const unavailable = ready && (!capability.value.create.enabled || capability.value.selectedAdapterId !== draft.adapterId);
-  const changed = value.adapterId === null || JSON.stringify(draft) !== JSON.stringify(baseline);
   const valid = ready && !failed && draft.adapterId !== null && !unavailable &&
     FEISHU_PREFERENCE_OPTION_KEYS.every((key) => !draft[key] ||
       (options[key].enabled && (options[key].allowCustom || options[key].allowedValues?.includes(draft[key]))));
   const interactionBlocked = blocked || !ready || failed;
   const disabled = busy || showUpdating || failed;
-  const saveDisabled = disabled || !changed || !valid;
-  const lastSaveDisabled = useRef(saveDisabled);
-  useLayoutEffect(() => {
-    if (ready && !blocked) lastSaveDisabled.current = saveDisabled;
-  }, [ready, blocked, saveDisabled]);
-  const visibleSaveDisabled = !ready && !showUpdating && !failed ? lastSaveDisabled.current : saveDisabled;
+  useEffect(() => {
+    if (interactionBlocked || !valid || editVersion === sentVersion.current) return;
+    sentVersion.current = editVersion;
+    onChange(draft, capability.value);
+  }, [editVersion, interactionBlocked, valid, draft, capability.value, onChange]);
   const adapterOptions: DeckSelectOption<GeneratorAdapter>[] = visible.capability.adapters.map((adapter) => ({
     value: adapter.adapterId as GeneratorAdapter,
     label: `${adapter.displayName}${adapter.enabled ? '' : '（暂不可用）'}`, disabled: !adapter.enabled,
@@ -96,12 +96,14 @@ export function FeishuPreferenceEditor({ profileId, value, initialCapability, bl
   }
   const change = (field: FeishuPreferenceOptionKey, value: string | null): void => {
     if (interactionBlocked) return;
+    setEditVersion(current => current + 1);
     if (field === 'thinking' && value) gatewayThinking.current.set(thinkingKey(draft), value);
     setSelection(current => ({ draft: { ...current.draft, [field]: value },
       overrides: [...new Set([...current.overrides, field])] }));
   };
   const changeProvider = (provider: string): void => {
     if (interactionBlocked || provider === draft.provider) return;
+    setEditVersion(current => current + 1);
     const thinking = gatewayThinking.current.get(thinkingKey({ ...draft, provider }));
     setSelection({ draft: { ...draft, provider, ...(thinking ? { thinking } : {}) },
       overrides: [...selection.overrides.filter(key => !['provider', 'model', 'thinking'].includes(key)),
@@ -109,9 +111,10 @@ export function FeishuPreferenceEditor({ profileId, value, initialCapability, bl
   };
 
   return <InertInteractionBoundary blocked={interactionBlocked}>
-    <fieldset className="space-y-2" disabled={disabled}>
+    <fieldset disabled={disabled}>
       <ProviderModelThinkingFields label={LABEL}
-        hint="未设置的选项使用远端新建会话的默认值，可修改后保存。"
+        hint=""
+        status={(showUpdating || status) && <span role="status" className="text-[10px] font-normal text-deck-muted">{showUpdating ? '正在更新…' : status}</span>}
         adapter={visible.draft.adapterId as GeneratorAdapter} adapterOptions={adapterOptions}
         runtimeProvider={visible.draft.provider}
         providerOptions={(options.provider.allowedValues ?? []).map(id => ({ id }))}
@@ -119,28 +122,24 @@ export function FeishuPreferenceEditor({ profileId, value, initialCapability, bl
         thinking={visible.draft.thinking as SessionThinkingLevel} thinkingOptions={thinkingOptions}
         disabled={disabled}
         onAdapterChange={adapterId => {
-          if (!interactionBlocked && adapterId !== draft.adapterId) {
-            setSelection({ draft: { ...defaultFeishuModelPreference(), adapterId }, overrides: [] });
+          if (!interactionBlocked) {
+            setEditVersion(current => current + 1);
+            if (adapterId !== draft.adapterId) setSelection({ draft: { ...defaultFeishuModelPreference(), adapterId }, overrides: [] });
           }
         }}
         onRuntimeProviderChange={changeProvider}
         onModelChange={value => change('model', value)}
-        onThinkingChange={value => change('thinking', value)} />
-      <div className="grid grid-cols-2 gap-2">
+        onThinkingChange={value => change('thinking', value)}>
         {feishuRuntimeOptionKeys(visible.draft.adapterId).map(field => <FeishuRuntimePreferenceFields key={field}
           field={field} purposeLabel={LABEL} value={visible.draft[field] ?? null}
           descriptor={options[field]} sandbox={visible.capability.create.sandbox}
           disabled={disabled} onChange={value => change(field, value)} />)}
-      </div>
-      <div className="min-h-4 text-[10px]">
-        {failed ? <p role="alert" className="text-status-waiting">无法读取可用配置，请刷新后重试。</p>
+      </ProviderModelThinkingFields>
+      {(failed || unavailable) && <div className="mt-1.5 text-[10px]">
+        {failed ? <p role="alert" className="text-status-waiting">无法读取可用配置，请重新打开设置后重试。</p>
           : unavailable ? <p role="alert" className="text-status-waiting">原选择暂不可用，请重新选择。</p>
-            : showUpdating ? <p role="status" className="text-deck-muted">正在读取可用配置…</p> : null}
-      </div>
-      <button type="button" className="rounded bg-white/10 px-2 py-1 text-[11px] disabled:opacity-40"
-        disabled={visibleSaveDisabled} onClick={() => {
-          if (!interactionBlocked && valid && changed) void onSave(draft);
-        }}>保存{LABEL}选择</button>
+            : null}
+      </div>}
     </fieldset>
   </InertInteractionBoundary>;
 }

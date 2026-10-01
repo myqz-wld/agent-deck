@@ -141,6 +141,8 @@ export function ProviderModelThinkingFields({
   adapterOptions = ADAPTER_OPTIONS,
   providerOptions: suppliedProviderOptions,
   thinkingOptions,
+  children,
+  status,
   onAdapterChange,
   onRuntimeProviderChange,
   onModelChange,
@@ -157,6 +159,8 @@ export function ProviderModelThinkingFields({
   adapterOptions?: readonly DeckSelectOption<GeneratorAdapter>[];
   providerOptions?: readonly { id: string; name?: string }[];
   thinkingOptions?: readonly DeckSelectOption<SessionThinkingLevel>[];
+  children?: ReactNode;
+  status?: ReactNode;
   onAdapterChange: (value: GeneratorAdapter) => void;
   onRuntimeProviderChange: (value: string) => void;
   onModelChange: (value: string) => void;
@@ -209,7 +213,9 @@ export function ProviderModelThinkingFields({
       data-settings-field={label}
       className="flex flex-col gap-1.5 text-[11px]"
     >
-      <div className="font-medium text-deck-text/90">{label}</div>
+      <div className="flex items-center justify-between gap-2 font-medium text-deck-text/90">
+        <span>{label}</span>{status}
+      </div>
       <div
         data-generator-fields
         className="grid grid-cols-1 gap-x-3 gap-y-2 rounded-md border border-white/[0.06] bg-black/10 p-2 min-[420px]:grid-cols-3"
@@ -272,9 +278,10 @@ export function ProviderModelThinkingFields({
             menuMinWidth={140}
           />
         </GeneratorField>
-        <div className="border-t border-white/[0.05] pt-1.5 text-[10px] leading-snug text-deck-muted/60 min-[420px]:col-span-3">
+        {children && <div className="grid grid-cols-2 gap-3 min-[420px]:col-span-3">{children}</div>}
+        {hint && <div className="border-t border-white/[0.05] pt-1.5 text-[10px] leading-snug text-deck-muted/60 min-[420px]:col-span-3">
           {hint}
-        </div>
+        </div>}
       </div>
     </div>
   );

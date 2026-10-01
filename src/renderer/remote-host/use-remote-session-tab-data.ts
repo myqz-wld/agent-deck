@@ -4,6 +4,9 @@ import type { RemoteHostSessionMessagesDto } from '@shared/remote-host';
 import type { SessionDetailTabId } from '@renderer/components/SessionDetail/SessionDetailShell';
 import type { RemoteSessionSourceView } from './source-types';
 import { useRemoteConnectionScope } from './use-remote-connection-scope';
+import { RemoteReadCache } from '@shared/remote-read-cache';
+
+const messageCache = new RemoteReadCache<RemoteHostSessionMessagesDto>(24);
 
 interface TabValue<T> {
   key: string;
@@ -12,8 +15,8 @@ interface TabValue<T> {
   error: string | null;
 }
 
-function empty<T>(key: string): TabValue<T> {
-  return { key, value: null, loading: false, error: null };
+function empty(key: string): TabValue<RemoteHostSessionMessagesDto> {
+  return { key, value: messageCache.get(key), loading: false, error: null };
 }
 
 export interface RemoteSessionTabData {
@@ -35,14 +38,20 @@ export function useRemoteSessionTabData(
   currentBaseRef.current = baseKey;
   const flights = useRef(new Map<string, Promise<void>>());
   const dirty = useRef(new Set<string>());
+  const mounted = useRef(true);
   const [retryVersion, setRetryVersion] = useState(0);
   const [messages, setMessages] = useState<TabValue<RemoteHostSessionMessagesDto>>(
     () => empty(baseKey),
   );
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; dirty.current.clear(); };
+  }, []);
 
   useEffect(() => {
+    if (!source.usable) messageCache.clear();
     setMessages(empty(baseKey));
-  }, [baseKey]);
+  }, [baseKey, source.usable]);
 
   const schedule = useCallback((): void => {
     if (!source.usable || !session || !source.profile) return;
@@ -63,7 +72,8 @@ export function useRemoteSessionTabData(
       limit: 100,
     });
     const flight = request.then((value) => {
-      if (currentBaseRef.current !== baseKey) return;
+      if (!mounted.current || currentBaseRef.current !== baseKey) return;
+      messageCache.set(baseKey, value);
       setMessages({
         key: baseKey,
         value,
@@ -71,7 +81,7 @@ export function useRemoteSessionTabData(
         error: null,
       });
     }).catch(() => {
-      if (currentBaseRef.current !== baseKey) return;
+      if (!mounted.current || currentBaseRef.current !== baseKey) return;
       setMessages((current) => ({
         ...(current.key === baseKey ? current : empty(baseKey)),
         loading: false,
@@ -79,7 +89,7 @@ export function useRemoteSessionTabData(
       }));
     }).finally(() => {
       flights.current.delete(operationKey);
-      if (dirty.current.delete(operationKey) && currentBaseRef.current === baseKey) {
+      if (dirty.current.delete(operationKey) && mounted.current && currentBaseRef.current === baseKey) {
         setRetryVersion((value) => value + 1);
       }
     });

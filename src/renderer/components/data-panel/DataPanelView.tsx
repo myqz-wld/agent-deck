@@ -5,6 +5,7 @@ import { buildFreshLiveByBucket, rankLiveAwareBuckets, type LiveRateEntry } from
 import { RefreshIcon } from '../icons';
 import { formatTokenCount, TokenTotalCard } from './TokenTotalCard';
 import { ProviderUsageReset, type ConsumeProviderReset } from './ProviderUsageReset';
+import { useDelayedAsyncFallback } from '@renderer/hooks/useDelayedAsyncFallback';
 
 interface DataPanelViewProps {
   rates: TokenRateRow[];
@@ -15,6 +16,7 @@ interface DataPanelViewProps {
   daily: TokenDailyRow[];
   today: string | null;
   dailyLoading: boolean;
+  dailyInitialized?: boolean;
   dailyError: string | null;
   dailyTruncated: boolean;
   usageSnapshots: ProviderUsageSnapshot[];
@@ -27,6 +29,10 @@ interface DataPanelViewProps {
 }
 
 export function DataPanelView(props: DataPanelViewProps): JSX.Element {
+  const identity = props.usageSourceKey ?? 'local';
+  const showUsageLoading = useDelayedAsyncFallback(props.usageLoading, `${identity}:providers`);
+  const showRatesLoading = useDelayedAsyncFallback(props.ratesLoading, `${identity}:rates`);
+  const showDailyLoading = useDelayedAsyncFallback(props.dailyLoading, `${identity}:daily`);
   const liveRates = useMemo(() => {
     const freshLive = buildFreshLiveByBucket(props.liveBySession, Date.now());
     const rateByBucket = new Map(
@@ -39,7 +45,7 @@ export function DataPanelView(props: DataPanelViewProps): JSX.Element {
     })).filter((row) => row.tps > 0);
   }, [props.liveBySession, props.rates]);
   const totalTps = liveRates.reduce((sum, row) => sum + row.tps, 0);
-  const totalsUnavailable = props.today === null || props.dailyLoading || props.dailyError !== null;
+  const totalsUnavailable = props.today === null || !(props.dailyInitialized ?? !props.dailyLoading) || props.dailyError !== null;
   const todayTotals = useMemo(
     () => totalsUnavailable
       ? emptyTotals()
@@ -59,7 +65,7 @@ export function DataPanelView(props: DataPanelViewProps): JSX.Element {
             </span>
           )}
           <div className="ml-auto flex min-w-0 items-center gap-2">
-            {props.usageLoading && (
+            {showUsageLoading && props.usageSnapshots.length > 0 && (
               <span className="shrink-0 text-[10px] text-deck-muted/60">
                 {props.usageSnapshots.length > 0 ? '刷新中' : '读取中'}
               </span>
@@ -82,12 +88,12 @@ export function DataPanelView(props: DataPanelViewProps): JSX.Element {
             {props.usageSnapshots.map((snapshot) => (
               <ProviderUsageCard key={snapshot.provider} snapshot={snapshot}
                 sourceKey={props.usageSourceKey ?? 'local'}
-                consumeReset={props.usageError || props.usageLoading ? undefined : props.onConsumeReset} />
+                consumeReset={props.onConsumeReset} resetDisabled={Boolean(props.usageError) || props.usageLoading} />
             ))}
           </div>
         ) : (
-          <div className="text-[10px] text-deck-muted/60">
-            {props.usageLoading ? '正在读取额度信息' : '暂无额度信息'}
+          <div className="min-h-4 text-[10px] text-deck-muted/60">
+            {showUsageLoading ? '正在读取额度信息' : props.usageLoading ? null : '暂无额度信息'}
           </div>
         )}
       </section>
@@ -117,8 +123,8 @@ export function DataPanelView(props: DataPanelViewProps): JSX.Element {
             ))}
           </div>
         ) : (
-          <div className="text-[10px] text-deck-muted/60">
-            {props.ratesLoading ? '正在读取输出速率' : '当前 60 秒内无输出'}
+          <div className="min-h-4 text-[10px] text-deck-muted/60">
+            {showRatesLoading ? '正在读取输出速率' : props.ratesLoading ? null : '当前 60 秒内无输出'}
           </div>
         )}
       </section>
@@ -127,7 +133,7 @@ export function DataPanelView(props: DataPanelViewProps): JSX.Element {
         <div className="mb-1 flex items-center gap-2 text-deck-muted">
           <span className="font-medium text-deck-text">今日 Token</span>
           <span className="text-[10px] tabular-nums text-deck-muted/70">
-            {props.today ?? (props.dailyError ? '读取失败' : '读取中')}
+            {props.today ?? '—'}
           </span>
           <span className="ml-auto text-[10px] text-deck-muted/60">总量 / 分项</span>
         </div>
@@ -156,8 +162,8 @@ export function DataPanelView(props: DataPanelViewProps): JSX.Element {
           <span className="text-[10px] text-deck-muted/60">“其中”已计入左侧总量</span>
         </div>
         {props.daily.length > 0 ? <DailyTable rows={props.daily} /> : (
-          <div className="text-[10px] text-deck-muted/60">
-            {props.dailyLoading ? '正在读取使用记录' : props.dailyError ? '使用记录读取失败' : '暂无使用记录'}
+          <div className="min-h-4 text-[10px] text-deck-muted/60">
+            {showDailyLoading ? '正在读取使用记录' : props.dailyLoading || props.dailyError ? null : '暂无使用记录'}
           </div>
         )}
         {props.dailyError && (
@@ -214,10 +220,11 @@ function DailyRow({ row }: { row: TokenDailyRow }): JSX.Element {
 
 const HIDDEN_CODEX_QUOTAS = new Set(['gpt-reserve', 'gpt-5.3-codex-spark']);
 
-function ProviderUsageCard({ snapshot, sourceKey, consumeReset }: {
+function ProviderUsageCard({ snapshot, sourceKey, consumeReset, resetDisabled }: {
   snapshot: ProviderUsageSnapshot;
   sourceKey: string;
   consumeReset?: ConsumeProviderReset;
+  resetDisabled?: boolean;
 }): JSX.Element {
   const windows = snapshot.windows.filter((window) => {
     if (snapshot.provider !== 'codex-cli') return true;
@@ -247,7 +254,7 @@ function ProviderUsageCard({ snapshot, sourceKey, consumeReset }: {
         </div>
       )}
       <div className="mt-1 text-[10px] tabular-nums text-deck-muted/50">更新 {formatClock(snapshot.updatedAt)}</div>
-      <ProviderUsageReset snapshot={snapshot} sourceKey={sourceKey} consume={consumeReset} />
+      <ProviderUsageReset snapshot={snapshot} sourceKey={sourceKey} consume={consumeReset} disabled={resetDisabled} />
     </div>
   );
 }

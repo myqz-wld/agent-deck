@@ -2,10 +2,7 @@ import { useEffect, useId, useRef, useState, type JSX } from 'react';
 import { CloseIcon } from './icons';
 import { DEFAULT_SETTINGS, type AppSettings, type HookInstallStatus } from '@shared/types';
 import { SectionGroup } from './settings/controls';
-import {
-  HookSection,
-  type HookStatusPresentation,
-} from './settings/sections/HookSection';
+import { HookSection } from './settings/sections/HookSection';
 import { NotifySection } from './settings/sections/NotifySection';
 import { LifecycleSection } from './settings/sections/LifecycleSection';
 import { ContinuationContextSection } from './settings/sections/ContinuationContextSection';
@@ -21,13 +18,12 @@ import { LogsSection } from './settings/sections/LogsSection';
 import { AdapterConfigHelp } from './settings/AdapterConfigHelp';
 import { ResetSettingsButton } from './settings/ResetSettingsButton';
 import { useModalFocus } from './use-modal-focus';
-import type { NodeConfigurationGetResult } from '@contracts/index';
-import { FeishuPreferencesSection, type FeishuPreferencesSource } from './settings/FeishuPreferencesSection';
+import { FeishuPreferencesSection } from './settings/FeishuPreferencesSection';
+import { useSettingsDialogRead, type RemoteSettingsSource } from './settings/use-settings-dialog-read';
 import { HOOK_FAILURE_COPY, type HookAdapterId } from './settings/hook-failure-copy';
 import { presentRemoteSettings } from './settings/remote-settings-presentation';
 import {
   presentLocalHookStatus,
-  presentRemoteHookStatus,
 } from './settings/hook-status-presentation';
 import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
 import { remoteHookUnavailableReason } from './settings/remote-settings-availability';
@@ -35,14 +31,7 @@ import { remoteHookUnavailableReason } from './settings/remote-settings-availabi
 interface Props {
   open: boolean;
   onClose: () => void;
-  remote?: FeishuPreferencesSource & {
-    identity: string;
-    label: string;
-    profileId: string | null;
-    supportsNodeConfiguration: boolean;
-    supportsNodeHooksRead: boolean;
-    usable: boolean;
-  } | null;
+  remote?: RemoteSettingsSource | null;
 }
 
 /**
@@ -52,30 +41,24 @@ interface Props {
 export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Element | null {
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
-  const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [claudeHookStatus, setClaudeHookStatus] = useState<HookStatusPresentation | null>(null);
-  const [codexHookStatus, setCodexHookStatus] = useState<HookStatusPresentation | null>(null);
-  const [grokHookStatus, setGrokHookStatus] = useState<HookStatusPresentation | null>(null);
-  const [nodeConfiguration, setNodeConfiguration] =
-    useState<NodeConfigurationGetResult | null>(null);
-  const [nodeConfigurationFailed, setNodeConfigurationFailed] = useState(false);
+  const read = useSettingsDialogRead(open, remote);
+  const { setSettings, setHookStatus } = read;
+  const settings = read.value?.settings ?? null;
+  const claudeHookStatus = read.value?.hooks['claude-code'] ?? null;
+  const codexHookStatus = read.value?.hooks['codex-cli'] ?? null;
+  const grokHookStatus = read.value?.hooks['grok-build'] ?? null;
+  const nodeConfiguration = read.value?.nodeConfiguration ?? null;
+  const loadError = read.value?.loadError ?? null;
   const [busy, setBusy] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   /** Reopen on the general tab so every settings visit starts from the overview. */
   const [activeTab, setActiveTab] = useState<
     'general' | 'claude' | 'codex' | 'grok'
   >('general');
   /** Keep action failures separate from load failures so neither hides the other. */
   const [actionError, setActionError] = useState<string | null>(null);
-  /** Ignore responses from an earlier open cycle. */
-  const openSeqRef = useRef(0);
   /** Ignore stale update responses when multiple controls change in quick succession. */
   const updateSeqRef = useRef(0);
-  const remoteAuthorityKey = remote
-    ? `${remote.identity}\u0000${remote.profileId ?? ''}\u0000${remote.usable ? 'ready' : 'offline'}` +
-      `\u0000${remote.supportsNodeConfiguration ? 'supported' : 'unsupported'}`
-      + `\u0000${remote.supportsNodeHooksRead ? 'hooks-read' : 'hooks-no-read'}`
-    : 'local';
+  const remoteAuthorityKey = read.authorityKey;
   const remoteAuthorityRef = useRef(remoteAuthorityKey);
   remoteAuthorityRef.current = remoteAuthorityKey;
   const initialPresentation = useInitialAsyncPresentation(
@@ -84,94 +67,11 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
   );
 
   useEffect(() => {
-    if (!open) return;
-    const seq = ++openSeqRef.current;
     updateSeqRef.current += 1;
-    const authority = remoteAuthorityKey;
-    const current = (): boolean =>
-      seq === openSeqRef.current && remoteAuthorityRef.current === authority;
-    setLoadError(null);
     setActionError(null);
     setBusy(false);
-    setActiveTab('general');
-    setClaudeHookStatus(null);
-    setCodexHookStatus(null);
-    setGrokHookStatus(null);
-    setNodeConfiguration(null);
-    setNodeConfigurationFailed(false);
-    void window.api
-      .getSettings()
-      .then((s) => {
-        if (!current()) return;
-        setSettings(s);
-      })
-      .catch(() => {
-        if (!current()) return;
-        setLoadError(remote
-          ? '本机桌面外观与提醒设置读取失败，请重试。'
-          : '设置读取失败，请重试。');
-        // A read failure still leaves the complete default form available for recovery.
-        setSettings((prev) => prev ?? { ...DEFAULT_SETTINGS });
-      });
-    const appendLoadError = (message: string): void => {
-      if (!current()) return;
-      setLoadError((prev) => (prev ? `${prev}\n${message}` : message));
-    };
-    const setStatus = (adapterId: HookAdapterId, status: HookStatusPresentation): void => {
-      if (!current()) return;
-      if (adapterId === 'claude-code') setClaudeHookStatus(status);
-      else if (adapterId === 'codex-cli') setCodexHookStatus(status);
-      else setGrokHookStatus(status);
-    };
-    if (remote) {
-      if (remote.usable && remote.profileId) {
-        if (remote.supportsNodeConfiguration) {
-          void window.api.getRemoteHostNodeConfiguration({ profileId: remote.profileId })
-            .then((value) => {
-              if (current()) setNodeConfiguration(value);
-            })
-            .catch(() => {
-              if (!current()) return;
-              setNodeConfigurationFailed(true);
-              appendLoadError('远端设置读取失败，请重新连接后重试。');
-            });
-        }
-        if (remote.supportsNodeHooksRead) {
-          for (const adapterId of Object.keys(HOOK_FAILURE_COPY) as HookAdapterId[]) {
-            void window.api.getRemoteHostNodeHookStatus({
-              profileId: remote.profileId,
-              adapterId,
-            }).then((value) => {
-              if (value.adapterId !== adapterId) {
-                appendLoadError(HOOK_FAILURE_COPY[adapterId].status);
-                return;
-              }
-              setStatus(
-                adapterId,
-                presentRemoteHookStatus(value.status),
-              );
-            }).catch(() => appendLoadError(HOOK_FAILURE_COPY[adapterId].status));
-          }
-        }
-      }
-    } else {
-      for (const adapterId of Object.keys(HOOK_FAILURE_COPY) as HookAdapterId[]) {
-        void window.api.hookStatus('user', undefined, adapterId)
-          .then((value) => setStatus(
-            adapterId,
-            presentLocalHookStatus(value as HookInstallStatus),
-          ))
-          .catch(() => appendLoadError(HOOK_FAILURE_COPY[adapterId].status));
-      }
-    }
-  }, [
-    open,
-    remote?.identity,
-    remote?.profileId,
-    remote?.supportsNodeConfiguration,
-    remote?.supportsNodeHooksRead,
-    remote?.usable,
-  ]);
+    if (open) setActiveTab('general');
+  }, [open, remoteAuthorityKey]);
 
   useModalFocus({ blocked: busy, dialogRef, onClose, open });
 
@@ -194,11 +94,6 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
     }
   };
 
-  const setHookStatus = (adapterId: HookAdapterId, status: HookStatusPresentation): void => {
-    if (adapterId === 'claude-code') setClaudeHookStatus(status);
-    else if (adapterId === 'codex-cli') setCodexHookStatus(status);
-    else setGrokHookStatus(status);
-  };
   const installHook = async (adapterId: HookAdapterId): Promise<void> => {
     if (remote) return;
     const seq = ++updateSeqRef.current;
@@ -281,7 +176,7 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
 
         {!settings ? (
           initialPresentation === 'fallback'
-            ? <div className="py-6 text-center text-[11px] text-deck-muted">读取设置中…</div>
+            ? <div role="status" className="py-6 text-center text-[11px] text-deck-muted">读取设置中…</div>
             : <div className="min-h-12" aria-hidden="true" />
         ) : (
           <>
@@ -325,14 +220,10 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
               <>
                 {remote && (
                   <SectionGroup title="飞书机器人">
-                    <FeishuPreferencesSection source={remote} />
+                    <FeishuPreferencesSection source={remote} managed={read.feishu} />
                   </SectionGroup>
                 )}
-                {remote && remoteConfigurationStatus(
-                  remote,
-                  nodeConfiguration,
-                  nodeConfigurationFailed,
-                )}
+                {remote && remoteConfigurationStatus(remote)}
 
                 <SectionGroup title="会话">
                   {remoteSettingsReady && (
@@ -466,11 +357,9 @@ function remoteConfigurationUnavailableReason(remote: NonNullable<Props['remote'
 
 function remoteConfigurationStatus(
   remote: NonNullable<Props['remote']>,
-  configuration: NodeConfigurationGetResult | null,
-  failed: boolean,
 ): JSX.Element | null {
   const unavailableReason = remoteConfigurationUnavailableReason(remote);
-  const message = unavailableReason ?? (!configuration && !failed ? '正在读取远端设置…' : null);
+  const message = unavailableReason;
   if (!message) return null;
   return (
     <div role="status" className="mb-3 text-[11px] text-deck-muted">

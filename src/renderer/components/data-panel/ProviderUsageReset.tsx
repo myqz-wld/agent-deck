@@ -7,11 +7,12 @@ import { RefreshIcon } from '../icons';
 export type ConsumeProviderReset = (request: ProviderUsageResetRequest) => Promise<ProviderUsageResetResult>;
 
 export function ProviderUsageReset({
-  snapshot, sourceKey, consume,
+  snapshot, sourceKey, consume, disabled = false,
 }: {
   snapshot: ProviderUsageSnapshot;
   sourceKey: string;
   consume?: ConsumeProviderReset;
+  disabled?: boolean;
 }): JSX.Element | null {
   const credit = snapshot.resetCredits;
   const accountId = credit?.accountId;
@@ -28,7 +29,7 @@ export function ProviderUsageReset({
   const count = credit.availableCount;
   const available = count !== null && count > 0 && !!accountId && !!consume;
   const useReset = async (): Promise<void> => {
-    if (!available || !consume || !accountId || count === null) return;
+    if (disabled || !available || !consume || !accountId || count === null) return;
     if ((useUsageResetStore.getState().entries[key] ?? EMPTY_USAGE_RESET).phase !== 'idle') return;
     const signal = lifetime.current?.signal;
     if (!signal || signal.aborted) return;
@@ -67,7 +68,7 @@ export function ProviderUsageReset({
       {available && <button
         type="button"
         onClick={() => void useReset()}
-        disabled={state.phase !== 'idle'}
+        disabled={disabled || state.phase !== 'idle'}
         aria-label="为 Codex CLI 使用 1 次重置"
         className="ml-auto inline-flex items-center gap-1 rounded border border-status-working/25 bg-status-working/10 px-1.5 py-0.5 text-[10px] leading-4 text-status-working hover:bg-status-working/20 disabled:cursor-not-allowed disabled:opacity-50"
       >

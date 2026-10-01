@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-10-01 | `PLAN_81_remote-ui-readiness.md` | completed | Retain Remote views and autosave assistant selections | `REVIEW_311_remote-ui-readiness.md` |
 | 2026-10-01 | `PLAN_80_feishu-assistant-settings-flow.md` | completed | Simplify assistant settings and apply 150 ms readiness | `CHANGELOG_671_feishu-assistant-settings-flow.md` |
 | 2026-09-30 | `PLAN_79_feishu-markdown-activation.md` | completed | Activate rich replies and consolidate accepted Feishu operations | `REVIEW_310_feishu-markdown-replies.md` |
 | 2026-09-30 | `PLAN_78_feishu-operations-approval-activation.md` | completed | Accept native operations and activate approval/voice refinements | `REVIEW_308_feishu-expired-approvals.md` |

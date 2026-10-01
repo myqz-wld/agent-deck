@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FileChangePayload } from '@shared/types';
 import { LOCAL_FILE_CHANGES, type FileChangeReader } from '../diff/file-change-reader';
+import { RemoteReadCache } from '@shared/remote-read-cache';
 
 interface UseFileChangePayloadArgs {
   sessionId: string;
@@ -17,6 +18,8 @@ interface PayloadState {
 }
 
 const MAX_CACHE_CHARS = 4 * 1024 * 1024;
+type PayloadEntries = Map<number, { payload: FileChangePayload; size: number }>;
+const retainedPayloads = new RemoteReadCache<PayloadEntries>(8);
 
 /** Shared Local/Remote lazy read, bounded cache, and stale source/session protection. */
 export function useFileChangePayload({
@@ -26,8 +29,8 @@ export function useFileChangePayload({
   const key = JSON.stringify([identity, selectedChangeId]);
   const readerRef = useRef(reader);
   readerRef.current = reader;
-  const cache = useRef({ identity, entries: new Map<number, { payload: FileChangePayload; size: number }>() });
-  if (cache.current.identity !== identity) cache.current = { identity, entries: new Map() };
+  const cache = useRef({ identity, entries: retainedPayloads.get(identity) ?? new Map<number, { payload: FileChangePayload; size: number }>() });
+  if (cache.current.identity !== identity) cache.current = { identity, entries: retainedPayloads.get(identity) ?? new Map() };
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<PayloadState>({
     key: '', selectedPayload: null, payloadLoading: false, payloadError: null,
@@ -64,6 +67,7 @@ export function useFileChangePayload({
           total -= entries.get(oldest)!.size;
           entries.delete(oldest);
         }
+        retainedPayloads.set(identity, entries);
       }
       setState({ ...empty, selectedPayload: payload });
     }).catch((error: unknown) => {

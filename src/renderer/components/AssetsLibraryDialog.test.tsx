@@ -278,6 +278,20 @@ describe('AssetsLibraryDialog source authority', () => {
     for (const call of Object.values(local)) expect(call).not.toHaveBeenCalled();
   });
 
+  it('keeps the catalog visible when reopening while revalidating it', async () => {
+    const { remote } = installApi();
+    const remoteProps = { identity: 'remote-a:core-a:1', label: 'Remote test', profileId: 'remote-a',
+      supportsNodeAssets: true, usable: true };
+    const mounted = render(<AssetsLibraryDialog open onClose={vi.fn()} remote={remoteProps} />);
+    await screen.findByText('agent-deck:claude-code:deep-review');
+    mounted.unmount();
+    remote.listRemoteHostNodeAssets.mockReturnValue(new Promise(() => undefined));
+    render(<AssetsLibraryDialog open onClose={vi.fn()} remote={remoteProps} />);
+    expect(screen.getByText('agent-deck:claude-code:deep-review')).toBeTruthy();
+    await waitFor(() => expect(remote.listRemoteHostNodeAssets).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText(/正在读取/)).toBeNull();
+  });
+
   it('starts a fresh catalog read immediately after the same remote reconnects', async () => {
     const { remote } = installApi();
     const normalSnapshot = await remote.listRemoteHostNodeAssets({ profileId: 'fixture' });

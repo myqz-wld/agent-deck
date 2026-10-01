@@ -3,13 +3,15 @@
  * load in the Node or happy-dom test environments. Tests can override these mocks locally.
  */
 
-import { vi } from 'vitest';
+import { beforeEach, vi } from 'vitest';
+import { clearRemoteReadCaches } from './src/shared/remote-read-cache';
 import path from 'node:path';
 import os from 'node:os';
 import { realpathSync } from 'node:fs';
 import { installApplicationHostPaths } from './src/main/runtime-host/application-paths';
 
 const applicationTestRoot = path.join(realpathSync(os.tmpdir()), 'agent-deck-test');
+beforeEach(clearRemoteReadCaches);
 installApplicationHostPaths({
   isPackaged: false,
   appPath: path.join(applicationTestRoot, 'app'),

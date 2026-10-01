@@ -207,6 +207,33 @@ describe('useRemoteSessionSource detail and mutation fencing', () => {
     expect(hook.result.current.selectedSession?.title).toBe('session B');
   });
 
+  it('restores a revisited detail while waiting for fresh runtime and input authority', async () => {
+    vi.mocked(window.api.getRemoteHostSession).mockResolvedValue(session('session-a', 'cached session A'));
+    const hosts = currentHosts('remote-a', 1);
+    hosts.snapshot!.states = hosts.snapshot!.states.map(state => ({ ...state, capabilities: [...state.capabilities, 'tasks'] }));
+    const hook = renderHook(() => useRemoteSessionSource(hosts));
+    await waitFor(() => expect(hook.result.current.sessions).toHaveLength(1));
+    act(() => hook.result.current.selectSession('session-a'));
+    await waitFor(() => expect(hook.result.current.selectedSession?.title).toBe('cached session A'));
+    await waitFor(() => expect(hook.result.current.busy).toBe(false));
+    await waitFor(() => expect(hook.result.current.tasks).not.toBeNull());
+    const fresh = deferred<ReturnType<typeof session>>();
+    vi.mocked(window.api.getRemoteHostSession).mockReturnValue(fresh.promise);
+    act(() => hook.result.current.selectSession(null));
+    act(() => hook.result.current.selectSession('session-a'));
+    expect(hook.result.current.selectedSession?.title).toBe('cached session A');
+    expect(hook.result.current.events).not.toBeNull();
+    expect(hook.result.current.tasks).not.toBeNull();
+    expect(hook.result.current.busy).toBe(true);
+    expect(hook.result.current.runtime).toBeNull();
+    expect(hook.result.current.inputCapabilities).toBeNull();
+    await act(async () => fresh.resolve(session('session-a', 'fresh session A')));
+    await waitFor(() => expect(hook.result.current.busy).toBe(false));
+    expect(hook.result.current.selectedSession?.title).toBe('fresh session A');
+    expect(hook.result.current.runtime).not.toBeNull();
+    expect(hook.result.current.inputCapabilities).not.toBeNull();
+  });
+
   it('keeps failed and missing replacement details from exposing the old session', async () => {
     vi.mocked(window.api.getRemoteHostSession).mockImplementation(async (request) => {
       if (request.sessionId === 'session-a') return session('session-a', 'session A');

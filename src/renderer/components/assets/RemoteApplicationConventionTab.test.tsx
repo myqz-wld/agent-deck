@@ -20,6 +20,24 @@ afterEach(() => {
 });
 
 describe('RemoteApplicationConventionTab readiness', () => {
+  it('restores a previously read adapter immediately while revalidating its document', async () => {
+    const read = vi.fn(async ({ adapterId }: { adapterId: string }) => ({ adapterId, content: `# ${adapterId}`, revision: 1 }));
+    window.api = { getRemoteHostNodeAssetConvention: read } as unknown as Window['api'];
+    render(<RemoteApplicationConventionTab catalogRevision={1} identity="remote-a:1"
+      label="Remote A" profileId="remote-a" onCatalogChanged={vi.fn()} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    fireEvent.click(screen.getByRole('button', { name: 'Codex CLI' }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(screen.getByDisplayValue('# codex-cli')).toBeTruthy();
+    read.mockReturnValue(new Promise(() => undefined));
+    fireEvent.click(screen.getByRole('button', { name: 'Claude Code' }));
+    expect(screen.getByDisplayValue('# claude-code')).toBeTruthy();
+    await act(() => vi.advanceTimersByTimeAsync(150));
+    expect(screen.getByDisplayValue('# claude-code')).toBeTruthy();
+    expect(screen.queryByText('正在读取应用约定…')).toBeNull();
+    expect(read).toHaveBeenCalledTimes(3);
+  });
+
   it('delays its initial loading copy until 150 ms', async () => {
     const request = deferred<{
       adapterId: 'claude-code';

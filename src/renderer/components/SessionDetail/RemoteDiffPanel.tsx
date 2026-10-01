@@ -8,6 +8,10 @@ import { useFileChangePayload } from './use-file-change-payload';
 import { DiffTab } from './DiffTab';
 import { useFileChangeSelection } from './use-file-change-selection';
 import { useFileChangePages } from './use-file-change-pages';
+import type { FileChangePages } from './file-change-pages';
+import { RemoteReadCache } from '@shared/remote-read-cache';
+
+const pageCache = new RemoteReadCache<FileChangePages>(16);
 
 type DiffMode = 'single' | 'final';
 
@@ -19,6 +23,7 @@ export function RemoteDiffPanel({ source }: { source: RemoteSessionSourceView })
   const { changes, error, hasMore, loadedCount, loadingMore, lastLoadSummary, loadMore, retry } =
     useFileChangePages({
       identity: workspaceKey,
+      cache: pageCache,
       enabled: true,
       revision: source.dataRevision,
       readPage: (cursor) => source.listFileChanges(cursor),

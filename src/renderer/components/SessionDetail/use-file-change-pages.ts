@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { FileChangePage } from '@shared/types';
+import type { RemoteReadCache } from '@shared/remote-read-cache';
 import {
   appendFileChangePage, EMPTY_FILE_CHANGE_PAGES, refreshFileChangePages,
   type FileChangeLoadSummary, type FileChangePages,
@@ -11,6 +12,7 @@ interface FileChangePagesOptions {
   revision?: number;
   readPage(cursor?: string): Promise<FileChangePage>;
   errorMessage(reason: unknown, more: boolean): string;
+  cache?: RemoteReadCache<FileChangePages>;
 }
 
 /** Shared paging policy; the caller retains source identity, authorization and transport reads. */
@@ -18,7 +20,7 @@ export function useFileChangePages(options: FileChangePagesOptions) {
   const { identity, enabled, revision } = options;
   const optionsRef = useRef(options);
   optionsRef.current = options;
-  const [pages, setPages] = useState<FileChangePages>(EMPTY_FILE_CHANGE_PAGES);
+  const [pages, setPages] = useState<FileChangePages>(() => options.cache?.get(identity) ?? EMPTY_FILE_CHANGE_PAGES);
   const pagesRef = useRef(pages);
   const generation = useRef(0);
   const paging = useRef(false);
@@ -29,13 +31,14 @@ export function useFileChangePages(options: FileChangePagesOptions) {
   const commit = useCallback((next: FileChangePages) => {
     pagesRef.current = next;
     setPages(next);
+    if (next.changes !== null) optionsRef.current.cache?.set(optionsRef.current.identity, next);
   }, []);
 
   useLayoutEffect(() => {
     generation.current += 1;
     paging.current = false;
     refreshing.current = false;
-    commit(EMPTY_FILE_CHANGE_PAGES);
+    commit(optionsRef.current.cache?.get(identity) ?? EMPTY_FILE_CHANGE_PAGES);
     setError(null);
     setLoadingMore(false);
     setLastLoadSummary(null);

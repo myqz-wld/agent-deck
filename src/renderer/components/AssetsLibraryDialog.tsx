@@ -19,6 +19,9 @@ import { errorMessage } from '@renderer/lib/error-message';
 import { useModalFocus } from './use-modal-focus';
 import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
 import { AssetsLibraryTabButton as TabBtn } from './AssetsLibraryTabButton';
+import { RemoteReadCache } from '@shared/remote-read-cache';
+
+const remoteAssetCache = new RemoteReadCache<Awaited<ReturnType<Window['api']['listRemoteHostNodeAssets']>>>(8);
 
 /**
  * 资产库 Dialog（CHANGELOG_57 / CHANGELOG_69 / CHANGELOG_137 / plan
@@ -52,9 +55,12 @@ interface Props {
 type TabKey = 'skills' | 'agents' | 'claude-md';
 
 export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JSX.Element | null {
+  const sourceKey = JSON.stringify([remote?.identity ?? 'local', remote?.profileId, remote?.usable, remote?.supportsNodeAssets]);
+  const cached = remote?.usable && remote.supportsNodeAssets ? remoteAssetCache.get(sourceKey) : null;
+  const [loadedSource, setLoadedSource] = useState(cached ? sourceKey : '');
   const [tab, setTab] = useState<TabKey>('skills');
-  const [bundled, setBundled] = useState<BundledAssetsSnapshot | null>(null);
-  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [bundled, setBundled] = useState<BundledAssetsSnapshot | null>(cached ? remoteAssetsSnapshot(cached.assets) : null);
+  const [settings, setSettings] = useState<AppSettings | null>(cached ? { ...DEFAULT_SETTINGS, ...cached.injection } : null);
   const [assetsTruncated, setAssetsTruncated] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -81,9 +87,9 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
   const remoteCatalogRevisionRef = useRef<number | null>(null);
   remoteIdentityRef.current = remoteIdentity;
   remoteUsableRef.current = remoteUsable;
-  const assetsReady = bundled !== null && settings !== null;
+  const assetsReady = loadedSource === sourceKey && bundled !== null && settings !== null;
   const initialPresentation = useInitialAsyncPresentation(
-    open && !assetsReady && loadError === null,
+    open && !assetsReady && (loadError === null || loadedSource !== sourceKey),
     `${remoteIdentity ?? 'local'}:${open ? 'open' : 'closed'}:${remoteCatalogRefresh}:assets`,
   );
 
@@ -95,6 +101,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
   }, []);
 
   useEffect(() => {
+    if (remoteIdentity !== null && !remoteUsable) remoteAssetCache.clear();
     ++viewerSeqRef.current;
     setViewer(null);
     setBundledAgentEditor(null);
@@ -107,33 +114,43 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
       ++viewerSeqRef.current;
       setViewer(null);
       setBundledAgentEditor(null);
-      setBundled(null);
-      setSettings(null);
       return;
     }
     const seq = ++fetchSeqRef.current;
     const fetchIdentity = remoteIdentity;
     setUpdateError(null);
     setLoadError(null);
-    setBundled(null);
-    setSettings(null);
-    setAssetsTruncated(false);
-    remoteCatalogRevisionRef.current = null;
+    const retained = remoteUsable && remoteSupportsNodeAssets ? remoteAssetCache.get(sourceKey) : null;
+    if (retained) {
+      setBundled(remoteAssetsSnapshot(retained.assets));
+      setSettings({ ...DEFAULT_SETTINGS, ...retained.injection });
+      setAssetsTruncated(retained.assetsTruncated);
+      setLoadedSource(sourceKey);
+      remoteCatalogRevisionRef.current = retained.revision;
+    } else if (loadedSource !== sourceKey) {
+      setBundled(null);
+      setSettings(null);
+      setAssetsTruncated(false);
+      remoteCatalogRevisionRef.current = null;
+    }
     if (remoteIdentity !== null) {
       claudeMdDirtyRef.current = false;
       if (!remoteUsable) {
+        setLoadedSource(sourceKey);
         setLoadError('当前远端环境尚未连接，暂时无法读取资产。');
         return;
       }
       if (!remoteSupportsNodeAssets) {
+        setLoadedSource(sourceKey);
         setLoadError('当前远端版本不支持读取资产，请升级后重试。');
         return;
       }
       if (remoteProfileId === null) {
+        setLoadedSource(sourceKey);
         setLoadError('当前远端连接信息不完整，暂时无法读取资产。');
         return;
       }
-      void window.api.listRemoteHostNodeAssets({ profileId: remoteProfileId })
+      void remoteAssetCache.read(sourceKey, () => window.api.listRemoteHostNodeAssets({ profileId: remoteProfileId }))
         .then((result) => {
           if (
             seq !== fetchSeqRef.current || remoteIdentityRef.current !== fetchIdentity ||
@@ -144,12 +161,14 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
           setBundled(next);
           setSettings({ ...DEFAULT_SETTINGS, ...result.injection });
           setAssetsTruncated(result.assetsTruncated);
+          setLoadedSource(sourceKey);
         })
         .catch(() => {
           if (
             seq !== fetchSeqRef.current || remoteIdentityRef.current !== fetchIdentity ||
             !remoteUsableRef.current
           ) return;
+          setLoadedSource(sourceKey);
           setLoadError('远端资产读取失败，请检查连接后重试。');
         });
       return;
@@ -169,6 +188,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
         setSettings((prev) => prev ?? { ...DEFAULT_SETTINGS });
       }
       setLoadError(errs.length > 0 ? errs.join('\n') : null);
+      setLoadedSource(sourceKey);
     });
   }, [
     open,
@@ -177,6 +197,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
     remoteCatalogRefresh,
     remoteSupportsNodeAssets,
     remoteUsable,
+    sourceKey,
   ]);
 
   const refreshBundled = (): void => {
@@ -361,7 +382,7 @@ export function AssetsLibraryDialog({ open, onClose, remote = null }: Props): JS
           </div>
         )}
 
-        {loadError && (
+        {loadError && loadedSource === sourceKey && (
           <div className="mb-3 rounded border border-status-waiting/40 bg-status-waiting/10 p-2 text-[11px] text-status-waiting whitespace-pre-wrap">
             {loadError}
           </div>

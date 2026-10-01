@@ -136,6 +136,7 @@ function RemoteDataPanel({ remoteUsage }: { remoteUsage: RemoteUsageSourceView }
     daily={remoteUsage.daily}
     today={remoteUsage.today}
     dailyLoading={remoteUsage.dailyLoading}
+    dailyInitialized={remoteUsage.dailyInitialized}
     dailyError={remoteUsage.dailyError}
     dailyTruncated={remoteUsage.dailyTruncated}
     usageSnapshots={remoteUsage.providerSnapshots}

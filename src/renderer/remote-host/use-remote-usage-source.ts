@@ -24,6 +24,7 @@ export interface RemoteUsageSourceView {
   today: string | null;
   daily: TokenDailyRow[];
   dailyLoading: boolean;
+  dailyInitialized?: boolean;
   dailyError: string | null;
   dailyTruncated: boolean;
   providerSnapshots: ProviderUsageSnapshot[];
@@ -57,6 +58,7 @@ export function useRemoteUsageSource(
   const [today, setToday] = useState<string | null>(null);
   const [daily, setDaily] = useState<TokenDailyRow[]>([]);
   const [dailyLoading, setDailyLoading] = useState(false);
+  const [dailyInitialized, setDailyInitialized] = useState(false);
   const [dailyError, setDailyError] = useState<string | null>(null);
   const [dailyTruncated, setDailyTruncated] = useState(false);
   const [providerSnapshots, setProviderSnapshots] = useState<ProviderUsageSnapshot[]>([]);
@@ -100,6 +102,7 @@ export function useRemoteUsageSource(
     setToday(null);
     setDaily([]);
     setDailyLoading(false);
+    setDailyInitialized(false);
     setDailyError(null);
     setDailyTruncated(false);
     setProviderSnapshots([]);
@@ -136,6 +139,7 @@ export function useRemoteUsageSource(
       }
       if (includeDaily) {
         setDaily(result.daily);
+        setDailyInitialized(true);
         setDailyTruncated(result.dailyTruncated);
         setDailyLoading(false);
       }
@@ -301,6 +305,7 @@ export function useRemoteUsageSource(
     today: enabled ? today : null,
     daily: enabled ? daily : [],
     dailyLoading: enabled && dailyLoading,
+    dailyInitialized: enabled && dailyInitialized,
     dailyError: enabled ? dailyError : null,
     dailyTruncated: enabled && dailyTruncated,
     providerSnapshots: enabled ? providerSnapshots : [],
@@ -311,7 +316,7 @@ export function useRemoteUsageSource(
     loadProviders,
     consumeReset,
   }), [
-    daily, dailyError, dailyLoading, dailyTruncated, enabled, loadProviders, loadTokens, consumeReset,
+    daily, dailyError, dailyLoading, dailyInitialized, dailyTruncated, enabled, loadProviders, loadTokens, consumeReset,
     providerError, providerFetchedAt, providerLoading, providerSnapshots, rates, ratesError,
     ratesLoading, source.identity, today, topToday,
   ]);
