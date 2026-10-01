@@ -78,8 +78,11 @@ protocol change, prompt edit or model/policy update is required.
 
 ## Residual risk and activation
 
-This record covers source validation. Installed Desktop/Worker activation and the owner's Remote
-page check are pending. Existing origin records already pruned by an older release cannot be
+Installed Desktop/Worker activation is independently accepted in
+[PLAN_76](../../plans/recent-3-days/PLAN_76_remote-worker-activation.md): nine concurrent live reads
+complete without reconnecting, and existing work is independently projected with preserved native
+controls. The owner also confirmed normal Remote detail rendering. Existing origin records
+already pruned by an older release cannot be
 inferred from arbitrary parent links; such links are deliberately preserved. Retained provenance
 uses one existing creation result per work session and does not store new message bodies.
 The earlier warm-channel stall remains unproven and is not retroactively attributed to this bug.

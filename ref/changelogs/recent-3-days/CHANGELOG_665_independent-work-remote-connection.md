@@ -28,7 +28,9 @@ The merged release passes 6,913 tests with six skips (three original and three o
 Gateway cases from the separately completed main change). Type/architecture, application build, headless and
 deployment checks pass. Read-only live reproduction and regression details are recorded in
 [REVIEW_307](../../reviews/recent-3-days/REVIEW_307_remote-worker-backpressure.md).
-Installed Desktop/Worker acceptance is pending; current model choices and pairing remain intact.
+Installed Desktop/Worker acceptance is recorded in
+[PLAN_76](../../plans/recent-3-days/PLAN_76_remote-worker-activation.md): concurrent reads remain
+connected and existing owner work is independent. Model choices and pairing remain intact.
 
 ## Do Not Split Protection
 
