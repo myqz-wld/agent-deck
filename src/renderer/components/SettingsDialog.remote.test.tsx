@@ -116,7 +116,6 @@ function settingsFieldStructure(container: HTMLElement): Array<[string, string[]
 }
 
 const GENERAL_STRUCTURE: Array<[string, string[]]> = [
-  ['飞书机器人', []],
   ['会话', ['生命周期', '会话续接上下文', '间歇总结']],
   ['提醒与外观', ['提醒', '窗口', '快捷键']],
   ['集成与运行环境', ['Hook Server（本地端口）', '外部工具', '实验功能', '日志']],
@@ -189,7 +188,7 @@ describe('SettingsDialog adapter views', () => {
     expect(remoteHookStatus).toHaveBeenCalledTimes(3);
   });
 
-  it('uses the exact Local group and section hierarchy in Remote general settings', async () => {
+  it('preserves the Local settings hierarchy with Feishu preferences only in Remote settings', async () => {
     const hookStatus = vi.fn().mockResolvedValue({
       installed: false,
       scope: 'user',
@@ -242,8 +241,7 @@ describe('SettingsDialog adapter views', () => {
     const remoteStructure = settingsStructure(remoteView.container);
     expandAllSettingsSections(remoteView.container);
     const remoteFields = settingsFieldStructure(remoteView.container);
-    expect(remoteStructure).toEqual(localStructure);
-    expect(remoteStructure).toEqual(GENERAL_STRUCTURE);
+    expect(remoteStructure).toEqual([['飞书机器人', []], ...localStructure]);
     expect(remoteFields).toEqual(localFields);
     const desktopOwnedSections = new Set(['提醒', '窗口', '快捷键', '日志']);
     for (const section of remoteView.container.querySelectorAll<HTMLElement>(

@@ -15,4 +15,3 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
-| 2026-09-23 | `PLAN_56_enter-worktree-preparation-timeout.md` | completed | Bound enter preparation and preserve late-result safety | REVIEW_277 |

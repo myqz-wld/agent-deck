@@ -114,8 +114,12 @@ cards, action values, history, diffs, blobs, secrets, paths, or Core frames.
 
 ## Delivery and group-chat behavior
 
-In a paired p2p chat, `/settings` manages separate last selections for bot conversations and new
-work sessions. The same configuration is available in the connected Core's Desktop settings.
+In a paired p2p chat, `/settings` reports assistant settings and the last work-session selection.
+The connected Core's Desktop settings show only the assistant configuration. Work-session choices
+are made during creation and remembered automatically, independently of Desktop's last-used choices.
+The assistant asks for a first adapter choice directly in the creation conversation; a separate
+settings step is unnecessary. `/create <adapter-id> <directory> -- <message>` does the same explicitly,
+and subsequent `/new [task]` requests reuse the last selection.
 `/models [adapter-id] [provider]` lists live choices. Save a choice with
 `/settings chat <adapter-id>` or `/settings session <adapter-id>`, optionally followed by a JSON
 object containing `model`, `provider`, `thinking`, and adapter-native mode/sandbox fields:

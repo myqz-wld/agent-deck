@@ -86,4 +86,4 @@ source validation. Historical causality remains unproven, and acceptance in an
 updated runtime remains a separate follow-up. If the symptom recurs, determine
 whether the request reached the backend before making further lifecycle changes.
 
-Related plan: [PLAN_56](../../plans/recent-week/PLAN_56_enter-worktree-preparation-timeout.md).
+Related plan: [PLAN_56](../../plans/recent-month/PLAN_56_enter-worktree-preparation-timeout.md).

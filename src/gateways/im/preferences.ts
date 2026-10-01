@@ -44,10 +44,10 @@ export function preferenceLabel(value: FeishuModelPreference): string {
 
 export function renderPreferences(value: FeishuPreferencesResult): SessionConsoleView {
   return { revision: value.revision, text: [
-    `机器人聊天：${preferenceLabel(value.conversation)}`, `新建会话：${preferenceLabel(value.session)}`,
-    '', '分别记住上次选择，与 Agent Deck 远端设置同步。已开始的会话保持原配置。',
+    `机器人聊天：${preferenceLabel(value.conversation)}`, `上次新建选择：${preferenceLabel(value.session)}`,
+    '', '机器人聊天配置与 Agent Deck 远端设置同步。新建会话在创建时选择，后续自动沿用上次选择。',
     '', '发送 /models 查看可用选项。',
-    '设置聊天：/settings chat <adapter-id>', '设置新会话：/settings session <adapter-id>',
+    '设置聊天：/settings chat <adapter-id>', '新建会话：/create <adapter-id> <目录> -- <需求>',
     '同一助手类型只更新指定项，其他选择会保留。',
     '可追加模型、模式和沙盒选项，例如：{"approvalPolicy":"on-request","codexSandbox":"workspace-write"}',
     '模式或沙盒设为 null 可恢复跟随新建默认值。发送 /models <adapter-id> 查看该助手支持的选项。',
@@ -72,6 +72,6 @@ export function renderModels(value: SessionConsoleCapabilitiesResult, limit: num
   lines.push('远端沙盒始终受工作区边界约束。');
   lines.push('', '查看其他选项：/models <adapter-id> [provider]',
     '保存选择：/settings <chat|session> <adapter-id> [JSON]',
-    '后续沿用上次选择，也可在 Agent Deck 远端设置中管理。');
+    '新建会话时选择后会自动记住；机器人聊天配置也可在 Agent Deck 远端设置中管理。');
   return { text: truncateUtf8(lines.join('\n'), limit), revision: value.revision };
 }

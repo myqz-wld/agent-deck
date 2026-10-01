@@ -21,7 +21,7 @@ const TITLES: Record<FeishuCommand['kind'], string> = {
 const USER_ERRORS: Record<string, string> = {
   private_configuration: '请在机器人私聊中使用保存的模型配置。',
   invalid_request: '选择的模型配置无效或已不可用。发送 /models 查看可用选项，再用 /settings 修改。',
-  model_selection_required: '还没有保存模型选择。发送 /models 查看可用助手，再用 /settings chat <adapter-id> 设置聊天、/settings session <adapter-id> 设置新建会话。下次会自动沿用。',
+  model_selection_required: '还没有选择机器人助手。发送 /models 查看可用助手，再用 /settings chat <adapter-id> 设置，或在 Agent Deck 远端设置中选择。',
   saved_model_unavailable: '上次选择的模型或网关暂不可用。发送 /models 查看选项，或在 Agent Deck 远端设置中调整。当前选择已保留。',
   unknown_command: '无法识别这个命令。可以直接说出需求，或发送 /help 查看命令。',
   invalid_command: '命令格式不正确。发送 /help 查看用法，也可以直接描述你的需求。',
@@ -65,6 +65,12 @@ export class FeishuConversationRouter {
         : /^\/(new|create|select|send|history|runtime|pending|delete|subscribe|unsubscribe|rename)\b/.test(text) ? '工作会话' : 'Agent Deck';
       if (source === '助手' && classified.code === 'not_found') {
         message = '没有找到这段助手聊天。发送 /chat list 查看已保留的聊天，或 /chat new 开始新聊天。';
+      }
+      if (source === '工作会话' && classified.code === 'model_selection_required') {
+        message = '首次创建请告诉机器人要使用哪种助手，也可以用 /models 查看选项后发送 /create <adapter-id> . -- <需求>。之后 /new 会自动沿用上次选择。';
+      }
+      if (source === '工作会话' && classified.code === 'saved_model_unavailable') {
+        message = '上次选择暂不可用，已为你保留。请告诉机器人这次要使用的助手和模型，或用 /models 查看选项后通过 /create 重新选择。';
       }
       return { text: message, revision: null, errorCode: classified.code,
         presentation: { title: `${source} · 暂时无法完成`, standalone: event.chatType === 'p2p' } };

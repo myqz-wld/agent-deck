@@ -119,7 +119,8 @@ export class ServerCoreFeishuWorkManagement implements FeishuWorkManagementPort 
     try {
       const current = this.options.preferences.read();
       const preference = mergeFeishuModelPreference(current.session, args.selection);
-      if (!preference.adapterId) throw new DaemonRequestError(AgentDeckClientErrorCode.InvalidRequest, 'Choose work defaults with /settings session before creation');
+      if (!preference.adapterId) throw new DaemonRequestError(AgentDeckClientErrorCode.InvalidRequest,
+        'No previous work choice exists. Ask the owner which adapter to use and pass it in selection.adapterId when creating; creation remembers the choice.');
       adapterId = preference.adapterId;
       const caps = await this.options.capabilities.describe({ adapterId: preference.adapterId,
         provider: preference.provider, workingDirectory: args.workingDirectory });

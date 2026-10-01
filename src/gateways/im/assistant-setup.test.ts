@@ -3,7 +3,7 @@ import { FEISHU_ASSISTANT_SETUP_VERSION, FEISHU_CONVERSATION_SETUP, FEISHU_CONVE
 import { credential, messageEvent, onlyClient, select, setup } from './__tests__/fixture';
 
 describe('retained assistant setup', () => {
-  it.each([undefined, 1])('updates assistant setup version %s once without creating a new chat or changing work selection', async olderVersion => {
+  it.each([undefined, 1, 2])('updates assistant setup version %s once without creating a new chat or changing work selection', async olderVersion => {
     const t = setup(); await select(t.gateway);
     await t.gateway.handle(messageEvent('first-chat', 'Remember a test word.'));
     const before = t.store.getContext(credential.instanceId, credential.credentialId, 'chat-1')!;

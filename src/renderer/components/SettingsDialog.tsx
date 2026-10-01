@@ -323,9 +323,11 @@ export function SettingsDialog({ open, onClose, remote = null }: Props): JSX.Ele
 
             {activeTab === 'general' && (
               <>
-                <SectionGroup title="飞书机器人">
-                  <FeishuPreferencesSection source={remote} />
-                </SectionGroup>
+                {remote && (
+                  <SectionGroup title="飞书机器人">
+                    <FeishuPreferencesSection source={remote} />
+                  </SectionGroup>
+                )}
                 {remote && remoteConfigurationStatus(
                   remote,
                   nodeConfiguration,

@@ -1,9 +1,22 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { defaultFeishuModelPreference } from '@contracts/index';
 import { cleanupFeishuWorkHarnesses, createFeishuWorkHarness, workRecord } from './feishu-work-management.fixture';
 import { FeishuAssistantAuthority } from './feishu-assistant-authority';
 
 afterEach(cleanupFeishuWorkHarnesses);
 describe('registered assistant work management', () => {
+  it('accepts the first work choice directly in creation and remembers it independently of the assistant', async () => {
+    const t = createFeishuWorkHarness();
+    t.store.write({ ...t.store.read(), session: defaultFeishuModelPreference() });
+    const assistant = t.store.read().conversation;
+    await expect(t.service.create('assistant-a', t.args)).rejects.toThrow(/selection.adapterId/);
+    const created = await t.service.create('assistant-a', { ...t.args,
+      selection: { adapterId: 'codex-cli', model: 'chosen-model', approvalPolicy: 'on-request' } });
+    expect(created.preference).toMatchObject({ adapterId: 'codex-cli', model: 'chosen-model', approvalPolicy: 'on-request' });
+    expect(t.store.read().session).toEqual(created.preference);
+    expect(t.store.read().conversation).toEqual(assistant);
+    expect(t.createSpawnSession).toHaveBeenCalledTimes(1);
+  });
   it('moves registered authority to the current handoff owner even if the old process stays live', () => {
     const t = createFeishuWorkHarness();
     t.records.set('next-assistant', workRecord('next-assistant'));

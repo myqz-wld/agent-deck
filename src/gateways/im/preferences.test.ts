@@ -4,6 +4,23 @@ import { parseFeishuCommand } from './commands';
 import { messageEvent, onlyClient, setup } from './__tests__/fixture';
 
 describe('Feishu last model selections', () => {
+  it('chooses and remembers work options during creation without a separate settings step', async () => {
+    const t = setup(); await t.gateway.handle(messageEvent('prime', '/help'));
+    const client = onlyClient(t.clients);
+    const assistant = structuredClone(client.preferences.conversation);
+    client.preferences.session = defaultFeishuModelPreference();
+    await t.gateway.handle(messageEvent('first-work', '/new'));
+    expect(t.transport.messages.at(-1)?.text).toContain('/create <adapter-id>');
+    expect(t.transport.messages.at(-1)?.text).not.toContain('/settings session');
+    await t.gateway.handle(messageEvent('choose-during-create', '/create codex-cli . --model chosen-model --thinking high -- 检查项目'));
+    expect(client.preferences.session).toMatchObject({ adapterId: 'codex-cli', model: 'chosen-model', thinking: 'high' });
+    await t.gateway.handle(messageEvent('next-work', '/new 检查文档'));
+    expect(client.calls.filter(call => call.method === 'session.console.create')).toHaveLength(2);
+    expect(client.calls.filter(call => call.method === 'session.console.create').at(-1)?.params)
+      .toMatchObject({ adapterId: 'codex-cli', options: { model: 'chosen-model', thinking: 'high' } });
+    expect(client.preferences.conversation).toEqual(assistant);
+    await t.gateway.close();
+  });
   it('remembers independent policies and sandboxes without erasing saved models or changing existing sessions', async () => {
     const t = setup();
     await t.gateway.handle(messageEvent('chat-model', '/settings chat codex-cli {"model":"chat-model","thinking":"max"}'));

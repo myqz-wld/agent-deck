@@ -166,7 +166,7 @@ export const FEISHU_HELP_TEXT = [
   '/settings — 分别保存机器人聊天和新建工作会话的模型、审批配置',
   '/models [adapter-id] [provider] — 查看可用助手与模型选项',
   '普通文字 → 机器人助手，独立保留聊天上下文',
-  '/new [需求] — 沿用工作会话配置新建会话',
+  '/new [需求] — 沿用上次选择新建工作会话',
   '/chat new — 重开助手聊天，保留旧聊天记录',
   '/chat history 或 /chat pending — 查看助手历史或待确认事项',
   '/chat list 或 /chat select <ID> — 查看、切回以前的助手聊天',

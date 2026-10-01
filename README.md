@@ -15,6 +15,9 @@ Manage agent sessions, project work, and collaboration in one place.
 - Bundled Agents, Skills, and session-owned Browser tabs.
 - Local projects and remote workspaces through Full or Relay deployments.
 - Feishu chat with rich text input, progress reactions, named work sessions, saved choices, and approvals.
+  Remote host settings configure only the Feishu assistant; work sessions choose options during
+  creation and remember their own last selection, independently of Desktop. Defaults display their
+  resolved values, and settings reads retain complete forms with a 150 ms loading grace.
 
 ## Quick Start
 

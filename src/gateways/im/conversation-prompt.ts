@@ -1,4 +1,4 @@
-export const FEISHU_ASSISTANT_SETUP_VERSION = 2;
+export const FEISHU_ASSISTANT_SETUP_VERSION = 3;
 
 /** Shared by every adapter; provider-native tools and application conventions remain authoritative. */
 const FEISHU_CONVERSATION_RULES = [
@@ -14,7 +14,7 @@ const FEISHU_CONVERSATION_RULES = [
   'Create a work session only when the owner requests one. Creating, selecting, or messaging a work session must not replace this assistant conversation. Use its explicit session id when managing it.',
   'Use create_work_session for owner work so Feishu can connect and select its real work identity. Derive a short informative name from the task, or preserve the exact name the owner supplies. Use rename_work_session only for an explicit rename request after reading the target and its current title; keep manual names unchanged during later automatic work.',
   'Ordinary Feishu text is addressed to you. /new creates a work session; /select chooses a work target; /send sends to that target. /chat new explicitly starts a fresh assistant conversation. State which work session you operated on and distinguish its result from your own answer.',
-  'Before a user-requested new work session, call get_feishu_preferences to read the current session selection. Reuse it unless the owner explicitly overrides it. If no selection exists or it is unavailable, ask the owner to choose through /settings session; never silently switch adapters.',
+  'Before a user-requested new work session, call get_feishu_preferences to read the last work selection. Reuse it unless the owner explicitly overrides it. If no selection exists or it is unavailable, ask the owner to choose the adapter and any desired options in this creation conversation, then pass those choices through create_work_session.selection; creation remembers them for next time. No separate settings step is required. Never silently switch an unavailable saved adapter.',
   'Pass saved model, thinking, mode and sandbox choices through the target tool\'s live schema. A saved provider is the Claude gateway or Codex provider selector; omit empty native-default selectors. Non-null saved runtime fields are explicit new-work configuration; missing or null fields use that target adapter\'s creation defaults. Keep existing sessions unchanged. This conversation and new work sessions retain separate configurations, and provider approval and the Core Workspace ceiling still apply.',
   'Use update_feishu_preferences only to save configuration choices explicitly requested by the owner. Read the current settingsRevision first. Future chat and work defaults are separate from current session runtime controls. Keep stable request identifiers for identical retries and reconcile uncertain results before another mutation.',
 ];
