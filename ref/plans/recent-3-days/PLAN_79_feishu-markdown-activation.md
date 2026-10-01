@@ -67,12 +67,12 @@ The official worktree exit restored main and removed the owned worktree. Its mer
 feature branch is deleted; no remote feature branch was created. Temporary manifest/audit inputs
 and superseded working plans are removed, while private evidence and unrelated files remain.
 
-## Remaining owner feedback
+## Final owner acceptance and residual scope
 
-An exact harmless prompt requests a real ordinary reply with emphasis, list, code, table and a
-synthetic local-path link. Client display remains unverified until the owner reports the result;
-automated payload validation and runtime activation are complete. A concise active follow-up plan
-retains this check rather than claiming all visual acceptance is finished.
+The owner sent the requested harmless formatting sample and reported that it displays normally.
+Real client visual acceptance, automated payload validation and managed activation are complete.
+The final active follow-up plan is archived into this record and its private snapshot; its working
+copy is removed.
 
 The old expired-card toast remains optional feedback. The earlier no-reply investigation is
 explicitly deferred by the owner, with evidence preserved and no claim of a source repair. No

@@ -54,8 +54,8 @@ limit packaged inputs. The arm64 artifact is
 ## Residual risk and activation
 
 Managed activation passed in
-[PLAN_79](../../plans/recent-3-days/PLAN_79_feishu-markdown-activation.md). Actual Feishu client
-rendering still needs the requested owner-visible sample.
+[PLAN_79](../../plans/recent-3-days/PLAN_79_feishu-markdown-activation.md). The owner subsequently
+confirmed normal display of the requested real formatting sample in Feishu.
 The official content contract supports the chosen post format; automated tests verify the sent
 payload and delivery boundaries. Desktop and Worker require no replacement. Ordinary chat has
 no title, source label or card wrapper, while work and approval cards are unchanged.
