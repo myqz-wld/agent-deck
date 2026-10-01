@@ -224,7 +224,7 @@ export function mapFeishuMessageEvent(
   };
 }
 
-function parseEnvelope(value: unknown, now: number): FeishuCardActionEnvelope {
+function parseEnvelope(value: unknown): FeishuCardActionEnvelope {
   const envelope = record(value, 'action.value');
   exact(envelope, ['action', 'expiresAt', 'fields', 'protocol'], ['action', 'expiresAt', 'protocol'], 'action.value');
   if (envelope.protocol !== FEISHU_ACTION_PROTOCOL) fail('unknown_command', 'Unsupported Feishu card action protocol');
@@ -232,9 +232,6 @@ function parseEnvelope(value: unknown, now: number): FeishuCardActionEnvelope {
     envelope.expiresAt !== null &&
     (!Number.isSafeInteger(envelope.expiresAt) || (envelope.expiresAt as number) < 0)
   ) fail('invalid_event', 'action.value.expiresAt is malformed');
-  if (envelope.expiresAt !== null && now > (envelope.expiresAt as number)) {
-    fail('invalid_nonce', 'Feishu card presentation has expired');
-  }
   const action = record(envelope.action, 'action.value.action');
   exact(action, [
     'action', 'chatId', 'chatType', 'contentDigest', 'credentialId', 'instanceId', 'name', 'nonce',
@@ -326,7 +323,7 @@ export function mapFeishuCardActionEvent(
   }
   if (providerAction.name !== undefined) token(providerAction.name, 'action.name', 128);
   if (providerAction.timezone !== undefined) bounded(providerAction.timezone, 'action.timezone', 128);
-  const envelope = parseEnvelope(providerAction.value, options.now());
+  const envelope = parseEnvelope(providerAction.value);
   const isSubmit = envelope.action.action === 'submit';
   if (isSubmit !== Boolean(envelope.fields) || isSubmit !== (providerAction.form_value !== undefined)) {
     fail('invalid_event', 'Feishu form payload does not match the issued pending action');
@@ -347,6 +344,11 @@ export function mapFeishuCardActionEvent(
     ...(displayName === undefined ? {} : { displayName }),
     action,
   });
+  // Validate the complete callback shape before classifying an old presentation.
+  // Reject locally: an expired card must never reach Core or repeat the original action.
+  if (envelope.expiresAt !== null && options.now() > envelope.expiresAt) {
+    fail('card_expired', 'Feishu card presentation has expired');
+  }
   return {
     event,
     source: { eventId: header.eventId, chatId, messageId, kind: 'card-action', occurredAt: header.occurredAt },

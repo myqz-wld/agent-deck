@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-09-30 | `REVIEW_308_feishu-expired-approvals.md` | Preserve expiry guidance without replaying approvals | 1 MEDIUM fixed; activation and final live checks pending |
 | 2026-09-30 | `REVIEW_307_remote-worker-backpressure.md` | Preserve Worker writes and independent work hierarchy | 1 HIGH / 1 MEDIUM installed; live concurrent reads accepted |
 | 2026-09-30 | `REVIEW_306_codex-failed-gateway-recovery.md` | Recover Gateway routing after terminal Codex errors | 1 HIGH / 1 MEDIUM / 1 LOW fixed; native acceptance passed |
 | 2026-09-30 | `REVIEW_305_feishu-native-approval-depth.md` | Separate approval payload depth from response wrappers | 1 HIGH fixed; real owner approval and work reply accepted |

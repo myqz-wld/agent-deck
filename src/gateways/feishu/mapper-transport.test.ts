@@ -249,7 +249,7 @@ describe('strict Feishu SDK event mapping', () => {
     const expired = rawCard();
     ((expired.action as Record<string, unknown>).value as Record<string, unknown>).expiresAt = NOW - 1;
     expect(() => mapFeishuCardActionEvent(expired, options))
-      .toThrow(expect.objectContaining({ code: 'invalid_nonce' }));
+      .toThrow(expect.objectContaining({ code: 'card_expired' }));
   });
 
   it('maps exactly the issued form fields back to Core question ids', () => {

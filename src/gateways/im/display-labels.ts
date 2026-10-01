@@ -35,7 +35,8 @@ export function feishuCallbackToast(code: string, duplicate: boolean): string {
   const labels: Record<string, string> = {
     accepted: '已接受。', already_decided: '该审批已结束，无需再次操作。',
     pending_context_changed: '审批内容已变化，请刷新待确认事项后重新确认。',
-    invalid_nonce: '这张审批卡已过期或无效，请刷新待确认事项。',
+    card_expired: '这张审批卡已过期。请重新获取待确认事项；若原请求已结束，请重新发起。',
+    invalid_nonce: '这张审批卡校验未通过，请重新获取待确认事项。',
     conflict: '状态刚刚发生变化，请刷新待确认事项后重试。',
     access_denied: '当前账号无权执行此操作。', revoked: '连接授权已失效，请在 Agent Deck 中检查。',
     invalid_pending_action: '此审批操作已不可用，请刷新待确认事项。',

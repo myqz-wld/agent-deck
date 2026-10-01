@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-09-30 | `CHANGELOG_666_feishu-expired-approvals.md` | Explain expired approval cards and preserve terminal request states |
 | 2026-09-30 | `CHANGELOG_665_independent-work-remote-connection.md` | Keep Remote reads connected and owner work independent |
 | 2026-09-30 | `CHANGELOG_664_feishu-native-approval-depth.md` | Deliver structured native approvals within bounded payload limits |
 | 2026-09-30 | `CHANGELOG_663_feishu-input-approval-progress.md` | Accept rich text, repair approval binding and show progress reactions |

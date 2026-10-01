@@ -56,6 +56,11 @@ export async function executePendingCardAction(
     const pending = currentResult.requests.find((request) => request.id === action.requestId);
     if (!pending || pending.status !== 'pending') {
       // Repair a stale card without repeating the provider decision or inferring who approved it.
+      if (pending?.status === 'expired' || pending?.status === 'cancelled') {
+        const state = pending.status === 'expired' ? '已过期' : '已取消';
+        return { text: `该审批${state}。如需继续，请重新发起请求。`, revision, cards: [], errorCode: 'already_decided',
+          presentation: { title: `审批${state}`, standalone: true } };
+      }
       return { text: '该请求已处理，无需再次操作。', revision, cards: [], errorCode: 'already_decided',
         presentation: { title: '审批已结束', standalone: true } };
     }

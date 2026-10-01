@@ -21,6 +21,6 @@ describe('Chinese Feishu presentation', () => {
 
   it('never exposes an unknown raw provider error code in the callback toast', () => {
     expect(feishuCallbackToast('unknown-internal-error', false)).toBe('暂时无法完成这次操作，请稍后重试。');
-    expect(feishuCallbackToast('invalid_nonce', false)).toContain('审批卡已过期或无效');
+    expect(feishuCallbackToast('invalid_nonce', false)).toContain('审批卡校验未通过');
   });
 });

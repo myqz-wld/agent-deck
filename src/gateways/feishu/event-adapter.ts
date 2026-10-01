@@ -6,6 +6,7 @@ import {
 } from '@gateways/im';
 import { mapFeishuCardActionEvent, mapFeishuMessageEvent, type FeishuEventMapperOptions } from './mapper';
 import { FeishuSourceRegistry } from './source-registry';
+import { feishuCallbackToast } from '@gateways/im/display-labels';
 import type {
   FeishuAuditBundle,
   FeishuPairingEventPort,
@@ -105,6 +106,7 @@ export class FeishuSdkEventAdapter implements FeishuSdkEventHandlers {
 
   private reject(code: string): FeishuCallbackResult {
     this.audit.runtime('provider-event', 'rejected', code);
-    return { ...SAFE_REJECTION, code };
+    return { ...SAFE_REJECTION, code,
+      ...(['card_expired', 'invalid_nonce'].includes(code) ? { toast: feishuCallbackToast(code, false) } : {}) };
   }
 }

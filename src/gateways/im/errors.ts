@@ -4,6 +4,7 @@ import type { ClassifiedGatewayError } from './types';
 const CLIENT_ERROR_CODES = new Set<string>(Object.values(AgentDeckClientErrorCode));
 const GATEWAY_ERROR_CODES = new Set([
   'assistant_not_started',
+  'card_expired',
   'session_target_mismatch',
   'cursor_regression',
   'delivery_failed',
