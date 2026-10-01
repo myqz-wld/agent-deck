@@ -241,8 +241,8 @@ describe('SettingsDialog adapter views', () => {
     const remoteStructure = settingsStructure(remoteView.container);
     expandAllSettingsSections(remoteView.container);
     const remoteFields = settingsFieldStructure(remoteView.container);
-    expect(remoteStructure).toEqual([['飞书机器人', []], ...localStructure]);
-    expect(remoteFields).toEqual(localFields);
+    expect(remoteStructure).toEqual([['飞书机器人', ['机器人聊天']], ...localStructure]);
+    expect(remoteFields).toEqual([['机器人聊天', []], ...localFields]);
     const desktopOwnedSections = new Set(['提醒', '窗口', '快捷键', '日志']);
     for (const section of remoteView.container.querySelectorAll<HTMLElement>(
       '[data-settings-section]',

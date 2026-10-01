@@ -132,7 +132,7 @@ function RemoteDataPanel({ remoteUsage }: { remoteUsage: RemoteUsageSourceView }
     ratesLoading={remoteUsage.ratesLoading}
     ratesError={remoteUsage.ratesError}
     liveBySession={{}}
-    rateDescription="最近 60 秒账本（每 2.5 秒刷新）"
+    rateDescription="最近 60 秒"
     daily={remoteUsage.daily}
     today={remoteUsage.today}
     dailyLoading={remoteUsage.dailyLoading}

@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-10-01 | `CHANGELOG_674_collapsible-feishu-settings.md` | Remember assistant section collapse and simplify remote rate copy |
 | 2026-10-01 | `CHANGELOG_673_remote-settings-autosave.md` | Autosave assistant choices and retain Remote read views |
 | 2026-10-01 | `CHANGELOG_672_feishu-creation-defaults.md` | Prefill assistant creation defaults with editable remote Gateway choices |
 | 2026-10-01 | `CHANGELOG_671_feishu-assistant-settings-flow.md` | Configure only the assistant and retain forms through fast reads |

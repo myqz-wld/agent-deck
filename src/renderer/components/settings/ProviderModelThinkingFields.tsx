@@ -143,6 +143,7 @@ export function ProviderModelThinkingFields({
   thinkingOptions,
   children,
   status,
+  showHeading = true,
   onAdapterChange,
   onRuntimeProviderChange,
   onModelChange,
@@ -161,6 +162,7 @@ export function ProviderModelThinkingFields({
   thinkingOptions?: readonly DeckSelectOption<SessionThinkingLevel>[];
   children?: ReactNode;
   status?: ReactNode;
+  showHeading?: boolean;
   onAdapterChange: (value: GeneratorAdapter) => void;
   onRuntimeProviderChange: (value: string) => void;
   onModelChange: (value: string) => void;
@@ -213,9 +215,9 @@ export function ProviderModelThinkingFields({
       data-settings-field={label}
       className="flex flex-col gap-1.5 text-[11px]"
     >
-      <div className="flex items-center justify-between gap-2 font-medium text-deck-text/90">
-        <span>{label}</span>{status}
-      </div>
+      {(showHeading || status) && <div className="flex items-center justify-between gap-2 font-medium text-deck-text/90">
+        {showHeading && <span>{label}</span>}{status}
+      </div>}
       <div
         data-generator-fields
         className="grid grid-cols-1 gap-x-3 gap-y-2 rounded-md border border-white/[0.06] bg-black/10 p-2 min-[420px]:grid-cols-3"

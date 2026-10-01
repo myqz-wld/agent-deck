@@ -43,7 +43,10 @@ function choose(field: string, name: string | RegExp): void {
   fireEvent.click(screen.getByLabelText(`机器人聊天 ${field}`));
   fireEvent.click(screen.getByRole('option', { name }));
 }
-afterEach(() => { cleanup(); vi.useRealTimers(); Reflect.deleteProperty(window, 'api'); });
+afterEach(() => {
+  cleanup(); vi.useRealTimers(); Reflect.deleteProperty(window, 'api');
+  window.localStorage.removeItem('agent-deck:settings:section:feishu-conversation');
+});
 
 describe('Feishu assistant automatic settings', () => {
   it('uses one compact form and saves selections immediately without normal save or refresh buttons', async () => {
@@ -163,11 +166,16 @@ describe('Feishu assistant automatic settings', () => {
 
   it('retains a warm form on reopen and quietly revalidates before accepting edits', async () => {
     const backend = api(); const first = render(<FeishuPreferencesSection source={source} />);
-    await screen.findByLabelText('机器人聊天 模型'); first.unmount();
+    await screen.findByLabelText('机器人聊天 模型');
+    fireEvent.click(screen.getByRole('button', { name: '机器人聊天', expanded: true }));
+    expect(screen.queryByRole('textbox', { name: '机器人聊天 模型' })).toBeNull();
+    first.unmount();
     const refresh = deferred<FeishuPreferencesResult>();
     backend.getRemoteHostFeishuPreferences.mockReturnValueOnce(refresh.promise);
     vi.useFakeTimers();
     render(<FeishuPreferencesSection source={source} />);
+    expect(screen.queryByRole('textbox', { name: '机器人聊天 模型' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '机器人聊天', expanded: false }));
     expect((screen.getByLabelText('机器人聊天 模型') as HTMLInputElement).value).toBe('chat-model');
     choose('审批策略', '按需询问');
     expect(backend.updateRemoteHostFeishuPreferences).not.toHaveBeenCalled();
@@ -180,7 +188,7 @@ describe('Feishu assistant automatic settings', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('keeps the old complete form through a slow adapter read and saves only the resolved target', async () => {
+  it('keeps the form through a slow adapter read and finishes autosave while collapsed', async () => {
     const backend = api(); render(<FeishuPreferencesSection source={source} />);
     await screen.findByLabelText('机器人聊天 模型');
     const next = deferred<ReturnType<typeof sessionConsoleCapabilitiesFixture>>();
@@ -192,7 +200,12 @@ describe('Feishu assistant automatic settings', () => {
     expect(backend.updateRemoteHostFeishuPreferences).not.toHaveBeenCalled();
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(screen.getAllByRole('status')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: '机器人聊天', expanded: true }));
+    expect(screen.queryByRole('textbox', { name: '机器人聊天 模型' })).toBeNull();
     await act(async () => next.resolve(sessionConsoleCapabilitiesFixture('claude-code')));
+    expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '机器人聊天', expanded: false }));
+    expect(backend.getRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1);
     expect(screen.queryByLabelText('机器人聊天 审批策略')).toBeNull();
     expect((screen.getByLabelText('机器人聊天 模型') as HTMLInputElement).value).toBe('sonnet');
     expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledWith(expect.objectContaining({

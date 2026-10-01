@@ -113,6 +113,7 @@ export function FeishuPreferenceEditor({ profileId, value, initialCapability, bl
   return <InertInteractionBoundary blocked={interactionBlocked}>
     <fieldset disabled={disabled}>
       <ProviderModelThinkingFields label={LABEL}
+        showHeading={false}
         hint=""
         status={(showUpdating || status) && <span role="status" className="text-[10px] font-normal text-deck-muted">{showUpdating ? '正在更新…' : status}</span>}
         adapter={visible.draft.adapterId as GeneratorAdapter} adapterOptions={adapterOptions}

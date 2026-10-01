@@ -19,7 +19,8 @@ Manage agent sessions, project work, and collaboration in one place.
   creation and remember their own last selection, independently of Desktop. Assistant settings
   prefill remote new-session defaults and share editable model/Gateway controls with summary and
   continuation settings. Gateway changes load their own defaults and remember explicit thinking
-  choices. Selections save immediately; model text saves on blur or Enter. Remote settings, assets,
+  choices. The assistant section collapses and remembers its expanded state. Selections save
+  immediately, including while collapsed; model text saves on blur or Enter. Remote settings, assets,
   and session detail views retain bounded read caches and revalidate on return, with a 150 ms
   loading grace. The quota page keeps its explicit refresh button and existing totals during reads.
 

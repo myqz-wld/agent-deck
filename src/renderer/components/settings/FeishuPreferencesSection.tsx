@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import type { FeishuModelPreference, SessionConsoleCapabilitiesResult } from '@contracts/index';
 import { useDelayedAsyncFallback, useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
 import { FeishuPreferenceEditor } from './FeishuPreferenceEditor';
+import { Section } from './controls';
 import { fetchFeishuPreferences, feishuPreferencesCache, feishuPreferencesKey, readFeishuPreferences,
   trackFeishuSave, type FeishuPreferencesSnapshot, type FeishuPreferencesSource } from './feishu-preferences-data';
 export type { FeishuPreferencesSource } from './feishu-preferences-data';
@@ -128,9 +129,11 @@ export function FeishuPreferencesSection({ source, managed }: {
   managed?: ManagedFeishuPreferences;
 }): JSX.Element | null {
   if (!source) return null;
-  if (!source.usable || !source.profileId) return <p className="text-[11px] text-deck-muted">连接远端主机后可管理飞书模型配置。</p>;
-  if (!source.supportsFeishuPreferences || !source.expectedAuthority) {
-    return <p className="text-[11px] text-deck-muted">当前远端版本不支持飞书模型配置，请升级后重试。</p>;
-  }
-  return <ConnectedPreferences key={feishuPreferencesKey(source)} source={source} managed={managed} />;
+  return <Section title="机器人聊天" storageKey="feishu-conversation" keepMounted>
+    {!source.usable || !source.profileId
+      ? <p className="text-[11px] text-deck-muted">连接远端主机后可管理飞书模型配置。</p>
+      : !source.supportsFeishuPreferences || !source.expectedAuthority
+        ? <p className="text-[11px] text-deck-muted">当前远端版本不支持飞书模型配置，请升级后重试。</p>
+        : <ConnectedPreferences key={feishuPreferencesKey(source)} source={source} managed={managed} />}
+  </Section>;
 }

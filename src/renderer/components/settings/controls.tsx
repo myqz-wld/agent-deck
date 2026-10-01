@@ -18,6 +18,7 @@ export function Section({
   children,
   defaultOpen = true,
   storageKey,
+  keepMounted = false,
 }: {
   title: string;
   children: React.ReactNode;
@@ -27,6 +28,8 @@ export function Section({
    *  `agent-deck:settings:section:<storageKey>`，下次打开 Settings 还原。
    *  不传则不持久化（每次都按 defaultOpen 渲染）。 */
   storageKey?: string;
+  /** Preserve in-progress edits and asynchronous work while the section is hidden. */
+  keepMounted?: boolean;
 }): JSX.Element {
   const [open, setOpen] = useState<boolean>(() => {
     if (typeof window !== 'undefined' && storageKey) {
@@ -64,8 +67,8 @@ export function Section({
         </span>
         <span>{title}</span>
       </button>
-      {open && (
-        <div className="flex flex-col gap-1.5 rounded-lg border border-deck-border bg-white/[0.02] p-2">
+      {(open || keepMounted) && (
+        <div hidden={!open} className={`${open ? 'flex' : 'hidden'} flex-col gap-1.5 rounded-lg border border-deck-border bg-white/[0.02] p-2`}>
           {children}
         </div>
       )}
