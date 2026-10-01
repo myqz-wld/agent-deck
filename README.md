@@ -16,8 +16,11 @@ Manage agent sessions, project work, and collaboration in one place.
 - Local projects and remote workspaces through Full or Relay deployments.
 - Feishu chat with rich text input, progress reactions, named work sessions, saved choices, and approvals.
   Remote host settings configure only the Feishu assistant; work sessions choose options during
-  creation and remember their own last selection, independently of Desktop. Defaults display their
-  resolved values, and settings reads retain complete forms with a 150 ms loading grace.
+  creation and remember their own last selection, independently of Desktop. Assistant settings
+  prefill remote new-session defaults and share editable model/Gateway controls with summary and
+  continuation settings. Gateway changes load their own defaults and remember explicit thinking
+  choices; saving stores the displayed configuration. Settings reads retain complete forms with
+  a 150 ms loading grace.
 
 ## Quick Start
 

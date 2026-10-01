@@ -138,6 +138,9 @@ export function ProviderModelThinkingFields({
   thinking,
   modelPlaceholder,
   disabled = false,
+  adapterOptions = ADAPTER_OPTIONS,
+  providerOptions: suppliedProviderOptions,
+  thinkingOptions,
   onAdapterChange,
   onRuntimeProviderChange,
   onModelChange,
@@ -151,16 +154,20 @@ export function ProviderModelThinkingFields({
   thinking: SessionThinkingLevel;
   modelPlaceholder: string;
   disabled?: boolean;
+  adapterOptions?: readonly DeckSelectOption<GeneratorAdapter>[];
+  providerOptions?: readonly { id: string; name?: string }[];
+  thinkingOptions?: readonly DeckSelectOption<SessionThinkingLevel>[];
   onAdapterChange: (value: GeneratorAdapter) => void;
   onRuntimeProviderChange: (value: string) => void;
   onModelChange: (value: string) => void;
   onThinkingChange: (value: SessionThinkingLevel) => void;
 }): JSX.Element {
-  const [providerOptions, setProviderOptions] = useState<
+  const [discoveredProviderOptions, setProviderOptions] = useState<
     Array<{ id: string; name?: string }>
   >([]);
 
   useEffect(() => {
+    if (suppliedProviderOptions !== undefined) return;
     if (disabled) {
       setProviderOptions([]);
       return;
@@ -184,10 +191,12 @@ export function ProviderModelThinkingFields({
     return () => {
       cancelled = true;
     };
-  }, [adapter, disabled]);
+  }, [adapter, disabled, suppliedProviderOptions]);
+
+  const providerOptions = suppliedProviderOptions ?? discoveredProviderOptions;
 
   const adapterLabel =
-    ADAPTER_OPTIONS.find((candidate) => candidate.value === adapter)?.label ??
+    adapterOptions.find((candidate) => candidate.value === adapter)?.label ??
     adapter;
   const providerLabel = '模型网关';
   const disabledControlClass =
@@ -209,7 +218,7 @@ export function ProviderModelThinkingFields({
           <DeckSelect
             value={adapter}
             onChange={onAdapterChange}
-            options={ADAPTER_OPTIONS}
+            options={adapterOptions}
             ariaLabel={`${label} 助手`}
             disabled={disabled}
             className="w-full min-w-0"
@@ -256,7 +265,7 @@ export function ProviderModelThinkingFields({
             onChange={onThinkingChange}
             title={`${adapterLabel} 思考程度`}
             ariaLabel={`${label} 思考程度`}
-            options={thinkingOptionsForAdapter(adapter)}
+            options={thinkingOptions ?? thinkingOptionsForAdapter(adapter)}
             disabled={disabled}
             className="w-full min-w-0"
             buttonClassName={`w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] text-deck-text outline-none focus:border-white/20 ${disabledControlClass}`}

@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-10-01 | `CHANGELOG_672_feishu-creation-defaults.md` | Prefill assistant creation defaults with editable remote Gateway choices |
 | 2026-10-01 | `CHANGELOG_671_feishu-assistant-settings-flow.md` | Configure only the assistant and retain forms through fast reads |
 | 2026-10-01 | `CHANGELOG_670_remote-only-feishu-settings.md` | Hide the Feishu settings group in local mode |
 | 2026-09-30 | `CHANGELOG_669_feishu-markdown-replies.md` | Render formatted assistant replies as untitled rich text |

@@ -13,6 +13,8 @@ function settings(model = 'chat-model'): FeishuPreferencesResult {
 }
 function api() {
   const result = {
+    listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
+    listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
     getRemoteHostFeishuPreferences: vi.fn().mockResolvedValue(settings()),
     getRemoteHostSessionCapabilities: vi.fn().mockImplementation(({ adapterId }) =>
       Promise.resolve(sessionConsoleCapabilitiesFixture(adapterId ?? 'codex-cli'))),
@@ -21,6 +23,11 @@ function api() {
   };
   Object.defineProperty(window, 'api', { configurable: true, value: result });
   return result;
+}
+function changeModel(value: string): void {
+  const input = screen.getByLabelText('机器人聊天 模型');
+  fireEvent.change(input, { target: { value } });
+  fireEvent.blur(input);
 }
 afterEach(() => { cleanup(); vi.useRealTimers(); Reflect.deleteProperty(window, 'api'); });
 
@@ -37,7 +44,7 @@ describe('shared Feishu model settings', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存机器人聊天选择' }));
     await waitFor(() => expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1));
     expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'conversation',
-      preference: { adapterId: 'codex-cli', model: 'chat-model', provider: '', thinking: '',
+      preference: { adapterId: 'codex-cli', model: 'chat-model', provider: '', thinking: 'high',
         approvalPolicy: 'on-request', codexSandbox: 'read-only' } }));
   });
 
@@ -57,24 +64,27 @@ describe('shared Feishu model settings', () => {
     expect((screen.getByRole('option', { name: 'on-request（暂不可用）' }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: '保存机器人聊天选择' }) as HTMLButtonElement).disabled).toBe(true);
   });
-  it('edits only the assistant through the selected Core without materializing automatic defaults', async () => {
+  it('saves the assistant’s concrete configuration through the selected Core and exact authority', async () => {
     const backend = api(); render(<FeishuPreferencesSection source={source} />);
     const chat = await screen.findByLabelText('机器人聊天 模型');
     expect((chat as HTMLInputElement).value).toBe('chat-model');
     expect(screen.queryByLabelText('新建会话 模型')).toBeNull();
     expect(screen.getByLabelText('机器人聊天 审批策略').textContent).toContain('从不询问');
     expect(screen.getByLabelText('机器人聊天 沙盒').textContent).toContain('工作目录可写');
-    expect(screen.getByLabelText('机器人聊天 思考程度').textContent).toContain('high');
+    expect(screen.getByLabelText('机器人聊天 思考程度').textContent).toContain('HIGH');
     expect(screen.queryByText(/跟随/)).toBeNull();
-    fireEvent.change(chat, { target: { value: 'chosen-model' } });
+    changeModel('chosen-model');
     fireEvent.click(screen.getByRole('button', { name: '保存机器人聊天选择' }));
     await waitFor(() => expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1));
     expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledWith({ profileId: 'remote-a', purpose: 'conversation',
-      preference: { adapterId: 'codex-cli', model: 'chosen-model', provider: '', thinking: '' },
+      preference: { adapterId: 'codex-cli', model: 'chosen-model', provider: '', thinking: 'high',
+        approvalPolicy: 'never', codexSandbox: 'workspace-write' },
       expectedSettingsRevision: 4, expectedAuthority: source.expectedAuthority, intentId: expect.any(String) });
     expect(backend.getRemoteHostSessionCapabilities).toHaveBeenCalledTimes(1);
     expect(backend.getRemoteHostSessionCapabilities).toHaveBeenCalledWith({ profileId: 'remote-a',
       adapterId: 'codex-cli', provider: '', workingDirectory: '.' });
+    expect(backend.listClaudeGatewayProfiles).not.toHaveBeenCalled();
+    expect(backend.listCodexGatewayProfiles).not.toHaveBeenCalled();
   });
   it('suppresses loading copy during the initial 150 ms', async () => {
     const backend = api(); backend.getRemoteHostFeishuPreferences.mockReturnValue(new Promise(() => {}));
@@ -98,7 +108,8 @@ describe('shared Feishu model settings', () => {
   it('preserves a failed-save draft, hides raw errors, and requires refreshing before another save', async () => {
     const backend = api(); backend.updateRemoteHostFeishuPreferences.mockRejectedValue(new Error('PRIVATE_BACKEND_PATH'));
     render(<FeishuPreferencesSection source={source} />);
-    fireEvent.change(await screen.findByLabelText('机器人聊天 模型'), { target: { value: 'unsaved-model' } });
+    await screen.findByLabelText('机器人聊天 模型');
+    changeModel('unsaved-model');
     const save = screen.getByRole('button', { name: '保存机器人聊天选择' }); fireEvent.click(save);
     await screen.findByRole('alert');
     expect(screen.queryByText(/PRIVATE_BACKEND_PATH/)).toBeNull();
@@ -138,7 +149,7 @@ describe('shared Feishu model settings', () => {
   it('retains an unsaved form during a slow refresh and blocks stale writes without flashing a loader', async () => {
     const backend = api(); render(<FeishuPreferencesSection source={source} />);
     const model = await screen.findByLabelText('机器人聊天 模型');
-    fireEvent.change(model, { target: { value: 'draft-model' } });
+    changeModel('draft-model');
     vi.useFakeTimers();
     let finish!: (value: FeishuPreferencesResult) => void;
     backend.getRemoteHostFeishuPreferences.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
@@ -160,7 +171,7 @@ describe('shared Feishu model settings', () => {
   it('retains the complete form during adapter changes and commits only the matching capability response', async () => {
     const backend = api(); render(<FeishuPreferencesSection source={source} />);
     const model = await screen.findByLabelText('机器人聊天 模型');
-    fireEvent.change(model, { target: { value: 'edited-model' } });
+    changeModel('edited-model');
     vi.useFakeTimers();
     let finish!: (value: ReturnType<typeof sessionConsoleCapabilitiesFixture>) => void;
     backend.getRemoteHostSessionCapabilities.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
@@ -178,7 +189,7 @@ describe('shared Feishu model settings', () => {
     await act(async () => finish(sessionConsoleCapabilitiesFixture('claude-code')));
     expect(screen.queryByLabelText('机器人聊天 审批策略')).toBeNull();
     expect(screen.getByLabelText('机器人聊天 权限模式').textContent).toContain('不再询问');
-    expect((screen.getByLabelText('机器人聊天 模型') as HTMLInputElement).placeholder).toBe('sonnet');
+    expect((screen.getByLabelText('机器人聊天 模型') as HTMLInputElement).value).toBe('sonnet');
     expect(screen.queryByRole('status')).toBeNull();
   });
 
@@ -188,6 +199,7 @@ describe('shared Feishu model settings', () => {
       const value = sessionConsoleCapabilitiesFixture();
       value.create.options.provider = { ...value.create.options.provider, allowedValues: ['gateway-a'], defaultValue: provider };
       if (provider) {
+        value.create.options.model = { ...value.create.options.model, defaultValue: 'gateway-model' };
         value.create.options.thinking = { ...value.create.options.thinking, defaultValue: 'medium' };
         value.create.options.approvalPolicy = { ...value.create.options.approvalPolicy, defaultValue: 'on-request' };
       }
@@ -199,9 +211,75 @@ describe('shared Feishu model settings', () => {
     fireEvent.click(screen.getByLabelText('机器人聊天 模型网关'));
     fireEvent.click(screen.getByRole('option', { name: 'gateway-a' }));
     await act(() => vi.advanceTimersByTimeAsync(0));
-    expect(screen.getByLabelText('机器人聊天 思考程度').textContent).toContain('medium');
+    expect((screen.getByLabelText('机器人聊天 模型') as HTMLInputElement).value).toBe('gateway-model');
+    expect((screen.getByLabelText('机器人聊天 模型网关') as HTMLInputElement).value).toBe('gateway-a');
+    expect(screen.getByLabelText('机器人聊天 思考程度').textContent).toContain('MEDIUM');
     expect(screen.getByLabelText('机器人聊天 审批策略').textContent).toContain('按需询问');
     expect(screen.queryByRole('status')).toBeNull();
     expect(screen.queryByText(/跟随/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '保存机器人聊天选择' }));
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledWith(expect.objectContaining({
+      preference: { adapterId: 'codex-cli', provider: 'gateway-a', model: 'gateway-model', thinking: 'medium',
+        approvalPolicy: 'on-request', codexSandbox: 'workspace-write' },
+    }));
+    expect((screen.getByRole('button', { name: '保存机器人聊天选择' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('initializes an unconfigured assistant from remote new-session defaults and can save them directly', async () => {
+    const backend = api();
+    backend.getRemoteHostFeishuPreferences.mockResolvedValue({ ...settings(), conversation: defaultFeishuModelPreference() });
+    const defaults = sessionConsoleCapabilitiesFixture('claude-code');
+    defaults.create.options.provider = { ...defaults.create.options.provider, allowedValues: ['remote-gateway'], defaultValue: 'remote-gateway' };
+    backend.getRemoteHostSessionCapabilities.mockResolvedValue(defaults);
+    render(<FeishuPreferencesSection source={source} />);
+    const model = await screen.findByLabelText('机器人聊天 模型');
+    expect((model as HTMLInputElement).value).toBe('sonnet');
+    expect(screen.getByLabelText('机器人聊天 助手').textContent).toContain('Claude Code');
+    expect(screen.queryByText('请选择助手')).toBeNull();
+    expect((screen.getByLabelText('机器人聊天 模型网关') as HTMLInputElement).value).toBe('remote-gateway');
+    expect(screen.getByLabelText('机器人聊天 思考程度').textContent).toContain('HIGH');
+    expect(screen.getByLabelText('机器人聊天 权限模式').textContent).toContain('不再询问');
+    expect(backend.updateRemoteHostFeishuPreferences).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '保存机器人聊天选择' }));
+    await waitFor(() => expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1));
+    expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledWith(expect.objectContaining({
+      preference: { adapterId: 'claude-code', provider: 'remote-gateway', model: 'sonnet', thinking: 'high',
+        permissionMode: 'bypassPermissions', claudeCodeSandbox: 'workspace-write' },
+    }));
+    expect(backend.getRemoteHostSessionCapabilities).toHaveBeenCalledTimes(1);
+    expect(backend.listClaudeGatewayProfiles).not.toHaveBeenCalled();
+  });
+
+  it('keeps explicit thinking choices per Gateway while applying each Gateway model default', async () => {
+    const backend = api();
+    backend.getRemoteHostSessionCapabilities.mockImplementation(({ provider }) => {
+      const result = sessionConsoleCapabilitiesFixture();
+      result.create.options.provider = { ...result.create.options.provider,
+        allowedValues: ['gateway-a', 'gateway-b'], defaultValue: provider };
+      result.create.options.model = { ...result.create.options.model, defaultValue: `${provider || 'native'}-model` };
+      result.create.options.thinking = { ...result.create.options.thinking, defaultValue: provider === 'gateway-a' ? 'medium' : 'high' };
+      return Promise.resolve(result);
+    });
+    render(<FeishuPreferencesSection source={source} />);
+    await screen.findByLabelText('机器人聊天 模型');
+    const chooseGateway = async (name: string): Promise<void> => {
+      fireEvent.click(screen.getByLabelText('机器人聊天 模型网关'));
+      fireEvent.click(screen.getByRole('option', { name }));
+      await waitFor(() => expect((screen.getByLabelText('机器人聊天 模型') as HTMLInputElement).value).toBe(`${name}-model`));
+    };
+    await chooseGateway('gateway-a');
+    fireEvent.click(screen.getByLabelText('机器人聊天 思考程度'));
+    fireEvent.click(screen.getByRole('option', { name: 'MAX' }));
+    await chooseGateway('gateway-b');
+    expect(screen.getByLabelText('机器人聊天 思考程度').textContent).toContain('HIGH');
+    await chooseGateway('gateway-a');
+    expect(screen.getByLabelText('机器人聊天 思考程度').textContent).toContain('MAX');
+    fireEvent.click(screen.getByRole('button', { name: '保存机器人聊天选择' }));
+    await waitFor(() => expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1));
+    expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledWith(expect.objectContaining({
+      preference: expect.objectContaining({ provider: 'gateway-a', model: 'gateway-a-model', thinking: 'max' }),
+    }));
+    expect(backend.listCodexGatewayProfiles).not.toHaveBeenCalled();
   });
 });
