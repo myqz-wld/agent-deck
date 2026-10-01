@@ -43,7 +43,7 @@ export interface ServerCoreMcpToolHost {
   readonly browser: Pick<ServerCoreDesktopBrokerPort, 'invoke'>;
   readonly presentations: Pick<
     ServerCoreMcpPresentationPort,
-    'requestDiff' | 'requestPlan'
+    'requestDiff' | 'requestPlan' | 'requestAsk'
   >;
   readonly teams: {
     activeTeamIds(sessionId: string): readonly string[];

@@ -72,6 +72,8 @@ import { taskDeleteHandler } from './handlers/task-delete';
 import { reportIssueHandler } from './handlers/report-issue';
 import { appendIssueContextHandler } from './handlers/append-issue-context';
 import { updateIssueStatusHandler } from './handlers/update-issue-status';
+import { askUserHandler, askUserAbortSignal } from './handlers/ask-user';
+import { ASK_USER_SCHEMA, ASK_USER_OUTPUT_SCHEMA, ASK_USER_DESCRIPTION } from './schemas/ask-user';
 
 export interface BuildAgentDeckToolsDeps {
   /** Authenticated caller profile; external/global transports have no adapter profile. */
@@ -175,6 +177,14 @@ export async function buildAgentDeckTools(
       },
     },
   ), { outputSchema: REQUEST_DIFF_REVIEW_OUTPUT_SCHEMA });
+
+  const askUser = Object.assign(tool(
+    AGENT_DECK_TOOL_NAMES.askUser,
+    ASK_USER_DESCRIPTION,
+    ASK_USER_SCHEMA,
+    async (args, extra) => askUserHandler(args, makeCtx(extra), askUserAbortSignal(extra)),
+    { annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } },
+  ), { outputSchema: ASK_USER_OUTPUT_SCHEMA });
 
   const listSessions = Object.assign(tool(
     AGENT_DECK_TOOL_NAMES.listSessions,
@@ -430,6 +440,7 @@ export async function buildAgentDeckTools(
     sendMessage,
     requestPlanReview,
     requestDiffReview,
+    askUser,
     listSessions,
     getSession,
     listSessionEvents,

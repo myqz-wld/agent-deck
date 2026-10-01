@@ -30,10 +30,13 @@ export function AgentDeckMcpSection({ settings, update, readOnly = false }: Prop
         onChange={(v) => void update({ mcpHttpEnabled: v })}
       />
       <div className="text-[10px] leading-snug text-deck-muted/70">
-        让 Claude Code、Codex CLI、Grok Build 等 MCP 客户端跨会话协作、展示计划和 diff，并管理任务与 Issue。
+        支持 Claude Code、Codex CLI、Grok Build 跨会话协作、统一提问、展示计划和 diff，并管理任务与 Issue。
+        <div className="mt-1">
+          提问会集中显示在「待处理」中，支持选项、自由回答和备注。
+        </div>
         <details className="mt-1">
           <summary className="cursor-pointer text-deck-muted hover:text-deck-text/85">
-            查看工具清单（19 个核心工具）
+            查看工具清单（20 个核心工具）
           </summary>
           <div className="mt-1 pl-2 text-deck-muted/80">
             <strong className="text-deck-text/85">会话编排</strong>：
@@ -45,7 +48,8 @@ export function AgentDeckMcpSection({ settings, update, readOnly = false }: Prop
             <code className="rounded bg-white/5 px-1">shutdown_session</code> /
             <code className="rounded bg-white/5 px-1">hand_off_session</code>
             <br />
-            <strong className="text-deck-text/85">用户展示</strong>：
+            <strong className="text-deck-text/85">用户交互</strong>：
+            <code className="rounded bg-white/5 px-1">ask_user</code> /
             <code className="rounded bg-white/5 px-1">present_plan</code> /
             <code className="rounded bg-white/5 px-1">present_diff</code>
             <br />

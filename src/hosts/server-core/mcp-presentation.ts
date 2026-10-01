@@ -18,7 +18,12 @@ import type {
 import type {
   ExitPlanModeRequest,
   PlanDeepReviewSession,
+  AskUserQuestionRequest,
 } from '@shared/types';
+import { ASK_USER_ARGS_SCHEMA, type AskUserArgs, type AskUserResult } from '@main/agent-deck-mcp/tools/schemas/ask-user';
+import { askAnswer, askDisplay } from './runtime-pending';
+import { parseAskUserAnswer } from '@shared/ask-user';
+import { parseRemoteHostAskQuestionDisplay } from '@shared/remote-host';
 
 import type { ServerCorePlanReview } from './mcp-plan-review';
 import type {
@@ -29,12 +34,14 @@ import type {
 const DEFAULT_MAX_PENDING = 64;
 const DEFAULT_MAX_PENDING_PER_SESSION = 4;
 
-type PresentationResult = RequestPlanReviewResult | RequestDiffReviewResult;
+type PresentationResult = RequestPlanReviewResult | RequestDiffReviewResult | AskUserResult;
 
 interface PendingPresentation {
   request: PendingRequestDto;
   resolve: (result: PresentationResult) => void;
   timer: ReturnType<typeof setTimeout> | null;
+  question?: AskUserQuestionRequest;
+  detach?: () => void;
 }
 
 export interface ServerCoreMcpPresentationOptions {
@@ -101,7 +108,7 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
     if (this.state === 'closed') return;
     this.state = 'closed';
     for (const entry of [...this.pending.values()]) {
-      this.finish(entry, { decision: 'timeout' }, null);
+      this.finish(entry, this.cancelledResult(entry), null);
     }
     await this.options.reviewer?.stop();
     await Promise.allSettled([...this.releases]);
@@ -122,6 +129,20 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
     const timeoutMs = args.timeoutMs ?? null;
     return this.enqueue(sessionId, 'diff-review', diffDisplay(args), timeoutMs) as
       Promise<RequestDiffReviewResult>;
+  }
+
+  requestAsk(sessionId: string, args: AskUserArgs, signal?: AbortSignal): Promise<AskUserResult> {
+    const parsed = ASK_USER_ARGS_SCHEMA.parse(args);
+    if (signal?.aborted) return Promise.resolve({ status: 'cancelled', answers: [] });
+    const question: AskUserQuestionRequest = {
+      type: 'ask-user-question', requestId: '',
+      questions: parsed.questions.map((item) => ({ ...item, options: item.options ?? [] })),
+    };
+    const display = askDisplay(question);
+    if (!parseRemoteHostAskQuestionDisplay(display)) {
+      throw new Error('问题展示无效：请缩短问题和选项，并确保隐藏敏感信息后选项仍可区分。');
+    }
+    return this.enqueue(sessionId, 'ask-user-question', display, null, question, signal) as Promise<AskUserResult>;
   }
 
   startReview(
@@ -182,6 +203,12 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
   ): 'denied' | 'resolved' | null {
     const entry = this.pending.get(requestId);
     if (!entry || entry.request.sessionId !== sessionId) return null;
+    if (entry.question) {
+      if (action !== 'submit') throw new Error('问题需要提交回答。');
+      const answer = parseAskUserAnswer(entry.question.questions, askAnswer(entry.question, value));
+      this.finish(entry, { status: 'answered', answers: answer.answers }, null);
+      return 'resolved';
+    }
     if (action !== 'accept' && action !== 'reject') {
       throw new Error('MCP presentation action is invalid');
     }
@@ -198,7 +225,7 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
   releaseSession(sessionId: string, _reason = 'MCP presentation session closed'): void {
     for (const entry of [...this.pending.values()]) {
       if (entry.request.sessionId !== sessionId) continue;
-      this.finish(entry, { decision: 'timeout' }, 'pending.cancelled');
+      this.finish(entry, this.cancelledResult(entry), 'pending.cancelled');
     }
     this.options.reviewer?.releaseSession(sessionId);
   }
@@ -231,6 +258,10 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
         active = false;
         for (const entry of moved) {
           if (this.pending.get(entry.request.id) !== entry) continue;
+          if (entry.question) {
+            this.finish(entry, this.cancelledResult(entry), 'pending.cancelled');
+            continue;
+          }
           try {
             this.releaseReview(entry.request.id);
           } catch {
@@ -260,9 +291,11 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
 
   private enqueue(
     sessionId: string,
-    kind: 'diff-review' | 'exit-plan',
+    kind: 'diff-review' | 'exit-plan' | 'ask-user-question',
     display: JsonObject,
     timeoutMs: number | null,
+    question?: AskUserQuestionRequest,
+    signal?: AbortSignal,
   ): Promise<PresentationResult> {
     this.assertRunning();
     if (!safeSessionId(sessionId)) throw new Error('MCP presentation session is invalid');
@@ -289,6 +322,7 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
       },
       resolve,
       timer: null,
+      ...(question ? { question: { ...question, requestId } } : {}),
     };
     if (timeoutMs !== null) {
       entry.timer = setTimeout(() => {
@@ -297,6 +331,11 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
       entry.timer.unref?.();
     }
     this.pending.set(requestId, entry);
+    const abort = () => this.finish(entry, this.cancelledResult(entry), 'pending.cancelled');
+    if (signal) {
+      signal.addEventListener('abort', abort, { once: true });
+      entry.detach = () => signal.removeEventListener('abort', abort);
+    }
     try {
       this.options.appendChange('pending.created', sessionId, {
         requestId,
@@ -305,6 +344,7 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
     } catch (error) {
       this.pending.delete(requestId);
       if (entry.timer) clearTimeout(entry.timer);
+      entry.detach?.();
       throw error;
     }
     return promise;
@@ -317,6 +357,7 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
   ): void {
     if (this.pending.get(entry.request.id) !== entry) return;
     this.pending.delete(entry.request.id);
+    entry.detach?.();
     if (entry.timer) clearTimeout(entry.timer);
     entry.timer = null;
     entry.resolve(result);
@@ -335,6 +376,10 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
 
   private assertRunning(): void {
     if (this.state !== 'running') throw new Error('MCP presentation service is unavailable');
+  }
+
+  private cancelledResult(entry: PendingPresentation): PresentationResult {
+    return entry.question ? { status: 'cancelled', answers: [] } : { decision: 'timeout' };
   }
 
   private requirePlan(sessionId: string, requestId: string): PendingPresentation {

@@ -48,7 +48,7 @@ export function createServerCoreMcpToolHost(input: {
   readonly browser: Pick<ServerCoreDesktopBrokerPort, 'invoke'>;
   readonly presentations: Pick<
     ServerCoreMcpPresentationPort,
-    'requestDiff' | 'requestPlan'
+    'requestDiff' | 'requestPlan' | 'requestAsk'
   >;
 }): ServerCoreMcpToolHost {
   return Object.freeze({

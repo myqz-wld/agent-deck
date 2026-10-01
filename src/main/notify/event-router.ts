@@ -107,7 +107,7 @@ export function routeEventToNotification(event: AgentEvent): void {
       operation = 'waiting-for-user';
       const payload = (event.payload ?? {}) as { type?: string; message?: string };
       const type = payload.type;
-      if (typeof type === 'string' && type.endsWith('-cancelled')) {
+      if (type === 'ask-question-answered' || (typeof type === 'string' && type.endsWith('-cancelled'))) {
         return;
       }
       const session = sessionManager.get(event.sessionId);

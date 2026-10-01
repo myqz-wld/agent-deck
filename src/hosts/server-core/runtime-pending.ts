@@ -54,7 +54,7 @@ function permissionDisplay(request: PermissionRequest): JsonObject {
   return createPermissionPreviewDisplay(request.toolName, request.toolInput);
 }
 
-function askDisplay(request: AskUserQuestionRequest): JsonObject {
+export function askDisplay(request: AskUserQuestionRequest): JsonObject {
   const questions = request.questions.slice(0, MAX_QUESTIONS).map((question, index) => ({
     id: `q${index + 1}`,
     question: clip(question.question, 1_024),
@@ -161,7 +161,7 @@ function selectedAnswers(
   return selected;
 }
 
-function askAnswer(
+export function askAnswer(
   request: AskUserQuestionRequest,
   value: JsonValue | undefined,
 ): AskUserQuestionAnswer {

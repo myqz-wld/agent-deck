@@ -99,6 +99,14 @@ handoff lifecycle.
 
 ## Plans And User Presentation
 
+Use `ask_user` when missing information, clarification, or a user choice is needed. Batch related
+questions in one call so they appear together in Pending, and wait for the structured answer before
+dependent work. Ask only what is needed to proceed. When the tool is available, use it instead of
+leaving questions only in chat or using a provider-native question tool. If it is unavailable, use
+the available native question mechanism or clearly ask in chat. Blank answers and cancellation are
+not consent; follow the latest user instruction and only re-ask questions that remain necessary.
+Provider permission prompts and the `present_plan` / `present_diff` gates retain their own roles.
+
 For complex, cross-session, high-risk, or isolated work, keep a durable plan with the goal,
 invariants, scope/exclusions, decisions, progress, next action, risks, validation, and unresolved
 questions. Use an absolute path supplied by the caller or project convention.

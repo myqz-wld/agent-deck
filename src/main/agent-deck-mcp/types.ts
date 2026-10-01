@@ -40,11 +40,12 @@ export interface CallerContext {
 }
 
 /**
- * Agent Deck MCP tool names. The Local public registry exposes 19 core tools. Legacy `browser_*`
+ * Agent Deck MCP tool names. The Local public registry exposes 20 core tools. Legacy `browser_*`
  * names remain typed for rollback and Server Core compatibility, but shipped Local adapter
  * profiles do not register them after the Browser skill + CLI cutover.
  */
 export const AGENT_DECK_TOOL_NAMES = {
+  askUser: 'ask_user',
   spawnSession: 'spawn_session',
   sendMessage: 'send_message',
   presentPlan: 'present_plan',
@@ -78,6 +79,7 @@ export type AgentDeckToolName =
  * External caller allow-list. Unknown or omitted entries are treated as denied by helper code.
  */
 export const EXTERNAL_CALLER_ALLOWED: Record<AgentDeckToolName, boolean> = {
+  ask_user: false,
   spawn_session: false,
   send_message: false,
   present_plan: false,
