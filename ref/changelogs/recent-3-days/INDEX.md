@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-09-30 | `CHANGELOG_668_unified-ask-user.md` | Route all three adapters' questions through MCP into Pending |
 | 2026-09-30 | `CHANGELOG_667_feishu-assistant-voice.md` | Refine assistant warmth and update retained chats once |
 | 2026-09-30 | `CHANGELOG_666_feishu-expired-approvals.md` | Explain expired approval cards and preserve terminal request states |
 | 2026-09-30 | `CHANGELOG_665_independent-work-remote-connection.md` | Keep Remote reads connected and owner work independent |

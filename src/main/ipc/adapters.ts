@@ -20,6 +20,7 @@ import { sessionRepo } from '@main/store/session-repo';
 import { eventBus } from '@main/event-bus';
 import { planReviewService } from '@main/plan-review/service';
 import { diffReviewService } from '@main/diff-review/service';
+import { getAskUserService } from '@main/ask-user/service';
 import {
   on,
   IpcInputError,
@@ -252,6 +253,7 @@ export function registerAdaptersIpc(): void {
     const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.interruptSession) throw new Error('adapter cannot interrupt');
     await adapter.interruptSession(parseStringId('sessionId', sessionId));
+    getAskUserService().cancelForSession(parseStringId('sessionId', sessionId));
     return true;
   });
   on(IpcInvoke.AdapterRespondPermission, async (_e, agentId, sessionId, requestId, response) => {
@@ -265,6 +267,10 @@ export function registerAdaptersIpc(): void {
     return true;
   });
   on(IpcInvoke.AdapterRespondAskUserQuestion, async (_e, agentId, sessionId, requestId, answer) => {
+    const sid = parseStringId('sessionId', sessionId);
+    const rid = parseStringId('requestId', requestId);
+    if (getAskUserService().respond(sid, rid, answer)) return true;
+    if (rid.startsWith('mcp-ask-')) throw new Error('提问已结束或不属于此会话，请刷新待处理列表。');
     const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter?.respondAskUserQuestion) {
       throw new Error('adapter cannot respond to AskUserQuestion');
@@ -411,6 +417,7 @@ export function registerAdaptersIpc(): void {
       : { permissions: [], askQuestions: [], exitPlanModes: [] };
     return {
       ...base,
+      askQuestions: mergePendingRequests(base.askQuestions, getAskUserService().listPending(sid)),
       exitPlanModes: mergePendingRequests(base.exitPlanModes, planReviewService.listPending(sid)),
       diffReviews: diffReviewService.listPending(sid),
     };
@@ -428,6 +435,10 @@ export function registerAdaptersIpc(): void {
       }
     > = adapter?.listAllPending ? adapter.listAllPending() : {};
     const mcpPlanReviews = planReviewService.listAllPending(validAgentId);
+    for (const [sid, askQuestions] of Object.entries(getAskUserService().listAllPending(validAgentId))) {
+      const cur = out[sid] ?? { permissions: [], askQuestions: [], exitPlanModes: [] };
+      out[sid] = { ...cur, askQuestions: mergePendingRequests(cur.askQuestions, askQuestions) };
+    }
     for (const [sid, exitPlanModes] of Object.entries(mcpPlanReviews)) {
       const cur = out[sid] ?? { permissions: [], askQuestions: [], exitPlanModes: [] };
       out[sid] = {

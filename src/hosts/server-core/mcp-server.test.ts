@@ -31,6 +31,7 @@ describe('Server Core MCP tools', () => {
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
         'append_issue_context',
+        'ask_user',
         'browser_click',
         'browser_close',
         'browser_evaluate',
@@ -119,6 +120,7 @@ describe('Server Core MCP tools', () => {
       });
       await call('hand_off_session', { prompt: 'Continue' });
       await call('present_plan', { plan: '# Plan' });
+      await call('ask_user', { questions: [{ question: 'Which environment?' }] });
       await call('present_diff', {
         mode: 'pr',
         title: 'Diff',
@@ -144,7 +146,7 @@ describe('Server Core MCP tools', () => {
       await call('update_issue_status', { issueId, status: 'in-progress' });
 
       expect(called.sort()).toEqual([
-        'append_issue_context', 'enter_worktree', 'exit_worktree', 'get_session',
+        'append_issue_context', 'ask_user', 'enter_worktree', 'exit_worktree', 'get_session',
         'hand_off_session', 'list_session_events', 'list_sessions', 'present_diff',
         'present_plan', 'report_issue', 'send_message', 'shutdown_session', 'spawn_session',
         'task_create', 'task_delete', 'task_get', 'task_list', 'task_update',

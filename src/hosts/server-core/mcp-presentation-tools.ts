@@ -13,11 +13,27 @@ import {
   type ServerCoreMcpCallContext,
 } from './mcp-tool-host';
 import { serverCoreMcpError, serverCoreMcpOk } from './mcp-result';
+import { ASK_USER_SCHEMA, ASK_USER_OUTPUT_SCHEMA, ASK_USER_DESCRIPTION } from '@main/agent-deck-mcp/tools/schemas/ask-user';
 
 export function registerServerCorePresentationTools(
   server: McpServer,
   context: ServerCoreMcpCallContext,
 ): void {
+  server.registerTool('ask_user', {
+    description: ASK_USER_DESCRIPTION,
+    inputSchema: ASK_USER_SCHEMA,
+    outputSchema: ASK_USER_OUTPUT_SCHEMA,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, extra) => {
+    try {
+      const caller = requireServerCoreMcpCaller(context);
+      return serverCoreMcpOk(await context.host.presentations.requestAsk(caller.sessionId, args, extra.signal));
+    } catch (error) {
+      return serverCoreMcpError(error,
+        '请先检查 Remote 待处理中的已有问题；输入无效时按 ask_user schema 修正后重试，会话关闭时请开启新会话。');
+    }
+  });
+
   server.registerTool('present_plan', {
     description: 'Present a markdown plan in the connected Agent Deck Remote UI and block until the user approves it or requests revisions. The gate is owned by Server Core and never falls back to Local session state.',
     inputSchema: REQUEST_PLAN_REVIEW_SCHEMA,

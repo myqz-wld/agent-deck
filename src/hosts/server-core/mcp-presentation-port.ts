@@ -6,6 +6,7 @@ import type {
   RequestPlanReviewResult,
 } from '@main/agent-deck-mcp/tools/schemas';
 import type { PlanDeepReviewSession } from '@shared/types';
+import type { AskUserArgs, AskUserResult } from '@main/agent-deck-mcp/tools/schemas/ask-user';
 
 export interface ServerCoreMcpPresentationTransferLease {
   commit(): void;
@@ -17,6 +18,7 @@ export interface ServerCoreMcpPresentationPort {
   stop(): Promise<void>;
   requestPlan(sessionId: string, args: RequestPlanReviewArgs): Promise<RequestPlanReviewResult>;
   requestDiff(sessionId: string, args: RequestDiffReviewArgs): Promise<RequestDiffReviewResult>;
+  requestAsk(sessionId: string, args: AskUserArgs, signal?: AbortSignal): Promise<AskUserResult>;
   startReview(
     sessionId: string,
     requestId: string,

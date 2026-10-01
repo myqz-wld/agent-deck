@@ -68,6 +68,7 @@ export function nextActivityState(
     }
     case 'waiting-for-user': {
       const type = (payload as { type?: string } | null | undefined)?.type;
+      if (type === 'ask-question-answered') return current === 'waiting' ? 'working' : current;
       if (typeof type === 'string' && type.endsWith('-cancelled')) {
         // SDK 自己撤掉的 pending：不切状态，保留之前的 activity。
         // 真实的 pending Map 是否清空由 store / pendingMap 自己维护。

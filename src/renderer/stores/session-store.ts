@@ -8,6 +8,7 @@ import type {
 } from '@shared/types';
 import {
   isAskQuestionCancelled,
+  isAskQuestionAnswered,
   isAskUserQuestion,
   isDiffReview,
   isDiffReviewCancelled,
@@ -214,7 +215,7 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
             if (next.length === 0) pendingMap.delete(event.sessionId);
             else pendingMap.set(event.sessionId, next);
           }
-        } else if (isAskQuestionCancelled(event.payload)) {
+        } else if (isAskQuestionCancelled(event.payload) || isAskQuestionAnswered(event.payload)) {
           const reqId = event.payload.requestId;
           const cur = state.pendingAskQuestionsBySession.get(event.sessionId);
           if (cur?.some((r) => r.requestId === reqId)) {

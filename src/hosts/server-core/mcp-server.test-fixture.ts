@@ -186,6 +186,7 @@ export function createMcpServerHarness() {
       })),
     },
     presentations: {
+      requestAsk: vi.fn(async () => ({ status: 'cancelled' as const, answers: [] })),
       requestPlan: vi.fn(async () => ({ decision: 'approved' as const })),
       requestDiff: vi.fn(async () => ({ decision: 'approved' as const })),
     },

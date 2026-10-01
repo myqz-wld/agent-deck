@@ -80,6 +80,7 @@ export function describe(e: AgentEvent): string {
       }
       if (type === 'permission-cancelled') return '权限请求已取消';
       if (type === 'ask-question-cancelled') return '提问已取消';
+      if (type === 'ask-question-answered') return '回答已提交';
       if (type === 'exit-plan-cancelled') return '计划批准请求已取消';
       const message = textValue(p.message);
       return `等待你的输入${message ? ` · ${message}` : ''}`;

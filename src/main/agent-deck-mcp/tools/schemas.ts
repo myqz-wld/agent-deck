@@ -9,3 +9,4 @@ export * from './schemas/session';
 export * from './schemas/lifecycle';
 export * from './schemas/tasks';
 export * from './schemas/issues';
+export * from './schemas/ask-user';

@@ -70,6 +70,7 @@ const operation = (
 const TOOL_OPERATIONS = new Map<string, McpHttpOperation>([
   ['present_plan', operation('human_wait', 0)],
   ['present_diff', operation('human_wait', 1)],
+  ['ask_user', operation('human_wait', 2)],
   ['spawn_session', operation('spawn', 3)],
   ['hand_off_session', operation('hand_off', 4)],
   ['enter_worktree', operation('lifecycle', 5)],

@@ -8,6 +8,7 @@ Manage agent sessions, project work, and collaboration in one place.
 - Live sessions, searchable history, context and usage tracking.
 - Codex quota-reset counts from usage reads, with confirmed redemption and safe retries.
 - Teammates, tasks, issues, reviews, and session handoffs.
+- Unified `ask_user` questions from Claude, Codex, and Grok in Pending, with choices, free text, and notes.
 - Markdown, images, and inline file diffs.
 - Readable file and command output with expandable raw tool results.
 - Git worktree isolation and provider-native runtime controls.
@@ -25,6 +26,14 @@ pnpm dev
 ```
 
 Open a project, start a session, and describe the task.
+
+When an agent needs clarification or a choice, `ask_user` places up to four related questions in
+Pending for the current session, including Remote sessions. Open Pending to answer without searching
+the conversation. Questions wait without an application timeout while their tool call remains active;
+switching sessions or refreshing the UI preserves pending questions. Submission returns the selected
+options, free text, and notes to the agent. Unanswered items are explicit empty entries; cancellation,
+session closure, or handoff ends the request without treating it as approval. The tool requires
+Agent Deck MCP to be enabled; provider-native question mechanisms remain available as a fallback.
 
 New-session thinking defaults follow the selected Gateway configuration, including Claude's
 `env.CLAUDE_CODE_EFFORT_LEVEL` and `effortLevel`. Explicit thinking choices are kept separately

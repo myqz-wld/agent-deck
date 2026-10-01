@@ -215,7 +215,7 @@ export function AskRow({
                 type="text"
                 value={draft?.other ?? ''}
                 onChange={(e) => setOther(draftKey, e.target.value)}
-                placeholder="其他（可选）"
+                placeholder={q.options.length === 0 ? '请输入回答' : '其他（可选）'}
                 disabled={!isSdk || !stillPending || busy}
                 className="mt-1 w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
               />

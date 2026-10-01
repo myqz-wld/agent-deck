@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-30 | `PLAN_77_unified-ask-user.md` | completed | Unify MCP questions and Pending across adapters | `CHANGELOG_668_unified-ask-user.md` |
 | 2026-09-30 | `PLAN_76_remote-worker-activation.md` | completed | Activate stable Remote reads and independent owner work | `REVIEW_307_remote-worker-backpressure.md` |
 | 2026-09-30 | `PLAN_75_codex-failed-gateway-recovery.md` | completed | Recover Gateway switching after failed Codex turns | `REVIEW_306_codex-failed-gateway-recovery.md` |
 | 2026-09-30 | `PLAN_74_feishu-relay-live-acceptance.md` | completed | Accept real owner approval, natural named work and provider reply | `REVIEW_305_feishu-native-approval-depth.md` |

@@ -50,6 +50,7 @@ vi.mock('@main/store/agent-deck-team-repo', () => ({
 }));
 vi.mock('@main/event-bus', () => ({ eventBus: {} }));
 vi.mock('@main/plan-review/service', () => ({ planReviewService: {} }));
+vi.mock('@main/ask-user/service', () => ({ getAskUserService: vi.fn() }));
 vi.mock('@main/diff-review/service', () => ({
   diffReviewService: { respond: mocks.respondDiffReview },
 }));

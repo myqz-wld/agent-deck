@@ -66,6 +66,12 @@ export function isAskQuestionCancelled(payload: unknown): payload is { requestId
   );
 }
 
+export function isAskQuestionAnswered(payload: unknown): payload is { requestId: string } {
+  return typeof payload === 'object' && payload !== null &&
+    (payload as { type?: string }).type === 'ask-question-answered' &&
+    typeof (payload as { requestId?: unknown }).requestId === 'string';
+}
+
 export function isExitPlanCancelled(payload: unknown): payload is { requestId: string } {
   return (
     typeof payload === 'object' &&

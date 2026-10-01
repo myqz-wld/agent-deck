@@ -143,6 +143,7 @@ describe('notification event router observability', () => {
     mocks.notifyUser.mockClear();
     mocks.sessionGet.mockClear();
     await route(waitingEvent('permission-cancelled', 'must stay silent'));
+    await route(waitingEvent('ask-question-answered', 'must stay silent'));
     expect(mocks.sessionGet).not.toHaveBeenCalled();
     expect(mocks.notifyUser).not.toHaveBeenCalled();
     expect(mocks.logger.info).not.toHaveBeenCalled();

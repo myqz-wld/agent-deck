@@ -75,6 +75,11 @@ describe('nextActivityState', () => {
     expect(nextActivityState('working', 'waiting-for-user', { type: 'permission-cancelled' })).toBe('working');
   });
 
+  it('question submission resumes waiting activity without reviving a finished session', () => {
+    expect(nextActivityState('waiting', 'waiting-for-user', { type: 'ask-question-answered' })).toBe('working');
+    expect(nextActivityState('finished', 'waiting-for-user', { type: 'ask-question-answered' })).toBe('finished');
+  });
+
   it('finished → finished', () => {
     expect(nextActivityState('working', 'finished', null)).toBe('finished');
   });
