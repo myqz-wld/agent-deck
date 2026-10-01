@@ -178,10 +178,11 @@ function translateErrorNotification(
   const msg = typeof err?.message === 'string' ? err.message : 'Unknown Codex app-server error';
   if (
     record?.willRetry === true ||
-    classifyStreamErrorEvent(msg, observeHeuristicStreamError) === 'transient'
+    (record?.willRetry !== false &&
+      classifyStreamErrorEvent(msg, observeHeuristicStreamError) === 'transient')
   ) {
     const progress = extractRetryProgress(msg);
-    emit('message', { text: `🔄 Codex 正在重连...${progress}` });
+    emit('message', { text: `Codex 正在重连...${progress}` });
     return;
   }
   emit('message', { text: `⚠ Codex 流级错误：${msg}`, error: true });

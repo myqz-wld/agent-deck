@@ -24,9 +24,10 @@ session with its saved model and native controls.
 
 ## Validation
 
-6,908 tests pass with three existing skips. Type/architecture, application build, headless and
+The merged release passes 6,913 tests with six skips (three original and three opt-in native
+Gateway cases from the separately completed main change). Type/architecture, application build, headless and
 deployment checks pass. Read-only live reproduction and regression details are recorded in
-[REVIEW_306](../../reviews/recent-3-days/REVIEW_306_remote-worker-backpressure.md).
+[REVIEW_307](../../reviews/recent-3-days/REVIEW_307_remote-worker-backpressure.md).
 Installed Desktop/Worker acceptance is pending; current model choices and pairing remain intact.
 
 ## Do Not Split Protection

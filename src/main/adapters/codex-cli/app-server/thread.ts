@@ -8,10 +8,10 @@ import {
 } from './notification-helpers';
 import type {
   CodexAppServerNotification,
+  CodexAppServerRunOptions,
   CodexAppServerRunResult,
   CodexAppServerStreamEvent,
   CodexAppServerUserInput,
-  JsonObject,
 } from './protocol';
 import {
   buildTurnStartParams,
@@ -50,13 +50,7 @@ type QueuedNotification = Extract<
   CodexAppServerStreamEvent,
   { type: 'server.notification' }
 >;
-export interface CodexAppServerRunOptions {
-  signal?: AbortSignal;
-  outputSchema?: JsonObject;
-  environments?: readonly [];
-  runtimeWorkspaceRoots?: readonly string[];
-  maxOutputBytes?: number;
-}
+export type { CodexAppServerRunOptions } from './protocol';
 export class CodexAppServerThread {
   private threadId: string | null;
   private started = false;
@@ -199,6 +193,7 @@ export class CodexAppServerThread {
     let firstModelEventTimer: ReturnType<typeof setTimeout> | null = null;
     let cancellationOwner: AcceptedTurnCancellationOwner | null = null;
     let signalAbortListener: (() => void) | null = null;
+    let failedGeneration: number | null = null;
     const queue = new AsyncNotificationQueue<QueuedNotification>();
     try {
       const threadId = await this.ensureThread(signal);
@@ -366,8 +361,14 @@ export class CodexAppServerThread {
         if (terminalState === 'terminal') {
           terminalSeen = true;
           clearFirstModelEventTimer();
-          cancellationOwner?.cancellation?.markTerminal();
-          this.activeTurnId = null;
+          if (notification.method === 'error' && !cancellationOwner?.isCancelling(turnId)) {
+            failedGeneration = turnGeneration;
+          }
+          // A native error precedes turn cleanup; keep finally's terminal-or-recycle fence.
+          if (notification.method === 'turn/completed' || this.client.generation !== turnGeneration) {
+            cancellationOwner?.cancellation?.markTerminal();
+            this.activeTurnId = null;
+          }
           queue.close();
         }
       };
@@ -469,6 +470,10 @@ export class CodexAppServerThread {
           new Error('Codex turn consumer detached before completion'));
       }
       unsub?.();
+      // Failed native threads can remain loaded after unsubscribe and ignore Gateway overrides.
+      if (!this.mode.options.ephemeral && failedGeneration === this.client.generation) this.client.recycleGeneration(
+        failedGeneration, new Error('Codex failed turn runtime reset'), 'failed turn cleanup',
+      );
       if (this.activeTurnCancellation === acceptedCancellation) this.activeTurnCancellation = null;
       this.activeTurnId = null;
       queue.close();

@@ -43,7 +43,7 @@ describe('Codex app-server translation diagnostics port', () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it('reports a heuristic-only retry match while preserving reconnection output', () => {
+  it('does not let heuristic text override a terminal native retry flag', () => {
     const emit = vi.fn();
     const observeHeuristicStreamError = vi.fn();
     const message = 'provider disconnected and retrying with a new stream';
@@ -53,8 +53,8 @@ describe('Codex app-server translation diagnostics port', () => {
       params: { error: { message }, willRetry: false },
     }, emit, { observeHeuristicStreamError });
 
-    expect(observeHeuristicStreamError).toHaveBeenCalledWith(message);
-    expect(emit).toHaveBeenCalledWith('message', { text: '🔄 Codex 正在重连...' });
+    expect(observeHeuristicStreamError).not.toHaveBeenCalled();
+    expect(emit).toHaveBeenCalledWith('finished', { ok: false, subtype: 'error' });
   });
 
   it('contains heuristic diagnostics failures without changing classification', () => {
@@ -68,6 +68,6 @@ describe('Codex app-server translation diagnostics port', () => {
         throw new Error('diagnostics failed');
       },
     })).not.toThrow();
-    expect(emit).toHaveBeenCalledWith('message', { text: '🔄 Codex 正在重连...' });
+    expect(emit).toHaveBeenCalledWith('message', { text: 'Codex 正在重连...' });
   });
 });

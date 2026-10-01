@@ -1,5 +1,5 @@
 ---
-review_id: 306
+review_id: 307
 reviewed_at: 2026-09-30
 baseline_commit: 8a9e93a0baf02d89c085f8e9511f3de577dbae58
 expired: false
@@ -66,7 +66,9 @@ protocol change, prompt edit or model/policy update is required.
 - Targeted transport suite: 54 passing tests. New cases also cover byte/frame bounds, delayed
   callbacks, failure and progress timeout. SQLite tests cover targeted promotion, descendant
   rebasing, wrong-parent rejection, inconsistent cycles, durable origin retention and pagination.
-- Full suite: 6,908 passed, three existing skips; 1,119 passing files and two skipped. An initial
+- Before integration, 6,908 tests passed with three existing skips. After preserving main's
+  independently completed Gateway recovery, the merged suite passes 6,913 tests with six skips
+  (three original and three opt-in native Gateway cases); 1,119 files pass. An initial
   run used umask 077 and failed unrelated fixtures that require explicit public artifact modes;
   the complete rerun under the normal umask passed without product/test relaxations.
 - Typecheck/architecture, application build, headless build/check and deployment checks pass.
