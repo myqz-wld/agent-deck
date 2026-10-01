@@ -63,6 +63,10 @@ Native file deletion is accepted for the current Codex assistant with its existi
 this does not promise identical native tools or approval behavior for every adapter. Private
 snapshots preserve the superseded working-plan history before cleanup.
 
+The official worktree exit restored main and removed the owned worktree. Its merged local
+feature branch is deleted; no remote feature branch was created. Temporary manifest/audit inputs
+and superseded working plans are removed, while private evidence and unrelated files remain.
+
 ## Remaining owner feedback
 
 An exact harmless prompt requests a real ordinary reply with emphasis, list, code, table and a
