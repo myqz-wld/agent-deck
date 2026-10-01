@@ -23,6 +23,7 @@ import {
   validateServerCoreSpawnFork,
 } from './mcp-spawn-fork';
 import { ServerCoreSpawnGuard } from './mcp-spawn-guard';
+import { creationGuardSessions } from './creation-guard-sessions';
 import type { ServerCoreSpawnGuardLimits } from './mcp-spawn-guard';
 import type {
   ServerCoreMcpSpawnPort,
@@ -126,7 +127,7 @@ export class ServerCoreMcpSessionSpawner implements ServerCoreMcpSpawnPort {
   constructor(private readonly options: ServerCoreMcpSessionSpawnerOptions) {
     this.now = options.now ?? Date.now;
     this.guard = new ServerCoreSpawnGuard(
-      options.sessions,
+      creationGuardSessions(options.sessions, options.metadata),
       this.now,
       options.spawnLimits,
     );

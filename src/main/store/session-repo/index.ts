@@ -10,6 +10,7 @@ import { setPinned, SessionPinStateError } from './pinning';
 import { rename } from './rename';
 import * as spawnChain from './spawn-chain';
 import * as presentation from './presentation';
+import { promoteIndependentWork } from './independent-work';
 
 // Keep the implementation's internal name out of the public facade.
 const { _delete, ...coreRest } = coreCrud;
@@ -26,6 +27,7 @@ export const sessionRepo = {
   rename,
   ...spawnChain,
   ...presentation,
+  promoteIndependentWork,
 };
 
 export { SessionRowMissingError, SessionPinStateError };

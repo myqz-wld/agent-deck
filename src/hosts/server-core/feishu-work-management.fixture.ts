@@ -10,6 +10,7 @@ import { ServerCoreFeishuPreferenceService } from './feishu-preference-service';
 import { ServerCoreSessionNameService } from './session-name-service';
 import { ServerCoreRuntimeMetadataStore, type ServerCoreChangeRecord } from './runtime-metadata-store';
 import { ServerCoreSpawnGuard } from './mcp-spawn-guard';
+import { creationGuardSessions } from './creation-guard-sessions';
 import { ServerCoreFeishuWorkManagement } from './feishu-work-management';
 import type { ServerCoreSessionSpawnCreateInput } from './session-console-authority';
 
@@ -29,6 +30,12 @@ export function createFeishuWorkHarness() {
   cleanups.push(() => { metadata.close(); rmSync(root, { recursive: true, force: true }); });
   const records = new Map<string, SessionRecord>([['assistant-a', workRecord('assistant-a')], ['existing-work', workRecord('existing-work')]]);
   const sessions = { get: (id: string) => records.get(id) ?? null,
+    promoteIndependentWork: (id: string, parent: string): readonly string[] => {
+      const row = records.get(id);
+      if (!row || row.spawnedBy !== parent) throw new Error('Creation edge changed');
+      records.set(id, { ...row, spawnedBy: null, spawnDepth: 0 });
+      return [id];
+    },
     setTitle: vi.fn((id: string, title: string) => { const row = records.get(id); if (row) records.set(id, { ...row, title }); }),
     listChildren: (id: string, state: 'active') => [...records.values()].filter(r => r.spawnedBy === id && r.lifecycle === state) };
   let preferences: FeishuPreferences = {
@@ -39,7 +46,8 @@ export function createFeishuWorkHarness() {
   const capabilities = { describe: vi.fn(async (input: { adapterId: string | null }) => sessionConsoleCapabilitiesFixture(input.adapterId as 'claude-code' | 'codex-cli' | 'grok-build')) };
   const preferenceService = new ServerCoreFeishuPreferenceService(store, metadata, capabilities);
   const names = new ServerCoreSessionNameService(sessions, metadata);
-  const guard = new ServerCoreSpawnGuard(sessions, () => 100, { maxDepth: 3, maxFanOut: 3, maxRate: 10 });
+  const guard = new ServerCoreSpawnGuard(creationGuardSessions(sessions, metadata), () => 100,
+    { maxDepth: 3, maxFanOut: 3, maxRate: 10 });
   const createSpawnSession = vi.fn(async (input: ServerCoreSessionSpawnCreateInput) => {
     records.set('created-work', workRecord('created-work', { agentId: input.params.adapterId as SessionRecord['agentId'],
       spawnedBy: input.initialSessionRegistration.spawnLink.parentSessionId,

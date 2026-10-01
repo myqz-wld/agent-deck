@@ -19,12 +19,48 @@ describe('registered assistant work management', () => {
     expect(t.createSpawnSession.mock.calls[0][0].params).toMatchObject({ initialMessage: t.args.initialMessage,
       workingDirectory: '.', options: { model: 'work-model', thinking: 'medium', approvalPolicy: 'never', codexSandbox: 'workspace-write' } });
     expect(t.records.get(result.sessionId)?.title).toBe('连接验证');
-    expect(t.changes.map(c => c.kind)).toEqual(['feishu.work.registered', 'feishu.work.committed']);
+    expect(t.records.get(result.sessionId)).toMatchObject({ spawnedBy: null, spawnDepth: 0 });
+    expect(t.changes.map(c => c.kind)).toEqual(['session.updated', 'feishu.work.registered', 'feishu.work.committed']);
     expect(JSON.stringify(t.changes)).not.toContain(t.args.initialMessage);
     expect(await t.service.create('assistant-a', t.args)).toEqual(result);
     expect(t.createSpawnSession).toHaveBeenCalledTimes(1);
     expect(t.store.read()).toEqual(before);
     expect(t.records.get('assistant-a')?.title).toBe('Workspace');
+    expect([...t.metadata.feishuWorkOrigins('assistant-a')]).toEqual([
+      { assistantId: 'assistant-a', sessionId: result.sessionId },
+    ]);
+  });
+
+  it('repairs only committed owner-created work and preserves genuine agent children', async () => {
+    const t = createFeishuWorkHarness();
+    const result = await t.service.create('assistant-a', t.args);
+    Object.assign(t.records.get(result.sessionId)!, { spawnedBy: 'assistant-a', spawnDepth: 1 });
+    t.records.set('real-child', workRecord('real-child', { spawnedBy: 'assistant-a', spawnDepth: 1 }));
+    t.service.reconcileCreatedWork();
+    expect(t.records.get(result.sessionId)).toMatchObject({ spawnedBy: null, spawnDepth: 0 });
+    expect(t.records.get('real-child')?.spawnedBy).toBe('assistant-a');
+    const revision = t.metadata.currentRevision();
+    t.service.reconcileCreatedWork();
+    expect(t.metadata.currentRevision()).toBe(revision);
+    const lease = t.guard.reserve(t.records.get('assistant-a')!);
+    expect(lease.snapshot().fanOut).toMatchObject({ activeChildren: 2, inFlight: 1 });
+    lease.release();
+  });
+
+  it('keeps admission reserved until independent work provenance commits', async () => {
+    const t = createFeishuWorkHarness();
+    const create = t.createSpawnSession.getMockImplementation()!;
+    t.createSpawnSession.mockImplementationOnce(async input => {
+      const result = await create(input);
+      const other = t.guard.reserve(t.records.get('assistant-a')!);
+      expect(other.snapshot().fanOut).toMatchObject({ activeChildren: 0, inFlight: 2 });
+      other.release();
+      return result;
+    });
+    await t.service.create('assistant-a', t.args);
+    const lease = t.guard.reserve(t.records.get('assistant-a')!);
+    expect(lease.snapshot().fanOut).toMatchObject({ activeChildren: 1, inFlight: 1 });
+    lease.release();
   });
 
   it('follows the canonical provider ID and retains a manual name changed during startup', async () => {

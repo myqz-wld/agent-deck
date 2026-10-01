@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, normalize } from 'node:path';
 
 import {
   isJsonValue,
+  parseFeishuWorkCreateResult,
   type JsonValue,
   type SessionConsoleCreateResult,
   type FeishuWorkCreateResult,
@@ -332,6 +333,28 @@ export class ServerCoreRuntimeMetadataStore {
     ).run(toId, now, fromId);
   }
 
+  /** Committed owner-work results are durable provenance, separate from agent spawn links. */
+  *feishuWorkOrigins(assistantId?: string): Iterable<{ assistantId: string; sessionId: string }> {
+    if (assistantId !== undefined) token(assistantId, 'work creator', 256);
+    const prefix = 'feishu-assistant:';
+    let cursor = 0;
+    for (;;) {
+      // Release each statement before callers publish changes on the same SQLite connection.
+      const rows = this.db().prepare(`SELECT rowid AS cursor, connection_scope AS scope, result_json AS result
+        FROM mutation_ledger WHERE rowid > ? AND access_surface = 'feishu' AND method = 'feishu.work.create'
+          AND status = 'completed' ${assistantId === undefined ? '' : 'AND connection_scope = ?'}
+        ORDER BY rowid LIMIT 256`).all(cursor, ...(assistantId === undefined ? [] : [prefix + assistantId])) as
+        Array<{ cursor: number; scope: string; result: string }>;
+      for (const row of rows) {
+        cursor = row.cursor;
+        if (!row.scope.startsWith(prefix) || row.scope.length === prefix.length) continue;
+        const result = parseFeishuWorkCreateResult(parseJson(row.result));
+        yield { assistantId: row.scope.slice(prefix.length), sessionId: result.sessionId };
+      }
+      if (rows.length < 256) return;
+    }
+  }
+
   /** Publish work ownership only after the creation result and event commit together. */
   commitFeishuWorkCreate(identity: ServerCoreMutationIdentity,
     fields: Omit<FeishuWorkCreateResult, 'revision'>, payload: FeishuWorkEvent,
@@ -402,7 +425,8 @@ export class ServerCoreRuntimeMetadataStore {
 
   private prune(now: number): void {
     this.db().prepare(
-      `DELETE FROM mutation_ledger WHERE status = 'completed' AND updated_at < ?`,
+      `DELETE FROM mutation_ledger WHERE status = 'completed' AND updated_at < ?
+        AND NOT (access_surface = 'feishu' AND method = 'feishu.work.create')`,
     ).run(Math.max(0, now - IDEMPOTENCY_RETENTION_MS));
   }
 

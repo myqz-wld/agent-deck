@@ -27,12 +27,13 @@ export interface FeishuWorkManagementPort {
   updatePreferences(callerId: string, args: FeishuPreferenceWriteArgs): Promise<FeishuPreferencesResult>;
 }
 type Metadata = Pick<ServerCoreRuntimeMetadataStore, 'claimMutation' | 'releaseMutationClaim' |
-  'completeMutation' | 'commitFeishuWorkCreate' | 'appendChange' | 'subscribe'>;
+  'completeMutation' | 'commitFeishuWorkCreate' | 'appendChange' | 'subscribe' | 'feishuWorkOrigins'>;
 
 export class ServerCoreFeishuWorkManagement implements FeishuWorkManagementPort {
   constructor(private readonly options: {
     assistants: FeishuAssistantAuthority;
-    sessions: { get(id: string): SessionRecord | null; setTitle(id: string, title: string): void };
+    sessions: { get(id: string): SessionRecord | null; setTitle(id: string, title: string): void;
+      promoteIndependentWork(id: string, expectedParent: string): readonly string[] };
     preferences: ServerCoreFeishuPreferenceService;
     names: ServerCoreSessionNameService;
     metadata: Metadata;
@@ -41,6 +42,20 @@ export class ServerCoreFeishuWorkManagement implements FeishuWorkManagementPort 
     reserve(caller: SessionRecord): ServerCoreSpawnGuardLease;
     rollback(adapterId: string, sessionId: string): Promise<void>;
   }) {}
+
+  reconcileCreatedWork(): void {
+    for (const origin of this.options.metadata.feishuWorkOrigins()) {
+      const record = this.options.sessions.get(origin.sessionId);
+      if (!record || record.spawnedBy !== origin.assistantId) continue;
+      this.promoteWork(origin.sessionId, origin.assistantId);
+    }
+  }
+
+  private promoteWork(id: string, callerId: string): void {
+    for (const sessionId of this.options.sessions.promoteIndependentWork(id, callerId)) {
+      this.options.metadata.appendChange('session.updated', sessionId, { relation: 'independent-work' });
+    }
+  }
 
   private scope(callerId: string, requestId: string) {
     this.options.assistants.caller(callerId);
@@ -137,13 +152,15 @@ export class ServerCoreFeishuWorkManagement implements FeishuWorkManagementPort 
             if (!record || record.spawnedBy !== callerId) throw new Error('Work target has no authenticated creation edge');
             targetId = id; registered = true;
             this.options.assistants.caller(callerId);
+            this.promoteWork(id, callerId);
             this.options.sessions.setTitle(id, args.title);
-            lease?.release();
             this.options.metadata.appendChange('feishu.work.registered', id, event);
           },
         },
       });
-      if (!targetId || targetId !== created.sessionId || this.options.sessions.get(targetId)?.spawnedBy !== callerId) {
+      const target = targetId ? this.options.sessions.get(targetId) : null;
+      if (!targetId || !target || targetId !== created.sessionId || target.agentId !== adapterId ||
+        target.spawnedBy != null || (target.spawnDepth ?? 0) !== 0) {
         throw new Error('Provider work target did not resolve to its registered canonical session');
       }
       this.options.assistants.caller(callerId);

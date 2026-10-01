@@ -372,6 +372,7 @@ export function createServerCoreRuntimeWithOverrides(
     collaboration,
     worktrees,
     initializeProviders: async () => {
+      feishu.management.reconcileCreatedWork();
       const results = await initializeProviderRuntimeCore(
         providerHost,
         createHeadlessAdapterContext(providerInput),

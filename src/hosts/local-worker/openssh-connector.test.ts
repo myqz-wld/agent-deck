@@ -1,11 +1,12 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
+import { PassThrough, Writable } from 'node:stream';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   encodeWorkerWireMessage,
+  WorkerWireDecoder,
   type WorkerAttachRequest,
   type WorkerAttached,
 } from '@protocol/relay';
@@ -58,7 +59,7 @@ interface FakeChild extends ChildProcessWithoutNullStreams {
   kill: ReturnType<typeof vi.fn>;
 }
 
-function fakeChild(exitBehavior: ExitBehavior = 'sigterm'): FakeChild {
+function fakeChild(exitBehavior: ExitBehavior = 'sigterm', input: Writable = new PassThrough()): FakeChild {
   const child = new EventEmitter() as FakeChild;
   let exited = false;
   const emitExit = (signal: NodeJS.Signals): void => {
@@ -70,7 +71,7 @@ function fakeChild(exitBehavior: ExitBehavior = 'sigterm'): FakeChild {
     pid: 1234,
     exitCode: null,
     signalCode: null,
-    stdin: new PassThrough(),
+    stdin: input,
     stdout: new PassThrough(),
     stderr: new PassThrough(),
     kill: vi.fn((signal: NodeJS.Signals) => {
@@ -145,7 +146,7 @@ describe('OpenSSH Worker connector boundary', () => {
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
   });
 
-  it('keeps the session backpressured when the initial attach write returns false', async () => {
+  it('queues frames until drain when the initial attach write returns false', async () => {
     const child = fakeChild();
     vi.spyOn(child.stdin, 'write').mockReturnValueOnce(false);
     const session = await attachedSession(child);
@@ -163,10 +164,55 @@ describe('OpenSSH Worker connector boundary', () => {
       accessSurface: null,
       accessGrant: null,
     };
-    expect(() => session.send(frame)).toThrow('backpressured');
-    child.stdin.emit('drain');
     expect(() => session.send(frame)).not.toThrow();
+    expect(child.stdin.write).toHaveBeenCalledTimes(1);
+    child.stdin.emit('drain');
+    expect(child.stdin.write).toHaveBeenCalledTimes(2);
+    expect(child.kill).not.toHaveBeenCalled();
     await session.close();
+  });
+
+  it('delivers concurrent detail replies in order across real pipe backpressure', async () => {
+    const received: Buffer[] = [];
+    const completions: Array<(error?: Error | null) => void> = [];
+    const input = new Writable({
+      highWaterMark: 1024,
+      write(bytes, _encoding, done) {
+        received.push(Buffer.from(bytes));
+        if (received.length === 1) done();
+        else completions.push(done);
+      },
+    });
+    const child = fakeChild('sigterm', input);
+    const session = await attachedSession(child);
+    const onClose = vi.fn();
+    session.setHandlers({ onFrame: vi.fn(), onClose });
+    const frames: RelayRouteFrame[] = [0, 1, 2].map(sequence => ({
+      instanceId: 'instance-a', generation: 1, streamId: `detail-${sequence}`,
+      direction: 'worker-to-client', sequence: 0, kind: 'data',
+      payload: new Uint8Array(42_192).fill(sequence), creditBytes: null, resetCode: null,
+      connectionScope: null, accessSurface: null, accessGrant: null,
+    }));
+    try {
+      for (const frame of frames) expect(() => session.send(frame)).not.toThrow();
+      expect(input.writableNeedDrain).toBe(true);
+      expect(received).toHaveLength(2); // Attach and one accepted, incomplete write.
+      for (let index = 0; index < frames.length; index += 1) {
+        completions.shift()!();
+        await new Promise<void>(resolve => setImmediate(resolve));
+      }
+      const messages = new WorkerWireDecoder().push(Buffer.concat(received));
+      expect(messages).toHaveLength(frames.length + 1);
+      for (const [index, message] of messages.slice(1).entries()) {
+        if (message.type !== 'route') throw new Error('Expected a routed detail response');
+        const { payload, ...header } = message.frame;
+        const { payload: expectedPayload, ...expectedHeader } = frames[index];
+        expect(header).toEqual(expectedHeader);
+        expect(Buffer.from(payload).equals(expectedPayload)).toBe(true);
+      }
+      expect(onClose).not.toHaveBeenCalled();
+      expect(child.kill).not.toHaveBeenCalled();
+    } finally { await session.close(); }
   });
 
   it('memoizes retirement and escalates from ignored SIGTERM to SIGKILL', async () => {
@@ -298,6 +344,9 @@ describe('OpenSSH Worker connector boundary', () => {
     [{ maxWireBytes: 64 * 1024 * 1024 + 1 }, 'maxWireBytes'],
     [{ maxPendingFrames: -1 }, 'maxPendingFrames'],
     [{ maxPendingFrames: 4097 }, 'maxPendingFrames'],
+    [{ maxQueuedWriteBytes: 1024 }, 'maxQueuedWriteBytes'],
+    [{ maxQueuedWriteFrames: 0 }, 'maxQueuedWriteFrames'],
+    [{ writeProgressTimeoutMs: 0 }, 'writeProgressTimeoutMs'],
   ])('rejects unsafe connector option %j', (options, field) => {
     expect(() => new OpenSshWorkerConnector(options)).toThrow(field);
   });

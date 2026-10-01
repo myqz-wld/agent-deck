@@ -26,6 +26,7 @@ import {
   type LocalWorkerSshConfig,
 } from './config';
 import { OpenSshChildRetirement } from './openssh-retirement';
+import { WorkerOpenSshFrameWriter } from './openssh-frame-writer';
 
 export interface OpenSshConnectorOptions {
   handshakeTimeoutMs?: number;
@@ -33,6 +34,9 @@ export interface OpenSshConnectorOptions {
   killGraceMs?: number;
   maxWireBytes?: number;
   maxPendingFrames?: number;
+  maxQueuedWriteBytes?: number;
+  maxQueuedWriteFrames?: number;
+  writeProgressTimeoutMs?: number;
 }
 
 export type OpenSshSpawn = typeof spawn;
@@ -56,6 +60,9 @@ export class OpenSshWorkerConnector implements WorkerAttachmentConnector {
   private readonly killGraceMs: number;
   private readonly maxWireBytes: number;
   private readonly maxPendingFrames: number;
+  private readonly writeLimits: {
+    maxQueuedBytes: number; maxQueuedFrames: number; progressTimeoutMs: number;
+  };
 
   constructor(
     options: OpenSshConnectorOptions = {},
@@ -91,6 +98,14 @@ export class OpenSshWorkerConnector implements WorkerAttachmentConnector {
       1,
       4096,
     );
+    this.writeLimits = {
+      maxQueuedBytes: boundedOption(options.maxQueuedWriteBytes ?? this.maxWireBytes,
+        'maxQueuedWriteBytes', this.maxWireBytes, 64 * 1024 * 1024),
+      maxQueuedFrames: boundedOption(options.maxQueuedWriteFrames ?? 1024,
+        'maxQueuedWriteFrames', 1, 8192),
+      progressTimeoutMs: boundedOption(options.writeProgressTimeoutMs ?? 15_000,
+        'writeProgressTimeoutMs', 1, 600_000),
+    };
   }
 
   connect(
@@ -136,7 +151,7 @@ export class OpenSshWorkerConnector implements WorkerAttachmentConnector {
       let negotiatedLimits: RelayRouteFrameLimits | null = null;
       let handshakeDone = false;
       let closed = false;
-      let writeBlocked = false;
+      let writer: WorkerOpenSshFrameWriter | null = null;
       let terminalError: Error | null = null;
       let closeNotificationDelivered = false;
       let stderr = '';
@@ -151,7 +166,7 @@ export class OpenSshWorkerConnector implements WorkerAttachmentConnector {
       const isolate = (): Promise<void> => {
         if (!closed) {
           closed = true;
-          writeBlocked = true;
+          writer?.close();
           clearHandshakeTimer();
         }
         return retirement.retire();
@@ -216,22 +231,19 @@ export class OpenSshWorkerConnector implements WorkerAttachmentConnector {
         },
         send(frame) {
           if (closed || child.stdin.destroyed) throw new Error('Worker attachment is closed');
-          if (writeBlocked) throw new Error('Worker attachment transport is backpressured');
           if (negotiatedLimits === null) throw new Error('Worker route limits are not negotiated');
           assertRelayRouteFrame(frame, negotiatedLimits);
           const encoded = encodeWorkerWireMessage({ type: 'route', frame }, negotiatedLimits);
           if (encoded.byteLength > maxWireBytes) {
             throw new Error('Worker attachment frame exceeds transport limit');
           }
-          if (!child.stdin.write(encoded)) writeBlocked = true;
+          writer!.enqueue(encoded);
         },
         close: () => isolate(),
       });
 
       try {
-        child.stdin.on('drain', () => {
-          if (!closed) writeBlocked = false;
-        });
+        writer = new WorkerOpenSshFrameWriter(child.stdin, this.writeLimits, failTransport);
         child.stdin.on('error', (error) => failTransport(error));
         child.stdout.on('data', (chunk: Buffer) => {
           if (closed) return;
@@ -302,7 +314,7 @@ export class OpenSshWorkerConnector implements WorkerAttachmentConnector {
         timer = setTimeout(() => {
           rejectAfterRetirement(new Error('OpenSSH Worker attachment handshake timed out'));
         }, this.handshakeTimeoutMs);
-        if (!child.stdin.write(attachBytes)) writeBlocked = true;
+        writer.enqueue(attachBytes);
       } catch (error) {
         failTransport(error instanceof Error ? error : new Error('Failed to write Worker attach'));
       }

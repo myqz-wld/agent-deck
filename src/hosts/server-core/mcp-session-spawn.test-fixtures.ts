@@ -178,7 +178,7 @@ export function harness(input: {
     } as unknown as ServerCoreSessionCreateCapabilities,
     authority: { createSpawnSession } as unknown as ServerCoreSessionConsoleAuthority,
     collaboration,
-    metadata: { appendChange } as unknown as ServerCoreRuntimeMetadataStore,
+    metadata: { appendChange, feishuWorkOrigins: () => [] } as unknown as ServerCoreRuntimeMetadataStore,
     agents: input.agents,
     now: () => 5_000,
   });
