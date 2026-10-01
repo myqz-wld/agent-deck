@@ -7,6 +7,11 @@ expired: false
 
 # Feishu named work and receipt ordering
 
+Latest owner evidence: natural creation with a task-derived title, inherited astra/medium,
+native approval and the named work reply are accepted in
+[PLAN_74](../../plans/recent-3-days/PLAN_74_feishu-relay-live-acceptance.md). Persona/history were
+accepted earlier. Explicit manual rename and a named /send remain additional live checks.
+
 ## Scope and method
 
 Local producer/consumer review and fault-injection tests; no additional agents or independent

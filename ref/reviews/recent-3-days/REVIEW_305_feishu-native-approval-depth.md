@@ -62,3 +62,13 @@ created. Later clicks reject the expired presentation as invalid_nonce. The requ
 pending, so acceptance requires a fresh owner request and approval. The generic expired-card toast
 needs clearer guidance; rejecting an expired action remains required. The delivered-card depth
 repair and managed health checks remain valid.
+
+## Fresh owner approval accepted
+
+The owner sent a fresh natural request and approved its new card. The screenshot shows a terminal
+approved card, task-derived work title, real work reply and completion reaction. Read-only Core
+confirms completed create_work_session, separate assistant/work identities, the saved runtime
+choices, finished turns and no pending requests. New work history has no tool calls. The native
+approval-depth repair is now accepted through the real business path; see
+[PLAN_74](../../plans/recent-3-days/PLAN_74_feishu-relay-live-acceptance.md). Expired-card copy remains
+a separate UI follow-up; no repeated creation or Desktop replacement is needed.

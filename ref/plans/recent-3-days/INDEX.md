@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-30 | `PLAN_74_feishu-relay-live-acceptance.md` | completed | Accept real owner approval, natural named work and provider reply | `REVIEW_305_feishu-native-approval-depth.md` |
 | 2026-09-30 | `PLAN_73_feishu-native-approval-activation.md` | completed | Deliver the existing native approval without Desktop replacement | `REVIEW_305_feishu-native-approval-depth.md` |
 | 2026-09-30 | `PLAN_72_feishu-input-approval-activation.md` | completed | Activate input/approval repairs and remove duplicate applications | `REVIEW_304_feishu-input-approval-progress.md` |
 | 2026-09-30 | `PLAN_71_feishu-named-work-activation.md` | completed | Activate named work and preserve assistant context | `REVIEW_303_feishu-named-work-management.md` |

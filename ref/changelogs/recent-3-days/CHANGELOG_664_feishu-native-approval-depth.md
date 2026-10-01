@@ -26,8 +26,10 @@ parameters, depth boundaries and retained resource limits. Full suite: 6,892 pas
 three existing skips. Typecheck/architecture, headless build/check and deployment checks pass.
 See [local review](../../reviews/recent-3-days/REVIEW_305_feishu-native-approval-depth.md).
 [Managed activation](../../plans/recent-3-days/PLAN_73_feishu-native-approval-activation.md) is verified:
-the original approval notification was delivered successfully. Owner approval and work-reply
-acceptance continue in the active plan. Desktop and Worker were not replaced.
+the original approval notification was delivered successfully. A fresh owner request subsequently
+passed real native approval, natural naming and provider reply in
+[PLAN_74](../../plans/recent-3-days/PLAN_74_feishu-relay-live-acceptance.md). Desktop and Worker were
+not replaced. The old expired-card toast remains a separate UI follow-up.
 
 ## Do Not Split Protection
 

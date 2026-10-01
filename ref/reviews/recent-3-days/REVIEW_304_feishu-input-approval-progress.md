@@ -7,6 +7,12 @@ expired: false
 
 # Feishu input, approval, and reaction progress
 
+Latest owner evidence: the fresh natural creation approval reaches a terminal approved card;
+the named work reply and input completion reaction are visible. Core independently confirms
+completion and no pending requests. See
+[PLAN_74](../../plans/recent-3-days/PLAN_74_feishu-relay-live-acceptance.md). This does not claim
+live coverage of every rich-text variant or the remaining expired-card copy improvement.
+
 ## Scope and method
 
 Local producer/consumer inspection and fault-injection tests; no additional agents or independent
