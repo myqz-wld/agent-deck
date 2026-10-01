@@ -22,8 +22,9 @@ distinct guidance. A Core-confirmed expired/cancelled request has an accurate te
 ## Validation
 
 51 focused and 6,918 full-suite tests pass, with six existing skips. Type/architecture,
-headless/native builds and headless/deployment checks pass. Runtime activation and remaining live
-checks are tracked separately. See [REVIEW_308](../../reviews/recent-3-days/REVIEW_308_feishu-expired-approvals.md).
+headless/native builds and headless/deployment checks pass. Runtime activation passed in
+[PLAN_78](../../plans/recent-3-days/PLAN_78_feishu-operations-approval-activation.md); the old-card
+visual check remains optional owner feedback. See [REVIEW_308](../../reviews/recent-3-days/REVIEW_308_feishu-expired-approvals.md).
 
 ## Do Not Split Protection
 

@@ -63,8 +63,10 @@ HMAC contents, identity binding, request ownership, deadlines and idempotency ar
 
 ## Residual risk and activation
 
-This source record does not claim runtime activation or the remaining live checks. The official
-Server release publishes the desired Feishu runtime; a separate managed Feishu upgrade selects it.
+Managed activation and real rename/directory/deletion checks passed in
+[PLAN_78](../../plans/recent-3-days/PLAN_78_feishu-operations-approval-activation.md). The owner has
+not yet checked the new toast on an old card. The official Server release publishes the desired
+Feishu runtime; a separate managed Feishu upgrade selects it.
 Desktop/Worker need no new package for this presentation-only repair. No database, protocol,
 prompt, model, sandbox or approval-policy change is required. All changed source files are below
 500 lines. The older no-reply incident remains deferred by the owner and is not claimed fixed.
