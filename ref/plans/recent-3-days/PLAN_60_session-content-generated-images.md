@@ -9,7 +9,7 @@ status: completed
 ## Goal and authorization
 
 Implement the remaining recommendations in
-`ref/reviews/recent-3-days/REVIEW_283_session-content-presentation.md`, plus generated-image
+`ref/reviews/recent-week/REVIEW_283_session-content-presentation.md`, plus generated-image
 preview, enlargement, and local saving. The user explicitly selected direct implementation
 under the already confirmed scope instead of the full planning-skill workflow.
 

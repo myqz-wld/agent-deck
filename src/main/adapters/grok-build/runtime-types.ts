@@ -22,6 +22,8 @@ export interface GrokPendingMessage extends PendingAgentMessage {
   deferUserEventUntilTurnStart?: boolean;
   suppressUserEvent?: boolean;
   turnCorrelationId?: string;
+  /** Ordinary input may leave the FIFO through interject when an active submission is accepted. */
+  interjectWhenRunning?: boolean;
 }
 
 export interface GrokSubmittingMessage {

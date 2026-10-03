@@ -65,4 +65,4 @@ application still contains its previous bundle. Loading this repair requires the
 installation, and application restart workflow; no running Agent Deck process or installed bundle
 was stopped, restarted, or replaced in this task.
 
-Related plan: [Codex live Gateway switching](../../plans/recent-3-days/PLAN_57_codex-live-gateway-switch.md).
+Related plan: [Codex live Gateway switching](../../plans/recent-week/PLAN_57_codex-live-gateway-switch.md).

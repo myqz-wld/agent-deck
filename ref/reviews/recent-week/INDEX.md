@@ -15,3 +15,8 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-09-28 | `REVIEW_283_session-content-presentation.md` | Inspect provider content gaps and validate math rendering | Resolved in REVIEW_284 |
+| 2026-09-28 | `REVIEW_281_relay-runtime-directory-recovery.md` | Recover Relay runtime directories and service startup | 1 HIGH fixed |
+| 2026-09-28 | `REVIEW_280_macos-installer-process-identity.md` | Bound installer shutdown to verified app processes | 1 HIGH fixed |
+| 2026-09-28 | `REVIEW_279_codex-live-gateway-switch.md` | Apply Gateway changes to loaded Codex sessions | 1 HIGH fixed |
+| 2026-09-28 | `REVIEW_278_browser-svg-ref-click.md` | Activate SVG Browser snapshot refs | 1 MEDIUM fixed |

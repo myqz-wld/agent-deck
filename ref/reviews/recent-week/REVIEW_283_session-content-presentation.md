@@ -21,7 +21,7 @@ visible on the current page.
 This is a source inspection and presentation inventory, not a paired reviewer pass. The math
 renderer change is implemented and validated. The remaining rows below are proposed improvements,
 not claims of fixes at the time of that audit. The confirmed follow-up scope is now implemented;
-see the [delivery review](REVIEW_284_session-content-image-chain.md). This historical inventory
+see the [delivery review](../recent-3-days/REVIEW_284_session-content-image-chain.md). This historical inventory
 remains expired.
 
 ```review-scope
@@ -87,7 +87,7 @@ src/main/adapters/grok-build/hook-translate.ts
 ## Implemented change and validation
 
 At the initial audit, only the shared math renderer and its dependencies/tests/documentation
-had been changed. See [CHANGELOG_651](../../changelogs/recent-3-days/CHANGELOG_651_markdown-math-rendering.md)
+had been changed. See [CHANGELOG_651](../../changelogs/recent-week/CHANGELOG_651_markdown-math-rendering.md)
 for the 13 focused tests, full-suite/typecheck/build results, local-font checks, and actual Browser
 visual evidence. No live provider prompt was sent and no host runtime was restarted or replaced.
 
@@ -106,5 +106,5 @@ frequently optional provider fields occur in the user's live sessions.
 
 The user authorized direct implementation. All recommendations within the confirmed scope were
 implemented with generated-image support across the three adapters. Cross-page input retrieval
-remains excluded. See [REVIEW_284](REVIEW_284_session-content-image-chain.md) for the source/test
+remains excluded. See [REVIEW_284](../recent-3-days/REVIEW_284_session-content-image-chain.md) for the source/test
 results and remaining runtime and historical-data limits.

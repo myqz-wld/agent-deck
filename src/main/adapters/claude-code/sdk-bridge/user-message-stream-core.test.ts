@@ -7,6 +7,7 @@ import {
   type ClaudeUserMessageStreamHost,
 } from './user-message-stream-core';
 import { makeInternalSession, type InternalSession } from './types';
+import { confirmClaudeUserMessageAcceptanceCore } from './user-message-acceptance-core';
 
 function makeHost(
   readAttachmentBase64: (path: string) => Promise<string> = async () => 'encoded-image',
@@ -129,5 +130,72 @@ describe('Claude user message stream Core', () => {
         payload: expect.objectContaining({ error: true }),
       }),
     ]);
+  });
+
+  it('delivers composer input during an active turn and wakes the next input on acceptance', async () => {
+    const host = makeHost();
+    const internal = makeInternal();
+    internal.userTurnInFlight = true;
+    const emit = vi.fn();
+    const first = makeClaudeUserMessageCore('session-core', 'correction one', undefined, host);
+    first.deferredUserEvent = { text: 'correction one', turnCorrelationId: 'turn-1' };
+    const second = makeClaudeUserMessageCore('session-core', 'correction two', undefined, host);
+    second.deferredUserEvent = { text: 'correction two', turnCorrelationId: 'turn-2' };
+    const stream = createClaudeUserMessageStreamCore(
+      { sessions: new Map([['session-core', internal]]), emit }, internal, host,
+    )[Symbol.asyncIterator]();
+    const next = stream.next();
+    internal.pendingUserMessages.push(first, second);
+    internal.notify?.();
+
+    try {
+      await vi.waitFor(() => expect(internal.submittingUserMessage?.providerMessageId).toBe('turn-1'));
+      await expect(next).resolves.toMatchObject({
+        value: { uuid: 'turn-1', priority: 'now', message: { content: 'correction one' } },
+      });
+      expect(emit).not.toHaveBeenCalled();
+      const following = stream.next();
+      await vi.waitFor(() => expect(internal.notify).not.toBeNull());
+      expect(internal.pendingUserMessages).toEqual([second]);
+
+      confirmClaudeUserMessageAcceptanceCore(emit, 'session-core', {
+        type: 'user', uuid: 'turn-1', parent_tool_use_id: null,
+      }, internal, { agentId: 'claude-code', now: host.now });
+
+      await expect(following).resolves.toMatchObject({ value: { uuid: 'turn-2' } });
+      expect(internal.userTurnInFlight).toBe(true);
+      expect(emit).toHaveBeenCalledOnce();
+    } finally {
+      internal.providerInputClosed = true;
+      internal.notify?.();
+      await stream.return?.();
+    }
+  });
+
+  it('rechecks the cwd transition gate after attachment materialization', async () => {
+    let finishRead!: (value: string) => void;
+    const host = makeHost(() => new Promise((resolve) => { finishRead = resolve; }));
+    const internal = makeInternal();
+    const pending = makeClaudeUserMessageCore('session-core', 'correction', [
+      { kind: 'uploaded', path: '/input.png', mime: 'image/png', bytes: 1 },
+    ], host);
+    pending.deferredUserEvent = { text: 'correction', turnCorrelationId: 'turn-1' };
+    internal.pendingUserMessages.push(pending);
+    const stream = createClaudeUserMessageStreamCore(
+      { sessions: new Map([['session-core', internal]]), emit: vi.fn() }, internal, host,
+    )[Symbol.asyncIterator]();
+    const next = stream.next();
+    internal.cwdTransitionGeneration = 1;
+    finishRead('encoded');
+    try {
+      await vi.waitFor(() => expect(internal.notify).not.toBeNull());
+      expect(internal.pendingUserMessages).toEqual([pending]);
+      expect(internal.submittingUserMessage).toBeNull();
+    } finally {
+      internal.providerInputClosed = true;
+      internal.notify?.();
+      await next;
+      await stream.return?.();
+    }
   });
 });

@@ -103,7 +103,7 @@ export interface PendingExitPlanModeEntry {
 export type PendingUserMessage = (() => Promise<SDKUserMessage>) & {
   /** Provider-neutral copy retained while the lazy SDK message still waits in the source queue. */
   handOffMessage?: QueuedAgentMessage;
-  /** Emit this internal user event only when the SDK input stream dequeues the turn. */
+  /** Emit this internal user event only when the provider acknowledges the input. */
   deferredUserEvent?: {
     text: string;
     attachments?: UploadedAttachmentRef[];
@@ -117,6 +117,8 @@ export interface ClaudeSubmittingUserMessage {
   pending: PendingUserMessage;
   providerMessageId: string;
   status: 'submitting' | 'cancelling';
+  /** Earlier-turn output cannot acknowledge or discard input submitted during that turn. */
+  precedingTurn?: 'active' | 'finished';
 }
 
 export interface ClaudeUsageTotals {
@@ -210,7 +212,7 @@ export interface InternalSession {
   ignoredUserMessageIds?: Set<string>;
   /** Bounded in-memory acknowledgements for retry-safe internal provider turns. */
   acceptedEnqueueFingerprints?: Map<string, string>;
-  /** Prevent the SDK input iterable from eagerly handing it more than one provider turn at once. */
+  /** An active or submitted provider turn; composer input can still stream into it. */
   userTurnInFlight?: boolean;
   /** Handoff owns this source; do not consume any more user input before the active turn ends. */
   retireRequested?: boolean;

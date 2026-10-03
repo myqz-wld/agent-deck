@@ -11,6 +11,7 @@ export async function removePendingGrokOutgoingMessage(
   const index = runtime.queue.findIndex((message) => toPendingAgentMessage(message)?.id === messageId);
   if (index >= 0) {
     const [removed] = runtime.queue.splice(index, 1);
+    drain();
     return toPendingAgentMessage(removed);
   }
   const submitting = runtime.submittingMessage;

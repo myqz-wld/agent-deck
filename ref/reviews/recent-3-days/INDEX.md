@@ -15,6 +15,8 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-10-02 | `REVIEW_313_grok-queued-mid-turn-interjections.md` | Resume queued Grok corrections during active turns | 1 MEDIUM fixed; 25 new regressions passed |
+| 2026-10-02 | `REVIEW_312_claude-mid-turn-streaming-input.md` | Restore mid-turn streaming and correlated input acceptance | 1 MEDIUM fixed; regression suite passed |
 | 2026-10-01 | `REVIEW_311_remote-ui-readiness.md` | Remote read retention, 150 ms presentation and autosave races | 4 findings repaired |
 | 2026-09-30 | `REVIEW_310_feishu-markdown-replies.md` | Preserve message semantics while rendering native Markdown | 1 MEDIUM installed; real client display accepted |
 | 2026-09-30 | `REVIEW_309_feishu-assistant-voice.md` | Refine assistant voice while preserving runtime controls | Installed; natural reply and retained history observed |
@@ -44,8 +46,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 | 2026-09-29 | `REVIEW_285_ui-icons-lightbox-controls.md` | Verify UI icons and image-preview interaction | 1 MEDIUM / 3 LOW fixed |
 | 2026-09-29 | `REVIEW_284_session-content-image-chain.md` | Verify provider content and image ownership chain | In-scope findings resolved in source |
 | 2026-09-29 | `REVIEW_282_relay-stream-retirement-isolation.md` | Verify Relay stream retirement isolation | 1 HIGH fixed; credential acceptance in REVIEW_287 |
-| 2026-09-28 | `REVIEW_283_session-content-presentation.md` | Inspect provider content gaps and validate math rendering | Resolved in REVIEW_284 |
-| 2026-09-28 | `REVIEW_281_relay-runtime-directory-recovery.md` | Recover Relay runtime directories and service startup | 1 HIGH fixed |
-| 2026-09-28 | `REVIEW_280_macos-installer-process-identity.md` | Bound installer shutdown to verified app processes | 1 HIGH fixed |
-| 2026-09-28 | `REVIEW_279_codex-live-gateway-switch.md` | Apply Gateway changes to loaded Codex sessions | 1 HIGH fixed |
-| 2026-09-28 | `REVIEW_278_browser-svg-ref-click.md` | Activate SVG Browser snapshot refs | 1 MEDIUM fixed |

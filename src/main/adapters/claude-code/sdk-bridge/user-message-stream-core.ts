@@ -72,7 +72,7 @@ export function makeClaudeUserMessageCore(
   });
 }
 
-/** Serialize provider input and retain deferred composer turns until their true dequeue boundary. */
+/** Stream composer corrections mid-turn, with at most one input awaiting provider acceptance. */
 export async function* createClaudeUserMessageStreamCore(
   ctx: ClaudeUserMessageStreamContext,
   internal: InternalSession,
@@ -83,7 +83,8 @@ export async function* createClaudeUserMessageStreamCore(
     if (
       !internal.retireRequested &&
       internal.cwdTransitionGeneration == null &&
-      !internal.userTurnInFlight &&
+      !internal.submittingUserMessage &&
+      (!internal.userTurnInFlight || internal.pendingUserMessages[0]?.deferredUserEvent) &&
       internal.pendingUserMessages.length > 0 &&
       !internal.pendingUserMessages[0]?.materializationError
     ) {
@@ -109,12 +110,11 @@ export async function* createClaudeUserMessageStreamCore(
         });
         continue;
       }
-      if (internal.providerInputClosed) return;
+      if (internal.providerInputClosed || internal.retireBoundaryReached) return;
       if (internal.pendingUserMessages[0] !== thunk) continue;
+      if (internal.retireRequested || internal.cwdTransitionGeneration != null) continue;
       host.refreshBrowserRuntime?.(internal.applicationSid);
       internal.pendingUserMessages.shift();
-      if (internal.retireBoundaryReached) return;
-      if (internal.retireRequested) continue;
       const providerMessageId = thunk.deferredUserEvent
         ? thunk.deferredUserEvent.turnCorrelationId ?? host.createProviderMessageId()
         : null;
@@ -124,6 +124,7 @@ export async function* createClaudeUserMessageStreamCore(
           pending: thunk,
           providerMessageId,
           status: 'submitting',
+          ...(internal.userTurnInFlight ? { precedingTurn: 'active' as const } : {}),
         };
       }
       internal.userTurnInFlight = true;

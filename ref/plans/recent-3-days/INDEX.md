@@ -38,5 +38,3 @@ This bucket contains only plans that currently belong to this mutually exclusive
 | 2026-09-29 | `PLAN_61_ui-icons-lightbox-controls.md` | completed | Unify UI icons and refine image-preview controls | `CHANGELOG_653_ui-icons-lightbox-controls.md` |
 | 2026-09-29 | `PLAN_60_session-content-generated-images.md` | completed | Improve session content and generated-image display | `CHANGELOG_652_session-content-generated-images.md` |
 | 2026-09-29 | `PLAN_59_relay-handshake-investigation.md` | completed | Verify both Relay endpoints after Worker installation | `REVIEW_282_relay-stream-retirement-isolation.md` |
-| 2026-09-28 | `PLAN_58_relay-runtime-recovery.md` | completed | Restore Relay, Worker, and supervisor | `REVIEW_281_relay-runtime-directory-recovery.md` |
-| 2026-09-28 | `PLAN_57_codex-live-gateway-switch.md` | completed | Apply Codex Gateway changes before the next turn | `REVIEW_279_codex-live-gateway-switch.md` |

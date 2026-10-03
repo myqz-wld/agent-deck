@@ -8,10 +8,18 @@ export interface ClaudeUserMessageAcceptanceHost {
   now(): number;
 }
 
+interface ClaudeAcceptanceFrame {
+  type: string;
+  uuid?: unknown;
+  parent_tool_use_id?: unknown;
+  user_message_uuid?: unknown;
+  user_message_uuids?: unknown;
+}
+
 export function confirmClaudeUserMessageAcceptanceCore(
   emit: (event: AgentEvent) => void,
   sessionId: string,
-  msg: { type: string; uuid?: unknown; parent_tool_use_id?: unknown },
+  msg: ClaudeAcceptanceFrame,
   internal: InternalSession,
   host: ClaudeUserMessageAcceptanceHost,
 ): void {
@@ -21,16 +29,24 @@ export function confirmClaudeUserMessageAcceptanceCore(
     internal.ignoredUserMessageIds?.delete(msg.uuid)
   ) return;
   const submitting = internal.submittingUserMessage;
-  if (!submitting) return;
+  if (!submitting || msg.parent_tool_use_id != null) return;
   if (msg.type === 'user') {
     if (typeof msg.uuid !== 'string') return;
     if (submitting.providerMessageId !== msg.uuid) return;
-  } else if (msg.type !== 'assistant' || msg.parent_tool_use_id != null) {
-    return;
+  } else {
+    if (!['assistant', 'stream_event', 'result'].includes(msg.type)) return;
+    const ids = Array.isArray(msg.user_message_uuids) ? msg.user_message_uuids : [];
+    const correlated = msg.user_message_uuid === submitting.providerMessageId
+      || ids.includes(submitting.providerMessageId);
+    if (!correlated && (
+      msg.type !== 'assistant'
+      || submitting.precedingTurn != null
+      || typeof msg.user_message_uuid === 'string'
+      || ids.length > 0
+    )) return;
   }
-  // Claude Code may replace the UUID supplied on an SDK input before echoing the persisted user
-  // frame. The first top-level assistant frame is downstream proof that the sole in-flight user
-  // turn was accepted; subagent frames do not establish that boundary.
+  // Replay acknowledgements retain the input UUID even when persisted user frames replace it.
+  // Uncorrelated assistant fallback is safe only for input submitted while the provider was idle.
   internal.submittingUserMessage = null;
   const deferred = submitting.pending.deferredUserEvent;
   if (!deferred) return;
@@ -49,6 +65,19 @@ export function confirmClaudeUserMessageAcceptanceCore(
     ts: host.now(),
     source: 'sdk',
   });
+  const notify = internal.notify;
+  internal.notify = null;
+  notify?.();
+}
+
+/** An older turn's result must not drop a correction already handed to the SDK. */
+export function finishClaudeUserMessageTurnCore(internal: InternalSession): void {
+  const submitting = internal.submittingUserMessage;
+  if (submitting?.precedingTurn) {
+    submitting.precedingTurn = 'finished';
+    return;
+  }
+  discardClaudeSubmittingUserMessageCore(internal);
 }
 
 export function discardClaudeSubmittingUserMessageCore(

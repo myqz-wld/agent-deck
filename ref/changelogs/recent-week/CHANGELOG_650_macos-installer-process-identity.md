@@ -36,5 +36,5 @@ None. Process inspection and shutdown are isolated in `scripts/local-macos-proce
 
 ## Notes
 
-See [the targeted safety repair record](../../reviews/recent-3-days/REVIEW_280_macos-installer-process-identity.md)
+See [the targeted safety repair record](../../reviews/recent-week/REVIEW_280_macos-installer-process-identity.md)
 for regression coverage and the remaining process-inspection race boundary.

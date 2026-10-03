@@ -167,4 +167,23 @@ describe('Claude pending outgoing Core', () => {
     )).rejects.toThrow('provider unavailable');
     expect(session.submittingUserMessage.status).toBe('submitting');
   });
+
+  it('keeps the earlier turn active when cancelling an unaccepted mid-turn correction', async () => {
+    const session = internal();
+    session.query = { cancelAsyncMessage: vi.fn(async () => true) } as unknown as Query;
+    session.userTurnInFlight = true;
+    session.submittingUserMessage = {
+      pending: pending('correction', 'turn-1'),
+      providerMessageId: 'turn-1',
+      status: 'submitting',
+      precedingTurn: 'active',
+    };
+
+    await expect(removeClaudePendingOutgoingMessageCore(
+      new Map([['application-a', session]]), 'application-a', 'turn-1', host(),
+    )).resolves.toMatchObject({ id: 'turn-1', text: 'correction' });
+
+    expect(session.submittingUserMessage).toBeNull();
+    expect(session.userTurnInFlight).toBe(true);
+  });
 });

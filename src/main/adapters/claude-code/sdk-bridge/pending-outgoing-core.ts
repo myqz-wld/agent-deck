@@ -111,7 +111,8 @@ export async function removeClaudePendingOutgoingMessageCore(
   }
   host.rememberIgnoredUserMessageId(internal, submitting.providerMessageId);
   internal.submittingUserMessage = null;
-  internal.userTurnInFlight = false;
+  // Cancelling a streamed correction does not end the turn it was submitted during.
+  internal.userTurnInFlight = submitting.precedingTurn === 'active';
   const notify = internal.notify;
   internal.notify = null;
   notify?.();

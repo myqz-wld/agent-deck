@@ -18,7 +18,7 @@ import { GrokFirstModelEventWatchdog } from './first-model-event-watchdog';
 import { applyRecoveredGrokTurn, GrokProviderCompletionRecovery } from './provider-completion-recovery';
 import type { GrokPendingMessage, GrokRuntime, GrokSubmittingMessage } from './runtime-types';
 import { handleGrokTurnFailure, resolveGrokSessionCommand } from './session-command-feedback';
-import { grokTurnBoundaryBlocked, prepareGrokNextTurn } from './turn-boundary';
+import { grokInterjectionBlocked, grokTurnBoundaryBlocked, prepareGrokNextTurn } from './turn-boundary';
 import { finalizeGrokAcpResponse, responseFromGrokLiveOutcome } from './turn-response';
 import type {
   GrokEnqueueOptions,
@@ -79,15 +79,8 @@ export class GrokTurnQueue {
   ): Promise<void> {
     const prepared = this.prepareMessage(runtime, text, attachments, options);
     if (!prepared) return;
-
-    if (
-      runtime.running &&
-      runtime.ready &&
-      runtime.interjectionSupported !== false &&
-      !runtime.submittingMessage
-    ) {
-      if (this.startInterject(runtime, prepared)) return;
-    }
+    prepared.message.interjectWhenRunning = true;
+    if (runtime.queue.length === 0 && this.startInterject(runtime, prepared)) return;
     this.enqueuePrepared(runtime, prepared);
   }
 
@@ -140,6 +133,7 @@ export class GrokTurnQueue {
     if (!submitting || submitting.kind !== 'prompt' || submitting.status === 'cancelled') return;
     runtime.submittingMessage = null;
     if (!submitting.message.suppressUserEvent) this.emitUserMessage(runtime, submitting.message);
+    void this.drain(runtime);
   }
 
   cancelSubmittingInterjection(runtime: GrokRuntime): void {
@@ -148,7 +142,7 @@ export class GrokTurnQueue {
     submitting.status = 'cancelled';
     submitting.requestController?.abort();
     if (runtime.submittingMessage === submitting) runtime.submittingMessage = null;
-    void this.drain(runtime);
+    // Session interruption owns the next drain; do not start another interjection while stopping.
   }
 
   private prepareMessage(
@@ -208,7 +202,7 @@ export class GrokTurnQueue {
     };
   }
 
-  private enqueuePrepared(runtime: GrokRuntime, prepared: PreparedGrokMessage): void {
+  private enqueuePrepared(runtime: GrokRuntime, prepared: PreparedGrokMessage, prepend = false): void {
     const { message } = prepared;
     if (
       !prepared.bypassQueueLimit &&
@@ -218,9 +212,13 @@ export class GrokTurnQueue {
         `待发送队列已堆积 ${MAX_PENDING_MESSAGES} 条，请等待当前轮次完成。`,
       );
     }
-    runtime.queue.push(message);
+    if (prepend) runtime.queue.unshift(message);
+    else runtime.queue.push(message);
     this.rememberAccepted(runtime, prepared);
-    if (!message.deferUserEventUntilTurnStart && !message.suppressUserEvent) this.emitUserMessage(runtime, message);
+    if (!message.deferUserEventUntilTurnStart && !message.suppressUserEvent) {
+      this.emitUserMessage(runtime, message);
+      message.suppressUserEvent = true;
+    }
     void this.drain(runtime);
   }
 
@@ -235,7 +233,7 @@ export class GrokTurnQueue {
   }
 
   private startInterject(runtime: GrokRuntime, prepared: PreparedGrokMessage): boolean {
-    if (runtime.interjectionSupported === false || !runtime.process || runtime.submittingMessage) {
+    if (grokInterjectionBlocked(runtime) || runtime.submittingMessage) {
       return false;
     }
     const submission: GrokSubmittingMessage = {
@@ -259,6 +257,13 @@ export class GrokTurnQueue {
     try {
       const content = await promptBlocks(message.providerText ?? message.text, message.attachments);
       if (runtime.submittingMessage !== submission || isCancelled(submission)) return;
+      if (grokInterjectionBlocked(runtime)) {
+        runtime.submittingMessage = null;
+        if (!runtime.closed && !runtime.sealed) {
+          this.enqueuePrepared(runtime, { message, fingerprint: null, bypassQueueLimit: true }, true);
+        }
+        return;
+      }
       submission.promptRequestIssued = true;
       await runtime.process!.connection.agent.request<
         { status?: string },
@@ -276,7 +281,7 @@ export class GrokTurnQueue {
       if (runtime.submittingMessage !== submission || isCancelled(submission)) return;
       runtime.interjectionSupported = true;
       runtime.submittingMessage = null;
-      this.emitUserMessage(runtime, message, true);
+      if (!message.suppressUserEvent) this.emitUserMessage(runtime, message, true);
       void this.drain(runtime);
     } catch (error) {
       if (runtime.submittingMessage !== submission || runtime.closed) return;
@@ -288,7 +293,8 @@ export class GrokTurnQueue {
           this.enqueuePrepared(runtime, {
             message,
             fingerprint: null,
-          });
+            bypassQueueLimit: true,
+          }, true);
         } catch (fallbackError) {
           this.emitEventError(runtime, fallbackError);
         }
@@ -300,6 +306,13 @@ export class GrokTurnQueue {
   }
 
   async drain(runtime: GrokRuntime): Promise<void> {
+    if (runtime.running) {
+      const message = runtime.queue[0];
+      if (message?.interjectWhenRunning && this.startInterject(runtime, { message, fingerprint: null })) {
+        runtime.queue.shift();
+      }
+      return;
+    }
     if (grokTurnBoundaryBlocked(runtime)) return;
     if (
       this.options.beforeNextTurn &&

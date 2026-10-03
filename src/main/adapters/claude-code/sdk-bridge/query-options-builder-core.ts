@@ -133,6 +133,8 @@ export function buildClaudeQueryOptionsCore(
     canUseTool,
     // 生成中 tok/s 估算依赖 stream_event(content_block_delta)。summarizer 不经此 builder。
     includePartialMessages: true,
+    // Correlate streamed input acceptance independently of the active turn's assistant output.
+    extraArgs: { 'replay-user-messages': null },
     // resume：传入历史 sessionId，SDK 会让 CLI 加载 ~/.claude/projects/<cwd>/<sid>.jsonl
     // 续上之前的对话，第一条 SDKMessage 的 session_id 就是这个 sid。
     resume,

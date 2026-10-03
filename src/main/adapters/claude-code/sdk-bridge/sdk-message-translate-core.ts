@@ -36,7 +36,7 @@ import {
 import { claudeFinishedPayload } from './result-outcome';
 import {
   confirmClaudeUserMessageAcceptanceCore,
-  discardClaudeSubmittingUserMessageCore,
+  finishClaudeUserMessageTurnCore,
   type ClaudeUserMessageAcceptanceHost,
 } from './user-message-acceptance-core';
 import {
@@ -227,7 +227,7 @@ export function translateSdkMessageCore(
       }
     }
   } else if (msg.type === 'result') {
-    discardClaudeSubmittingUserMessageCore(internal);
+    finishClaudeUserMessageTurnCore(internal);
     const r = msg as ClaudeFinalResultUsage & {
       subtype?: string;
       is_error?: boolean;

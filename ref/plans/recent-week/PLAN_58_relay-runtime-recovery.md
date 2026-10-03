@@ -43,4 +43,4 @@ The hosting application was not restarted or replaced.
 Seven follow-up connection/read cycles completed, including one automatic SSH retry. The intermittent
 bridge rejection was not attributed to a precise cause. No provider inference session or actual host
 reboot was exercised. The full evidence and residual limits are in
-[REVIEW_281](../../reviews/recent-3-days/REVIEW_281_relay-runtime-directory-recovery.md).
+[REVIEW_281](../../reviews/recent-week/REVIEW_281_relay-runtime-directory-recovery.md).

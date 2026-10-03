@@ -38,6 +38,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | 2026-09-29 | `CHANGELOG_654_inline-file-diffs.md` | Open recorded file changes inline and align provider diff views |
 | 2026-09-29 | `CHANGELOG_653_ui-icons-lightbox-controls.md` | Unify UI icons and fade image-preview controls while idle |
 | 2026-09-29 | `CHANGELOG_652_session-content-generated-images.md` | Improve provider cards and add generated-image preview and saving |
-| 2026-09-28 | `CHANGELOG_651_markdown-math-rendering.md` | Render chat math with local fonts, safe delimiters, and bounded layout |
-| 2026-09-28 | `CHANGELOG_650_macos-installer-process-identity.md` | Require explicit app shutdown and verify exact macOS process identities |
-| 2026-09-28 | `CHANGELOG_649_provider-runtime-stable-refresh.md` | Refresh stable Claude, Codex, protocol SDKs, and macOS bundled runtimes |

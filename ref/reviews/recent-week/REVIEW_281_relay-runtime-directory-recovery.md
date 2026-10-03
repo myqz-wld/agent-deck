@@ -92,7 +92,7 @@ scripts/deployment/archive-identity.test.mjs
 - The hosting Desktop and installed application were preserved. No credentials were rotated and
   no new model sessions were created during acceptance.
 
-Completed plan: [Relay runtime recovery](../../plans/recent-3-days/PLAN_58_relay-runtime-recovery.md).
+Completed plan: [Relay runtime recovery](../../plans/recent-week/PLAN_58_relay-runtime-recovery.md).
 
 ## Residual risk
 

@@ -45,6 +45,7 @@ describe('Claude query options Core', () => {
       },
       settingSources: ['user', 'project', 'local'],
       includePartialMessages: true,
+      extraArgs: { 'replay-user-messages': null },
       executable: 'node',
       env: { KEEP: 'value', AGENT_DECK_ORIGIN: 'sdk' },
     });

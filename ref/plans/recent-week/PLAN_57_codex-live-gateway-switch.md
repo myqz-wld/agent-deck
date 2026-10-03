@@ -37,4 +37,4 @@ and thread identity. Typechecking passed and the SQLite binding remained unchang
 The user authorized committing and pushing the completed repair. The installed application
 requires a later authorized update/restart to load the changed main-process code.
 
-Evidence: [Gateway switch repair](../../reviews/recent-3-days/REVIEW_279_codex-live-gateway-switch.md).
+Evidence: [Gateway switch repair](../../reviews/recent-week/REVIEW_279_codex-live-gateway-switch.md).

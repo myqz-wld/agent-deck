@@ -52,6 +52,6 @@ None. Math syntax and layout are separate small modules; changed source files re
   fall back to readable source.
 - The visual check used a synthetic component preview, not a live provider conversation.
 - Provider-specific presentation recommendations are recorded separately in
-  [the content audit](../../reviews/recent-3-days/REVIEW_283_session-content-presentation.md).
+  [the content audit](../../reviews/recent-week/REVIEW_283_session-content-presentation.md).
 - Integration follows the [remark math documentation](https://github.com/remarkjs/remark-math)
   and [KaTeX options](https://katex.org/docs/options.html).

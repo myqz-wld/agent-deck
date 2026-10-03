@@ -137,4 +137,47 @@ describe('Claude stream processor Core', () => {
     expect(sessions.size).toBe(0);
     await expect(internal.streamDrained).resolves.toBeUndefined();
   });
+
+  it('keeps a streamed correction pending across the old result and records it before its reply', async () => {
+    const internal = makeInternalSession({ cwd: '/workspace', applicationSid: 'session-a' });
+    internal.userTurnInFlight = true;
+    const emit = vi.fn();
+    const ports = host();
+    const processor = new ClaudeStreamProcessorCore({
+      sessions: new Map([['session-a', internal]]), emit,
+    }, ports);
+    const pending = processor.makeUserMessage('session-a', 'new direction');
+    pending.deferredUserEvent = { text: 'new direction', turnCorrelationId: 'correction-1' };
+    internal.pendingUserMessages.push(pending);
+    const input = processor.createUserMessageStream(internal, 'session-a')[Symbol.asyncIterator]();
+    await expect(input.next()).resolves.toMatchObject({ value: { uuid: 'correction-1' } });
+    const observations: unknown[] = [];
+    internal.query = queryFrom(async function* () {
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'old reply' }] } };
+      yield { type: 'result', subtype: 'success', user_message_uuid: 'original-1' };
+      observations.push({
+        pending: internal.submittingUserMessage?.providerMessageId,
+        inFlight: internal.userTurnInFlight,
+      });
+      yield { type: 'user', uuid: 'correction-1', isReplay: true, parent_tool_use_id: null };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'new reply' }] } };
+      yield { type: 'result', subtype: 'success', user_message_uuid: 'correction-1' };
+      observations.push({ pending: internal.submittingUserMessage, inFlight: internal.userTurnInFlight });
+    });
+
+    await processor.consume(internal, 'session-a', vi.fn());
+    await input.return?.();
+
+    expect(ports.warn).not.toHaveBeenCalled();
+    expect(observations).toEqual([
+      { pending: 'correction-1', inFlight: true },
+      { pending: null, inFlight: false },
+    ]);
+    expect(emit.mock.calls.map(([event]) => event).filter((event) => event.kind === 'message')
+      .map((event) => event.payload)).toEqual([
+      { role: 'assistant', text: 'old reply' },
+      { role: 'user', text: 'new direction', turnCorrelationId: 'correction-1' },
+      { role: 'assistant', text: 'new reply' },
+    ]);
+  });
 });
