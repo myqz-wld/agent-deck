@@ -89,4 +89,4 @@ New ingestion behavior is validated in tests; the running Agent Deck application
 ## Follow-ups
 
 No required code work remains. Runtime restart requires explicit approval under Host Runtime Safety.
-See [CHANGELOG_654](../../changelogs/recent-3-days/CHANGELOG_654_inline-file-diffs.md).
+See [CHANGELOG_654](../../changelogs/recent-week/CHANGELOG_654_inline-file-diffs.md).

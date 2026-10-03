@@ -76,5 +76,5 @@ Documentation-only commits after the installed source commit do not require anot
 Continue actual owner Feishu acceptance using the saved model choices and separate assistant/work
 commands. Do not recreate pairing or archive the overall business plan before live checks pass.
 
-- [Source changes](../../changelogs/recent-3-days/CHANGELOG_659_feishu-assistant-contexts.md)
-- [Review and validation](../../reviews/recent-3-days/REVIEW_299_feishu-assistant-contexts.md)
+- [Source changes](../../changelogs/recent-week/CHANGELOG_659_feishu-assistant-contexts.md)
+- [Review and validation](../../reviews/recent-week/REVIEW_299_feishu-assistant-contexts.md)

@@ -95,4 +95,4 @@ Unresolved attempt keys survive view remounts in renderer memory; they are not
 persisted across application restarts. Main/preload changes require a restart.
 No application restart, installation, or deployment was performed.
 
-Related: [CHANGELOG_658](../../changelogs/recent-3-days/CHANGELOG_658_codex-resets-dialogs.md).
+Related: [CHANGELOG_658](../../changelogs/recent-week/CHANGELOG_658_codex-resets-dialogs.md).

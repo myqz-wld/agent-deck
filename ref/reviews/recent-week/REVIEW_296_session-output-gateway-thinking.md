@@ -81,4 +81,4 @@ Every changed source file is below 500 lines. No host process was stopped or res
 installed bundle was replaced. Main-process changes require activation in a rebuilt runtime; the
 existing installed application does not acquire these source changes automatically.
 
-See [CHANGELOG_655](../../changelogs/recent-3-days/CHANGELOG_655_session-output-gateway-thinking.md).
+See [CHANGELOG_655](../../changelogs/recent-week/CHANGELOG_655_session-output-gateway-thinking.md).

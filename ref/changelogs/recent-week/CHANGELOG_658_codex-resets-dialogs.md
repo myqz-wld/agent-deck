@@ -59,7 +59,7 @@ when another bridge responsibility or public method is introduced.
 
 ## Related records and activation
 
-- [Implementation plan](../../plans/recent-3-days/PLAN_67_codex-resets-dialogs.md)
-- [Dialog and reset validation](../../reviews/recent-3-days/REVIEW_298_dialogs-quota-reset-safety.md)
+- [Implementation plan](../../plans/recent-week/PLAN_67_codex-resets-dialogs.md)
+- [Dialog and reset validation](../../reviews/recent-week/REVIEW_298_dialogs-quota-reset-safety.md)
 - Main/preload changes require the application to restart. No live Agent Deck
   process was stopped, restarted, replaced, or installed over during this work.

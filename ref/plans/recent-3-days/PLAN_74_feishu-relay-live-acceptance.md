@@ -20,7 +20,7 @@ acceptance and event-compatibility plans; later naming/UI follow-ups retain thei
 - Repaired empty-token/nullable optional metadata, bundled WebSocket frame masking, terminal Core
   transport retirement and actual persisted reply delivery. Storage budgeting and bounded runtime
   retention protect active/fallback releases and user data. Details remain in
-  [REVIEW_297](../../reviews/recent-3-days/REVIEW_297_feishu-event-metadata.md).
+  [REVIEW_297](../../reviews/recent-week/REVIEW_297_feishu-event-metadata.md).
 - The owner accepted help/directories, natural read-only management, ordinary assistant replies,
   retained test-word history, the requested assistant persona, work replies and real task approval.
 - Latest activation: accepted Desktop/Worker 3ea and managed Server/Feishu d4d0d0b4. Installed app,

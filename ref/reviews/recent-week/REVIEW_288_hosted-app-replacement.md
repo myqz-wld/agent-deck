@@ -69,4 +69,4 @@ identity. The temporary launchd job removed itself after writing its result and 
 
 The first resumed MCP transport briefly returned 401; the following turn successfully resolved the
 owned credential issue. No database bypass or credential changes were used. Final evidence and
-cleanup are in [PLAN_63](../../plans/recent-3-days/PLAN_63_grok-credential-installed-acceptance.md).
+cleanup are in [PLAN_63](../../plans/recent-week/PLAN_63_grok-credential-installed-acceptance.md).

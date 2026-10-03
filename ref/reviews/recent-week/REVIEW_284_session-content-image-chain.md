@@ -169,4 +169,4 @@ No required source implementation remains after validation. Installing the new b
 live provider acceptance require a separate runtime action; they are not claimed as completed.
 
 Related [original audit](REVIEW_283_session-content-presentation.md) and
-[CHANGELOG_652](../../changelogs/recent-3-days/CHANGELOG_652_session-content-generated-images.md).
+[CHANGELOG_652](../../changelogs/recent-week/CHANGELOG_652_session-content-generated-images.md).

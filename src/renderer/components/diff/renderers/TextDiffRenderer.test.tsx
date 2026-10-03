@@ -7,10 +7,10 @@ import {
   reconstructUnifiedDiffSnapshots,
 } from './TextDiffRenderer';
 
-vi.mock('@monaco-editor/react', async () => {
+vi.mock('./MonacoDiffEditor', async () => {
   const React = await import('react');
   return {
-    DiffEditor: ({
+    MonacoDiffEditor: ({
       original,
       modified,
       language,

@@ -112,7 +112,7 @@ SHA-256: `540188ffd2e9942b6e75340b7a2343f7bceab3812ba5ce180774cb6ded1f1730`.
 The package directory also contained its block map, checksum, and clean build metadata.
 At this initial validation point, Desktop and Worker/supervisor activation was still pending.
 The previously repaired Relay transport remains accepted in [REVIEW_282](REVIEW_282_relay-stream-retirement-isolation.md)
-and [PLAN_59](../../plans/recent-3-days/PLAN_59_relay-handshake-investigation.md).
+and [PLAN_59](../../plans/recent-week/PLAN_59_relay-handshake-investigation.md).
 
 Deployment behavior is documented in `deploy/linux/relay/README.snippet.md` and
 `deploy/linux/provider-session/README.md`. The root README addition was dropped before integration
@@ -128,7 +128,7 @@ to preserve concurrent unrelated uncommitted documentation changes without stash
   load the synchronization arguments, with explicit approval for replacing the hosting Desktop.
   Existing live credentials were preserved.
 - Installed acceptance completed and the issue is resolved. The completed plan is
-  [PLAN_63](../../plans/recent-3-days/PLAN_63_grok-credential-installed-acceptance.md).
+  [PLAN_63](../../plans/recent-week/PLAN_63_grok-credential-installed-acceptance.md).
 - No current source file in this scope needs a size exemption. No Relay Server redeployment is
   required because this fix changes the local Worker/Core and host supervisor.
 

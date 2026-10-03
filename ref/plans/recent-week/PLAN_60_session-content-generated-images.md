@@ -102,6 +102,6 @@ application and its processes remain untouched.
 - Review-expiry scan, source/test 500-line guard, identifying-path/token scan, and diff whitespace
   checks passed. Typed-record buckets were recomputed for 2026-09-29; no existing moves were needed.
 
-See [CHANGELOG_652](../../changelogs/recent-3-days/CHANGELOG_652_session-content-generated-images.md)
-and [REVIEW_284](../../reviews/recent-3-days/REVIEW_284_session-content-image-chain.md) for delivery
+See [CHANGELOG_652](../../changelogs/recent-week/CHANGELOG_652_session-content-generated-images.md)
+and [REVIEW_284](../../reviews/recent-week/REVIEW_284_session-content-image-chain.md) for delivery
 evidence, retained-blob behavior, historical-image limits, and the exact validation scope.

@@ -108,4 +108,4 @@ src/renderer/remote-host/NewSessionDialog.remote-attachments.test.tsx
 
 ## Follow-ups
 
-No required implementation remains. See [CHANGELOG_653](../../changelogs/recent-3-days/CHANGELOG_653_ui-icons-lightbox-controls.md).
+No required implementation remains. See [CHANGELOG_653](../../changelogs/recent-week/CHANGELOG_653_ui-icons-lightbox-controls.md).

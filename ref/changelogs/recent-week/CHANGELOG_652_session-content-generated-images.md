@@ -77,5 +77,5 @@ Application-owned blobs currently remain after event deletion, while deletion re
 access. Path-backed images depend on their original file. Unsupported URL/media formats and
 already-discarded historical inline bytes are not reconstructed. No database schema change.
 
-Related [implementation review](../../reviews/recent-3-days/REVIEW_284_session-content-image-chain.md)
-and [completed plan](../../plans/recent-3-days/PLAN_60_session-content-generated-images.md).
+Related [implementation review](../../reviews/recent-week/REVIEW_284_session-content-image-chain.md)
+and [completed plan](../../plans/recent-week/PLAN_60_session-content-generated-images.md).

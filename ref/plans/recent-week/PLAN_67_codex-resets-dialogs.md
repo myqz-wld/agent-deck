@@ -33,7 +33,7 @@ extra confirmation for Codex approval policy `never`.
    Counts are available through `account/rateLimits/read` with
    `excludeResetCreditDetails: true`. Grok billing and Claude's SDK did not
    establish a reset-redemption contract. See the
-   [interface evidence](codex-reset-interface-evidence.md).
+   [interface evidence](../recent-3-days/codex-reset-interface-evidence.md).
 2. Added typed provider normalization, Local IPC, Remote Core mutation admission,
    account matching, idempotent consumption, and cache-generation invalidation.
 3. Added the compact quota row and short application confirmation. Retained
@@ -62,5 +62,5 @@ The IAB component preview is intentionally retained as non-final workspace data
 under `.ref/previews/quota-reset/`. Temporary validation helpers and archived
 evidence duplicates were removed after validation.
 
-- [Changelog](../../changelogs/recent-3-days/CHANGELOG_658_codex-resets-dialogs.md)
-- [Review](../../reviews/recent-3-days/REVIEW_298_dialogs-quota-reset-safety.md)
+- [Changelog](../../changelogs/recent-week/CHANGELOG_658_codex-resets-dialogs.md)
+- [Review](../../reviews/recent-week/REVIEW_298_dialogs-quota-reset-safety.md)

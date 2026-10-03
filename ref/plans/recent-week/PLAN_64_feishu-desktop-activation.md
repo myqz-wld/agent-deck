@@ -61,6 +61,6 @@ Desktop installation and activation are complete. Documentation-only commits may
 installed source commit without requiring another installation. Feishu transport is healthy;
 callback publication, owner pairing and real provider replies remain separate acceptance work.
 
-- [Browser repair](../../reviews/recent-3-days/REVIEW_290_browser-styled-controls-monaco.md)
-- [Claude menu presentation](../../reviews/recent-3-days/REVIEW_294_claude-permission-indicators.md)
-- [Feishu backend recovery](../../reviews/recent-3-days/REVIEW_295_feishu-bootstrap-runtime-recovery.md)
+- [Browser repair](../../reviews/recent-week/REVIEW_290_browser-styled-controls-monaco.md)
+- [Claude menu presentation](../../reviews/recent-week/REVIEW_294_claude-permission-indicators.md)
+- [Feishu backend recovery](../../reviews/recent-week/REVIEW_295_feishu-bootstrap-runtime-recovery.md)

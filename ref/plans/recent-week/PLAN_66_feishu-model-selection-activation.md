@@ -75,5 +75,5 @@ model-choice persistence, real provider replies, natural-language management or 
 acceptance. Continue those checks using the owner's saved choices; do not choose a fixed model or
 repeat owner pairing.
 
-- [Model-selection feature](../../changelogs/recent-3-days/CHANGELOG_657_feishu-conversation-model-selections.md)
-- [Feishu event compatibility](../../reviews/recent-3-days/REVIEW_297_feishu-event-metadata.md)
+- [Model-selection feature](../../changelogs/recent-week/CHANGELOG_657_feishu-conversation-model-selections.md)
+- [Feishu event compatibility](../../reviews/recent-week/REVIEW_297_feishu-event-metadata.md)

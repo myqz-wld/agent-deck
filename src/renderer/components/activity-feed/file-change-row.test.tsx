@@ -7,7 +7,7 @@ import type { FileChangeReader } from '../diff/file-change-reader';
 import { registerBuiltinDiffRenderers } from '../diff/install';
 
 vi.mock('@renderer/lib/monaco-local', () => ({ configureLocalMonaco: vi.fn() }));
-vi.mock('@monaco-editor/react', () => ({ DiffEditor: ({ original, modified }: { original: string; modified: string }) => (
+vi.mock('../diff/renderers/MonacoDiffEditor', () => ({ MonacoDiffEditor: ({ original, modified }: { original: string; modified: string }) => (
   <div data-testid="comparison"><span>{original}</span><span>{modified}</span></div>
 ) }));
 registerBuiltinDiffRenderers();

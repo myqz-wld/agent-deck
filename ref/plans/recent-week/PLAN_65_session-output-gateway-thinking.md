@@ -35,5 +35,5 @@ components were verified in a synthetic background Browser preview, which was cl
 The SQLite binding was preserved. The implementation is complete in source; installed-runtime
 activation remains a separate user-authorized operation.
 
-See [CHANGELOG_655](../../changelogs/recent-3-days/CHANGELOG_655_session-output-gateway-thinking.md)
-and [REVIEW_296](../../reviews/recent-3-days/REVIEW_296_session-output-gateway-thinking.md).
+See [CHANGELOG_655](../../changelogs/recent-week/CHANGELOG_655_session-output-gateway-thinking.md)
+and [REVIEW_296](../../reviews/recent-week/REVIEW_296_session-output-gateway-thinking.md).

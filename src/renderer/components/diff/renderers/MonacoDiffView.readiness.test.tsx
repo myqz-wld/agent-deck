@@ -6,13 +6,13 @@ import type { DiffOnMount } from '@monaco-editor/react';
 import { DiffLoadingDeadlineProvider } from '../LoadingContext';
 import { MonacoDiffView } from './MonacoDiffView';
 
-const state = vi.hoisted(() => ({ mounts: [] as DiffOnMount[], loading: [] as unknown[] }));
+const state = vi.hoisted(() => ({ mounts: [] as DiffOnMount[] }));
 vi.mock('@renderer/lib/monaco-local', () => ({ configureLocalMonaco: vi.fn() }));
-vi.mock('@monaco-editor/react', () => ({ DiffEditor: ({ onMount, loading }: {
-  onMount: DiffOnMount; loading: unknown;
+vi.mock('./MonacoDiffEditor', () => ({ MonacoDiffEditor: ({ onMount }: {
+  onMount: DiffOnMount;
 }) => {
-  useEffect(() => { state.mounts.push(onMount); state.loading.push(loading); }, []);
-  return <div data-testid="editor">{loading === null ? null : 'Loading...'}</div>;
+  useEffect(() => { state.mounts.push(onMount); }, []);
+  return <div data-testid="editor" />;
 } }));
 
 const props = { before: 'old', after: 'new', language: 'typescript' };
@@ -21,7 +21,7 @@ beforeAll(async () => {
   await waitFor(() => expect(state.mounts.length).toBeGreaterThan(0));
   view.unmount();
 });
-beforeEach(() => { state.mounts = []; state.loading = []; vi.useFakeTimers(); });
+beforeEach(() => { state.mounts = []; vi.useFakeTimers(); });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 function mountEditor(index = 0) {
@@ -36,7 +36,6 @@ describe('diff editor presentation readiness', () => {
   it('keeps fast initialization silent and reveals only the computed, laid-out editor', async () => {
     render(<MonacoDiffView {...props} />);
     const model = mountEditor();
-    expect(state.loading).toEqual([null]);
     expect(screen.queryByText('Loading...')).toBeNull();
     expect(screen.queryByRole('status')).toBeNull();
     expect(screen.getByTestId('monaco-diff-surface').getAttribute('aria-busy')).toBe('true');

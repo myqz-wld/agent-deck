@@ -143,4 +143,4 @@ provider behavior has been exhaustively validated. Temporary live-probe scripts 
 non-final because the user requested implementing the credential follow-up immediately.
 
 Source integration and the completed acceptance are recorded in
-[PLAN_59](../../plans/recent-3-days/PLAN_59_relay-handshake-investigation.md).
+[PLAN_59](../../plans/recent-week/PLAN_59_relay-handshake-investigation.md).

@@ -44,5 +44,5 @@ modules with stable component consumers.
 ## Notes
 
 The installed application was not replaced or restarted. Provider-network requests and deployment
-were outside this change. See [REVIEW_296](../../reviews/recent-3-days/REVIEW_296_session-output-gateway-thinking.md)
-and [PLAN_65](../../plans/recent-3-days/PLAN_65_session-output-gateway-thinking.md).
+were outside this change. See [REVIEW_296](../../reviews/recent-week/REVIEW_296_session-output-gateway-thinking.md)
+and [PLAN_65](../../plans/recent-week/PLAN_65_session-output-gateway-thinking.md).

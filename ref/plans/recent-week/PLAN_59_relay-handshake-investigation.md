@@ -61,7 +61,7 @@ validation, and accurate availability reasons. The one-time credential refresh h
 provide automatic renewal.
 
 Provider model turns and a host reboot remain outside the completed acceptance. Full evidence is in
-[REVIEW_282](../../reviews/recent-3-days/REVIEW_282_relay-stream-retirement-isolation.md).
+[REVIEW_282](../../reviews/recent-week/REVIEW_282_relay-stream-retirement-isolation.md).
 
 ## Evidence and cleanup
 

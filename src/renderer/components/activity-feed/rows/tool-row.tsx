@@ -17,6 +17,7 @@ import { ToolIcon } from '../tool-icon';
 import { ToolExecutionDetails, ToolRunStatus } from './tool-result';
 import { ChevronDownIcon, ChevronRightIcon } from '../../icons';
 import { StableButtonContent } from '../../StableButtonContent';
+import { ToolFileChanges } from './file-change-details';
 
 export { ToolEndRow } from './tool-end-row';
 
@@ -25,17 +26,21 @@ export function ToolStartRow({
   sessionId,
   allowLocalAssets = true,
   endEvent,
+  fileChanges,
 }: {
   event: AgentEvent;
   sessionId: string;
   allowLocalAssets?: boolean;
   endEvent?: AgentEvent;
+  fileChanges?: readonly AgentEvent[];
 }): JSX.Element {
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   const tool = formatDisplayText(payload.toolName) || '工具';
-  const detail = describeToolInput(tool, payload.toolInput)
+  const inputDetail = describeToolInput(tool, payload.toolInput)
     ?? (typeof payload.toolTitle === 'string' && payload.toolTitle !== tool ? payload.toolTitle : null);
-  const diff = toolInputToDiff(tool, payload.toolInput);
+  const detail = fileChanges?.some((change) => (change.payload as { filePath?: unknown })?.filePath === inputDetail)
+    ? null : inputDetail;
+  const diff = fileChanges?.length ? null : toolInputToDiff(tool, payload.toolInput);
   const visibleDiff = diff && (allowLocalAssets || diff.kind !== 'image') ? diff : null;
   const timestamp = new Date((endEvent ?? event).ts).toLocaleTimeString('zh-CN', { hour12: false });
   const hasInput = payload.toolInput !== undefined;
@@ -93,6 +98,7 @@ export function ToolStartRow({
           <MarkdownText text={plan || '（计划内容为空）'} />
         </div>
         <ToolInputBlock input={payload.toolInput} open={inputOpen} />
+        <ToolFileChanges events={fileChanges} />
         <ToolExecutionDetails event={endEvent ?? event} completed={Boolean(endEvent)} fallbackOutput={payload.aggregatedOutput} />
         <div className="mt-1.5 text-[10px] text-deck-muted">
           这是终端启动的只读会话，请回到原终端窗口批准
@@ -326,6 +332,7 @@ export function ToolStartRow({
           </div>
         )}
         <ToolInputBlock input={payload.toolInput} open={inputOpen} />
+        <ToolFileChanges events={fileChanges} />
         <ToolExecutionDetails event={endEvent ?? event} completed={Boolean(endEvent)} fallbackOutput={payload.aggregatedOutput} />
       </li>
     );
@@ -383,6 +390,7 @@ export function ToolStartRow({
         </span>
       </div>
       <ToolInputBlock input={payload.toolInput} open={inputOpen} />
+      <ToolFileChanges events={fileChanges} />
       <ToolExecutionDetails event={endEvent ?? event} completed={Boolean(endEvent)} fallbackOutput={payload.aggregatedOutput} />
       {visibleDiff && diffOpen && (
         <div className="mt-1 h-72 overflow-hidden rounded border border-white/5">

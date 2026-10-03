@@ -67,6 +67,6 @@ Implementation, installation, live acceptance and issue resolution are complete.
 renewal remains host-owned; valid source changes are observed by the managed synchronization loop.
 Final documentation commits may follow the installed source commit without changing runtime code.
 
-- [REVIEW_287](../../reviews/recent-3-days/REVIEW_287_grok-credential-projection-refresh.md)
-- [REVIEW_288](../../reviews/recent-3-days/REVIEW_288_hosted-app-replacement.md)
-- [REVIEW_289](../../reviews/recent-3-days/REVIEW_289_inline-diff-readiness.md)
+- [REVIEW_287](../../reviews/recent-week/REVIEW_287_grok-credential-projection-refresh.md)
+- [REVIEW_288](../../reviews/recent-week/REVIEW_288_hosted-app-replacement.md)
+- [REVIEW_289](../../reviews/recent-week/REVIEW_289_inline-diff-readiness.md)

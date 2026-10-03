@@ -1,13 +1,17 @@
-import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type JSX } from 'react';
+import { lazy, Suspense, useCallback, useLayoutEffect, useId, useRef, useState, type JSX } from 'react';
 import type { DiffOnMount } from '@monaco-editor/react';
+import type { editor } from 'monaco-editor';
 import { useDiffLoadingFallback } from '../LoadingContext';
 
 const DiffEditor = lazy(async () => {
-  const { configureLocalMonaco } = await import('@renderer/lib/monaco-local');
-  configureLocalMonaco();
-  const mod = await import('@monaco-editor/react');
-  return { default: mod.DiffEditor };
+  const mod = await import('./MonacoDiffEditor');
+  return { default: mod.MonacoDiffEditor };
 });
+
+const DIFF_OPTIONS: editor.IStandaloneDiffEditorConstructionOptions = {
+  readOnly: true, renderSideBySide: true, minimap: { enabled: false }, fontSize: 11,
+  scrollBeyondLastLine: false, padding: { bottom: 16 }, automaticLayout: true, renderOverviewRuler: false,
+};
 
 interface Props { before: string; after: string; language: string }
 
@@ -26,7 +30,7 @@ function MonacoDiffModel({ before, after, language }: Props): JSX.Element {
   const active = useRef(true);
   const frame = useRef<number | null>(null);
   const subscription = useRef<{ dispose(): void } | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     active.current = true;
     return () => {
       active.current = false;
@@ -63,10 +67,7 @@ function MonacoDiffModel({ before, after, language }: Props): JSX.Element {
       <div className="absolute inset-0" style={{ visibility: ready ? 'visible' : 'hidden' }} aria-hidden={!ready}>
         <Suspense fallback={null}>
           <DiffEditor
-            height="100%" language={language} theme="vs-dark" original={before} modified={after}
-            loading={null} onMount={onMount}
-            options={{ readOnly: true, renderSideBySide: true, minimap: { enabled: false }, fontSize: 11,
-              scrollBeyondLastLine: false, padding: { bottom: 16 }, automaticLayout: true, renderOverviewRuler: false }}
+            language={language} original={before} modified={after} onMount={onMount} options={DIFF_OPTIONS}
           />
         </Suspense>
       </div>

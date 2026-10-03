@@ -63,5 +63,5 @@ application has not been replaced. The prior implementation commit remains separ
 - Diff whitespace, local links, identifying-path/token scan, 500-line limits, and record buckets
   were checked. The only Browser tabs used for this task were closed after verification.
 
-See [CHANGELOG_653](../../changelogs/recent-3-days/CHANGELOG_653_ui-icons-lightbox-controls.md)
-and [REVIEW_285](../../reviews/recent-3-days/REVIEW_285_ui-icons-lightbox-controls.md).
+See [CHANGELOG_653](../../changelogs/recent-week/CHANGELOG_653_ui-icons-lightbox-controls.md)
+and [REVIEW_285](../../reviews/recent-week/REVIEW_285_ui-icons-lightbox-controls.md).

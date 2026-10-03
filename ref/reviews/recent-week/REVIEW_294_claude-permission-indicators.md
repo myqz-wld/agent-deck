@@ -34,4 +34,4 @@ No remaining source concern for this presentation change. The user subsequently 
 replacement, completed with clean `6d4d44ad` on 2026-09-29. Inspection of the installed renderer
 bundle confirms the base labels, absent parenthetical annotations and absent no-prompt warning
 marker. Source tests establish the shared/native selector behavior; no additional live selector
-screenshot is claimed. See [installed acceptance](../../plans/recent-3-days/PLAN_64_feishu-desktop-activation.md).
+screenshot is claimed. See [installed acceptance](../../plans/recent-week/PLAN_64_feishu-desktop-activation.md).

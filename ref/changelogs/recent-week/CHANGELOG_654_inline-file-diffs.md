@@ -55,5 +55,5 @@ Old truncated or absent provider content cannot be recovered. Historical compari
 current file contents at view time. No app process, installed bundle, database schema, or provider
 configuration was changed; the main-process changes require an approved runtime restart to activate.
 
-- [Implementation inspection](../../reviews/recent-3-days/REVIEW_286_inline-file-diffs.md)
-- [Completed plan](../../plans/recent-3-days/PLAN_62_inline-file-diffs.md)
+- [Implementation inspection](../../reviews/recent-week/REVIEW_286_inline-file-diffs.md)
+- [Completed plan](../../plans/recent-week/PLAN_62_inline-file-diffs.md)

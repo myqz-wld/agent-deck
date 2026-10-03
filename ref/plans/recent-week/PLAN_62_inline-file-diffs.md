@@ -41,5 +41,5 @@ exclusion of cross-page original tool-input retrieval.
 All implementation work is complete. The running app needs an explicitly approved restart for
 main-process ingestion changes. No installation or process action was performed.
 
-- [CHANGELOG_654](../../changelogs/recent-3-days/CHANGELOG_654_inline-file-diffs.md)
-- [REVIEW_286](../../reviews/recent-3-days/REVIEW_286_inline-file-diffs.md)
+- [CHANGELOG_654](../../changelogs/recent-week/CHANGELOG_654_inline-file-diffs.md)
+- [REVIEW_286](../../reviews/recent-week/REVIEW_286_inline-file-diffs.md)

@@ -65,4 +65,4 @@ The Browser issue remains resolved, now with installed activation evidence.
 The fixture covers Monaco's textarea path, not every rich-editor implementation or custom paste
 plugin. The Feishu console's plain callback-tab div has no supported interaction marker and still
 needs a bounded manual navigation step. This does not broaden the repaired control-recognition
-contract. See [installed acceptance](../../plans/recent-3-days/PLAN_64_feishu-desktop-activation.md).
+contract. See [installed acceptance](../../plans/recent-week/PLAN_64_feishu-desktop-activation.md).

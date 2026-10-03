@@ -21,6 +21,7 @@ import { ActivityImageContext, LOCAL_ACTIVITY_IMAGES, type ActivityImageReader }
 import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import { planEventId } from '@shared/agent-event-update';
 import { presentMessageDisplays } from './message-display-presentation';
+import { activityToolCallKey, deriveToolCallPresentation } from './tool-call-presentation';
 
 type ResolvePending = (sessionId: string, requestId: string) => void;
 const EMPTY_IDS: ReadonlySet<string> = new Set();
@@ -71,7 +72,7 @@ export function ActivityRecordsView({
   fileChangeReader,
 }: ActivityRecordsViewProps): JSX.Element {
   const presentedEvents = useMemo(() => presentMessageDisplays(events), [events]);
-  const derived = useMemo(() => deriveSources(events, pendingIds), [events, pendingIds]);
+  const derived = useMemo(() => deriveSources(events, pendingIds, isSdk), [events, pendingIds, isSdk]);
   const initialPending = !loaded && loadError === null && events.length === 0;
   const showInitialLoading = useDelayedAsyncFallback(
     initialPending,
@@ -113,11 +114,12 @@ export function ActivityRecordsView({
         aria-relevant="additions"
       >
         {presentedEvents.map((event) => {
+          if (derived.attachedFileChanges.has(event)) return null;
           const displayMessageId = (event.payload as { displayMessageId?: string } | null)?.displayMessageId;
-          const useId = (event.payload as { toolUseId?: unknown } | null)?.toolUseId;
-          const pairedStart = event.kind === 'tool-use-end' && typeof useId === 'string'
+          const useId = activityToolCallKey(event);
+          const pairedStart = event.kind === 'tool-use-end' && useId
             ? derived.toolStartByUseId.get(useId) : undefined;
-          if (event.kind === 'tool-use-start' && typeof useId === 'string' && derived.toolEndByUseId.has(useId)) return null;
+          if (event.kind === 'tool-use-start' && useId && derived.toolEndByUseId.has(useId)) return null;
           const visibleEvent = pairedStart ? { ...pairedStart, payload: mergeToolUsePayload(pairedStart.payload, {
             toolInput: (event.payload as { toolInput?: unknown })?.toolInput,
           }) } : event;
@@ -125,10 +127,12 @@ export function ActivityRecordsView({
           return (
             <ActivityRow
               key={displayMessageId ? `display:${displayMessageId}`
-                : typeof useId === 'string' && useId ? `${event.sessionId}:tool:${useId}`
+                : event.kind !== 'file-changed' && useId ? `tool:${useId}`
                 : planEventId(event) ? `${event.sessionId}:plan:${planEventId(event)}` : activityEventIdentity(event)}
               event={visibleEvent}
               endEvent={pairedStart ? { ...event, payload: mergeToolUsePayload(pairedStart.payload, event.payload) } : undefined}
+              fileChanges={event.kind === 'file-changed' ? derived.standaloneFileChanges.get(event)
+                : useId ? derived.fileChangesByUseId.get(useId) : undefined}
               sessionId={sessionId}
               agentId={agentId}
               isSdk={isSdk}
@@ -163,6 +167,7 @@ interface RowProps {
   wasCancelled: boolean;
   startEvent?: AgentEvent;
   endEvent?: AgentEvent;
+  fileChanges?: readonly AgentEvent[];
   resolvePermission: ResolvePending;
   resolveAsk: ResolvePending;
   resolveExitPlan: ResolvePending;
@@ -181,6 +186,7 @@ export const ActivityRow = memo(function ActivityRow({
   wasCancelled,
   startEvent,
   endEvent,
+  fileChanges,
   resolvePermission,
   resolveAsk,
   resolveExitPlan,
@@ -195,7 +201,7 @@ export const ActivityRow = memo(function ActivityRow({
     return <MessageBubble event={event} agentId={agentId} showAttachments={allowLocalAssets} />;
   }
   if (event.kind === 'thinking') return <ThinkingBubble event={event} agentId={agentId} />;
-  if (event.kind === 'file-changed') return <FileChangeRow event={event} />;
+  if (event.kind === 'file-changed') return <FileChangeRow event={event} fileChanges={fileChanges} />;
   if (event.kind === 'waiting-for-user') {
     const injected = renderPendingEvent?.(event);
     if (injected !== undefined) return injected;
@@ -229,7 +235,8 @@ export const ActivityRow = memo(function ActivityRow({
       const toolName = (event.payload as { toolName?: unknown })?.toolName;
       if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') return null;
     }
-    return <ToolStartRow event={event} endEvent={endEvent} sessionId={sessionId} allowLocalAssets={allowLocalAssets} />;
+    return <ToolStartRow event={event} endEvent={endEvent} fileChanges={fileChanges}
+      sessionId={sessionId} allowLocalAssets={allowLocalAssets} />;
   }
   if (event.kind === 'tool-use-end') {
     if (isSdk) {
@@ -240,12 +247,16 @@ export const ActivityRow = memo(function ActivityRow({
         : typeof startName === 'string' ? startName : undefined;
       if (toolName === 'AskUserQuestion' || toolName === 'ExitPlanMode') return null;
     }
+    if (fileChanges?.length) {
+      return <ToolStartRow event={event} endEvent={event} fileChanges={fileChanges}
+        sessionId={sessionId} allowLocalAssets={allowLocalAssets} />;
+    }
     return <ToolEndRow event={event} startEvent={startEvent} />;
   }
   return <SimpleRow event={event} />;
 });
 
-interface DerivationSources {
+interface DerivationSources extends ReturnType<typeof deriveToolCallPresentation> {
   pendingPermIds: ReadonlySet<string>;
   pendingAskIds: ReadonlySet<string>;
   pendingExitIds: ReadonlySet<string>;
@@ -254,29 +265,18 @@ interface DerivationSources {
   cancelledAskIds: ReadonlySet<string>;
   cancelledExitIds: ReadonlySet<string>;
   cancelledDiffIds: ReadonlySet<string>;
-  toolStartByUseId: ReadonlyMap<string, AgentEvent>;
-  toolEndByUseId: ReadonlyMap<string, AgentEvent>;
 }
 
 function deriveSources(
   events: readonly AgentEvent[],
   pendingIds: ActivityRecordsViewProps['pendingIds'],
+  isSdk: boolean,
 ): DerivationSources {
   const cancelledPermIds = new Set<string>();
   const cancelledAskIds = new Set<string>();
   const cancelledExitIds = new Set<string>();
   const cancelledDiffIds = new Set<string>();
-  const toolStartByUseId = new Map<string, AgentEvent>();
-  const toolEndByUseId = new Map<string, AgentEvent>();
   for (const event of events) {
-    if (event.kind === 'tool-use-start') {
-      const id = (event.payload as { toolUseId?: unknown })?.toolUseId;
-      if (typeof id === 'string' && id) toolStartByUseId.set(id, event);
-    }
-    if (event.kind === 'tool-use-end') {
-      const id = (event.payload as { toolUseId?: unknown })?.toolUseId;
-      if (typeof id === 'string' && id) toolEndByUseId.set(id, event);
-    }
     if (event.kind !== 'waiting-for-user') continue;
     const payload = (event.payload ?? {}) as { type?: string; requestId?: string };
     if (!payload.requestId) continue;
@@ -294,8 +294,7 @@ function deriveSources(
     cancelledAskIds,
     cancelledExitIds,
     cancelledDiffIds,
-    toolStartByUseId,
-    toolEndByUseId,
+    ...deriveToolCallPresentation(events, isSdk),
   };
 }
 
@@ -305,7 +304,7 @@ function deriveRowState(
 ): { stillPending: boolean; wasCancelled: boolean; startEvent?: AgentEvent } {
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   if (event.kind === 'tool-use-end') {
-    const useId = typeof payload.toolUseId === 'string' ? payload.toolUseId : '';
+    const useId = activityToolCallKey(event);
     return {
       stillPending: false,
       wasCancelled: false,
