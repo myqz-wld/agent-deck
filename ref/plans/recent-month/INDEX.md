@@ -15,14 +15,20 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-09-29 | `PLAN_68_feishu-assistant-activation.md` | completed | Verify installed assistant/work-session release and clean artifacts | `CHANGELOG_659_feishu-assistant-contexts.md` |
+| 2026-09-29 | `PLAN_67_codex-resets-dialogs.md` | completed | Compact quota resets and unified confirmation dialogs | `CHANGELOG_658_codex-resets-dialogs.md` |
+| 2026-09-29 | `PLAN_66_feishu-model-selection-activation.md` | completed | Activate model selections and remove duplicate app copies | `CHANGELOG_657_feishu-conversation-model-selections.md` |
+| 2026-09-29 | `PLAN_65_session-output-gateway-thinking.md` | completed | Readable output and isolated Gateway thinking defaults | `CHANGELOG_655_session-output-gateway-thinking.md` |
+| 2026-09-29 | `PLAN_64_feishu-desktop-activation.md` | completed | Install Browser/menu repairs and verify managed runtime health | `REVIEW_290_browser-styled-controls-monaco.md` |
+| 2026-09-29 | `PLAN_63_grok-credential-installed-acceptance.md` | completed | Install fixes and accept Worker/Relay health | `REVIEW_287_grok-credential-projection-refresh.md` |
+| 2026-09-29 | `PLAN_62_inline-file-diffs.md` | completed | Inline file changes and shared provider diff views | `CHANGELOG_654_inline-file-diffs.md` |
+| 2026-09-29 | `PLAN_61_ui-icons-lightbox-controls.md` | completed | Unify UI icons and refine image-preview controls | `CHANGELOG_653_ui-icons-lightbox-controls.md` |
+| 2026-09-29 | `PLAN_60_session-content-generated-images.md` | completed | Improve session content and generated-image display | `CHANGELOG_652_session-content-generated-images.md` |
+| 2026-09-29 | `PLAN_59_relay-handshake-investigation.md` | completed | Verify both Relay endpoints after Worker installation | `REVIEW_282_relay-stream-retirement-isolation.md` |
+| 2026-09-28 | `PLAN_58_relay-runtime-recovery.md` | completed | Restore Relay, Worker, and supervisor | `REVIEW_281_relay-runtime-directory-recovery.md` |
+| 2026-09-28 | `PLAN_57_codex-live-gateway-switch.md` | completed | Apply Codex Gateway changes before the next turn | `REVIEW_279_codex-live-gateway-switch.md` |
 | 2026-09-23 | `PLAN_56_enter-worktree-preparation-timeout.md` | completed | Bound enter preparation and preserve late-result safety | REVIEW_277 |
 | 2026-09-22 | `PLAN_55_grok-native-model-selection.md` | completed | Delegate Grok selection and discovery to the CLI | CHANGELOG_648 |
 | 2026-09-19 | `PLAN_54_gateway-model-presentation.md` | completed | Preserve live models and stabilize Gateway default reads | REVIEW_275 |
 | 2026-09-16 | `PLAN_53_privacy-and-compatibility-cleanup.md` | completed | Scrub private history and retire obsolete compatibility | REVIEW_274 |
 | 2026-09-16 | `PLAN_52_relay-worker-live-acceptance.md` | completed with installed acceptance pending | Verify Relay and repair packaged Worker startup | REVIEW_273 |
-| 2026-09-06 | `PLAN_51_worktree-user-message-projection.md` | completed | Preserve worktree input and simplify project documentation | REVIEW_271 |
-| 2026-09-04 | `PLAN_50_model-routing-and-grok-defaults.md` | completed | Apply requested model defaults and table-only tier edits | CHANGELOG_640 |
-| 2026-09-04 | `PLAN_49_astra-usage-and-model-inventory.md` | completed | Preserve quota groups and inventory model defaults | REVIEW_270 |
-| 2026-09-04 | `PLAN_48_project-code-quality-remediation.md` | completed | Implement and validate all accepted scan findings | REVIEW_269 |
-| 2026-09-04 | `PLAN_47_project-code-quality-scan.md` | completed | Concurrent project scan with verified findings | REVIEW_268 |
-| 2026-09-04 | `PLAN_46_compatibility-dead-code-cleanup.md` | completed | Remove obsolete compatibility and production-dead code | CHANGELOG_638 / REVIEW_267 |

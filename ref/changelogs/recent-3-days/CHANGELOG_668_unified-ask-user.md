@@ -66,4 +66,4 @@ Main-process changes require loading this build and restarting Agent Deck before
 is available. New or refreshed provider sessions must load the updated bundled instructions.
 Live runtime activation remains a separately authorized action.
 
-Related plan: [PLAN_77](../../plans/recent-3-days/PLAN_77_unified-ask-user.md).
+Related plan: [PLAN_77](../../plans/recent-week/PLAN_77_unified-ask-user.md).

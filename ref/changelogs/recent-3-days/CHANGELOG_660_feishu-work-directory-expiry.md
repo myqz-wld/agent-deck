@@ -37,4 +37,4 @@ Live activation and business acceptance remain pending at this source checkpoint
 
 None. All changed source files remain at or below 500 lines.
 
-See [REVIEW_301](../../reviews/recent-3-days/REVIEW_301_feishu-work-directory-expiry.md).
+See [REVIEW_301](../../reviews/recent-week/REVIEW_301_feishu-work-directory-expiry.md).

@@ -61,4 +61,4 @@ remain below 500 lines.
 
 Renderer changes use development HMR. The Feishu gateway prompt/recovery changes and Core recovery
 message require a later remote release to affect the running deployment. Installed applications
-and live services were preserved. See [PLAN_80](../../plans/recent-3-days/PLAN_80_feishu-assistant-settings-flow.md).
+and live services were preserved. See [PLAN_80](../../plans/recent-week/PLAN_80_feishu-assistant-settings-flow.md).

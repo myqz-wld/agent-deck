@@ -54,6 +54,6 @@ state have focused helpers. The oversized composer suite was split without remov
 
 ## Related records
 
-- [Implementation review](../../reviews/recent-week/REVIEW_285_ui-icons-lightbox-controls.md)
-- [Completed plan](../../plans/recent-week/PLAN_61_ui-icons-lightbox-controls.md)
+- [Implementation review](../../reviews/recent-month/REVIEW_285_ui-icons-lightbox-controls.md)
+- [Completed plan](../../plans/recent-month/PLAN_61_ui-icons-lightbox-controls.md)
 - [Previous content and image delivery](CHANGELOG_652_session-content-generated-images.md)

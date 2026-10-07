@@ -1,4 +1,7 @@
 import type { UploadedAttachmentInput, UploadedAttachmentRef } from '@shared/types';
+import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
+import { IMAGE_UPLOAD_TIMEOUT_MS } from '@main/store/image-upload-io';
 import {
   deleteUploadIfExists,
   writeUploadedImage,
@@ -44,9 +47,13 @@ export async function persistAdapterAttachments(
   }
 
   const written: UploadedAttachmentRef[] = [];
+  const writeOptions = {
+    deadlineAt: performance.now() + IMAGE_UPLOAD_TIMEOUT_MS,
+    operationId: randomUUID(),
+  };
   try {
     for (const item of raw as UploadedAttachmentInput[]) {
-      written.push(await writeUploadedImage(item));
+      written.push(await writeUploadedImage(item, writeOptions));
     }
     return written;
   } catch (error) {

@@ -22,9 +22,9 @@ work cards receive a short conversational acknowledgement instead of a repeated 
 - The owner accepted actual work creation in the requested Workspace-relative directory and its
   provider's pwd output. Native disposable-file/folder deletion also passed real owner acceptance.
 
-Managed activation passed in [PLAN_78](../../plans/recent-3-days/PLAN_78_feishu-operations-approval-activation.md);
+Managed activation passed in [PLAN_78](../../plans/recent-week/PLAN_78_feishu-operations-approval-activation.md);
 the owner's subsequent greeting and correct test-word reply confirm activation and retained history. See
-[REVIEW_309](../../reviews/recent-3-days/REVIEW_309_feishu-assistant-voice.md).
+[REVIEW_309](../../reviews/recent-week/REVIEW_309_feishu-assistant-voice.md).
 
 ## Do Not Split Protection
 

@@ -54,4 +54,4 @@ changes; native tool/permission differences remain authoritative. The local prom
 refreshed; no standing custom points were added. Context persistence and test fixtures were split;
 no changed source exceeds 500 lines and no split exemption is required.
 
-- [Failure diagnosis and validation](../../reviews/recent-week/REVIEW_299_feishu-assistant-contexts.md)
+- [Failure diagnosis and validation](../../reviews/recent-month/REVIEW_299_feishu-assistant-contexts.md)

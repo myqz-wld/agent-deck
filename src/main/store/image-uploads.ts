@@ -33,20 +33,11 @@ import {
 } from '@main/ipc/_image-constants';
 import log from '@main/utils/logger';
 import { isPathWithinRoot, isPlatformAbsolutePath } from '@main/platform-paths';
+import { removeImageUploadFile, writeImageUploadFile, type ImageUploadWriteOptions } from './image-upload-io';
 
 const logger = log.scope('store-image-uploads');
 
 const REAPER_MAX_AGE_MS_DEFAULT = 14 * 24 * 60 * 60 * 1000;
-
-/**
- * 确保 image-uploads 根目录存在。idempotent，多次调用安全。
- * 失败抛错让上层处理（写盘 / reaper 都依赖此目录）。
- */
-async function ensureUploadsDir(): Promise<string> {
-  const dir = getImageUploadsDir();
-  await fsp.mkdir(dir, { recursive: true });
-  return dir;
-}
 
 /**
  * base64 → 写盘到 `<userData>/image-uploads/<uuid>.<ext>`。
@@ -60,6 +51,7 @@ async function ensureUploadsDir(): Promise<string> {
  */
 export async function writeUploadedImage(
   input: UploadedAttachmentInput,
+  options: ImageUploadWriteOptions = {},
 ): Promise<UploadedAttachmentRef> {
   if (!input || input.kind !== 'image' || typeof input.base64 !== 'string') {
     throw new Error('invalid attachment input shape');
@@ -100,10 +92,10 @@ export async function writeUploadedImage(
       `attachment ${(buf.length / 1024 / 1024).toFixed(1)}MB exceeds ${MAX_IMAGE_BYTES / 1024 / 1024}MB limit`,
     );
   }
-  const dir = await ensureUploadsDir();
+  const dir = getImageUploadsDir();
   const filename = `${randomUUID()}${ext}`;
   const fullPath = `${dir}${sep}${filename}`;
-  await fsp.writeFile(fullPath, buf);
+  await writeImageUploadFile(fullPath, buf, options);
   return {
     kind: 'uploaded',
     path: fullPath,
@@ -211,7 +203,7 @@ export async function deleteUploadIfExists(path: string): Promise<void> {
   const prefix = dir.endsWith(sep) ? dir : dir + sep;
   if (!resolved.startsWith(prefix)) return;
   try {
-    await fsp.unlink(resolved);
+    await removeImageUploadFile(resolved);
   } catch {
     /* swallow */
   }

@@ -58,6 +58,15 @@ afterEach(() => {
 });
 
 describe('writeUploadedImage', () => {
+  it('persists every chunk of a multi-megabyte attachment and returns the complete contents', async () => {
+    const buffer = Buffer.alloc(3 * 1024 * 1024 + 17, 0x5a);
+    const base64 = buffer.toString('base64');
+    const ref = await writeUploadedImage({ kind: 'image', base64, mime: 'image/png', bytes: buffer.length });
+    const loaded = await loadUploadedImage(ref.path);
+    expect(loaded).toMatchObject({ ok: true, bytes: buffer.length });
+    if (loaded.ok) expect(loaded.dataUrl).toBe(`data:image/png;base64,${base64}`);
+  });
+
   it('正常 png：mime 反查 .png ext + bytes 对账通过 + 落盘到 uploads 目录', async () => {
     const bytes = b64Bytes(PNG_1x1_B64);
     const ref = await writeUploadedImage({ kind: 'image', base64: PNG_1x1_B64, mime: 'image/png', bytes });

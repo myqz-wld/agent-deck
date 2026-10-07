@@ -37,7 +37,7 @@ to assistant chat. Subscribed private sends no longer append a redundant late re
   migrations, v4/v5 managed rollback, persona refresh, approval routing and lost receipt acceptance.
 - Typecheck/architecture, application build, Linux headless/native archive construction and
   headless/deployment checks passed. The exact b48d42f1 package is installed and independently
-  verified; [installation acceptance](../../plans/recent-3-days/PLAN_71_feishu-named-work-activation.md)
+  verified; [installation acceptance](../../plans/recent-week/PLAN_71_feishu-named-work-activation.md)
   records commit/ASAR, one GUI, live service health and retained configuration/history.
 - Both native archives (37 members / 26 regular files each) and all 11 headless bundles pass
   private-identifier scans with zero findings; the shared Electron SQLite binding is unchanged.
@@ -56,4 +56,4 @@ Paired bundled adapter conventions remain unchanged. Assistant/work models, nati
 Workspace boundaries remain owned by their existing settings. The broader live acceptance plan
 stays active until the owner verifies natural creation, readable names and the requested voice.
 
-[Local review](../../reviews/recent-3-days/REVIEW_303_feishu-named-work-management.md).
+[Local review](../../reviews/recent-week/REVIEW_303_feishu-named-work-management.md).
