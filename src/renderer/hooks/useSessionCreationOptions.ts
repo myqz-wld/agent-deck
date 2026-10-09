@@ -242,7 +242,7 @@ export function useSessionCreationOptions({
         ...(previous.identity === selectionIdentity ? previous.value : initial),
         ...patch,
       },
-      retainedModel: patch.provider !== undefined
+      retainedModel: patch.provider !== undefined && !patch.model
         ? (previous.identity === selectionIdentity ? previous.retainedModel : undefined) ?? current.model
         : patch.model !== undefined || previous.identity !== selectionIdentity
           ? undefined : previous.retainedModel,
@@ -304,10 +304,11 @@ export function useSessionCreationOptions({
       defaultsRequestGeneration.current += 1;
       // Gateway choices are discrete: do not spend the presentation grace on input debounce.
       resolvedSelectionIdentity.current = null;
-      setLastDefaults(adapterId, { provider: value, model: '' });
+      setLastDefaults(adapterId, { provider: value });
+      const remembered = getLastDefaults(adapterId);
       patchSelection({
-        provider: value, model: '',
-        thinking: getLastDefaults(adapterId).thinking || SAFE_FALLBACK.thinking,
+        provider: value, model: remembered.model ?? '',
+        thinking: remembered.thinking || SAFE_FALLBACK.thinking,
       });
       setSelectionRevision((current) => current + 1);
       setTrustSelection({ requestKey: '', grant: false });

@@ -18,7 +18,7 @@ its configured managed Worker. Preserve pairing, provider controls, history and 
 - ASAR: `9407f89adc2016c3678924a2bc17aa2eaf6f91a5180d3df15f16ec24966d2862`.
 - DMG: `dd92e702bc0ac0a1f0a97b6b41991c7f312c1a83f30bb4b2061ab7e26e0f5a95`.
 - Main's separately completed Gateway recovery and its REVIEW_306/PLAN_75 were preserved.
-  This repair is covered by [REVIEW_307](../../reviews/recent-week/REVIEW_307_remote-worker-backpressure.md)
+  This repair is covered by [REVIEW_307](../../reviews/recent-month/REVIEW_307_remote-worker-backpressure.md)
   and [CHANGELOG_665](../../changelogs/recent-3-days/CHANGELOG_665_independent-work-remote-connection.md).
 
 ## Execution and verification

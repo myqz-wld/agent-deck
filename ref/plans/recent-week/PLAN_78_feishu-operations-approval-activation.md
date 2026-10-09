@@ -35,8 +35,8 @@ current Codex assistant, not a claim that every adapter has identical native beh
 - Source release: `b3c03c94ac991b1596bbda622b32774ba5def288`.
 - Active/desired arm64 Feishu runtime:
   `72e32a9b7ec38b52e7693ace991fabe233f7af09a4727e4f91a808e9607c48dd`.
-- Source repairs are documented in [REVIEW_308](../../reviews/recent-week/REVIEW_308_feishu-expired-approvals.md)
-  and [REVIEW_309](../../reviews/recent-week/REVIEW_309_feishu-assistant-voice.md), with
+- Source repairs are documented in [REVIEW_308](../../reviews/recent-month/REVIEW_308_feishu-expired-approvals.md)
+  and [REVIEW_309](../../reviews/recent-month/REVIEW_309_feishu-assistant-voice.md), with
   [CHANGELOG_666](../../changelogs/recent-3-days/CHANGELOG_666_feishu-expired-approvals.md) and
   [CHANGELOG_667](../../changelogs/recent-3-days/CHANGELOG_667_feishu-assistant-voice.md).
 

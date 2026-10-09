@@ -46,7 +46,9 @@ async function openDialog() {
 beforeEach(() => {
   vi.useFakeTimers();
   setLastAdapter('codex-cli');
-  setLastDefaults('codex-cli', { provider: '', model: '', thinking: '' });
+  for (const provider of ['gateway-a', 'gateway-b', '']) {
+    setLastDefaults('codex-cli', { provider, model: '', thinking: '' });
+  }
   Object.defineProperty(window, 'api', {
     configurable: true,
     value: {
@@ -67,6 +69,30 @@ afterEach(() => {
 });
 
 describe('NewSessionDialog Gateway model presentation', () => {
+  it('restores and submits the model remembered for each Gateway after switching back', async () => {
+    window.api.getAdapterSessionCreationDefaults = vi.fn(async (_adapter, options) => {
+      const provider = options?.provider ?? '';
+      return configuration(provider, `${provider || 'native'}-configured`);
+    });
+    await openDialog();
+    chooseGateway('gateway-a');
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'custom-a' } });
+    chooseGateway('gateway-b');
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(displayedModel()).toBe('gateway-b-configured');
+    fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'custom-b' } });
+    chooseGateway('gateway-a');
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(displayedModel()).toBe('custom-a');
+    expect(screen.getByText(/模型：custom-a/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '创建' }));
+    await act(async () => {});
+    expect(window.api.createAdapterSession).toHaveBeenCalledWith('codex-cli', expect.objectContaining({
+      provider: 'gateway-a', model: 'custom-a',
+    }));
+  });
+
   it('starts a Gateway read immediately and replaces the retained model directly on a fast result', async () => {
     const next = deferred<ReturnType<typeof configuration>>();
     const read = vi.fn().mockResolvedValueOnce(configuration()).mockReturnValueOnce(next.promise);

@@ -55,4 +55,4 @@ work acceptance. Do not reinstall Desktop or automatically repeat work creation.
 warm-channel stall remains a separate, unproven incident.
 
 [Change](../../changelogs/recent-3-days/CHANGELOG_664_feishu-native-approval-depth.md)
-[Review](../../reviews/recent-week/REVIEW_305_feishu-native-approval-depth.md)
+[Review](../../reviews/recent-month/REVIEW_305_feishu-native-approval-depth.md)

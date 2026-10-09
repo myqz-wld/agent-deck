@@ -38,4 +38,4 @@ acceptance cases. Typechecking and production bundling passed; the SQLite bindin
 Source work is complete. The affected computer still needs an updated installation and restart;
 no live user-owned process or installed application was changed.
 
-Evidence: [Failed Gateway recovery review](../../reviews/recent-week/REVIEW_306_codex-failed-gateway-recovery.md).
+Evidence: [Failed Gateway recovery review](../../reviews/recent-month/REVIEW_306_codex-failed-gateway-recovery.md).

@@ -56,4 +56,4 @@ Paired bundled adapter conventions remain unchanged. Assistant/work models, nati
 Workspace boundaries remain owned by their existing settings. The broader live acceptance plan
 stays active until the owner verifies natural creation, readable names and the requested voice.
 
-[Local review](../../reviews/recent-week/REVIEW_303_feishu-named-work-management.md).
+[Local review](../../reviews/recent-month/REVIEW_303_feishu-named-work-management.md).

@@ -166,7 +166,7 @@ export function useRemoteSessionCreation({
     grant: false,
   });
   const generation = useRef(0);
-  const gatewayThinking = useRef(new Map<string, string>());
+  const gatewayDefaults = useRef(new Map<string, { model?: string; thinking?: string }>());
   const settledAdapterIdentity = useRef<string | null>(null);
   const authoring = authoringState.scopeKey === scopeKey
     ? authoringState
@@ -324,11 +324,16 @@ export function useRemoteSessionCreation({
     setOption: (key, value) => {
       const schema = presentationDescriptor?.create.options[key];
       if (!schema?.enabled) return;
-      const thinkingKey = (targetProvider: string): string =>
+      const gatewayKey = (targetProvider: string): string =>
         `${scopeKey}\u0000${authoring.adapterId}\u0000${targetProvider}`;
-      if (key === 'thinking') gatewayThinking.current.set(thinkingKey(provider), value);
-      const rememberedThinking = key === 'provider'
-        ? gatewayThinking.current.get(thinkingKey(value)) : undefined;
+      if (key === 'model' || key === 'thinking') {
+        const memoryKey = gatewayKey(provider);
+        const next = { ...gatewayDefaults.current.get(memoryKey), [key]: value };
+        if (key === 'model' && !value.trim()) delete next.model;
+        gatewayDefaults.current.set(memoryKey, next);
+      }
+      const remembered = key === 'provider'
+        ? gatewayDefaults.current.get(gatewayKey(value)) : undefined;
       if (key === 'provider') {
         if (value === provider) return;
         generation.current += 1;
@@ -341,18 +346,20 @@ export function useRemoteSessionCreation({
         if (key === 'provider') {
           overrides.delete('model');
           overrides.delete('thinking');
-          if (rememberedThinking !== undefined) overrides.add('thinking');
+          if (remembered?.model !== undefined) overrides.add('model');
+          if (remembered?.thinking !== undefined) overrides.add('thinking');
         }
         return {
           ...scoped,
           options: {
             ...scoped.options,
             [key]: value,
-            ...(key === 'provider' ? { model: '', thinking: rememberedThinking ?? null } : {}),
+            ...(key === 'provider'
+              ? { model: remembered?.model ?? '', thinking: remembered?.thinking ?? null } : {}),
           },
           overrides: [...overrides],
           retainedModel: key === 'provider'
-            ? scoped.retainedModel ?? scoped.options.model
+            ? remembered?.model !== undefined ? undefined : scoped.retainedModel ?? scoped.options.model
             : key === 'model' ? undefined : scoped.retainedModel,
         };
       });

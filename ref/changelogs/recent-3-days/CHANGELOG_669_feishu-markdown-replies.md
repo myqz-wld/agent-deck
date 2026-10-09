@@ -30,7 +30,7 @@ cards keep their existing presentation and actions.
 Renderer and official SDK transport regressions cover content selection, local links, literal
 code, entity handling, source/UUID preservation, payload limits and uncertain delivery. Full
 integrated validation and managed activation are recorded in
-[REVIEW_310](../../reviews/recent-week/REVIEW_310_feishu-markdown-replies.md).
+[REVIEW_310](../../reviews/recent-month/REVIEW_310_feishu-markdown-replies.md).
 
 Managed activation passed in [PLAN_79](../../plans/recent-week/PLAN_79_feishu-markdown-activation.md);
 the owner confirmed normal display of the real formatting sample.

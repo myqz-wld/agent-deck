@@ -10,7 +10,7 @@
  * - 跨 mount 持久（同一 session 内 React 重渲染 / dialog 关闭重开都不丢）
  * - 跨重启**不**持久（不写 localStorage、不走 AppSettings —— 用户明确要求「自动记住上次选的」
  *   不需要 settings 默认值；下一次开会话重置也符合 issue 解决场景的「每次重新审视」语义）
- * - 跨 adapter 隔离（claude-code / codex-cli / grok-build 各自记忆）
+ * - Isolated by adapter; Claude/Codex model and thinking also belong to each Gateway.
  *
  * **实现**：
  * - 模块顶层 `let` 存 `Record<adapter, Defaults>`，组件 unmount 不清。`useRef` 跨实例会丢，
@@ -55,8 +55,10 @@ const store: Record<AdapterId, Defaults> = {
   'codex-cli': {},
   'grok-build': { sessionMode: 'default' },
 };
-// Native default and every Gateway retain their own explicit thinking choice.
-const gatewayThinking: Record<'claude-code' | 'codex-cli', Map<string, SessionThinkingLevel>> = {
+type GatewayDefaults = Pick<Defaults, 'model' | 'thinking'>;
+
+// Native default and every Gateway retain their own explicit model and thinking choices.
+const gatewayDefaults: Record<'claude-code' | 'codex-cli', Map<string, GatewayDefaults>> = {
   'claude-code': new Map(),
   'codex-cli': new Map(),
 };
@@ -91,8 +93,7 @@ export function getLastDefaults(adapter: string): Defaults {
   if (!isAdapterId(adapter)) return {};
   const cur = store[adapter];
   if (adapter !== 'grok-build') {
-    const thinking = gatewayThinking[adapter].get(cur.provider ?? '');
-    return { ...cur, ...(thinking ? { thinking } : {}) };
+    return { ...cur, ...gatewayDefaults[adapter].get(cur.provider?.trim() ?? '') };
   }
   // 浅拷贝防 caller mutation 污染 store
   return { ...cur };
@@ -112,8 +113,7 @@ export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void
     if (patch.permissionMode !== undefined) next.permissionMode = patch.permissionMode;
     if (patch.claudeCodeSandbox !== undefined) next.claudeCodeSandbox = patch.claudeCodeSandbox;
     applyTextDefault(next, 'provider', patch.provider);
-    applyTextDefault(next, 'model', patch.model);
-    applyGatewayThinking('claude-code', next.provider, patch.thinking);
+    applyGatewayDefaults('claude-code', next.provider, patch);
     // 故意忽略 patch.codexSandbox —— 不允许跨 adapter 串味
     store[adapter] = next;
   } else if (adapter === 'codex-cli') {
@@ -121,8 +121,7 @@ export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void
     if (patch.approvalPolicy !== undefined) next.approvalPolicy = patch.approvalPolicy;
     if (patch.codexSandbox !== undefined) next.codexSandbox = patch.codexSandbox;
     applyTextDefault(next, 'provider', patch.provider);
-    applyTextDefault(next, 'model', patch.model);
-    applyGatewayThinking('codex-cli', next.provider, patch.thinking);
+    applyGatewayDefaults('codex-cli', next.provider, patch);
     store['codex-cli'] = next;
   } else {
     const next: Defaults = { ...store['grok-build'] };
@@ -134,14 +133,18 @@ export function setLastDefaults(adapter: string, patch: Partial<Defaults>): void
   }
 }
 
-function applyGatewayThinking(
+function applyGatewayDefaults(
   adapter: 'claude-code' | 'codex-cli',
   provider: string | undefined,
-  thinking: Defaults['thinking'],
+  patch: GatewayDefaults,
 ): void {
-  if (thinking === undefined) return;
-  if (thinking) gatewayThinking[adapter].set(provider ?? '', thinking);
-  else gatewayThinking[adapter].delete(provider ?? '');
+  if (patch.model === undefined && patch.thinking === undefined) return;
+  const key = provider?.trim() ?? '';
+  const next = { ...gatewayDefaults[adapter].get(key) };
+  applyTextDefault(next, 'model', patch.model);
+  applyTextDefault(next, 'thinking', patch.thinking);
+  if (next.model || next.thinking) gatewayDefaults[adapter].set(key, next);
+  else gatewayDefaults[adapter].delete(key);
 }
 
 function applyTextDefault<K extends 'provider' | 'model' | 'thinking'>(

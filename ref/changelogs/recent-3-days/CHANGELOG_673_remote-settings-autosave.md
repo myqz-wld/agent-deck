@@ -37,7 +37,7 @@ and recovery, Gateway memory and quota controls. Browser inspection used product
 real assistant components with synthetic preferences; Gateway selection updated model/thinking
 defaults and produced one automatic save.
 
-See [REVIEW_311](../../reviews/recent-week/REVIEW_311_remote-ui-readiness.md).
+See [REVIEW_311](../../reviews/recent-month/REVIEW_311_remote-ui-readiness.md).
 
 ## Do Not Split Protection
 

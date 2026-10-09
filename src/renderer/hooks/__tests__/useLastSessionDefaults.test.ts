@@ -7,20 +7,29 @@ async function loadDefaultsModule() {
 
 describe('useLastSessionDefaults', () => {
   it.each(['claude-code', 'codex-cli'])(
-    'isolates remembered thinking between %s Gateways and the native default', async (adapter) => {
+    'isolates remembered model and thinking between %s Gateways and the native default', async (adapter) => {
       const { getLastDefaults, setLastDefaults } = await loadDefaultsModule();
-      setLastDefaults(adapter, { thinking: 'medium' });
+      setLastDefaults(adapter, { model: 'native-custom', thinking: 'medium' });
       setLastDefaults(adapter, { provider: 'gateway-a' });
+      expect(getLastDefaults(adapter).model).toBeUndefined();
       expect(getLastDefaults(adapter).thinking).toBeUndefined();
-      setLastDefaults(adapter, { thinking: 'max' });
+      setLastDefaults(adapter, { model: 'custom-a', thinking: 'max' });
       setLastDefaults(adapter, { provider: 'gateway-b' });
+      expect(getLastDefaults(adapter).model).toBeUndefined();
       expect(getLastDefaults(adapter).thinking).toBeUndefined();
-      setLastDefaults(adapter, { thinking: 'low' });
+      setLastDefaults(adapter, { model: 'custom-b', thinking: 'low' });
       setLastDefaults(adapter, { provider: 'gateway-a' });
+      expect(getLastDefaults(adapter).model).toBe('custom-a');
+      expect(getLastDefaults(adapter).thinking).toBe('max');
+      setLastDefaults(adapter, { model: '  ' });
+      expect(getLastDefaults(adapter).model).toBeUndefined();
       expect(getLastDefaults(adapter).thinking).toBe('max');
       setLastDefaults(adapter, { thinking: '' });
       expect(getLastDefaults(adapter).thinking).toBeUndefined();
+      setLastDefaults(adapter, { provider: 'gateway-b' });
+      expect(getLastDefaults(adapter)).toMatchObject({ model: 'custom-b', thinking: 'low' });
       setLastDefaults(adapter, { provider: '' });
+      expect(getLastDefaults(adapter).model).toBe('native-custom');
       expect(getLastDefaults(adapter).thinking).toBe('medium');
     },
   );

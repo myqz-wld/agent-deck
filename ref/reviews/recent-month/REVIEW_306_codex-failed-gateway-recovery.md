@@ -87,4 +87,4 @@ restart. No user-owned running app, provider session, or installed bundle was st
 Historical persisted message bodies retain their original text.
 
 Related plan: [Failed Gateway recovery](../../plans/recent-week/PLAN_75_codex-failed-gateway-recovery.md).
-Previous repair: [Loaded-thread Gateway switching](../recent-month/REVIEW_279_codex-live-gateway-switch.md).
+Previous repair: [Loaded-thread Gateway switching](REVIEW_279_codex-live-gateway-switch.md).

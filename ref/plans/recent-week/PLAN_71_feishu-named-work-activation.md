@@ -69,5 +69,5 @@ work naming and a harmless provider reply. Custom rename, named /send presentati
 voice remain business acceptance checks; the main Feishu and natural-management plans stay active.
 Future documentation-only commits do not justify reinstalling this accepted runtime.
 
-- [Named work and receipt review](../../reviews/recent-week/REVIEW_303_feishu-named-work-management.md)
+- [Named work and receipt review](../../reviews/recent-month/REVIEW_303_feishu-named-work-management.md)
 - [Named work changes](../../changelogs/recent-3-days/CHANGELOG_662_feishu-named-work-management.md)

@@ -56,4 +56,4 @@ continues in the active Feishu plans. Earlier catgirl/test-word
 acceptance remains valid; the old warm-channel stall's precise cause is still unproven.
 
 [Release changes](../../changelogs/recent-3-days/CHANGELOG_663_feishu-input-approval-progress.md)
-[Local review](../../reviews/recent-week/REVIEW_304_feishu-input-approval-progress.md)
+[Local review](../../reviews/recent-month/REVIEW_304_feishu-input-approval-progress.md)

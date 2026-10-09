@@ -22,7 +22,7 @@ The owner sends test messages and submits approvals. No test was sent on the own
 Source release: `33b9e7888145a1506b6cf2f93af1fa3eb90ee33a`, merged and pushed to main. Main's
 independently committed Pending-question work is preserved. See
 [CHANGELOG_669](../../changelogs/recent-3-days/CHANGELOG_669_feishu-markdown-replies.md) and
-[REVIEW_310](../../reviews/recent-week/REVIEW_310_feishu-markdown-replies.md).
+[REVIEW_310](../../reviews/recent-month/REVIEW_310_feishu-markdown-replies.md).
 
 Integrated validation passes 6,968 tests with six existing skips, including 53 focused formatting
 and delivery regressions. Types, architecture, reproducible headless build, both native builds,

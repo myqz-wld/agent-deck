@@ -56,4 +56,4 @@ is still present in the owner console. Correct classification, work-session crea
 and one pending-card decision remain business acceptance checks.
 Keep the Feishu workspace plans active. Documentation-only updates do not require another install.
 
-- [Repair and validation](../../reviews/recent-week/REVIEW_300_core-read-tool-annotations.md)
+- [Repair and validation](../../reviews/recent-month/REVIEW_300_core-read-tool-annotations.md)

@@ -24,7 +24,7 @@ before any card reached Feishu, leaving the assistant waiting for an invisible a
 Nine focused regressions pass, including native notification delivery, approval callbacks, changed
 parameters, depth boundaries and retained resource limits. Full suite: 6,892 passing tests and
 three existing skips. Typecheck/architecture, headless build/check and deployment checks pass.
-See [local review](../../reviews/recent-week/REVIEW_305_feishu-native-approval-depth.md).
+See [local review](../../reviews/recent-month/REVIEW_305_feishu-native-approval-depth.md).
 [Managed activation](../../plans/recent-week/PLAN_73_feishu-native-approval-activation.md) is verified:
 the original approval notification was delivered successfully. A fresh owner request subsequently
 passed real native approval, natural naming and provider reply in

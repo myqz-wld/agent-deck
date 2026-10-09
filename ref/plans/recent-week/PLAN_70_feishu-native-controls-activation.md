@@ -64,5 +64,5 @@ Do not repeat installation or recreate the successful approval task. The later n
 proposal was approved, but those capabilities are not part of this 410a installation.
 Keep the main Feishu workspace plans active. Documentation-only changes need no new installation.
 
-- [Native controls and approval review](../../reviews/recent-week/REVIEW_302_feishu-native-settings-approvals.md)
-- [Work directory and input expiry review](../../reviews/recent-week/REVIEW_301_feishu-work-directory-expiry.md)
+- [Native controls and approval review](../../reviews/recent-month/REVIEW_302_feishu-native-settings-approvals.md)
+- [Work directory and input expiry review](../../reviews/recent-month/REVIEW_301_feishu-work-directory-expiry.md)
