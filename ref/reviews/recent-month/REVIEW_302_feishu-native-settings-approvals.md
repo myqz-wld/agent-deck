@@ -127,7 +127,7 @@ The coordinated `410a6db9` Desktop/Worker/Relay/Feishu release is installed and 
 verified. Feishu/Core negotiate protocol 2.11; both connections are healthy. The authorized
 assistant on-request default is persisted at preference revision 3 with both selected models,
 the work default and existing runtimes unchanged. The final text-only button refinement passed
-34 card/transport checks. See [installation acceptance](../../plans/recent-week/PLAN_70_feishu-native-controls-activation.md).
+34 card/transport checks. See [installation acceptance](../../plans/recent-month/PLAN_70_feishu-native-controls-activation.md).
 The real terminal card and /send reply passed owner acceptance. A delayed redundant receipt is
 handled by the next combined naming/receipt change. Cloud
 storage was recovered under the existing artifact-cleanup authorization: three exact retired Relay

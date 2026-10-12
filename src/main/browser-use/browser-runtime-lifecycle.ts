@@ -1,5 +1,6 @@
 export interface BrowserRuntimeLifecyclePort {
   renameSession(fromId: string, toId: string): number;
+  suspendSession(sessionId: string): number;
   revokeSession(sessionId: string): number;
 }
 
@@ -15,4 +16,8 @@ export function renameBrowserRuntimeOwner(fromId: string, toId: string): number 
 
 export function revokeBrowserRuntimeOwner(sessionId: string): number {
   return port?.revokeSession(sessionId) ?? 0;
+}
+
+export function suspendBrowserRuntimeOwner(sessionId: string): number {
+  return port?.suspendSession(sessionId) ?? 0;
 }

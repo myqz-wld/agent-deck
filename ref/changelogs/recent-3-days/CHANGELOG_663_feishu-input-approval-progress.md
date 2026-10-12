@@ -31,7 +31,7 @@ Full suite: 6,881 passing tests and three existing skips; two additional Chinese
 pass separately. Directed batch: 362 passing tests. Typecheck/architecture, application build,
 headless/native builds and deployment checks pass. See
 [local review](../../reviews/recent-month/REVIEW_304_feishu-input-approval-progress.md) for race,
-redaction and retry evidence. [Installation acceptance](../../plans/recent-week/PLAN_72_feishu-input-approval-activation.md)
+redaction and retry evidence. [Installation acceptance](../../plans/recent-month/PLAN_72_feishu-input-approval-activation.md)
 records actual artifact audits, exact installed release, duplicate-application cleanup and healthy
 Worker/Relay/Feishu. The owner confirms assistant replies and progress reactions work. Natural
 work creation/approval acceptance continues in the active plan.

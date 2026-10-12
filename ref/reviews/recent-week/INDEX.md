@@ -15,6 +15,4 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
-| 2026-10-03 | `REVIEW_314_file-operation-cards.md` | Unify file cards and repair Monaco teardown | 1 MEDIUM / 1 LOW fixed |
-| 2026-10-02 | `REVIEW_313_grok-queued-mid-turn-interjections.md` | Resume queued Grok corrections during active turns | 1 MEDIUM fixed; 25 new regressions passed |
-| 2026-10-02 | `REVIEW_312_claude-mid-turn-streaming-input.md` | Restore mid-turn streaming and correlated input acceptance | 1 MEDIUM fixed; regression suite passed |
+| 2026-10-07 | `REVIEW_315_image-upload-stall.md` | Bound image persistence and diagnose filesystem stalls | 1 HIGH / 2 MEDIUM fixed; native cause remains unproved |

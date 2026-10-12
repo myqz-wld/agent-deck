@@ -32,7 +32,7 @@ code, entity handling, source/UUID preservation, payload limits and uncertain de
 integrated validation and managed activation are recorded in
 [REVIEW_310](../../reviews/recent-month/REVIEW_310_feishu-markdown-replies.md).
 
-Managed activation passed in [PLAN_79](../../plans/recent-week/PLAN_79_feishu-markdown-activation.md);
+Managed activation passed in [PLAN_79](../../plans/recent-month/PLAN_79_feishu-markdown-activation.md);
 the owner confirmed normal display of the real formatting sample.
 
 The [official Feishu message structure](https://open.feishu.cn/document/server-docs/im-v1/message-content-description/create_json)

@@ -48,7 +48,7 @@ display reaches signing and callback verification without normalization or param
 ## Residual risk and acceptance
 
 Managed Server/Feishu activation is independently verified in
-[PLAN_73](../../plans/recent-week/PLAN_73_feishu-native-approval-activation.md). The activated bundle
+[PLAN_73](../../plans/recent-month/PLAN_73_feishu-native-approval-activation.md). The activated bundle
 validates the original request with default limits; the failed notification is now delivered on
 attempt two. The owner has been asked to approve it. No duplicate work or proxy approval occurred.
 No Desktop reinstall, database migration, model change, prompt change or pairing is needed.
@@ -70,5 +70,5 @@ approved card, task-derived work title, real work reply and completion reaction.
 confirms completed create_work_session, separate assistant/work identities, the saved runtime
 choices, finished turns and no pending requests. New work history has no tool calls. The native
 approval-depth repair is now accepted through the real business path; see
-[PLAN_74](../../plans/recent-week/PLAN_74_feishu-relay-live-acceptance.md). Expired-card copy remains
+[PLAN_74](../../plans/recent-month/PLAN_74_feishu-relay-live-acceptance.md). Expired-card copy remains
 a separate UI follow-up; no repeated creation or Desktop replacement is needed.

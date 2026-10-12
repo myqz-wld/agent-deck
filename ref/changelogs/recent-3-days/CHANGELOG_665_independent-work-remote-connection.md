@@ -29,7 +29,7 @@ Gateway cases from the separately completed main change). Type/architecture, app
 deployment checks pass. Read-only live reproduction and regression details are recorded in
 [REVIEW_307](../../reviews/recent-month/REVIEW_307_remote-worker-backpressure.md).
 Installed Desktop/Worker acceptance is recorded in
-[PLAN_76](../../plans/recent-week/PLAN_76_remote-worker-activation.md): concurrent reads remain
+[PLAN_76](../../plans/recent-month/PLAN_76_remote-worker-activation.md): concurrent reads remain
 connected and existing owner work is independent. Model choices and pairing remain intact.
 
 ## Do Not Split Protection

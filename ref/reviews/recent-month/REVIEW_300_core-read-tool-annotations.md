@@ -70,7 +70,7 @@ the packaged Worker contains all six annotations, one GUI process is running, an
 Feishu health passes. The owner's retry in the same assistant chat completed the real
 `mcp__agent-deck__list_sessions` call in about 8 ms, with no native approval denial or tool error.
 This accepts the read-only annotation repair. Installation evidence is archived in
-[PLAN_69](../../plans/recent-week/PLAN_69_core-read-tool-activation.md).
+[PLAN_69](../../plans/recent-month/PLAN_69_core-read-tool-activation.md).
 
 The returned entry was the assistant itself. The owner console separately contains one dormant
 work session. Generic MCP listing defaults to active caller-related sessions, so successful tool

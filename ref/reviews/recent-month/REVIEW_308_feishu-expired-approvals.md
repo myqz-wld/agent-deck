@@ -64,7 +64,7 @@ HMAC contents, identity binding, request ownership, deadlines and idempotency ar
 ## Residual risk and activation
 
 Managed activation and real rename/directory/deletion checks passed in
-[PLAN_78](../../plans/recent-week/PLAN_78_feishu-operations-approval-activation.md). The owner has
+[PLAN_78](../../plans/recent-month/PLAN_78_feishu-operations-approval-activation.md). The owner has
 not yet checked the new toast on an old card. The official Server release publishes the desired
 Feishu runtime; a separate managed Feishu upgrade selects it.
 Desktop/Worker need no new package for this presentation-only repair. No database, protocol,

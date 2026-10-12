@@ -15,6 +15,9 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-10-03 | `REVIEW_314_file-operation-cards.md` | Unify file cards and repair Monaco teardown | 1 MEDIUM / 1 LOW fixed |
+| 2026-10-02 | `REVIEW_312_claude-mid-turn-streaming-input.md` | Restore mid-turn streaming and correlated input acceptance | 1 MEDIUM fixed; regression suite passed |
+| 2026-10-02 | `REVIEW_313_grok-queued-mid-turn-interjections.md` | Resume queued Grok corrections during active turns | 1 MEDIUM fixed; 25 new regressions passed |
 | 2026-10-01 | `REVIEW_311_remote-ui-readiness.md` | Remote read retention, 150 ms presentation and autosave races | 4 findings repaired |
 | 2026-09-30 | `REVIEW_310_feishu-markdown-replies.md` | Preserve message semantics while rendering native Markdown | 1 MEDIUM installed; real client display accepted |
 | 2026-09-30 | `REVIEW_309_feishu-assistant-voice.md` | Refine assistant voice while preserving runtime controls | Installed; natural reply and retained history observed |
@@ -54,4 +57,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 | 2026-09-19 | `REVIEW_275_gateway-model-presentation.md` | Gateway model continuity and live selection | 3 MEDIUM fixed |
 | 2026-09-16 | `REVIEW_274_privacy-and-compatibility-cleanup.md` | Privacy and obsolete compatibility cleanup | Source, local history, and remote history verified |
 | 2026-09-16 | `REVIEW_273_relay-worker-packaged-startup.md` | Relay live checks and Worker packaging | 1 HIGH fixed in source / installed acceptance pending |
-| 2026-09-10 | `REVIEW_272_plan-review-question-runtime-controls.md` | Plan-review question creation and retry | 1 MEDIUM fixed / 1 LOW fixed |

@@ -5,7 +5,7 @@ import {
 } from '@main/store/session-repo/lifecycle';
 import { eventBus } from '@main/event-bus';
 import { sessionManager } from '@main/session/manager';
-import { disposeSessionBrowser } from '@main/browser-use/session-browser';
+import { disposeSessionBrowser, suspendSessionBrowser } from '@main/browser-use/session-browser';
 import log from '@main/utils/logger';
 
 const logger = log.scope('lifecycle-scheduler');
@@ -172,7 +172,12 @@ export class LifecycleScheduler {
           } catch {
             sideEffectFailed = true;
           }
-          void disposeSessionBrowser(record.id).catch(() => {
+          // Time-based closure retains SDK runtimes. Keep their frozen Browser layout resumable,
+          // but revoke access now; explicit close/delete/handoff still dispose it permanently.
+          const retainsRuntime = sessionManager.hasSdkClaim(record.id) ||
+            (record.cliSessionId != null && sessionManager.hasSdkClaim(record.cliSessionId));
+          const closeBrowser = retainsRuntime ? suspendSessionBrowser : disposeSessionBrowser;
+          void closeBrowser(record.id).catch(() => {
             // The browser disposer owns its detailed error log.
           });
           try {

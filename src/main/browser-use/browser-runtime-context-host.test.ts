@@ -10,6 +10,7 @@ import {
   allowClaudeBrowserSocket,
   browserSkillEnabled,
   codexBrowserSocketConfig,
+  refreshBrowserRuntimeFromEnvironment,
   refreshBrowserRuntimeSession,
   setBrowserRuntimeContextManagerForTests,
 } from './browser-runtime-context-host';
@@ -69,5 +70,15 @@ describe('Browser runtime Skills-switch gating', () => {
     expect(refreshSession).toHaveBeenCalledWith('session-a');
     refreshSession.mockImplementation(() => { throw new Error('temp storage unavailable'); });
     expect(refreshBrowserRuntimeSession('session-a')).toBe(false);
+  });
+
+  it('keeps process startup usable when the Browser context cannot be repaired', () => {
+    const refresh = vi.fn(() => { throw new Error('temp storage unavailable'); });
+    setBrowserRuntimeContextManagerForTests({ refresh } as never);
+
+    expect(refreshBrowserRuntimeFromEnvironment({
+      AGENT_DECK_BROWSER_RUNTIME_KEY: 'existing-runtime',
+    })).toBeNull();
+    expect(refresh).toHaveBeenCalledWith('existing-runtime');
   });
 });

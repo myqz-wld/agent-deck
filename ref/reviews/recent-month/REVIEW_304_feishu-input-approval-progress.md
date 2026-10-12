@@ -10,7 +10,7 @@ expired: false
 Latest owner evidence: the fresh natural creation approval reaches a terminal approved card;
 the named work reply and input completion reaction are visible. Core independently confirms
 completion and no pending requests. See
-[PLAN_74](../../plans/recent-week/PLAN_74_feishu-relay-live-acceptance.md). This does not claim
+[PLAN_74](../../plans/recent-month/PLAN_74_feishu-relay-live-acceptance.md). This does not claim
 live coverage of every rich-text variant or the remaining expired-card copy improvement.
 
 ## Scope and method
@@ -99,7 +99,7 @@ src/hosts/server-core/session-manager-observer.ts
   failures in three unchanged files. Re-running with the normal process umask passes. Logs remain
   in a mode-0700 private directory; no production permission policy was weakened.
 - All changed source files are below 500 lines. Public attribution, staged privacy and actual package audits passed.
-  [Installed acceptance](../../plans/recent-week/PLAN_72_feishu-input-approval-activation.md)
+  [Installed acceptance](../../plans/recent-month/PLAN_72_feishu-input-approval-activation.md)
   confirms the exact new release, a single formal application and healthy managed services.
 
 ## Residual risk and next acceptance

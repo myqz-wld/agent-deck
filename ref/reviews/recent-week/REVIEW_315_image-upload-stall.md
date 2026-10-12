@@ -106,6 +106,6 @@ identify the native blocker.
   application and restart. No running application, provider session, or installed bundle was
   stopped or replaced during this task.
 
-Related plan: [Image upload stall](../../plans/recent-3-days/PLAN_82_image-upload-stall.md).
+Related plan: [Image upload stall](../../plans/recent-week/PLAN_82_image-upload-stall.md).
 Prior evidence: [Config read latency](../history/REVIEW_261_session-config-read-latency.md) and
 [worktree preparation waits](../recent-month/REVIEW_277_enter-worktree-preparation-timeout.md).

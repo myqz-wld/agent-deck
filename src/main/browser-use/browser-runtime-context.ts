@@ -61,6 +61,7 @@ interface RuntimeRecord {
   readonly adapterId: RuntimeAdapterId;
   sourceIdentity: string;
   lease: string;
+  suspended: boolean;
 }
 
 function posixQuote(value: string): string {
@@ -171,6 +172,7 @@ export class BrowserRuntimeContextManager {
       adapterId: input.adapterId,
       sourceIdentity,
       lease: issued.lease,
+      suspended: false,
     };
     this.recordsByKey.set(runtimeKey, record);
     this.keyBySession.set(input.applicationSessionId, runtimeKey);
@@ -179,7 +181,13 @@ export class BrowserRuntimeContextManager {
 
   refresh(runtimeKey: string): PreparedBrowserRuntimeContext {
     const record = this.recordsByKey.get(runtimeKey);
-    if (record == null) throw new Error('Browser runtime context is unavailable.');
+    if (record == null || record.suspended) {
+      throw new Error('Browser runtime context is unavailable.');
+    }
+    return this.refreshRecord(record);
+  }
+
+  private refreshRecord(record: RuntimeRecord): PreparedBrowserRuntimeContext {
     this.restoreRuntimeLayout(record);
     const runtimeGeneration = record.runtimeGeneration + 1;
     const sourceIdentity = randomUUID();
@@ -206,13 +214,26 @@ export class BrowserRuntimeContextManager {
     record.runtimeGeneration = runtimeGeneration;
     record.sourceIdentity = sourceIdentity;
     record.lease = issued.lease;
+    record.suspended = false;
     return this.publicRecord(record);
   }
 
   /** Renew a live session before its next provider turn, repairing a purged temp shim in place. */
   refreshSession(applicationSessionId: string): PreparedBrowserRuntimeContext | null {
     const runtimeKey = this.keyBySession.get(applicationSessionId);
-    return runtimeKey == null ? null : this.refresh(runtimeKey);
+    const record = runtimeKey == null ? null : this.recordsByKey.get(runtimeKey);
+    // A trusted next-turn boundary may resume an idle SDK owner. Process refresh by key cannot.
+    return record == null ? null : this.refreshRecord(record);
+  }
+
+  /** Revoke idle access while retaining the layout referenced by a still-owned provider env. */
+  suspendSession(applicationSessionId: string): number {
+    const runtimeKey = this.keyBySession.get(applicationSessionId);
+    const record = runtimeKey == null ? null : this.recordsByKey.get(runtimeKey);
+    if (record == null) return 0;
+    record.suspended = true;
+    this.options.registry.revoke(record.lease);
+    return 1;
   }
 
   renameSession(fromApplicationSessionId: string, toApplicationSessionId: string): number {

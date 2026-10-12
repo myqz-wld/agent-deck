@@ -79,7 +79,7 @@ protocol change, prompt edit or model/policy update is required.
 ## Residual risk and activation
 
 Installed Desktop/Worker activation is independently accepted in
-[PLAN_76](../../plans/recent-week/PLAN_76_remote-worker-activation.md): nine concurrent live reads
+[PLAN_76](../../plans/recent-month/PLAN_76_remote-worker-activation.md): nine concurrent live reads
 complete without reconnecting, and existing work is independently projected with preserved native
 controls. The owner also confirmed normal Remote detail rendering. Existing origin records
 already pruned by an older release cannot be

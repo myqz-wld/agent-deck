@@ -15,5 +15,5 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-10-11 | `REVIEW_317_browser-idle-resume.md` | Restore Browser context after idle closure without blocking Codex | 1 HIGH / 1 MEDIUM fixed; regression and native checks passed |
 | 2026-10-09 | `REVIEW_316_gateway-model-memory.md` | Preserve each Gateway's model across Local and Remote switches | 1 MEDIUM fixed; full regression suite passed |
-| 2026-10-07 | `REVIEW_315_image-upload-stall.md` | Bound image persistence and diagnose filesystem stalls | 1 HIGH / 2 MEDIUM fixed; native cause remains unproved |

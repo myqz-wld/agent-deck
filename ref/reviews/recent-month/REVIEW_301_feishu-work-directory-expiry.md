@@ -95,7 +95,7 @@ its subsequent provider replies retain their existing lifecycle.
 
 This repair is installed in the coordinated protocol-2.11 release `410a6db9`; Desktop identity,
 Worker, Relay and exact active Feishu archive passed independent checks. No migration or pairing
-operation ran. See [installation acceptance](../../plans/recent-week/PLAN_70_feishu-native-controls-activation.md).
+operation ran. See [installation acceptance](../../plans/recent-month/PLAN_70_feishu-native-controls-activation.md).
 Actual assistant work-directory results, work messages and the new pending-card presentation still
 need owner acceptance before closing the overall Feishu plan.
 Paged work metadata reflects current state, so concurrent session changes can move rows between

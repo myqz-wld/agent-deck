@@ -9,7 +9,7 @@ expired: false
 
 Latest owner evidence: natural creation with a task-derived title, inherited astra/medium,
 native approval and the named work reply are accepted in
-[PLAN_74](../../plans/recent-week/PLAN_74_feishu-relay-live-acceptance.md). Persona/history were
+[PLAN_74](../../plans/recent-month/PLAN_74_feishu-relay-live-acceptance.md). Persona/history were
 accepted earlier. Explicit manual rename and a named /send remain additional live checks.
 
 ## Scope and method
@@ -148,11 +148,11 @@ coordinated Desktop/Worker/Relay/Feishu activation. Independent verification con
 commit/ASAR, one formal GUI, fresh wrapper, all service connections and exact Feishu runtime. Live
 SQLite is v6 with valid integrity and foreign keys; settings revision 3 and existing session controls
 remain unchanged. Cleanup retains current plus 410a fallback and removes temporary run artifacts.
-See [installation acceptance](../../plans/recent-week/PLAN_71_feishu-named-work-activation.md).
+See [installation acceptance](../../plans/recent-month/PLAN_71_feishu-named-work-activation.md).
 Never reinstall a completed release as a diagnostic guess. Subsequent owner acceptance confirmed
-natural creation and readable names in [PLAN_74](../../plans/recent-week/PLAN_74_feishu-relay-live-acceptance.md),
+natural creation and readable names in [PLAN_74](../../plans/recent-month/PLAN_74_feishu-relay-live-acceptance.md),
 then manual rename/named send and retained assistant history in
-[PLAN_78](../../plans/recent-week/PLAN_78_feishu-operations-approval-activation.md).
+[PLAN_78](../../plans/recent-month/PLAN_78_feishu-operations-approval-activation.md).
 Slash `/new` retains its ordinary
 Core initial name; `/rename` or natural-language named creation provides a chosen title.
 

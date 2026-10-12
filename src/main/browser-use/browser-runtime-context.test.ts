@@ -147,6 +147,64 @@ describe('session-scoped Browser CLI runtime context', () => {
     })).toThrow(BrowserLeaseResolutionError);
   });
 
+  it.each(['claude-code', 'codex-cli', 'grok-build'] as const)(
+    'suspends %s access before expiry and resumes only through the renamed session owner',
+    async (adapterId) => {
+      const { manager, registry } = await setup();
+      const prepared = manager.prepare({
+        applicationSessionId: 'idle-owner', adapterId, environment: { PATH: '/usr/bin' },
+      });
+      const oldContext = JSON.parse(readFileSync(prepared.contextPath, 'utf8'));
+
+      expect(manager.suspendSession('idle-owner')).toBe(1);
+      expect(manager.suspendSession('idle-owner')).toBe(1);
+      expect(registry.diagnostics().activeLeases).toBe(0);
+      expect(() => registry.resolve(oldContext.lease, oldContext)).toThrow();
+      expect(() => manager.refresh(prepared.runtimeKey)).toThrow('context is unavailable');
+      expect(manager.renameSession('idle-owner', 'resumed-owner')).toBe(1);
+      expect(manager.refreshSession('idle-owner')).toBeNull();
+
+      const renewed = manager.refreshSession('resumed-owner');
+      expect(renewed).toMatchObject({
+        runtimeKey: prepared.runtimeKey,
+        runtimeGeneration: prepared.runtimeGeneration + 1,
+        commandPath: prepared.commandPath,
+        environment: prepared.environment,
+      });
+      const current = JSON.parse(readFileSync(prepared.contextPath, 'utf8'));
+      expect(registry.resolve(current.lease, current)).toMatchObject({
+        applicationSessionId: 'resumed-owner', adapterId,
+      });
+      expect(() => registry.resolve(oldContext.lease, oldContext)).toThrow();
+      expect(manager.revokeRuntime(prepared.runtimeKey, prepared.runtimeGeneration)).toBe(false);
+      expect(manager.refresh(prepared.runtimeKey).runtimeGeneration).toBe(3);
+    },
+  );
+
+  it('permanently discards suspended metadata on replacement, revocation, and shutdown', async () => {
+    const { manager, registry } = await setup();
+    const input = {
+      applicationSessionId: 'idle-owner', adapterId: 'codex-cli' as const, environment: {},
+    };
+    const first = manager.prepare(input);
+    manager.suspendSession(input.applicationSessionId);
+    const replacement = manager.prepare(input);
+    expect(() => manager.refresh(first.runtimeKey)).toThrow('context is unavailable');
+    expect(() => statSync(first.runtimeDir)).toThrow();
+    manager.suspendSession(input.applicationSessionId);
+    expect(manager.revokeSession(input.applicationSessionId)).toBe(1);
+    expect(manager.refreshSession(input.applicationSessionId)).toBeNull();
+    expect(() => manager.refresh(replacement.runtimeKey)).toThrow('context is unavailable');
+    expect(() => statSync(replacement.runtimeDir)).toThrow();
+
+    const last = manager.prepare(input);
+    manager.suspendSession(input.applicationSessionId);
+    expect(manager.shutdown()).toBe(1);
+    expect(manager.refreshSession(input.applicationSessionId)).toBeNull();
+    expect(() => statSync(last.runtimeDir)).toThrow();
+    expect(registry.diagnostics().activeLeases).toBe(0);
+  });
+
   it('generates the Windows command shim and preserves the existing Path casing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'agent-deck-browser-runtime-win-'));
     tempDirs.push(root);

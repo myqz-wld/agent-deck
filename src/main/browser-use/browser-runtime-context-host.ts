@@ -35,6 +35,7 @@ export function initializeBrowserRuntimeContextHost(endpoint: string): void {
   });
   setBrowserRuntimeLifecyclePort({
     renameSession: (fromId, toId) => manager?.renameSession(fromId, toId) ?? 0,
+    suspendSession: (sessionId) => manager?.suspendSession(sessionId) ?? 0,
     revokeSession: (sessionId) => manager?.revokeSession(sessionId) ?? 0,
   });
 }
@@ -47,6 +48,7 @@ export function setBrowserRuntimeContextManagerForTests(
   brokerEndpoint = endpoint;
   setBrowserRuntimeLifecyclePort(value == null ? null : {
     renameSession: (fromId, toId) => value.renameSession(fromId, toId),
+    suspendSession: (sessionId) => value.suspendSession(sessionId),
     revokeSession: (sessionId) => value.revokeSession(sessionId),
   });
 }
@@ -71,13 +73,18 @@ export function prepareBrowserRuntimeEnvironment(input: {
   return manager.prepare(input);
 }
 
-/** Rotate the lease/context immediately before a provider process generation starts. */
+/** Best-effort process renewal; a revoked or suspended Browser must not block provider startup. */
 export function refreshBrowserRuntimeFromEnvironment(
   environment: Readonly<Record<string, string>>,
 ): PreparedBrowserRuntimeContext | null {
   const runtimeKey = environment[BROWSER_RUNTIME_KEY_ENV];
   if (runtimeKey == null || manager == null) return null;
-  return manager.refresh(runtimeKey);
+  try {
+    return manager.refresh(runtimeKey);
+  } catch (error) {
+    logger.warn('[browser-runtime] failed to refresh process context', error);
+    return null;
+  }
 }
 
 /** Best-effort turn-boundary renewal; provider work remains usable if Browser repair fails. */

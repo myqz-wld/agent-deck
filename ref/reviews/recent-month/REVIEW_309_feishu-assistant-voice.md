@@ -52,7 +52,7 @@ all adapters consume the same Feishu assistant template, with native runtime dif
 
 Tone is model-generated; automated checks establish update behavior, not subjective naturalness.
 Managed Feishu activation passed in
-[PLAN_78](../../plans/recent-week/PLAN_78_feishu-operations-approval-activation.md). The owner
+[PLAN_78](../../plans/recent-month/PLAN_78_feishu-operations-approval-activation.md). The owner
 subsequently supplied a natural greeting and correct retained test-word reply; activation and
 history preservation are live-observed. No Desktop or
 Worker replacement is needed. The older no-reply investigation is deferred at the owner's request.

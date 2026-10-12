@@ -12,7 +12,7 @@ import log from '@main/utils/logger';
 import { getBrowserEngine } from './engine/registry';
 import type { BrowserOwnerHandle } from './engine/registry';
 import type { BrowserOwnerKey } from './engine/types';
-import { revokeBrowserRuntimeOwner } from './browser-runtime-lifecycle';
+import { revokeBrowserRuntimeOwner, suspendBrowserRuntimeOwner } from './browser-runtime-lifecycle';
 import { getBrowserStateProjectionRegistry } from './browser-state-projection';
 
 const logger = log.scope('browser-engine');
@@ -32,6 +32,16 @@ export function acquireSessionBrowser(sessionId: string): BrowserOwnerHandle {
  */
 export async function disposeSessionBrowser(sessionId: string): Promise<void> {
   revokeBrowserRuntimeOwner(sessionId);
+  await closeSessionBrowserTabs(sessionId);
+}
+
+/** Idle SDK sessions retain their provider environment; revoke access until their next turn. */
+export async function suspendSessionBrowser(sessionId: string): Promise<void> {
+  suspendBrowserRuntimeOwner(sessionId);
+  await closeSessionBrowserTabs(sessionId);
+}
+
+async function closeSessionBrowserTabs(sessionId: string): Promise<void> {
   getBrowserStateProjectionRegistry().clearOwner(sessionId);
   try {
     const engine = getBrowserEngine();
