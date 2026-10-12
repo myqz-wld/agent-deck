@@ -15,17 +15,35 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-10-01 | `CHANGELOG_674_collapsible-feishu-settings.md` | Remember assistant section collapse and simplify remote rate copy |
+| 2026-10-01 | `CHANGELOG_673_remote-settings-autosave.md` | Autosave assistant choices and retain Remote read views |
+| 2026-10-01 | `CHANGELOG_672_feishu-creation-defaults.md` | Prefill assistant creation defaults with editable remote Gateway choices |
+| 2026-10-01 | `CHANGELOG_671_feishu-assistant-settings-flow.md` | Configure only the assistant and retain forms through fast reads |
+| 2026-10-01 | `CHANGELOG_670_remote-only-feishu-settings.md` | Hide the Feishu settings group in local mode |
+| 2026-09-30 | `CHANGELOG_669_feishu-markdown-replies.md` | Render formatted assistant replies as untitled rich text |
+| 2026-09-30 | `CHANGELOG_668_unified-ask-user.md` | Route all three adapters' questions through MCP into Pending |
+| 2026-09-30 | `CHANGELOG_667_feishu-assistant-voice.md` | Refine assistant warmth and update retained chats once |
+| 2026-09-30 | `CHANGELOG_666_feishu-expired-approvals.md` | Explain expired approval cards and preserve terminal request states |
+| 2026-09-30 | `CHANGELOG_665_independent-work-remote-connection.md` | Keep Remote reads connected and owner work independent |
+| 2026-09-30 | `CHANGELOG_664_feishu-native-approval-depth.md` | Deliver structured native approvals within bounded payload limits |
+| 2026-09-30 | `CHANGELOG_663_feishu-input-approval-progress.md` | Accept rich text, repair approval binding and show progress reactions |
+| 2026-09-30 | `CHANGELOG_662_feishu-named-work-management.md` | Name work sessions and preserve assistant history and native controls |
+| 2026-09-30 | `CHANGELOG_661_feishu-native-settings-approvals.md` | Remember native settings and complete readable approval cards |
+| 2026-09-30 | `CHANGELOG_660_feishu-work-directory-expiry.md` | List work separately and ignore Feishu messages older than five minutes |
+| 2026-09-29 | `CHANGELOG_659_feishu-assistant-contexts.md` | Separate assistant chat, work targets and reply presentation |
+| 2026-09-29 | `CHANGELOG_658_codex-resets-dialogs.md` | Add confirmed Codex resets and consistent application dialogs |
+| 2026-09-29 | `CHANGELOG_657_feishu-conversation-model-selections.md` | Share remembered Feishu models and start conversational sessions |
+| 2026-09-29 | `CHANGELOG_656_provider-runtimes-model-suggestions.md` | Upgrade bundled provider runtimes and refresh Codex model suggestions |
+| 2026-09-29 | `CHANGELOG_655_session-output-gateway-thinking.md` | Readable tool results and Gateway-specific thinking defaults |
+| 2026-09-29 | `CHANGELOG_654_inline-file-diffs.md` | Open recorded file changes inline and align provider diff views |
+| 2026-09-29 | `CHANGELOG_653_ui-icons-lightbox-controls.md` | Unify UI icons and fade image-preview controls while idle |
+| 2026-09-29 | `CHANGELOG_652_session-content-generated-images.md` | Improve provider cards and add generated-image preview and saving |
+| 2026-09-28 | `CHANGELOG_651_markdown-math-rendering.md` | Render chat math with local fonts, safe delimiters, and bounded layout |
+| 2026-09-28 | `CHANGELOG_650_macos-installer-process-identity.md` | Require explicit app shutdown and verify exact macOS process identities |
+| 2026-09-28 | `CHANGELOG_649_provider-runtime-stable-refresh.md` | Refresh stable Claude, Codex, protocol SDKs, and macOS bundled runtimes |
 | 2026-09-22 | `CHANGELOG_648_grok-native-model-selection.md` | Use native Grok defaults, discovery, and model-switch acknowledgements |
 | 2026-09-22 | `CHANGELOG_647_model-names-native-defaults.md` | Refresh model names and delegate unconfigured session models to CLIs |
 | 2026-09-22 | `CHANGELOG_646_provider-runtime-acp-refresh.md` | Refresh Claude, Codex, Grok runtimes and handle ACP advisory notices |
 | 2026-09-20 | `CHANGELOG_645_shared-iab-login.md` | Share persistent IAB website login across sessions |
 | 2026-09-16 | `CHANGELOG_644_privacy-and-compatibility-cleanup.md` | Remove identifying paths and retired Browser/RPC compatibility |
 | 2026-09-15 | `CHANGELOG_643_provider-runtime-bundle-refresh.md` | Refresh Claude, Codex, Grok dependencies and macOS bundled runtimes |
-| 2026-09-05 | `CHANGELOG_642_codex-runtime-release-sync.md` | Upgrade embedded Codex to 0.153.4 and prepare the macOS app |
-| 2026-09-04 | `CHANGELOG_641_codex-quota-visibility.md` | Hide Codex reserve and Spark quota windows in the Data panel |
-| 2026-09-04 | `CHANGELOG_640_model-routing-and-grok-defaults.md` | Refresh model suggestions, Grok defaults and Skill model tiers |
-| 2026-09-04 | `CHANGELOG_639_adapter-settings-copy.md` | Align adapter settings descriptions and names |
-| 2026-09-04 | `CHANGELOG_638_compatibility-dead-code-retirement.md` | Retire obsolete compatibility and production-dead code |
-| 2026-09-04 | `CHANGELOG_637_application-convention-boundaries.md` | Keep conventions task-focused and require host-process approval |
-| 2026-09-04 | `CHANGELOG_636_bundled-only-assets-library.md` | Show only bundled Skills and Agents in the Assets Library |
-| 2026-09-03 | `CHANGELOG_635_provider-runtime-browser-remount.md` | Refresh provider/app dependencies and remount Browser contexts |

@@ -17,6 +17,14 @@ Legacy records without a parseable `changed_at` are listed as `unknown`; their c
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-09-05 | `CHANGELOG_642_codex-runtime-release-sync.md` | Upgrade embedded Codex to 0.153.4 and prepare the macOS app |
+| 2026-09-04 | `CHANGELOG_641_codex-quota-visibility.md` | Hide Codex reserve and Spark quota windows in the Data panel |
+| 2026-09-04 | `CHANGELOG_640_model-routing-and-grok-defaults.md` | Refresh model suggestions, Grok defaults and Skill model tiers |
+| 2026-09-04 | `CHANGELOG_639_adapter-settings-copy.md` | Align adapter settings descriptions and names |
+| 2026-09-04 | `CHANGELOG_638_compatibility-dead-code-retirement.md` | Retire obsolete compatibility and production-dead code |
+| 2026-09-04 | `CHANGELOG_637_application-convention-boundaries.md` | Keep conventions task-focused and require host-process approval |
+| 2026-09-04 | `CHANGELOG_636_bundled-only-assets-library.md` | Show only bundled Skills and Agents in the Assets Library |
+| 2026-09-03 | `CHANGELOG_635_provider-runtime-browser-remount.md` | Refresh provider/app dependencies and remount Browser contexts |
 | 2026-08-27 | `CHANGELOG_634_system-status-session-readiness.md` | Align system status rows and stabilize Claude startup controls |
 | 2026-08-27 | `CHANGELOG_633_codex-clear-stable-id-feedback.md` | Preserve Codex clear completion on same-id native rotation |
 | 2026-08-27 | `CHANGELOG_632_session-command-system-feedback.md` | Show one final system status for silent native commands |

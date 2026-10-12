@@ -18,6 +18,23 @@ Dev (`pnpm dev`) reads `<repo>/resources/*` directly; production reads the
 `.app/Contents/Resources/*` copies. `icon.png` is also included at
 `app.asar/resources/icon.png`; `icon.ico` is a Windows builder input only.
 
+## Bundled Runtime Versions
+
+The lockfile pins these npm `latest` releases, checked on 2026-10-11. Application and macOS Worker
+packaging use the same provider versions.
+
+| Package | Version |
+|---|---|
+| Claude Agent SDK / bundled Claude Code | 0.3.296 / 2.1.296 |
+| Anthropic API SDK | 0.133.0 |
+| Codex CLI | 0.162.1 |
+| Grok CLI | 1.0.50 |
+| ACP SDK | 1.8.0 |
+| MCP SDK | 1.32.1 |
+
+Rebuild and install the application to update its bundled runtimes. An external CLI path selected
+in Settings continues to take precedence over the corresponding bundled runtime.
+
 ## Immutable assets and runtime overrides
 
 Packaged app conventions, Agents, and Skills are immutable. The Assets Library, Remote asset

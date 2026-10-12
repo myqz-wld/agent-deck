@@ -1,8 +1,41 @@
 import { describe, expect, it } from 'vitest';
-import { beginGrokTurn, createGrokTranslationState, translateGrokUpdate } from './translate';
+import {
+  beginGrokTurn,
+  createGrokTranslationState,
+  flushGrokTextUpdates,
+  translateGrokUpdate,
+} from './translate';
 import type { SessionUpdate } from '@agentclientprotocol/sdk';
 
 describe('Grok content fidelity', () => {
+  it.each([
+    { sessionUpdate: 'subagent_update', sessionId: 'child', title: 'Inspect files' },
+    {
+      sessionUpdate: 'session_message', messageId: 'child-message', senderSessionId: 'child',
+      content: [{ type: 'text', text: 'Child result' }],
+    },
+    {
+      sessionUpdate: 'session_message_chunk', messageId: 'child-message', senderSessionId: 'child',
+      content: { type: 'text', text: 'Child chunk' },
+    },
+  ] satisfies SessionUpdate[])('keeps unadvertised $sessionUpdate out of parent text', (update) => {
+    const state = createGrokTranslationState();
+    const emit = (message: SessionUpdate) => translateGrokUpdate('parent', '/repo', message, state);
+    emit({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Parent ' } });
+
+    expect(emit(update)).toEqual([]);
+
+    expect(emit({
+      sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'reply' },
+    })).toEqual([]);
+    expect(flushGrokTextUpdates('parent', state)).toEqual([
+      expect.objectContaining({
+        sessionId: 'parent', kind: 'message', payload: { role: 'assistant', text: 'Parent reply' },
+      }),
+    ]);
+    expect(state.currentAssistantText).toBe('Parent reply');
+  });
+
   it('retains tool image content alongside raw output and on progress updates', () => {
     const state = createGrokTranslationState();
     const emit = (update: SessionUpdate) => translateGrokUpdate('session', '/repo', update, state);

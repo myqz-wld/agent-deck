@@ -297,6 +297,12 @@ export function translateGrokUpdate(
       // ACP notices require clientCapabilities.session.notices, which we do not advertise.
       // These advisory live events must not become persisted conversation content.
       return [];
+    case 'subagent_update':
+    case 'session_message':
+    case 'session_message_chunk':
+      // These events require clientCapabilities.subagents, which we do not advertise.
+      // Child-session messages must not be attributed to the parent conversation.
+      return [];
     case 'available_commands_update':
     case 'current_mode_update':
     case 'config_option_update':
