@@ -15,5 +15,6 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-10-12 | `PLAN_85_feishu-assistant-recovery.md` | execution-handoff | Restore retained Feishu assistants and activate the local Worker repair | `REVIEW_319_feishu-closed-assistant-recovery.md` |
 | 2026-10-12 | `PLAN_84_provider-installation-recovery.md` | execution-handoff | Provider refresh and safe installation with managed services | `CHANGELOG_675`, `REVIEW_318` |
 | 2026-10-11 | `PLAN_83_browser-idle-resume.md` | completed | Resume retained Browser contexts after the 24-hour idle close | `REVIEW_317_browser-idle-resume.md` |

@@ -30,6 +30,7 @@ export interface CodexBridgeSessionPort {
   delete(sessionId: string): Promise<void>;
   getCloseEpoch(sessionId: string): number;
   markClosed(sessionId: string): void;
+  reactivate(sessionId: string): void;
   unarchive(sessionId: string): Promise<void>;
 }
 

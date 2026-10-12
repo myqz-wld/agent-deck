@@ -5,16 +5,6 @@
  * 抽到独立 free function 让 facade SessionRecoverer 真薄(class shell + thin delegate)。
  * `this.X` field 改为 deps interface 注入，便于隔离副作用并测试。
  *
- * **执行序列**(对应 facade recoverer.ts 修前 L186-456 位置):
- * 1. inflight check — 同 sessionId 重入时等单飞完成,attachments 透传后 sendThunk live 路径
- * 2. sessionRepo.get 兜底 — record 不在 throw 'not found'
- * 3. text length cap — MAX_MESSAGE_LENGTH 与 messageRepo cap 全局对齐 (R2 MED-1 修法位置前移)
- * 4. emit user message — 立即与 live 主路径时机对称 (REVIEW_58 HIGH + R2 MED-1 收口)
- * 5. cwd precheck — cwd 不存在走 findFallbackCwd 启发式,真没救 emit error + throw
- * 6. recovering Map set (single-flight 锁,REVIEW_60 MED-codex-1 修法 — 锁覆盖整链)
- * 7. IIFE 内: archived unarchive + placeholder dedup + jsonl-fallback / 正常 resume
- * 8. catch: emit "自动恢复失败" + throw
- *
  * **state 所有权**:
  * - `recovering` Map: **SHARED** 与 facade.restartController 同份 ref (symmetry-plan P2 HIGH-A)
  * - `placeholderEmittedAt` Map: **recoverer 独占** (5s dedup,REVIEW_17 R3 同款)
@@ -320,6 +310,13 @@ export async function recoverAndSendImpl(
           `[codex-bridge] recoverAndSend on archived session ${sessionId}, auto-unarchiving (user explicitly sending message)`,
         );
         await deps.ctx.runtimeHost.sessions.unarchive(sessionId);
+      }
+
+      if (wasClosed && options?.initialEnqueueOptions?.deferUserEventUntilTurnStart) {
+        if (cancelGuard()) throw new RecoveryCancelledError(sessionId);
+        // MCP initializes before turn acceptance. Deferred input cannot supply the user event
+        // that normally revives this identity; the explicit recovery owns that transition.
+        deps.ctx.runtimeHost.sessions.reactivate(sessionId);
       }
 
       // 占位 message：起 codex 子进程期间用户至少看到「在恢复」而不是哑巴 busy（与 claude 同款）。

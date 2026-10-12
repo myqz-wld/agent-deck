@@ -5,6 +5,27 @@ import { FEISHU_CONVERSATION_SETUP } from './conversation-prompt';
 import { FakeCoreClient, credential, flush, messageEvent, onlyClient, session, setup } from './__tests__/fixture';
 
 describe('Feishu conversational entry', () => {
+  it.each([
+    ['hello', '助手', '/chat list'],
+    ['/send hello', '工作会话', '/sessions'],
+  ])('directs %s connection failures to the matching conversation controls', async (text, source, command) => {
+    const t = setup();
+    await t.gateway.handle(messageEvent('start-assistant', 'hello'));
+    await t.gateway.handle(messageEvent('start-work', '/new inspect project'));
+    const before = t.store.getContext(credential.instanceId, credential.credentialId, 'chat-1');
+    const client = onlyClient(t.clients);
+    client.requestHook = call => {
+      if (call.method === 'session.send') throw Object.assign(new Error('Unknown outcome'), { code: 'provider_lost' });
+    };
+    expect((await t.gateway.handle(messageEvent('failed-send', text))).code).toBe('provider_lost');
+    expect(t.transport.messages.at(-1)?.presentation?.title).toBe(`${source} · 暂时无法完成`);
+    expect(t.transport.messages.at(-1)?.text).toContain(command);
+    if (source === '助手') expect(t.transport.messages.at(-1)?.text).not.toContain('/sessions');
+    expect(t.store.getContext(credential.instanceId, credential.credentialId, 'chat-1')).toEqual(before);
+    expect(client.calls.filter(call => call.method === 'session.console.create')).toHaveLength(2);
+    await t.gateway.close();
+  });
+
   it('creates one conversation with the last saved choice, subscribes, and sends unchanged user text', async () => {
     const t = setup();
     await expect(t.gateway.handle(messageEvent('hello', '帮我检查项目\n先看看目录'))).resolves.toMatchObject({ code: 'accepted' });

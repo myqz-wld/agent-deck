@@ -66,6 +66,9 @@ export class FeishuConversationRouter {
       if (source === '助手' && classified.code === 'not_found') {
         message = '没有找到这段助手聊天。发送 /chat list 查看已保留的聊天，或 /chat new 开始新聊天。';
       }
+      if (source === '助手' && classified.code === 'provider_lost') {
+        message = '助手连接暂时不可用。请发送 /chat list 查看助手聊天，或用 /chat new 开始新聊天。原聊天记录会保留。';
+      }
       if (source === '工作会话' && classified.code === 'model_selection_required') {
         message = '首次创建请告诉机器人要使用哪种助手，也可以用 /models 查看选项后发送 /create <adapter-id> . -- <需求>。之后 /new 会自动沿用上次选择。';
       }
