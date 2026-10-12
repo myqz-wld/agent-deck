@@ -115,6 +115,62 @@ describe.skipIf(process.platform !== 'darwin')('macOS installer managed service 
     expect(h.mutations()).toHaveLength(2);
   });
 
+  it('waits for delayed SIGTERM unload before continuing or restoring the service', async () => {
+    const h = harness();
+    const removing = new Map();
+    h.host.launchctl.mockImplementation((args) => {
+      if (args[0] === 'bootout') {
+        const label = args[1].split('/').at(-1);
+        h.loaded.get(label).state = 'SIGTERMed';
+        removing.set(label, 50);
+        return { code: 0, stdout: '', stderr: '' };
+      }
+      if (args[0] === 'bootstrap') expect(removing.size).toBe(0);
+      return h.execute(args);
+    });
+    h.host.wait.mockImplementation(async () => {
+      for (const [label, ticks] of removing) {
+        if (ticks === 1) { removing.delete(label); h.loaded.delete(label); }
+        else removing.set(label, ticks - 1);
+      }
+    });
+    const restore = await pauseAppLaunchAgents(app, h.host);
+    expect(h.loaded.size).toBe(0);
+    expect(h.host.wait).toHaveBeenCalledTimes(100);
+    await restore();
+    expect([...h.loaded.values()].every(job => job.state === 'running')).toBe(true);
+    await restore();
+    expect(h.mutations()).toHaveLength(4);
+  });
+
+  it('does not mistake a timed-out pending removal for successful restoration', async () => {
+    const h = harness();
+    h.host.launchctl.mockImplementation((args) => {
+      if (args[0] === 'bootout') return { code: 0, stdout: '', stderr: '' };
+      return h.execute(args);
+    });
+    await expect(pauseAppLaunchAgents(app, h.host)).rejects.toThrow('未在期限内完成卸载');
+    expect(h.mutations()).toEqual([['bootout', `gui/501/${worker}`]]);
+  });
+
+  it('recovers after a delayed unload crosses the initial timeout', async () => {
+    const h = harness();
+    let ticks = 0;
+    h.host.launchctl.mockImplementation((args) => {
+      if (args[0] === 'bootout') {
+        h.loaded.get(worker).state = 'SIGTERMed';
+        return { code: 0, stdout: '', stderr: '' };
+      }
+      return h.execute(args);
+    });
+    h.host.wait.mockImplementation(async () => { if (++ticks === 305) h.loaded.delete(worker); });
+    await expect(pauseAppLaunchAgents(app, h.host)).rejects.toThrow('未在期限内完成卸载');
+    expect([...h.loaded.values()].every(job => job.state === 'running')).toBe(true);
+    expect(h.mutations()).toEqual([
+      ['bootout', `gui/501/${worker}`], ['bootstrap', 'gui/501', `${root}/${worker}.plist`],
+    ]);
+  });
+
   it('rejects live command and definition label mismatches before stopping anything', async () => {
     for (const replacement of [
       ['/Applications/Other.app/service'],

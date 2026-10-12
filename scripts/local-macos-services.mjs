@@ -75,6 +75,17 @@ function assertDefinition(job, host) {
   }
 }
 
+async function waitForUnload(job, host) {
+  // launchctl bootout returns before a SIGTERMed job has left the launchd domain.
+  // A still-registered job must not count as restored: it will disappear after exit.
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    assertDefinition(job, host);
+    if (!inspect(job, host)) return;
+    await host.wait(100);
+  }
+  throw new Error('后台服务未在期限内完成卸载，已取消安装。');
+}
+
 export function discoverAppLaunchAgents(appPath, options = {}) {
   const host = runtime(options);
   const jobs = [];
@@ -110,6 +121,10 @@ async function restoreJobs(jobs, host) {
   for (const job of [...jobs].reverse()) {
     try {
       assertDefinition(job, host);
+      if (job.unloadRequested) {
+        await waitForUnload(job, host);
+        job.unloadRequested = false;
+      }
       if (!inspect(job, host)) {
         await host.waitForExit(job.pid);
         await bootstrapLaunchAgentWithRetry({
@@ -140,11 +155,14 @@ export async function pauseAppLaunchAgents(appPath, options = {}) {
     for (const job of jobs) {
       assertDefinition(job, host);
       if (!inspect(job, host)) continue;
-      paused.push(job);
+      const pausedJob = { ...job, unloadRequested: false };
+      paused.push(pausedJob);
       const stopped = host.launchctl(['bootout', job.target]);
-      if (stopped.code !== 0 || inspect(job, host)) {
-        throw new Error('后台服务无法受控暂停，已取消安装。');
+      if (stopped.code !== 0) {
+        throw new Error(`后台服务无法受控暂停（exit ${stopped.code}），已取消安装。`);
       }
+      pausedJob.unloadRequested = true;
+      await waitForUnload(job, host);
     }
   } catch (error) {
     try { await restoreJobs(paused, host); } catch (restoreError) {

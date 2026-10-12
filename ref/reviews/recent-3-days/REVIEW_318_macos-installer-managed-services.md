@@ -43,13 +43,18 @@ No prior coverage was used to exempt changed files.
 - The failed install log stopped at the process-identity guard, before replacing the installed app.
 - Read-only inspection found two running managed KeepAlive services whose definitions and loaded
   commands match the installed bundle. Spotlight returned the installed and generated applications.
-- Focused installer, process-identity, service-lifecycle, and transaction regressions: 35 passed.
+- Focused installer, process-identity, service-lifecycle, and transaction regressions: 38 passed.
 - `pnpm typecheck` passed, including architecture checks.
-- Full Electron test suite: 1,141 passing files and 7,105 passing tests; 3 files / 6 opt-in tests
+- Full Electron test suite: 1,141 passing files and 7,108 passing tests; 3 files / 6 opt-in tests
   skipped. Command-local settings used four workers and a 20-second test timeout.
 - A native test-owned launchd KeepAlive job was loaded from an XML plist, discovered, unloaded,
   observed without respawn, restored to a new running PID, and removed. No production service was
   stopped for this check.
+- An additional native fixture delayed SIGTERM exit by five seconds. `bootout` returned in 10 ms
+  while the job remained registered as `SIGTERMed`; disappearance took about five seconds. The
+  corrected pause helper waited 5.1 seconds, restored a new running PID, and tolerated a repeated
+  restore. Timeout tests cover both incomplete removal and successful recovery after the initial
+  unload deadline.
 - Negative cases cover foreign commands, changed definitions, unsafe file ownership/modes,
   inspection failure, partial unload failure, unloaded services, failed restore, failed staging,
   promotion, installed validation, and rollback.
@@ -61,6 +66,19 @@ The standard `pnpm install:local:mac --prebuilt --stop-running` entry point now 
 quiescence and restoration. It reuses existing bounded launchd helpers and requires an unchanged,
 clean source commit for prebuilt installation. CLI help describes service pause and recovery.
 
+## Installed attempt and asynchronous removal follow-up
+
+The first authorized attempt using `c58694ba` exposed a missing native lifecycle case: `bootout`
+acknowledges removal before the process and launchd registration are gone. Immediate inspection
+incorrectly treated pending removal as failure, and recovery could mistake that same doomed job for
+an already restored service. The application was not replaced or closed; failed staging was cleaned.
+
+The originally loaded Worker was subsequently restored from its unchanged, fingerprint-verified
+definition; both original services passed running-state and health/status checks. The follow-up
+requires bounded disappearance before app shutdown or re-bootstrap. Pending removal never counts
+as successful restoration, and incomplete unload blocks installation. The updated full suite and
+delayed native fixture passed before another installation is considered.
+
 ## Residual risk and follow-up
 
 The authorized installed-app replacement follows the clean source commit and rebuilt package.
@@ -71,3 +89,5 @@ completion. Untrusted or changed service identities abort mutation and require i
 
 The user's external Grok executable and override configuration are outside this repair. Existing
 service definitions, credentials, other applications, and retained DMG history are preserved.
+
+Final source and execution handoff: [PLAN_84](../../plans/recent-3-days/PLAN_84_provider-installation-recovery.md).
