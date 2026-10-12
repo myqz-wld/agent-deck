@@ -13,6 +13,8 @@ import {
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertInstalledAppStopped, stopInstalledApp } from './local-macos-processes.mjs';
+import { pauseAppLaunchAgents } from './local-macos-services.mjs';
+import { installMacApplication } from './local-macos-installation.mjs';
 
 const PRODUCT_NAME = 'Agent Deck';
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -112,30 +114,24 @@ function validateInstalledApp() {
 }
 
 async function installPackagedApp(sourceApp, stopRunning) {
-  rmSync(stagingApp, { recursive: true, force: true });
-  rmSync(previousApp, { recursive: true, force: true });
-
-  run('/usr/bin/ditto', [sourceApp, stagingApp]);
-  run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', stagingApp]);
-  run('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', stagingApp]);
-  run('/usr/bin/codesign', ['--verify', '--deep', '--strict', stagingApp]);
-
-  if (stopRunning) await stopInstalledApp(installedApp);
-  assertInstalledAppStopped(installedApp);
-  if (existsSync(installedApp)) renameSync(installedApp, previousApp);
-  renameSync(stagingApp, installedApp);
-
-  try {
-    ensureCliLink(resolve(installedApp, 'Contents/Resources/bin/agent-deck'));
-    validateInstalledApp();
-  } catch (error) {
-    rmSync(installedApp, { recursive: true, force: true });
-    if (existsSync(previousApp)) renameSync(previousApp, installedApp);
-    throw error;
-  }
-
-  rmSync(previousApp, { recursive: true, force: true });
-  rmSync(sourceApp, { recursive: true, force: true });
+  await installMacApplication({ sourceApp, installedApp, stagingApp, previousApp, stopRunning }, {
+    exists: existsSync,
+    remove: (path) => rmSync(path, { recursive: true, force: true }),
+    move: renameSync,
+    assertStopped: assertInstalledAppStopped,
+    stop: stopInstalledApp,
+    pauseServices: pauseAppLaunchAgents,
+    prepare: (source, staging) => {
+      run('/usr/bin/ditto', [source, staging]);
+      run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', staging]);
+      run('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', staging]);
+      run('/usr/bin/codesign', ['--verify', '--deep', '--strict', staging]);
+    },
+    validate: () => {
+      ensureCliLink(resolve(installedApp, 'Contents/Resources/bin/agent-deck'));
+      validateInstalledApp();
+    },
+  });
   console.log(`[local-install] installed ${installedApp}`);
   console.log('[local-install] removed the packaged .app; DMG artifacts remain in build/dist');
 }
@@ -146,6 +142,7 @@ export function printHelp() {
 构建、验证并安装 macOS 版 Agent Deck。默认要求先退出应用；
 --stop-running 明确允许退出 /Applications/Agent Deck.app，可能中断应用内的当前会话。
 该选项会先请求正常退出，再按完整可执行路径、PID 和启动时间核实目标后发送 SIGTERM。
+同一安装包的后台 LaunchAgent 会先受控暂停，避免 KeepAlive 自动重启；安装或回滚后恢复。
 无法确认身份或退出超时会取消安装。
 --prebuilt 安装已完成验证且匹配当前干净提交的 build/dist 安装包，跳过重复构建。
 
