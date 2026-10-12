@@ -28,21 +28,16 @@ Use Pending to respond when an agent needs your input.
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm typecheck` | Check architecture and types |
+| `pnpm typecheck` | Check types |
 | `pnpm test` | Run the test suite |
 | `pnpm build` | Build the application |
 | `pnpm dist:mac` | Build the macOS installer |
-| `pnpm install:local:mac --help` | Show local installation options |
 
-Build installers on their target OS. Quit Agent Deck before installation, or explicitly authorize
-its controlled shutdown. See the [development workflow](CLAUDE.md) for validation and installation.
+See the [development workflow](CLAUDE.md) for validation, packaging, and installation.
 
 ## Documentation
 
-- [Runtime configuration](resources/README.md)
-- [Relay deployment](deploy/linux/relay/README.snippet.md)
-- [Full deployment](deploy/linux/full/README.snippet.md)
-- [Feishu gateway](deploy/linux/feishu/README.md)
-- [Deployment examples](deploy/examples)
-- [Repository workflow](CLAUDE.md) and [Codex instructions](AGENTS.md)
+- [Configuration](resources/README.md)
+- [Remote deployment](deploy/linux/relay/README.snippet.md) and [server deployment](deploy/linux/full/README.snippet.md)
+- [Feishu setup](deploy/linux/feishu/README.md)
 - [Change history](ref/changelogs/INDEX.md)
