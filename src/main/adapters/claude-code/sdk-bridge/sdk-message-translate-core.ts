@@ -34,6 +34,7 @@ import {
   type ClaudeFinalResultUsage,
 } from './final-result-usage-core';
 import { claudeFinishedPayload } from './result-outcome';
+import { finishClaudeUserMessageInterruptionCore } from './user-message-interruption-core';
 import {
   confirmClaudeUserMessageAcceptanceCore,
   finishClaudeUserMessageTurnCore,
@@ -227,6 +228,7 @@ export function translateSdkMessageCore(
       }
     }
   } else if (msg.type === 'result') {
+    const interruptedByUserMessage = finishClaudeUserMessageInterruptionCore(internal, msg);
     finishClaudeUserMessageTurnCore(internal);
     const r = msg as ClaudeFinalResultUsage & {
       subtype?: string;
@@ -272,11 +274,13 @@ export function translateSdkMessageCore(
     if (contextWindowPayload !== null) {
       e('context-usage', contextWindowPayload);
     }
-    if (r.is_error || (r.subtype && r.subtype !== 'success')) {
+    if (!interruptedByUserMessage && (r.is_error || (r.subtype && r.subtype !== 'success'))) {
       const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
       e('message', { text: `⚠ ${detail}`, error: true });
     }
-    e('finished', claudeFinishedPayload(r));
+    e('finished', interruptedByUserMessage
+      ? { ok: false, subtype: 'interrupted' }
+      : claudeFinishedPayload(r));
   } else if (msg.type === 'system' && msg.subtype === 'compact_boundary') {
     const metadata = (msg as {
       compact_metadata?: {

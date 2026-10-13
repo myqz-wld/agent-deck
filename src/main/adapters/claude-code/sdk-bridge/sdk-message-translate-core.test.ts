@@ -185,4 +185,26 @@ describe('Claude SDK message translator Core', () => {
       done: true,
     });
   });
+
+  it.each([
+    { name: 'idle failure', ids: [], errors: ['[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null'] },
+    { name: 'API failure', ids: ['correction'], errors: ['API connection failed'] },
+    { name: 'mixed failure', ids: ['correction'], errors: [
+      '[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null', 'API connection failed',
+    ] },
+  ])('continues to project $name as a failure', ({ ids, errors }) => {
+    const internal = makeInternalSession({ cwd: '/workspace', applicationSid: 'session-a' });
+    internal.midTurnUserMessageIds = new Set(ids);
+    const emit = vi.fn();
+    translateSdkMessageCore(emit, 'session-a', {
+      type: 'result', subtype: 'error_during_execution', is_error: true,
+      user_message_uuid: 'original', errors,
+    }, internal, host());
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'message', payload: { text: `⚠ ${errors.join('\n')}`, error: true },
+    }));
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'finished', payload: { ok: false, subtype: 'error_during_execution' },
+    }));
+  });
 });

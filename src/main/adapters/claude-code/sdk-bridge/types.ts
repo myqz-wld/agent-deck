@@ -214,6 +214,8 @@ export interface InternalSession {
   acceptedEnqueueFingerprints?: Map<string, string>;
   /** An active or submitted provider turn; composer input can still stream into it. */
   userTurnInFlight?: boolean;
+  /** Streamed corrections not yet covered by a result; acceptance alone does not finish them. */
+  midTurnUserMessageIds?: Set<string>;
   /** Handoff owns this source; do not consume any more user input before the active turn ends. */
   retireRequested?: boolean;
   /** Generation-scoped worktree transition gate for provider input dequeue. */

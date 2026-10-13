@@ -180,4 +180,70 @@ describe('Claude stream processor Core', () => {
       { role: 'assistant', text: 'new reply' },
     ]);
   });
+
+  it.each(['after-result', 'before-result', 'burst', 'legacy'])(
+    'continues consecutive corrections without execution errors (%s)', async (order) => {
+      const internal = makeInternalSession({ cwd: '/workspace', applicationSid: 'session-a' });
+      internal.userTurnInFlight = true;
+      const emit = vi.fn();
+      const ports = host();
+      const processor = new ClaudeStreamProcessorCore({
+        sessions: new Map([['session-a', internal]]), emit,
+      }, ports);
+      for (const id of ['correction-1', 'correction-2']) {
+        const pending = processor.makeUserMessage('session-a', id);
+        pending.deferredUserEvent = { text: id, turnCorrelationId: id };
+        internal.pendingUserMessages.push(pending);
+      }
+      const input = processor.createUserMessageStream(internal, 'session-a')[Symbol.asyncIterator]();
+      await expect(input.next()).resolves.toMatchObject({ value: { uuid: 'correction-1' } });
+      const echo = (uuid: string) => ({ type: 'user', uuid, isReplay: true, parent_tool_use_id: null });
+      const interrupted = (uuid: string) => ({
+        type: 'result', subtype: 'error_during_execution', is_error: true,
+        user_message_uuid: uuid, terminal_reason: 'aborted_streaming',
+        errors: ['[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null'],
+      });
+      const inFlight: boolean[] = [];
+      internal.query = queryFrom(async function* () {
+        if (order !== 'after-result') yield echo('correction-1');
+        if (order === 'burst') {
+          await expect(input.next()).resolves.toMatchObject({ value: { uuid: 'correction-2' } });
+          yield echo('correction-2');
+        }
+        yield order === 'legacy'
+          ? { ...interrupted('original'), user_message_uuid: undefined,
+              terminal_reason: undefined, queued_turn_count: 1 }
+          : interrupted('original');
+        inFlight.push(internal.userTurnInFlight === true);
+        if (order === 'after-result') yield echo('correction-1');
+        if (order !== 'burst') {
+          await expect(input.next()).resolves.toMatchObject({ value: { uuid: 'correction-2' } });
+          yield echo('correction-2');
+        }
+        yield interrupted('correction-1');
+        inFlight.push(internal.userTurnInFlight === true);
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'updated reply' }] } };
+        yield { type: 'result', subtype: 'success', user_message_uuid: 'correction-2' };
+        inFlight.push(internal.userTurnInFlight === true);
+      });
+
+      await processor.consume(internal, 'session-a', vi.fn());
+      await input.return?.();
+
+      expect(ports.warn).not.toHaveBeenCalled();
+      expect(inFlight).toEqual([true, true, false]);
+      const events = emit.mock.calls.map(([event]) => event);
+      expect(events.filter((event) => event.kind === 'finished').map((event) => event.payload)).toEqual([
+        { ok: false, subtype: 'interrupted' },
+        { ok: false, subtype: 'interrupted' },
+        { ok: true, subtype: 'success' },
+      ]);
+      expect(events.filter((event) => event.kind === 'message').map((event) => event.payload)).toEqual([
+        { role: 'user', text: 'correction-1', turnCorrelationId: 'correction-1' },
+        { role: 'user', text: 'correction-2', turnCorrelationId: 'correction-2' },
+        { role: 'assistant', text: 'updated reply' },
+      ]);
+      expect(internal.midTurnUserMessageIds?.size).toBe(0);
+    },
+  );
 });

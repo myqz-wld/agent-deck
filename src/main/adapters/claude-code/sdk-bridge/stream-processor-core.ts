@@ -138,7 +138,9 @@ export class ClaudeStreamProcessorCore {
           this.host.translation,
         );
         if (frame.type === 'result') {
-          internal.userTurnInFlight = !!internal.submittingUserMessage;
+          internal.userTurnInFlight = !!internal.submittingUserMessage
+            || (internal.midTurnUserMessageIds?.size ?? 0) > 0
+            || (typeof frame.queued_turn_count === 'number' && frame.queued_turn_count > 0);
         }
         if (internal.retireRequested && frame.type === 'result') {
           internal.retireBoundaryReached = true;

@@ -120,6 +120,9 @@ export async function* createClaudeUserMessageStreamCore(
         : null;
       if (providerMessageId) {
         message.uuid = providerMessageId as NonNullable<SDKUserMessage['uuid']>;
+        if (internal.userTurnInFlight && message.priority === 'now') {
+          (internal.midTurnUserMessageIds ??= new Set()).add(providerMessageId);
+        }
         internal.submittingUserMessage = {
           pending: thunk,
           providerMessageId,

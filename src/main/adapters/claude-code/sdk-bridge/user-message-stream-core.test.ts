@@ -84,6 +84,7 @@ describe('Claude user message stream Core', () => {
     expect(next.value).toMatchObject({ uuid: 'provider-message-1', session_id: 'session-core' });
     expect(internal.pendingUserMessages).toEqual([]);
     expect(internal.userTurnInFlight).toBe(true);
+    expect(internal.midTurnUserMessageIds?.size ?? 0).toBe(0);
     expect(internal.submittingUserMessage).toEqual({
       pending,
       providerMessageId: 'provider-message-1',
