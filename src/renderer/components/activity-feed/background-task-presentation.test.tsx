@@ -26,14 +26,16 @@ describe('background task activity', () => {
     const start = task();
     const rendered = render(view([start]));
     expect(screen.getByText('后台命令 · 运行中')).toBeTruthy();
-    const details = rendered.container.querySelector('details')!;
-    details.open = true;
+    const toggle = screen.getByRole('button', { name: /后台命令.*展开详情/ });
+    const details = document.getElementById(toggle.getAttribute('aria-controls')!)!;
+    expect(details.hidden).toBe(true);
+    fireEvent.click(toggle);
     const progress = task({ revision: 2, summary: 'Compiling the final target',
       toolUses: 3, totalTokens: 100, durationMs: 5_000, lastToolName: 'Bash' }, 2);
     rendered.rerender(view([progress, start]));
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
-    expect(rendered.container.querySelector('details')).toBe(details);
-    expect(details.open).toBe(true);
+    expect(document.getElementById(toggle.getAttribute('aria-controls')!)).toBe(details);
+    expect(details.hidden).toBe(false);
     expect(screen.getByText('Compiling the final target')).toBeTruthy();
     expect(screen.getByText('工具调用 3 次')).toBeTruthy();
     const end = task({ revision: 3, status: 'completed', summary: 'All checks passed',
@@ -44,7 +46,8 @@ describe('background task activity', () => {
     expect(screen.getByText('All checks passed')).toBeTruthy();
     expect(rendered.container.textContent).toContain('/workspace/build.log');
     expect(screen.queryByText('后台命令 · 运行中')).toBeNull();
-    fireEvent.click(screen.getByText('任务详情'));
+    fireEvent.click(screen.getByRole('button', { name: /后台命令.*收起详情/ }));
+    expect(details.hidden).toBe(true);
   });
 
   it('keeps failed task outcomes visible independently of a completed main turn', () => {

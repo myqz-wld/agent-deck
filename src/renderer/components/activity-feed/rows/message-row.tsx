@@ -15,6 +15,9 @@ import {
   type RenderMode,
 } from '../shared';
 import { normalizeAgentMessage } from '../viewers/message-content';
+import { readCompaction } from '@shared/compaction';
+import { CompactionRow } from './compaction-row';
+import { CommandStatusRow, readSessionCommandStatus } from './command-status-row';
 import { readMessageDeliveryRecovery } from '@shared/message-delivery-recovery';
 import { MessageRecoveryRow } from './message-recovery-row';
 import { resendRecoveredLocalMessage } from './resend-recovered-message';
@@ -32,6 +35,9 @@ export function MessageBubble(props: { event: AgentEvent; agentId: string; showA
     recovery={recovery} showAttachments={props.showAttachments}
     onResend={props.showAttachments === false ? undefined
       : () => resendRecoveredLocalMessage(props.agentId, props.event.sessionId, recovery)} />;
+  if (readCompaction(props.event)) return <CompactionRow event={props.event} />;
+  const commandStatus = readSessionCommandStatus(props.event);
+  if (commandStatus) return <CommandStatusRow event={props.event} outcome={commandStatus} />;
   return <ConversationMessage {...props} />;
 }
 

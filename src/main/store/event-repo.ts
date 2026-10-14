@@ -3,6 +3,7 @@ import { performance } from 'node:perf_hooks';
 import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import { getDb } from './db';
 import { updateExistingPlanEvent } from './plan-event-update';
+import { updateExistingCompactionEvent } from './compaction-event-update';
 import { legacyEventImage } from './legacy-event-image';
 import { safeStringifyPayload } from './payload-truncate';
 import { reportEventRepositoryWarning } from './event-repo-diagnostics-core';
@@ -113,6 +114,8 @@ export const eventRepo = {
   insert(event: AgentEvent): number {
     const updatedPlanId = updateExistingPlanEvent(event);
     if (updatedPlanId !== null) return updatedPlanId;
+    const updatedCompactionId = updateExistingCompactionEvent(event);
+    if (updatedCompactionId !== null) return updatedCompactionId;
     const startedAt = performance.now();
     let operation = 'insert';
     let payloadChars = 0;

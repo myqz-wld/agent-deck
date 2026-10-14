@@ -218,6 +218,8 @@ export interface InternalSession {
   acceptedEnqueueFingerprints?: Map<string, string>;
   /** An active or submitted provider turn; composer input can still stream into it. */
   userTurnInFlight?: boolean;
+  activeCompaction?: { id: string; startedAt: number };
+  compactionSequence?: number;
   /** Native background task snapshots are independent of foreground user-turn ownership. */
   backgroundTasks?: Map<string, import('./background-tasks-core').ClaudeBackgroundTaskState>;
   /** Streamed corrections not yet covered by a result; acceptance alone does not finish them. */

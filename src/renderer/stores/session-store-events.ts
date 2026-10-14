@@ -2,12 +2,22 @@ import type { AgentEvent } from '@shared/types';
 import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import { agentEventIdentity } from '@renderer/lib/agent-event-identity';
 import { planEventId } from '@shared/agent-event-update';
+import { compactionIdentity } from '@shared/compaction';
 
 export function upsertEvent(
   arr: AgentEvent[],
   event: AgentEvent,
   limit: number,
 ): AgentEvent[] {
+  const compactionId = event.kind === 'message' ? compactionIdentity(event) : null;
+  if (compactionId) {
+    const index = arr.findIndex((previous) => previous.kind === event.kind && compactionIdentity(previous) === compactionId);
+    if (index >= 0) {
+      const next = arr.slice();
+      next[index] = event;
+      return next;
+    }
+  }
   const planId = planEventId(event);
   if (planId) {
     const index = arr.findIndex((previous) => planEventId(previous) === planId);

@@ -17,6 +17,7 @@ import { translateSdkMessage } from '../sdk-message-translate';
 import { makeInternalSession } from '../types';
 import type { AgentEvent } from '@shared/types';
 import { sessionRepo } from '@main/store/session-repo';
+import { readCompaction } from '@shared/compaction';
 
 function setup() {
   const events: AgentEvent[] = [];
@@ -31,6 +32,19 @@ describe('translateSdkMessage — Claude compact_boundary display', () => {
   beforeEach(() => {
     vi.mocked(sessionRepo.get).mockReset();
     vi.mocked(sessionRepo.setPermissionMode).mockReset();
+  });
+
+  it('pairs compacting status and completion using one stable identity without duplicate starts', () => {
+    const { events, emit, internal } = setup();
+    const status = { type: 'system', subtype: 'status', status: 'compacting' };
+    translateSdkMessage(emit, 'sid-compact', status, internal);
+    translateSdkMessage(emit, 'sid-compact', status, internal);
+    expect(events).toHaveLength(1);
+    expect(events[0].kind).toBe('context-compaction-start');
+    const id = readCompaction(events[0])?.id;
+    translateSdkMessage(emit, 'sid-compact', { type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto' } }, internal);
+    expect(readCompaction(events.at(-1)!)).toMatchObject({ id, status: 'completed', trigger: 'auto' });
+    expect(internal.activeCompaction).toBeUndefined();
   });
 
   it('renders SDK compact_boundary as a final system message', () => {

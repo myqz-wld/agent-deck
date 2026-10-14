@@ -68,6 +68,8 @@ export function beginGrokTurn(
   state.currentStandardUsageEvent = null;
   state.currentStandardUsageSnapshot = null;
   state.assistantObservedForCurrentTurn = false;
+  state.compactionObservedForCurrentTurn = false;
+  state.compactionCommandForCurrentTurn = false;
   state.currentAssistantText = '';
   state.standardUsageObservedForCurrentTurn = false;
   state.extensionUsageForCurrentTurn = false;

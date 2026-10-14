@@ -5,6 +5,7 @@ import type { GrokAcpProcess } from './acp-process';
 import type { GrokRuntime } from './runtime-types';
 import { GrokTurnQueue } from './turn-queue';
 import { createGrokTranslationState, translateGrokUpdate } from './translate';
+import { emitSilentGrokSessionCommandOutcome } from './session-command-feedback';
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   let resolve!: (value: T) => void;
@@ -72,6 +73,18 @@ function queueHarness() {
 }
 
 describe('Grok session command feedback', () => {
+  it('uses a manual compact status even with command output and defers to native lifecycle evidence', () => {
+    const active = runtime(vi.fn());
+    active.translation.assistantObservedForCurrentTurn = true;
+    const command = { name: 'compact', description: '', argumentHint: '', aliases: [] };
+    const events: Array<{ kind: string; payload: unknown }> = [];
+    const options = { emitEvent: (_sessionId: string, kind: string, payload: unknown) => events.push({ kind, payload }) };
+    expect(emitSilentGrokSessionCommandOutcome(active, command, { status: 'failed', detail: 'cancelled' }, options)).toBe(true);
+    expect(events[0].payload).toMatchObject({ compaction: { status: 'interrupted', trigger: 'manual' } });
+    active.translation.compactionObservedForCurrentTurn = true;
+    expect(emitSilentGrokSessionCommandOutcome(active, command, { status: 'completed' }, options)).toBe(false);
+    expect(events).toHaveLength(1);
+  });
   it('emits one final system message for a silent dynamic command', async () => {
     const request = vi.fn(async (method: string) =>
       method === methods.agent.session.prompt

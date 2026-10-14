@@ -52,7 +52,7 @@ agent({ name: 'fake-grok-acp-agent' })
       ? { authMethods: authIds.map(authMethod) }
       : {}),
     agentInfo: { name: 'fake-grok-acp-agent', version: '1.0.0' },
-    _meta: { modelState: { currentModelId: 'fake-model' } },
+    _meta: { modelState: { currentModelId: 'fake-model' }, clientCapabilities: params.clientCapabilities },
   }))
   .onRequest(methods.agent.authenticate, ({ params }) => {
     if (!authIds.includes(params.methodId)) {

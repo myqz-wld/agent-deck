@@ -85,7 +85,7 @@ describe('ActivityRecordsView source boundaries', () => {
     expect(renderPendingEvent).toHaveBeenCalledWith(event);
   });
 
-  it('shows both the final system message and terminal for a silent command', () => {
+  it('shows command feedback and terminal status for a silent command', () => {
     const events: AgentEvent[] = [{
       sessionId: 'remote-session',
       agentId: 'grok-build',
@@ -109,5 +109,6 @@ describe('ActivityRecordsView source boundaries', () => {
 
     expect(screen.getByText('一轮完成')).toBeTruthy();
     expect(screen.getByText('Grok Build /clear 已完成')).toBeTruthy();
+    expect(screen.queryByText('系统')).toBeNull();
   });
 });

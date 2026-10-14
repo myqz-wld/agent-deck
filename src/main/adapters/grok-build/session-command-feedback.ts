@@ -25,7 +25,9 @@ export function emitSilentGrokSessionCommandOutcome(
   outcome: { status: 'completed' } | { status: 'failed'; detail: string },
   options: Pick<GrokTurnQueueOptions, 'emitEvent'>,
 ): boolean {
-  if (!isSilentGrokSessionCommand(runtime, command)) return false;
+  const compactFallback = command?.name === 'compact' && !runtime.closed && !runtime.translation.compactionObservedForCurrentTurn;
+  if (!compactFallback && !isSilentGrokSessionCommand(runtime, command)) return false;
+  if (!command) return false;
   const failed = outcome.status === 'failed';
   options.emitEvent(runtime.applicationSessionId, 'message', {
     role: 'system',
@@ -34,6 +36,11 @@ export function emitSilentGrokSessionCommandOutcome(
       : completedSessionCommandText('Grok Build', command.name),
     ...(failed ? { error: true } : {}),
     sessionCommandStatus: { command: command.name, status: outcome.status },
+    ...(command.name === 'compact' ? { compaction: {
+      status: failed ? runtime.interruptRequested || ['操作已中断', 'cancelled', 'canceled', 'interrupted'].includes(outcome.detail)
+        ? 'interrupted' : 'failed' : 'completed',
+      trigger: 'manual', ...(failed ? { error: outcome.detail } : {}),
+    } } : {}),
   });
   return true;
 }
@@ -43,6 +50,7 @@ export function isSilentGrokSessionCommand(
   command: SessionCommandDescriptor | null,
 ): command is SessionCommandDescriptor {
   return command !== null &&
+    !(command.name === 'compact' && runtime.translation.compactionObservedForCurrentTurn) &&
     !runtime.closed &&
     !runtime.translation.assistantObservedForCurrentTurn;
 }

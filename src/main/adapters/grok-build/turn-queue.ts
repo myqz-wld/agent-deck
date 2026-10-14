@@ -357,6 +357,7 @@ export class GrokTurnQueue {
         runtime.model,
         message.id,
       );
+      runtime.translation.compactionCommandForCurrentTurn = sessionCommand?.name === 'compact';
       if (submitting) submitting.promptRequestIssued = true;
       const outcome = await this.providerCompletionRecovery.run(
         runtime,

@@ -102,24 +102,55 @@ describe('MessageBubble original inline presentation', () => {
     expect(document.querySelector('li')?.className).toContain('justify-center');
   });
 
-  it('renders a completed session command as the same compact system row', () => {
+  it.each([
+    ['codex-cli', 'Codex'], ['claude-code', 'Claude'], ['grok-build', 'Grok Build'],
+  ])('renders %s command feedback as a status strip', (agentId, provider) => {
     const event: AgentEvent = {
       sessionId: 'session-1',
-      agentId: 'codex-cli',
+      agentId,
       kind: 'message',
       payload: {
         role: 'system',
-        text: 'Codex /clear 已完成，已开始新对话，原时间线保留',
+        text: `${provider} /clear 已完成，已开始新对话，原时间线保留`,
         sessionCommandStatus: { command: 'clear', status: 'completed' },
       },
       ts: 12,
     };
 
-    render(<MessageBubble event={event} agentId="codex-cli" />);
+    render(<MessageBubble event={event} agentId={agentId} />);
 
-    expect(screen.getByText('系统')).toBeTruthy();
-    expect(screen.getByText('Codex /clear 已完成，已开始新对话，原时间线保留')).toBeTruthy();
+    expect(screen.queryByText('系统')).toBeNull();
+    expect(screen.getByText(`${provider} /clear 已完成，已开始新对话，原时间线保留`)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'TXT' })).toBeNull();
-    expect(document.querySelector('li')?.className).toContain('justify-center');
+    expect(document.querySelector('li')?.className).not.toContain('justify-center');
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('keeps long command failures available in a collapsed status detail', () => {
+    const text = 'Codex /clear 失败：服务未响应\n保留完整诊断信息';
+    const event: AgentEvent = { sessionId: 'session-1', agentId: 'codex-cli', kind: 'message', ts: 12,
+      payload: { role: 'system', text, error: true,
+        sessionCommandStatus: { command: 'clear', status: 'failed' } } };
+    render(<MessageBubble event={event} agentId="codex-cli" />);
+    const trigger = screen.getByRole('button', { name: 'Codex /clear 失败，展开详情' });
+    const detail = document.getElementById(trigger.getAttribute('aria-controls')!)!;
+    expect(detail.hidden).toBe(true);
+    expect(document.querySelector('li')?.className).toContain('border-status-error');
+    fireEvent.click(trigger);
+    expect(detail.hidden).toBe(false);
+    expect(detail.textContent).toBe(text);
+  });
+
+  it.each([
+    { role: 'system' },
+    { role: 'system', sessionCommandStatus: { command: 'clear' } },
+    { role: 'user', sessionCommandStatus: { command: 'clear', status: 'completed' } },
+    { role: 'assistant', sessionCommandStatus: { command: 'clear', status: 'completed' } },
+  ])('does not classify ordinary conversation text as a command: %j', (payload) => {
+    const event: AgentEvent = { sessionId: 'session-1', agentId: 'codex-cli', kind: 'message', ts: 12,
+      payload: { ...payload, text: 'Codex /clear 已完成' } };
+    render(<MessageBubble event={event} agentId="codex-cli" />);
+    expect(screen.getByText(payload.role === 'system' ? '系统' : payload.role === 'user' ? '你' : 'Codex')).toBeTruthy();
+    expect(document.querySelector('li')?.className).toContain('flex');
   });
 });

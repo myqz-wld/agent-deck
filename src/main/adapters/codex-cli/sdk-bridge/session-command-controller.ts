@@ -13,6 +13,7 @@ import type { CodexBridgeOptions, InternalSession } from './types';
 import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 import type { CodexHostSessionCommand } from '../session-commands';
 import { completedSessionCommandText, failedSessionCommandText } from '@core/system-status-copy';
+import { compactionRecord, type CompactionSnapshot } from '@shared/compaction';
 
 export interface CodexSessionCommandContext {
   sessions: ReadonlyMap<string, InternalSession>;
@@ -22,6 +23,7 @@ export interface CodexSessionCommandContext {
 }
 
 export class CodexSessionCommandController {
+  private compactionSequence = 0;
   constructor(private readonly context: CodexSessionCommandContext) {}
 
   async execute(sessionId: string, command: CodexHostSessionCommand): Promise<void> {
@@ -96,10 +98,16 @@ export class CodexSessionCommandController {
   }
 
   private async compact(session: InternalSession): Promise<void> {
+    const startedAt = Date.now();
+    const compaction: CompactionSnapshot = {
+      id: `codex-command:${session.threadId}:${startedAt}:${++this.compactionSequence}`, status: 'running', trigger: 'manual', startedAt,
+    };
+    this.emit(session, 'context-compaction-start', { compaction });
     const controller = new AbortController();
     session.currentTurn = controller;
     const translateState = createCodexAppServerTranslateState();
     let terminalFailure: string | null = null;
+    let interrupted = false;
     try {
       const { events } = await session.thread.compactStreamed();
       for await (const event of events) {
@@ -107,6 +115,8 @@ export class CodexSessionCommandController {
         session.runtimeIdentity = event.runtimeIdentity;
         terminalFailure =
           readTerminalError(event.notification)?.message ?? terminalFailure;
+        if (event.notification.method === 'turn/completed'
+          && compactionRecord(compactionRecord(event.notification.params).turn).status === 'interrupted') interrupted = true;
         const turnId = getNotificationTurnId(event.notification);
         if (event.notification.method === 'turn/started' && turnId) {
           session.currentTurnId = turnId;
@@ -126,6 +136,10 @@ export class CodexSessionCommandController {
         translateCodexAppServerNotification(
           event.notification,
           (kind, payload) => {
+            if (kind === 'context-compaction-end') {
+              const summary = compactionRecord(payload).summary;
+              if (typeof summary === 'string') compaction.summary = summary;
+            }
             if (kind === 'context-usage' || kind === 'token-usage') {
               this.emit(session, kind, payload);
             }
@@ -148,10 +162,11 @@ export class CodexSessionCommandController {
         this.emitCommandOutcome(
           session,
           'compact',
-          { status: 'failed', detail: terminalFailure },
+          { status: 'failed', detail: interrupted ? '操作已中断' : terminalFailure },
+          interrupted ? 'interrupted' : 'error', compaction,
         );
       } else {
-        this.emitCommandOutcome(session, 'compact', { status: 'completed' });
+        this.emitCommandOutcome(session, 'compact', { status: 'completed' }, 'error', compaction);
       }
     } catch (error) {
       clearCodexLiveTokenEstimateCore(
@@ -160,17 +175,18 @@ export class CodexSessionCommandController {
         Date.now(),
         this.context.runtimeHost.liveRate,
       );
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || interrupted) {
         this.emitCommandOutcome(
           session,
           'compact',
           { status: 'failed', detail: '操作已中断' },
           'interrupted',
+          compaction,
         );
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
-      this.emitCommandOutcome(session, 'compact', { status: 'failed', detail: message });
+      this.emitCommandOutcome(session, 'compact', { status: 'failed', detail: message }, 'error', compaction);
     } finally {
       session.currentTurn = null;
       session.currentTurnId = null;
@@ -194,6 +210,7 @@ export class CodexSessionCommandController {
     command: CodexHostSessionCommand,
     outcome: { status: 'completed' } | { status: 'failed'; detail: string },
     failedSubtype: 'error' | 'interrupted' = 'error',
+    compaction?: CompactionSnapshot,
   ): void {
     const failed = outcome.status === 'failed';
     this.emit(session, 'message', {
@@ -207,6 +224,11 @@ export class CodexSessionCommandController {
           ),
       ...(failed ? { error: true } : {}),
       sessionCommandStatus: { command, status: outcome.status },
+      ...(compaction ? { compaction: { ...compaction,
+        status: failed ? failedSubtype === 'interrupted' ? 'interrupted' : 'failed' : 'completed',
+        completedAt: Date.now(), durationMs: Math.max(0, Date.now() - compaction.startedAt!),
+        ...(failed ? { error: outcome.detail } : {}),
+      } } : {}),
     });
     this.emit(session, 'finished', {
       ok: !failed,

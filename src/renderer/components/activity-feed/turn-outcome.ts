@@ -12,7 +12,9 @@ export function turnOutcome(payload: Record<string, unknown>): TurnOutcome {
   }
   if (payload.ok === false) {
     const reason = payload.failureReason === 'context-window-exceeded' ? '上下文已达到上限'
-      : subtype === 'rate_limit' ? '达到速率限制' : subtype;
+      : subtype === 'rate_limit' ? '达到速率限制'
+        : subtype === 'error_max_turns' ? '达到轮次上限'
+          : ['error', 'failed', 'error_during_execution'].includes(subtype) ? '' : subtype;
     return { text: `一轮失败${reason ? ` · ${reason}` : ''}`, icon: 'error' };
   }
   return { text: '一轮完成', icon: 'success' };

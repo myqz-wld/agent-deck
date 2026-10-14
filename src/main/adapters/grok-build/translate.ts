@@ -19,6 +19,7 @@ import {
 } from './live-token-rate-core';
 import type { GrokTranslationState } from './translation-types';
 import { collectGrokFileChanges } from './file-change-translate';
+import { translateGrokCompaction } from './compaction-translate';
 
 const AGENT_ID = 'grok-build';
 export type { GrokTranslationState } from './translation-types';
@@ -37,6 +38,7 @@ export function createGrokTranslationState(options: {
   liveRateObserver?: GrokLiveRateObserver;
 } = {}): GrokTranslationState {
   return {
+    compactions: new Map(),
     fileChanges: { pending: new Map(), completed: new Map() },
     toolNames: new Map(),
     toolKinds: new Map(),
@@ -307,11 +309,10 @@ export function translateGrokUpdate(
     case 'current_mode_update':
     case 'config_option_update':
     case 'session_info_update':
+      return [];
     case 'compaction_update':
     case 'compaction_summary_chunk':
-      // Agent Deck does not advertise ACP compaction support. Keep the new protocol variants
-      // exhaustively recognized without surfacing updates whose lifecycle the app cannot retain.
-      return [];
+      return [...flushGrokTextUpdates(sessionId, state), translateGrokCompaction(update, state, event, ts)];
     case 'usage_update':
       if (
         !Number.isFinite(update.used) ||

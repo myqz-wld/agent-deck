@@ -143,11 +143,11 @@ describe('translateCodexAppServerNotification', () => {
     expect(events).toEqual([
       {
         kind: 'context-compaction-start',
-        payload: { text: '🧭 正在压缩上下文' },
+        payload: { text: '🧭 正在压缩上下文', compactionId: 'compact-1', status: 'running' },
       },
       {
         kind: 'context-compaction-end',
-        payload: { text: '🧭 上下文已压缩\n\nkept scope', summary: 'kept scope' },
+        payload: { text: '🧭 上下文已压缩\n\nkept scope', summary: 'kept scope', compactionId: 'compact-1', status: 'completed' },
       },
       { kind: 'message', payload: { text: '🔎 已进入 review 模式', role: 'assistant' } },
       { kind: 'message', payload: { text: '🔎 已退出 review 模式', role: 'assistant' } },

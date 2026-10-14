@@ -2,6 +2,7 @@ import type { ActivityState, AgentEvent, SessionRecord } from '@shared/types';
 import { describeAgentToolInput, describeToolInput, resolveToolNameAlias } from './activity-feed/describe';
 import { turnOutcome } from './activity-feed/turn-outcome';
 import type { ActivityIconKind } from './activity-feed/activity-icon';
+import { compactionTitle, readCompaction } from '@shared/compaction';
 
 export interface LiveActivitySummary {
   text: string;
@@ -48,6 +49,9 @@ export function formatEventLine(event: AgentEvent): string | null {
 }
 
 function eventActivitySummary(event: AgentEvent): LiveActivitySummary | null {
+  const compaction = readCompaction(event);
+  if (compaction) return { text: compactionTitle(compaction.status), icon: compaction.status === 'failed'
+    ? 'error' : compaction.status === 'interrupted' ? 'interrupted' : 'compaction' };
   const p = payloadObject(event.payload);
   switch (event.kind) {
     case 'tool-use-start': {
@@ -66,8 +70,6 @@ function eventActivitySummary(event: AgentEvent): LiveActivitySummary | null {
       return text ? { text: `${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`,
         icon: Array.isArray(p.images) && p.images.length > 0 ? 'image' : 'message' } : null;
     }
-    case 'context-compaction-start': return { text: '正在压缩上下文', icon: 'compaction' };
-    case 'context-compaction-end': return { text: '上下文压缩完成', icon: 'compaction' };
     case 'subagent-start':
     case 'subagent-end': {
       const type = textValue(p.subagentType);

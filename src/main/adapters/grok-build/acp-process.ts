@@ -248,6 +248,7 @@ export class GrokAcpProcess implements GrokAcpSession {
             fs: { readTextFile: false, writeTextFile: false },
             terminal: false,
             plan: {},
+            session: { compaction: {} },
           },
           clientInfo: { name: 'Agent Deck', version: '0.1.0' },
         }),

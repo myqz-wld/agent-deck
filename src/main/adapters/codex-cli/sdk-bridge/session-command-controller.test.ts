@@ -3,6 +3,7 @@ import type { AgentEvent } from '@shared/types';
 import { describe, expect, it, vi } from 'vitest';
 import { CodexSessionCommandController } from './session-command-controller';
 import type { InternalSession } from './types';
+import { readCompaction } from '@shared/compaction';
 
 function session(thread: Record<string, unknown>): InternalSession {
   return {
@@ -39,6 +40,17 @@ function harness(internal: InternalSession) {
 }
 
 describe('Codex session command controller', () => {
+  it('keeps a native compact interruption neutral with the same operation identity', async () => {
+    const internal = session({ compactStreamed: async () => ({ events: (async function* () {
+      yield { type: 'server.notification', runtimeIdentity: null, notification: { method: 'turn/completed',
+        params: { turn: { id: 'turn-interrupted', status: 'interrupted' } } } };
+    })() }) });
+    const { controller, events } = harness(internal);
+    await controller.execute('app-session', 'compact');
+    await vi.waitFor(() => expect(internal.activeControlCommand).toBeNull());
+    expect(readCompaction(events[1])).toMatchObject({ id: readCompaction(events[0])?.id, status: 'interrupted', trigger: 'manual' });
+    expect(events.at(-1)?.payload).toMatchObject({ ok: false, subtype: 'interrupted' });
+  });
   it('binds /clear to a fresh native thread while preserving the application id', async () => {
     const fresh = {
       ensureReady: vi.fn(async () => 'native-new'),
@@ -123,8 +135,9 @@ describe('Codex session command controller', () => {
     internal.pendingTurns.append({ input: 'follow-up' });
     await vi.waitFor(() => expect(internal.activeControlCommand).toBeNull());
 
-    expect(events).toHaveLength(2);
-    expect(events[0]).toMatchObject({
+    expect(events).toHaveLength(3);
+    expect(events[0]).toMatchObject({ kind: 'context-compaction-start', payload: { compaction: { status: 'running', trigger: 'manual' } } });
+    expect(events[1]).toMatchObject({
       kind: 'message',
       payload: {
         role: 'system',
@@ -132,7 +145,7 @@ describe('Codex session command controller', () => {
         sessionCommandStatus: { command: 'compact', status: 'completed' },
       },
     });
-    expect(events[1]).toMatchObject({
+    expect(events[2]).toMatchObject({
       kind: 'finished',
       payload: { ok: true, subtype: 'end_turn' },
     });
@@ -166,8 +179,9 @@ describe('Codex session command controller', () => {
     await controller.execute('app-session', 'compact');
     await vi.waitFor(() => expect(internal.activeControlCommand).toBeNull());
 
-    expect(events).toHaveLength(2);
-    expect(events[0]).toMatchObject({
+    expect(events).toHaveLength(3);
+    expect(events[0].kind).toBe('context-compaction-start');
+    expect(events[1]).toMatchObject({
       kind: 'message',
       payload: {
         role: 'system',
@@ -176,7 +190,7 @@ describe('Codex session command controller', () => {
         sessionCommandStatus: { command: 'compact', status: 'failed' },
       },
     });
-    expect(events[1]).toMatchObject({
+    expect(events[2]).toMatchObject({
       kind: 'finished',
       payload: { ok: false, subtype: 'error' },
     });

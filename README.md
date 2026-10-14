@@ -8,6 +8,7 @@ Manage agent sessions, project work, and collaboration in one place.
 - Manage sessions with searchable history and usage tracking.
 - Coordinate agents, tasks, reviews, and handoffs.
 - View Markdown, images, file diffs, and command output.
+- Track compaction, commands, and background tasks in a unified activity timeline.
 - Answer agent questions and handle approvals in one workspace.
 - Work with built-in Agents, Skills, and Browser tools.
 - Connect local projects, remote workspaces, and Feishu chat.

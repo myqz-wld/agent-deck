@@ -24,6 +24,9 @@ import { presentMessageDisplays } from './message-display-presentation';
 import { activityToolCallKey, deriveToolCallPresentation } from './tool-call-presentation';
 import { backgroundTaskIdentity, presentBackgroundTasks } from './background-task-presentation';
 import { BackgroundTaskRow } from './rows/background-task-row';
+import { readCompaction } from '@shared/compaction';
+import { presentCompactions } from './compaction-presentation';
+import { CompactionRow } from './rows/compaction-row';
 
 type ResolvePending = (sessionId: string, requestId: string) => void;
 const EMPTY_IDS: ReadonlySet<string> = new Set();
@@ -78,7 +81,7 @@ export function ActivityRecordsView({
   const events = useMemo(() => incomingEvents.map((event) =>
     !event.agentId && event.sessionId === sessionId ? { ...event, agentId } : event),
   [agentId, incomingEvents, sessionId]);
-  const presentedEvents = useMemo(() => presentBackgroundTasks(presentMessageDisplays(events)), [events]);
+  const presentedEvents = useMemo(() => presentCompactions(presentBackgroundTasks(presentMessageDisplays(events))), [events]);
   const derived = useMemo(() => deriveSources(events, pendingIds, isSdk), [events, pendingIds, isSdk]);
   const initialPending = !loaded && loadError === null && events.length === 0;
   const showInitialLoading = useDelayedAsyncFallback(
@@ -123,6 +126,7 @@ export function ActivityRecordsView({
         {presentedEvents.map((event) => {
           if (derived.attachedFileChanges.has(event)) return null;
           const displayMessageId = (event.payload as { displayMessageId?: string } | null)?.displayMessageId;
+          const compactionId = (event.payload as { presentationCompactionId?: string } | null)?.presentationCompactionId;
           const useId = activityToolCallKey(event);
           const backgroundId = backgroundTaskIdentity(event);
           const pairedStart = event.kind === 'tool-use-end' && useId
@@ -134,9 +138,9 @@ export function ActivityRecordsView({
           const row = deriveRowState(event, derived);
           return (
             <ActivityRow
-              key={backgroundId ? `background:${backgroundId}` : displayMessageId ? `display:${displayMessageId}`
+              key={compactionId ?? (backgroundId ? `background:${backgroundId}` : displayMessageId ? `display:${displayMessageId}`
                 : event.kind !== 'file-changed' && useId ? `tool:${useId}`
-                : planEventId(event) ? `${event.sessionId}:plan:${planEventId(event)}` : activityEventIdentity(event)}
+                : planEventId(event) ? `${event.sessionId}:plan:${planEventId(event)}` : activityEventIdentity(event))}
               event={visibleEvent}
               endEvent={pairedStart ? { ...event, payload: mergeToolUsePayload(pairedStart.payload, event.payload) } : undefined}
               fileChanges={event.kind === 'file-changed' ? derived.standaloneFileChanges.get(event)
@@ -205,6 +209,7 @@ export const ActivityRow = memo(function ActivityRow({
     event.kind === 'finished' &&
     (event.payload as { suppressTimeline?: unknown } | null)?.suppressTimeline === true
   ) return null;
+  if (readCompaction(event)) return <CompactionRow event={event} />;
   if (event.kind === 'message') {
     return <MessageBubble event={event} agentId={agentId} showAttachments={allowLocalAssets} />;
   }

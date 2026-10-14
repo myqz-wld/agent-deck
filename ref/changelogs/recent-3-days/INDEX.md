@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-10-14 | `CHANGELOG_681_unified-compaction-status.md` | Unify compaction, commands, and activity; preserve system bubbles |
 | 2026-10-14 | `CHANGELOG_680_provider-runtime-readme-refresh.md` | Refresh bundled Claude and Grok; simplify the project README |
 | 2026-10-14 | `CHANGELOG_679_runtime-confirmation-parity.md` | Align permission and sandbox confirmations across providers and surfaces |
 | 2026-10-14 | `CHANGELOG_678_runtime-log-observability.md` | Bound Worker logs and add private runtime/heartbeat diagnostics |

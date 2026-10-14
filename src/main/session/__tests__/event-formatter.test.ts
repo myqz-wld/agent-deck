@@ -158,7 +158,7 @@ describe('formatEventsForPrompt — 排序契约', () => {
       },
     ];
     const out = formatEventsForPrompt(events);
-    expect(out).toContain('[上下文压缩完成] auto');
+    expect(out).toContain('[上下文已压缩] auto');
     expect(out).toContain('[子代理开始] reviewer');
     expect(out).not.toContain('partial duplicate');
   });

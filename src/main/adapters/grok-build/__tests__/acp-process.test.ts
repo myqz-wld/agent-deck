@@ -166,6 +166,7 @@ describe('GrokAcpProcess', () => {
       expect(
         child.initializeResponse.agentCapabilities?.promptCapabilities?.image,
       ).toBe(true);
+      expect(child.initializeResponse._meta?.clientCapabilities).toMatchObject({ session: { compaction: {} } });
       const created = await child.connection.agent.request(
         methods.agent.session.new,
         { cwd: globalThis.process.cwd(), mcpServers: [] },

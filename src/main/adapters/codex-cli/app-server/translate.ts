@@ -199,7 +199,7 @@ function translateItemStarted(item: AnyRecord, emit: EmitFn): void {
   if (translateCodexDisplayItemStarted(item, emit)) return;
   const type = item.type;
   if (type === 'contextCompaction') {
-    emit('context-compaction-start', { text: '🧭 正在压缩上下文' });
+    emit('context-compaction-start', { text: '🧭 正在压缩上下文', compactionId: item.id, status: 'running' });
   } else if (type === 'commandExecution') {
     emit('tool-use-start', {
       toolName: 'Bash',
@@ -339,6 +339,7 @@ function translateItemCompleted(
     case 'contextCompaction': {
       const text = itemText(item);
       emit('context-compaction-end', {
+        compactionId: item.id, status: 'completed',
         text: text ? `🧭 上下文已压缩\n\n${text}` : '🧭 上下文已压缩',
         summary: text || undefined,
       });

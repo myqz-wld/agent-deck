@@ -15,7 +15,7 @@
  * - thinking-prelude 启发式（紧邻另一个 text 的 当前 block 是 thinking-prelude）
  */
 import type { AgentEvent } from '@shared/types';
-import { buildClaudeCompactMessageText } from '../compact-message';
+import { emitClaudeCompactCompletion, emitClaudeCompactionStatus } from './compaction-core';
 import {
   clearClaudeLiveTokenEstimateCore,
   completeClaudeLiveTokenEstimateCore,
@@ -48,7 +48,6 @@ import {
   claudeContextWindowPayload,
 } from './context-usage-core';
 import {
-  claudeCompactFailureTextCore,
   resolveClaudeFallbackModelCore,
   syncClaudeReportedPermissionModeCore,
   type ClaudeMessageTranslationStateHost,
@@ -87,6 +86,9 @@ export function translateSdkMessageCore(
   confirmClaudeUserMessageAcceptanceCore(emit, sessionId, msg, internal, host);
   if (isClaudeMainResponseFrame(msg)) internal.userTurnInFlight = true;
   if (translateClaudeBackgroundTasksCore(msg, internal, (snapshot) => e('background-task', snapshot))) return;
+  if (msg.type === 'system' && msg.subtype === 'status') {
+    emitClaudeCompactionStatus(internal, msg, e, ts);
+  }
 
   // SDK system/init is the authoritative primary-model report for the main session. Keep this
   // separate from assistant.message.model: assistant frames may describe fallback/subagent routing.
@@ -282,6 +284,7 @@ export function translateSdkMessageCore(
       const detail = r.errors?.join('\n') ?? r.result ?? r.subtype ?? 'unknown error';
       e('message', { text: `⚠ ${detail}`, error: true });
     }
+    internal.activeCompaction = undefined;
     e('finished', interruptedByUserMessage
       ? { ok: false, subtype: 'interrupted' }
       : claudeFinishedPayload(r));
@@ -304,16 +307,7 @@ export function translateSdkMessageCore(
       'context-usage',
       claudeContextUsagePayload(internal, { usedTokens: postTokens }),
     );
-    e('message', {
-      text: buildClaudeCompactMessageText({
-        trigger: metadata?.trigger,
-        preTokens: metadata?.pre_tokens,
-        postTokens: metadata?.post_tokens,
-        durationMs: metadata?.duration_ms,
-      }),
-      role: 'system',
-      sessionCommandStatus: { command: 'compact', status: 'completed' },
-    });
+    emitClaudeCompactCompletion(internal, msg, e, ts);
   } else if (
     msg.type === 'system' &&
     (msg.subtype === 'init' || msg.subtype === 'status') &&
@@ -343,29 +337,6 @@ export function translateSdkMessageCore(
       msg.permissionMode,
       host.state,
     );
-    const compactFailure = claudeCompactFailureTextCore(
-      msg as { compact_result?: unknown; compact_error?: unknown },
-    );
-    if (compactFailure) {
-      e('message', {
-        text: compactFailure,
-        role: 'system',
-        error: true,
-        sessionCommandStatus: { command: 'compact', status: 'failed' },
-      });
-    }
-  } else if (msg.type === 'system' && msg.subtype === 'status') {
-    const compactFailure = claudeCompactFailureTextCore(
-      msg as { compact_result?: unknown; compact_error?: unknown },
-    );
-    if (compactFailure) {
-      e('message', {
-        text: compactFailure,
-        role: 'system',
-        error: true,
-        sessionCommandStatus: { command: 'compact', status: 'failed' },
-      });
-    }
   } else if (msg.type === 'stream_event') {
     handleClaudeStreamEventForLiveRateCore(
       internal,

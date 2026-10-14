@@ -184,7 +184,7 @@ suite('SessionCard formatEventLine', () => {
   });
 
   it('first-class lifecycle events remain visible on session cards', () => {
-    expect(formatEventLine(ev('context-compaction-end', {}))).toBe('上下文压缩完成');
+    expect(formatEventLine(ev('context-compaction-end', {}))).toBe('上下文已压缩');
     expect(formatEventLine(ev('subagent-end', { subagentType: 'reviewer' }))).toBe(
       '子代理结束 · reviewer',
     );

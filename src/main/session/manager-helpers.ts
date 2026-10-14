@@ -1,6 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { basename, resolve as resolvePath, sep } from 'node:path';
 import type { ActivityState, AgentEvent } from '@shared/types';
+import { compactionRecord } from '@shared/compaction';
 
 /**
  * SessionManager 用到的 pure helpers。
@@ -44,6 +45,8 @@ export function nextActivityState(
   kind: AgentEvent['kind'],
   payload: unknown,
 ): ActivityState {
+  if (kind === 'message' && compactionRecord(payload).role === 'system'
+    && typeof compactionRecord(compactionRecord(payload).compaction).status === 'string') return current;
   if (kind === 'message' && (payload as { warning?: unknown; role?: unknown } | null)?.warning === true &&
       (payload as { role?: unknown }).role === 'system') return current;
   switch (kind) {

@@ -1,4 +1,5 @@
 import type { AgentEvent, StoredAgentEvent } from '@shared/types';
+import { compactionTitle, readCompaction } from '@shared/compaction';
 
 /**
  * 把 events 转成给 LLM 看的「最近活动」文本。`events` 入参按 (ts DESC, id DESC)（listForSession
@@ -31,6 +32,11 @@ export function formatEventsForPrompt(events: StoredAgentEvent[]): string {
   const lines: string[] = [];
   for (const e of ordered) {
     const p = (e.payload ?? {}) as Record<string, unknown>;
+    const compaction = readCompaction(e);
+    if (compaction) {
+      lines.push(`[${compactionTitle(compaction.status)}]${compaction.trigger ? ` ${compaction.trigger}` : ''}`);
+      continue;
+    }
     if (e.kind === 'message') {
       // 过滤用户输入和错误警告：只把 Claude 自己说的话作为"Claude 说"
       if (p.role === 'user' || p.error === true) continue;
@@ -53,12 +59,6 @@ export function formatEventsForPrompt(events: StoredAgentEvent[]): string {
     } else if (e.kind === 'file-changed') {
       const path = (p.filePath as string) || '';
       if (path) lines.push(`[Claude 改动文件] ${path}`);
-    } else if (e.kind === 'context-compaction-start') {
-      const trigger = compactValue(p.trigger, 80);
-      lines.push(`[上下文开始压缩]${trigger ? ` ${trigger}` : ''}`);
-    } else if (e.kind === 'context-compaction-end') {
-      const trigger = compactValue(p.trigger, 80);
-      lines.push(`[上下文压缩完成]${trigger ? ` ${trigger}` : ''}`);
     } else if (e.kind === 'subagent-start' || e.kind === 'subagent-end') {
       const subagent = compactValue(p.subagentType ?? p.subagentId, 160);
       lines.push(
