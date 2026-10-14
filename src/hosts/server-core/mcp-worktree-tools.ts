@@ -1,3 +1,4 @@
+import { WORKTREE_BOUNDARY_DESCRIPTION } from '@main/agent-deck-mcp/session-tool-descriptions';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
   ENTER_WORKTREE_OUTPUT_SCHEMA,
@@ -47,7 +48,7 @@ export function registerServerCoreWorktreeTools(
 ): void {
   server.registerTool('enter_worktree', {
     description:
-      'Create a detached Git worktree inside this Core Workspace and automatically move this session after the exact tool result is observed. Paths are Workspace-relative.',
+      'Create a detached Git worktree inside this Core Workspace and automatically move this session after the exact tool result is observed. Paths are Workspace-relative. ' + WORKTREE_BOUNDARY_DESCRIPTION,
     inputSchema: SERVER_CORE_ENTER_WORKTREE_SCHEMA,
     outputSchema: ENTER_WORKTREE_OUTPUT_SCHEMA,
   }, async (args) => {
@@ -64,7 +65,7 @@ export function registerServerCoreWorktreeTools(
 
   server.registerTool('exit_worktree', {
     description:
-      'Restore this session to its original Workspace directory and remove only its structured worktree lease. Dirty removal requires explicit discardChanges=true authorization.',
+      'Restore this session to its original Workspace directory and remove only its structured worktree lease. Dirty removal requires explicit user authorization for discardChanges=true; preserve changes otherwise. Unreferenced HEAD commits, runtime references or identity mismatches block removal. A cleanup_pending result retains the lease: resolve the reported condition and retry. ' + WORKTREE_BOUNDARY_DESCRIPTION,
     inputSchema: SERVER_CORE_EXIT_WORKTREE_SCHEMA,
     outputSchema: EXIT_WORKTREE_OUTPUT_SCHEMA,
   }, async (args) => {

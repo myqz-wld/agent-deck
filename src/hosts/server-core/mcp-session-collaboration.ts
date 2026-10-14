@@ -19,11 +19,13 @@ import type { ServerCoreMcpSessionPort } from './mcp-session-port';
 import {
   areServerCoreMcpSessionsRelated,
   projectServerCoreMcpSession,
+  projectServerCoreMcpCwd,
   type ServerCoreMcpSessionVisibilityPorts,
 } from './mcp-session-visibility';
 import { projectSessionEvents } from './session-event-projection';
+import { authorizeSessionShutdown, type SessionShutdownAuthority } from '@main/agent-deck-mcp/session-shutdown-authority';
+import { collectSessionDirectory } from '@main/agent-deck-mcp/session-directory';
 
-const MAX_SESSION_SCAN = 10_000;
 
 export interface ServerCoreMcpSessionRepositoryPort {
   get(sessionId: string): SessionRecord | null;
@@ -59,6 +61,8 @@ export interface ServerCoreMcpSessionCollaborationOptions {
   readonly teams: AgentDeckTeamRepo;
   readonly messages: AgentDeckMessageRepo;
   readonly successor: (sessionId: string) => string | null;
+  readonly ownershipLineage?: (sessionId: string) => readonly string[];
+  readonly requestShutdownApproval?: SessionShutdownAuthority['request'];
   readonly closeSession: (sessionId: string) => Promise<void>;
   readonly adapter: ServerCoreMcpMessageDispatcherOptions['adapter'];
   readonly appendChange: ServerCoreMcpMessageDispatcherOptions['appendChange'];
@@ -80,6 +84,7 @@ export class ServerCoreMcpSessionCollaboration implements ServerCoreMcpSessionPo
       sessions: options.sessions,
       teams: options.teams,
       successor: options.successor,
+      ownershipLineage: options.ownershipLineage,
     });
     this.dispatcher = new ServerCoreMcpMessageDispatcher({
       sessions: options.sessions,
@@ -105,25 +110,22 @@ export class ServerCoreMcpSessionCollaboration implements ServerCoreMcpSessionPo
 
   list(callerSessionId: string, args: ListSessionsArgs): ListSessionsResult {
     this.requireCaller(callerSessionId);
-    const base = this.listBase(args);
-    const all = args.spawnedByFilter
-      ? base
-      : base.filter((session) =>
-        areServerCoreMcpSessionsRelated(this.visibility, callerSessionId, session.id));
-    const offset = args.offset ?? 0;
-    const limit = args.limit ?? 50;
-    const page = all.slice(offset, offset + limit);
-    return {
-      total: page.length,
-      hasMore: all.length > offset + limit,
-      sessions: page.map((session) => projectServerCoreMcpSession(this.visibility, session)),
-    };
+    const { page, hasMore } = collectSessionDirectory(this.options.sessions,
+      { ...args, cwdFilter: undefined }, (session) => {
+        const cwd = projectServerCoreMcpCwd(this.options.workspaceRoot, session.cwd);
+        return cwd !== '[outside Workspace]' &&
+          (!args.cwdFilter || cwd.includes(args.cwdFilter)) &&
+          (args.scope === 'all' ||
+            areServerCoreMcpSessionsRelated(this.visibility, callerSessionId, session.id));
+      });
+    return { total: page.length, hasMore,
+      sessions: page.map((session) => projectServerCoreMcpSession(this.visibility, session)) };
   }
 
   get(callerSessionId: string, sessionId: string): GetSessionResult {
     this.requireCaller(callerSessionId);
     const target = this.options.sessions.get(sessionId);
-    if (!target) throw new Error(`Session ${sessionId} was not found`);
+    if (!target || target.hiddenFromHistory || projectServerCoreMcpCwd(this.options.workspaceRoot, target.cwd) === '[outside Workspace]') throw new Error(`Session ${sessionId} was not found in the metadata directory`);
     return projectServerCoreMcpSession(this.visibility, target);
   }
 
@@ -154,8 +156,10 @@ export class ServerCoreMcpSessionCollaboration implements ServerCoreMcpSessionPo
 
   send(callerSessionId: string, args: SendMessageArgs): SendMessageResult {
     const caller = this.requireCaller(callerSessionId);
-    const target = this.options.sessions.get(args.sessionId) ??
+    const requested = this.options.sessions.get(args.sessionId) ??
       this.options.sessions.findByCliSessionId(args.sessionId);
+    const canonicalId = this.canonicalSessionId(requested?.id ?? args.sessionId);
+    const target = this.options.sessions.get(canonicalId);
     if (!target) throw new Error(`Session ${args.sessionId} was not found`);
     if (target.id === caller.id) throw new Error('Cannot send a message to the caller session');
     if (target.lifecycle === 'closed' || target.archivedAt !== null) {
@@ -186,11 +190,21 @@ export class ServerCoreMcpSessionCollaboration implements ServerCoreMcpSessionPo
   async shutdown(
     callerSessionId: string,
     args: ShutdownSessionArgs,
+    signal?: AbortSignal,
   ): Promise<ShutdownSessionResult> {
     this.requireCaller(callerSessionId);
-    if (args.sessionId === callerSessionId) throw new Error('Cannot shut down the caller session');
-    const target = this.options.sessions.get(args.sessionId);
-    if (!target) throw new Error(`Session ${args.sessionId} was not found`);
+    const requested = this.options.sessions.get(args.sessionId);
+    if (requested && projectServerCoreMcpCwd(this.options.workspaceRoot, requested.cwd) === '[outside Workspace]') {
+      throw new Error('Shutdown target is outside the Core Workspace');
+    }
+    const consume = await authorizeSessionShutdown(callerSessionId, args.sessionId, {
+      get: (id) => this.options.sessions.get(id),
+      successor: (id) => this.options.successor(id),
+      lineage: (id) => this.options.ownershipLineage?.(id) ?? [id],
+      request: this.options.requestShutdownApproval ?? (() => Promise.reject(new Error('User confirmation is unavailable; nothing was closed'))),
+      displayCwd: (row) => projectServerCoreMcpSession(this.visibility, row).cwd,
+    }, signal);
+    const target = consume();
     const alreadyClosed = target.lifecycle === 'closed';
     if (alreadyClosed) {
       await retireClosedSessionRuntime(
@@ -203,43 +217,16 @@ export class ServerCoreMcpSessionCollaboration implements ServerCoreMcpSessionPo
     return { sessionId: target.id, lifecycle: 'closed', alreadyClosed };
   }
 
-  private listBase(args: ListSessionsArgs): SessionRecord[] {
-    const status = args.statusFilter ?? 'active';
-    const common = [
-      args.spawnedByFilter,
-      args.adapterFilter,
-    ] as const;
-    if (status === 'active' || status === 'dormant') {
-      return this.options.sessions.listActiveAndDormant(
-        MAX_SESSION_SCAN + 1,
-        0,
-        status,
-        ...common,
-      );
+  private canonicalSessionId(id: string): string {
+    const seen = new Set<string>();
+    for (let depth = 0; depth < 1024; depth++) {
+      if (seen.has(id)) throw new Error('Session handoff ownership cycle');
+      seen.add(id);
+      const next = this.options.successor(id);
+      if (!next) return id;
+      id = next;
     }
-    if (status === 'closed') {
-      return this.options.sessions.listHistory({
-        limit: MAX_SESSION_SCAN + 1,
-        offset: 0,
-        ...(common[0] ? { spawnedBy: common[0] } : {}),
-        ...(common[1] ? { agentId: common[1] } : {}),
-      });
-    }
-    const live = this.options.sessions.listActiveAndDormant(
-      MAX_SESSION_SCAN + 1,
-      0,
-      undefined,
-      ...common,
-    );
-    const history = this.options.sessions.listHistory({
-      limit: MAX_SESSION_SCAN + 1,
-      offset: 0,
-      ...(common[0] ? { spawnedBy: common[0] } : {}),
-      ...(common[1] ? { agentId: common[1] } : {}),
-    });
-    return [...live, ...history]
-      .sort((left, right) => (right.lastEventAt ?? 0) - (left.lastEventAt ?? 0))
-      .slice(0, MAX_SESSION_SCAN + 1);
+    throw new Error('Session handoff ownership exceeds its bound');
   }
 
   private requireCaller(sessionId: string): SessionRecord {
@@ -282,9 +269,11 @@ export class ServerCoreMcpSessionCollaboration implements ServerCoreMcpSessionPo
       throw new Error('Reply message is unavailable in the selected team scope');
     }
     if (teamId !== null) return;
+    const from = this.canonicalSessionId(original.fromSessionId);
+    const to = this.canonicalSessionId(original.toSessionId);
     const samePair =
-      (original.fromSessionId === callerSessionId && original.toSessionId === targetSessionId) ||
-      (original.fromSessionId === targetSessionId && original.toSessionId === callerSessionId);
+      (from === callerSessionId && to === targetSessionId) ||
+      (from === targetSessionId && to === callerSessionId);
     if (!samePair) throw new Error('Teamless reply belongs to another session pair');
   }
 }

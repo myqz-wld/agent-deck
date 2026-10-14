@@ -105,6 +105,8 @@ vi.mock('@main/store/session-repo', () => ({
   }),
 }));
 
+vi.mock('@main/store/session-handoff-alias-repo', () => ({ findSessionHandOffSuccessor: () => null }));
+
 vi.mock('@main/session/hand-off/ownership', () => ({
   isCurrentHandOffOwner: (owner: string | null, caller: string) =>
     owner === caller || (owner !== null && (handoffPredecessors.get(caller) ?? []).includes(owner)),
@@ -734,10 +736,11 @@ describe('agent-deck-mcp tools — external caller deny', () => {
     expect(parsed.data.error).toMatch(/not allowed for external caller/);
   });
 
-  it('list_sessions ALLOWS __external__ caller (read-only)', async () => {
+  it('list_sessions allows external metadata discovery with explicit all scope', async () => {
     const tools = await getTools({ transport: 'http', callerSessionId: '__external__' });
     seedSession('lead-1');
     const r = await tools.get('list_sessions').handler({
+      scope: 'all',
       statusFilter: 'active',
       limit: 50,
     }, {});
@@ -745,6 +748,17 @@ describe('agent-deck-mcp tools — external caller deny', () => {
     expect(parsed.isError).toBeFalsy();
     expect(parsed.data.sessions).toHaveLength(1);
   });
+
+  it.each([undefined, 'related'])(
+    'list_sessions rejects external callers without all scope (%s)', async (scope) => {
+      const tools = await getTools({ transport: 'http', callerSessionId: '__external__' });
+      seedSession('lead-1');
+      const parsed = parseResult(await tools.get('list_sessions').handler({ scope }, {}));
+      expect(parsed.isError).toBe(true);
+      expect(parsed.data.error).toContain('requires a real session caller');
+      expect(parsed.data.hint).toContain('scope "all"');
+    },
+  );
 
   it('shutdown_session denies __external__ caller', async () => {
     const tools = await getTools({ transport: 'http', callerSessionId: '__external__' });
@@ -787,7 +801,7 @@ describe('agent-deck-mcp tools — HTTP caller validation', () => {
       transport: 'in-process',
       callerSessionIdOverride: () => realCaller,
     });
-    seedSession('target');
+    seedSession('target', { spawnedBy: realCaller });
     const r = await tools.get('shutdown_session').handler({
       sessionId: 'target',
     }, {});
@@ -2296,8 +2310,8 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
-    expect(parsed.data.error).toMatch(/cannot shutdown self/);
-    expect(parsed.data.hint).toContain('use hand_off_session');
+    expect(parsed.data.error).toMatch(/caller session/);
+    expect(parsed.data.hint).toContain('get_session');
   });
 
   it('rejects nonexistent target', async () => {
@@ -2309,7 +2323,7 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toMatch(/not found/);
-    expect(parsed.data.hint).toContain('Call list_sessions');
+    expect(parsed.data.hint).toContain('get_session');
   });
 
   it('retires stale adapter cwd state on an already-closed target', async () => {
@@ -2342,14 +2356,14 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
 
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toContain('runtime cwd');
-    expect(parsed.data.hint).toContain('重启 Agent Deck');
+    expect(parsed.data.hint).toContain('reconcile');
     expect(runtimeCwds.has('teammate')).toBe(true);
   });
 
   it('calls sessionManager.close on active target', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
-    seedSession('teammate', { lifecycle: 'active' });
+    seedSession('teammate', { lifecycle: 'active', spawnedBy: 'lead' });
     const r = await tools.get('shutdown_session').handler({
       sessionId: 'teammate',
     }, {});
@@ -2362,7 +2376,7 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
   it('preserves close errors and tells the caller how to verify before retrying', async () => {
     const tools = await getTools({ transport: 'http' });
     seedSession('lead');
-    seedSession('teammate', { lifecycle: 'active' });
+    seedSession('teammate', { lifecycle: 'active', spawnedBy: 'lead' });
     closeThrow = new Error('adapter close failed');
 
     const r = await tools.get('shutdown_session').handler({
@@ -2373,40 +2387,48 @@ describe('agent-deck-mcp tools — shutdown_session', () => {
     expect(parsed.isError).toBe(true);
     expect(parsed.data.error).toBe('adapter close failed');
     expect(parsed.data.hint).toContain('get_session');
-    expect(parsed.data.hint).toContain('重试一次');
+    expect(parsed.data.hint).toContain('reconcile');
   });
 });
 
 describe('agent-deck-mcp tools — list_sessions', () => {
-  it('defaults to caller-related sessions only', async () => {
-    const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
-    seedSession('parent');
-    seedSession('caller', { spawnedBy: 'parent', spawnDepth: 1 });
-    seedSession('child', { spawnedBy: 'caller', spawnDepth: 2 });
-    seedSession('grandchild', { spawnedBy: 'child', spawnDepth: 3 });
-    seedSession('team-peer');
-    seedSession('unrelated');
-    seedSession('other-team-peer');
-    mockMembershipsBySession.set('caller', [{ teamId: 'team-x' }]);
-    mockMembershipsBySession.set('team-peer', [{ teamId: 'team-x' }]);
-    mockMembershipsBySession.set('other-team-peer', [{ teamId: 'team-y' }]);
-    mockTeamsById.set('team-x', { name: 'team-x' });
-    mockTeamsById.set('team-y', { name: 'team-y' });
+  it.each([undefined, 'related', 'all'])(
+    'defaults to related open sessions and expands only with all scope (%s)', async (scope) => {
+      const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
+      seedSession('parent');
+      seedSession('caller', { spawnedBy: 'parent', spawnDepth: 1 });
+      seedSession('child', { spawnedBy: 'caller', spawnDepth: 2 });
+      seedSession('grandchild', { spawnedBy: 'child', spawnDepth: 3, lifecycle: 'dormant' });
+      seedSession('team-peer');
+      seedSession('unrelated');
+      seedSession('unrelated-dormant', { lifecycle: 'dormant' });
+      seedSession('closed-child', { spawnedBy: 'caller', lifecycle: 'closed' });
+      seedSession('other-team-peer');
+      mockMembershipsBySession.set('caller', [{ teamId: 'team-x' }]);
+      mockMembershipsBySession.set('team-peer', [{ teamId: 'team-x' }]);
+      mockMembershipsBySession.set('other-team-peer', [{ teamId: 'team-y' }]);
+      mockTeamsById.set('team-x', { name: 'team-x' });
+      mockTeamsById.set('team-y', { name: 'team-y' });
 
-    const r = await tools.get('list_sessions').handler({
-      statusFilter: 'active',
-      limit: 50,
-    }, {});
-    const parsed = parseResult(r);
-    expect(parsed.isError).toBeFalsy();
-    expect(parsed.data.sessions.map((s: any) => s.sessionId).sort()).toEqual([
-      'caller',
-      'child',
-      'grandchild',
-      'parent',
-      'team-peer',
-    ]);
-  });
+      const r = await tools.get('list_sessions').handler({
+        scope,
+      }, {});
+      const parsed = parseResult(r);
+      expect(parsed.isError).toBeFalsy();
+      const relatedIds = [
+        'caller',
+        'child',
+        'grandchild',
+        'parent',
+        'team-peer',
+      ];
+      expect(parsed.data.sessions.map((s: any) => s.sessionId).sort()).toEqual(
+        (scope === 'all'
+          ? [...relatedIds, 'other-team-peer', 'unrelated', 'unrelated-dormant']
+          : relatedIds).sort(),
+      );
+    },
+  );
 
   it('keeps predecessor descendants visible to the current handoff owner', async () => {
     const tools = await getTools({ transport: 'http', callerSessionId: 'successor' });
@@ -2417,6 +2439,7 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     handoffPredecessors.set('successor', ['source']);
 
     const r = await tools.get('list_sessions').handler({
+      scope: 'related',
       statusFilter: 'active',
       limit: 50,
     }, {});
@@ -2478,6 +2501,7 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     seedSession('codex-child', { agentId: 'codex-cli', spawnedBy: 'caller' });
     seedSession('unrelated-codex', { agentId: 'codex-cli' });
     const r = await tools.get('list_sessions').handler({
+      scope: 'related',
       statusFilter: 'active',
       adapterFilter: 'codex-cli',
       limit: 50,
@@ -2505,17 +2529,21 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     expect(parsed.data.sessions.map((s: any) => s.sessionId).sort()).toEqual(['a-c1', 'a-c2']);
   });
 
-  it('keeps explicit spawnedByFilter broad for reset rescue', async () => {
+  it('requires explicit all scope for unrelated spawnedByFilter recovery', async () => {
     const tools = await getTools({ transport: 'http', callerSessionId: 'caller' });
     seedSession('caller');
     seedSession('old-lead');
     seedSession('old-child', { spawnedBy: 'old-lead' });
     seedSession('unrelated');
-    const r = await tools.get('list_sessions').handler({
+    const filters = {
       statusFilter: 'active',
       spawnedByFilter: 'old-lead',
       limit: 50,
-    }, {});
+    };
+    const related = parseResult(await tools.get('list_sessions').handler(filters, {}));
+    expect(related.isError).toBeFalsy();
+    expect(related.data.sessions).toEqual([]);
+    const r = await tools.get('list_sessions').handler({ ...filters, scope: 'all' }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(parsed.data.sessions).toHaveLength(1);
@@ -2530,6 +2558,7 @@ describe('agent-deck-mcp tools — list_sessions', () => {
     seedSession('old-child-2', { spawnedBy: 'old-lead', lastEventAt: 200 });
     seedSession('old-child-3', { spawnedBy: 'old-lead', lastEventAt: 100 });
     const r = await tools.get('list_sessions').handler({
+      scope: 'all',
       statusFilter: 'active',
       spawnedByFilter: 'old-lead',
       limit: 1,

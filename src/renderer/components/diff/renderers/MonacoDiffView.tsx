@@ -49,6 +49,8 @@ function MonacoDiffModel({ before, after, language }: Props): JSX.Element {
       frame.current = window.requestAnimationFrame(() => {
         if (!active.current) return;
         editor.layout();
+        // Position once after diff computation; later notifications for this model must not reset user scrolling.
+        editor.revealFirstDiff();
         frame.current = window.requestAnimationFrame(() => {
           if (active.current) setReady(true);
         });

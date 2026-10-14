@@ -16,9 +16,9 @@ export function registerServerCoreSpawnTool(
 ): void {
   server.registerTool('spawn_session', {
     description:
-      'Start one fresh or provider-native forked session inside this Core Workspace. The cwd is Workspace-relative. agentName selects an enabled built-in Agent whose node-owned runtime settings are applied before explicit overrides. Fork requires the authenticated caller\'s exact adapter, native runtime selector, and realpath cwd; recursion, fan-out, and rate are bounded.',
+      'Start one fresh or provider-native forked session inside this Core Workspace. The cwd is Workspace-relative. agentName selects an enabled built-in Agent whose node-owned runtime settings are applied before explicit overrides. Fork requires the authenticated caller\'s exact adapter, native runtime selector, and realpath cwd; recursion, fan-out, and rate are bounded. Explicit arguments override the selected Agent and Core-owned target defaults; fresh spawn does not inherit the caller runtime. Adapter-incompatible controls reject, and provider permissions plus the Workspace ceiling remain enforced. This non-idempotent call starts provider work, records a spawn edge, and may create team memberships and a reply anchor; duplicates can create multiple targets. Returns canonical sessionId and a Workspace-relative cwd, with spawnLimits describing guards rather than reserved capacity. Record the returned identity and non-null reply anchor. No application timeout or automatic retry is configured; on an uncertain failure reconcile target/cleanup state before retrying.',
     inputSchema: SERVER_CORE_SPAWN_SESSION_SCHEMA,
-    outputSchema: SPAWN_SESSION_OUTPUT_SCHEMA,
+    outputSchema: SPAWN_SESSION_OUTPUT_SCHEMA.safeExtend({ cwd: SERVER_CORE_SPAWN_SESSION_SCHEMA.cwd }),
   }, async (args) => {
     try {
       const caller = requireServerCoreMcpCaller(context);

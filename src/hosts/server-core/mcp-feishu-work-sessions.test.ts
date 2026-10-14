@@ -25,8 +25,8 @@ describe('work-session MCP read contract', () => {
         const result = structuredPayload(await client.callTool({ name: 'list_work_sessions', arguments: {} }));
         expect(result).toMatchObject({ assistantSessionId: 'caller-a', sessions: [{ sessionId: 'caller-b', lifecycle: 'dormant' }],
           hasMore: false, nextOffset: null });
-        const generic = structuredPayload(await client.callTool({ name: 'list_sessions', arguments: {} }));
-        expect(generic).toMatchObject({ sessions: [{ sessionId: 'caller-a' }] });
+        const generic = structuredPayload(await client.callTool({ name: 'list_sessions', arguments: { scope: 'all' } }));
+        expect(generic).toMatchObject({ sessions: [{ sessionId: 'caller-a' }, { sessionId: 'caller-b' }] });
         expect(changes).toEqual([]);
         expect(records.get('caller-a')?.codexApprovalPolicy).toBe('never');
       });

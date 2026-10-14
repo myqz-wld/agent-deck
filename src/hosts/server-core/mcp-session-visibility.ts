@@ -14,6 +14,7 @@ export interface ServerCoreMcpSessionVisibilityPorts {
     'findActiveMembershipsBySessionIds' | 'findSharedActiveTeams'
   >;
   readonly successor: (sessionId: string) => string | null;
+  readonly ownershipLineage?: (sessionId: string) => readonly string[];
 }
 
 function inside(root: string, target: string): boolean {
@@ -90,8 +91,8 @@ export function areServerCoreMcpSessionsRelated(
   targetSessionId: string,
 ): boolean {
   if (callerSessionId === targetSessionId) return true;
-  const callers = forwardLineage(callerSessionId, ports.successor);
-  const targets = forwardLineage(targetSessionId, ports.successor);
+  const callers = ports.ownershipLineage?.(callerSessionId) ?? forwardLineage(callerSessionId, ports.successor);
+  const targets = ports.ownershipLineage?.(targetSessionId) ?? forwardLineage(targetSessionId, ports.successor);
   for (const caller of callers) {
     for (const target of targets) {
       if (

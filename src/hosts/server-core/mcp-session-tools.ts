@@ -1,3 +1,4 @@
+import { LIST_SESSIONS_DESCRIPTION, GET_SESSION_DESCRIPTION, SESSION_EVENTS_DESCRIPTION, SEND_MESSAGE_DESCRIPTION, SHUTDOWN_SESSION_DESCRIPTION } from '@main/agent-deck-mcp/session-tool-descriptions';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
   GET_SESSION_SCHEMA,
@@ -54,8 +55,7 @@ export function registerServerCoreSessionTools(
   context: ServerCoreMcpCallContext,
 ): void {
   server.registerTool('list_sessions', {
-    description:
-      'List related Server Core sessions using Workspace-relative paths and no host identity.',
+    description: LIST_SESSIONS_DESCRIPTION,
     inputSchema: LIST_SESSIONS_SCHEMA,
     outputSchema: LIST_SESSIONS_OUTPUT_SCHEMA,
     annotations: SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS,
@@ -64,7 +64,7 @@ export function registerServerCoreSessionTools(
     (callerId) => context.host.collaboration.list(callerId, args),
   ));
   server.registerTool('get_session', {
-    description: 'Read one Server Core session using a Workspace-relative projection.',
+    description: GET_SESSION_DESCRIPTION,
     inputSchema: GET_SESSION_SCHEMA,
     outputSchema: GET_SESSION_OUTPUT_SCHEMA,
     annotations: SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS,
@@ -73,8 +73,7 @@ export function registerServerCoreSessionTools(
     (callerId) => context.host.collaboration.get(callerId, args.sessionId),
   ));
   server.registerTool('list_session_events', {
-    description:
-      'Read bounded normalized activity for a related session without raw provider transcripts.',
+    description: SESSION_EVENTS_DESCRIPTION,
     inputSchema: LIST_SESSION_EVENTS_SCHEMA,
     outputSchema: LIST_SESSION_EVENTS_OUTPUT_SCHEMA,
     annotations: SERVER_CORE_READ_ONLY_TOOL_ANNOTATIONS,
@@ -83,8 +82,7 @@ export function registerServerCoreSessionTools(
     (callerId) => context.host.collaboration.listEvents(callerId, args),
   ));
   server.registerTool('send_message', {
-    description:
-      'Queue a durable user-role message for another live Server Core session.',
+    description: SEND_MESSAGE_DESCRIPTION,
     inputSchema: SEND_MESSAGE_SCHEMA,
     outputSchema: SEND_MESSAGE_OUTPUT_SCHEMA,
   }, (args: SendMessageArgs) => mutate(
@@ -92,12 +90,11 @@ export function registerServerCoreSessionTools(
     (callerId) => context.host.collaboration.send(callerId, args),
   ));
   server.registerTool('shutdown_session', {
-    description:
-      'Close another Server Core session without deleting its durable history.',
+    description: SHUTDOWN_SESSION_DESCRIPTION,
     inputSchema: SHUTDOWN_SESSION_SCHEMA,
     outputSchema: SHUTDOWN_SESSION_OUTPUT_SCHEMA,
-  }, (args: ShutdownSessionArgs) => mutate(
+  }, (args: ShutdownSessionArgs, extra) => mutate(
     context,
-    (callerId) => context.host.collaboration.shutdown(callerId, args),
+    (callerId) => context.host.collaboration.shutdown(callerId, args, extra.signal),
   ));
 }

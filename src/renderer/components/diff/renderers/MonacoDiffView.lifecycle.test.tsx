@@ -11,6 +11,7 @@ const runtime = vi.hoisted(() => {
   interface Editor {
     model: { original: Model; modified: Model } | null;
     disposed: boolean;
+    revealFirstDiff(): void;
     getModel(): Editor['model'];
     setModel(model: Editor['model']): void;
     dispose(): void;
@@ -44,6 +45,7 @@ const runtime = vi.hoisted(() => {
       }),
       createDiffEditor: vi.fn(() => {
         const editor: Editor = {
+          revealFirstDiff() {},
           model: null, disposed: false,
           getModel: () => editor.model,
           setModel(model) { editor.model = model; },

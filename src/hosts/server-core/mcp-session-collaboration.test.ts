@@ -10,6 +10,8 @@ import {
 } from '@main/store/__tests__/agent-deck-repos/_setup';
 import type { SessionRecord, StoredAgentEvent } from '@shared/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
+import { LIST_SESSIONS_SCHEMA } from '@main/agent-deck-mcp/tools/schemas';
 
 import { ServerCoreMcpSessionCollaboration } from './mcp-session-collaboration';
 
@@ -75,6 +77,10 @@ function harness() {
     closeSession: closeAdapterSession,
     getRuntimeCwd: (sessionId: string) => runtimeCwds.get(sessionId) ?? null,
   } as unknown as AgentAdapter;
+  const successors = new Map<string, string>();
+  const requestShutdownApproval = vi.fn(async (_id: string, args: import('@main/agent-deck-mcp/tools/schemas/ask-user').AskUserArgs) => ({
+    status: 'answered' as const, answers: [{ question: args.questions[0].question, selected: ['确认关闭'] }],
+  }));
   const collaboration = new ServerCoreMcpSessionCollaboration({
     workspaceRoot,
     privateRoots: [privateRoot],
@@ -101,7 +107,9 @@ function harness() {
     },
     teams,
     messages,
-    successor: () => null,
+    successor: (id) => successors.get(id) ?? null,
+    ownershipLineage: (id) => [id, ...[...successors].filter(([, to]) => to === id).map(([from]) => from)],
+    requestShutdownApproval,
     closeSession,
     adapter: () => adapter,
     appendChange: (kind, entityId) => changes.push({ kind, entityId }),
@@ -109,6 +117,7 @@ function harness() {
   });
   collaborations.push(collaboration);
   return {
+    database, successors, requestShutdownApproval,
     changes,
     closeAdapterSession,
     closeSession,
@@ -130,28 +139,41 @@ afterEach(async () => {
 });
 
 describe('ServerCoreMcpSessionCollaboration', () => {
-  it('projects only related sessions by default and keeps every cwd inside Workspace vocabulary', () => {
-    const state = harness();
-    const visible = state.collaboration.list('caller', {
-      statusFilter: 'active',
-      limit: 50,
-      offset: 0,
-    });
-    expect(visible.sessions.map((row) => row.sessionId)).toEqual(['caller', 'child']);
-    expect(visible.sessions.map((row) => row.cwd)).toEqual(['.', 'project-a']);
+  it.each([undefined, 'related', 'all'])(
+    'defaults to related open metadata and expands only with all scope (%s)', (scope) => {
+      const state = harness();
+      state.records.get('child')!.lifecycle = 'dormant';
+      state.records.get('peer')!.lifecycle = 'dormant';
+      state.records.set('closed-child', session('closed-child', state.workspaceRoot, {
+        spawnedBy: 'caller', lifecycle: 'closed',
+      }));
+      const visible = state.collaboration.list('caller', z.object(LIST_SESSIONS_SCHEMA).parse({ scope }));
+      expect(visible.sessions.map((row) => row.sessionId)).toEqual(
+        scope === 'all' ? ['caller', 'child', 'peer'] : ['caller', 'child'],
+      );
+      expect(visible.sessions.map((row) => row.cwd)).toEqual(
+        scope === 'all' ? ['.', 'project-a', 'project-b'] : ['.', 'project-a'],
+      );
 
-    const recovered = state.collaboration.list('caller', {
-      statusFilter: 'active',
-      spawnedByFilter: 'old-lead',
-      limit: 50,
-      offset: 0,
-    });
-    expect(recovered.sessions).toHaveLength(1);
-    expect(recovered.sessions[0]).toMatchObject({
-      sessionId: 'stranded',
-      cwd: '[outside Workspace]',
-    });
-    expect(state.collaboration.get('caller', 'peer').cwd).toBe('project-b');
+      const recovered = state.collaboration.list('caller', {
+        scope: 'all',
+        statusFilter: 'active',
+        spawnedByFilter: 'old-lead',
+        limit: 50,
+        offset: 0,
+      });
+      expect(recovered.sessions).toHaveLength(0);
+      expect(state.collaboration.get('caller', 'peer').cwd).toBe('project-b');
+    },
+  );
+
+  it('does not let a parent filter expand the default related scope', () => {
+    const state = harness();
+    state.records.get('peer')!.spawnedBy = 'old-lead';
+    const filters = z.object(LIST_SESSIONS_SCHEMA).parse({ spawnedByFilter: 'old-lead' });
+    expect(state.collaboration.list('caller', filters).sessions).toEqual([]);
+    expect(state.collaboration.list('caller', { ...filters, scope: 'all' }).sessions
+      .map(row => row.sessionId)).toEqual(['peer']);
   });
 
   it('bounds related event reads and removes private, outside, attachment, and binary data', () => {
@@ -223,7 +245,7 @@ describe('ServerCoreMcpSessionCollaboration', () => {
     expect(state.changes.some((change) => change.kind === 'message.updated')).toBe(true);
   });
 
-  it('fences reply scope and closes another session without requiring a team relation', async () => {
+  it('fences reply scope and requires user approval to close an unrelated session', async () => {
     const state = harness();
     await state.collaboration.start();
     const first = state.collaboration.send('caller', {
@@ -243,9 +265,32 @@ describe('ServerCoreMcpSessionCollaboration', () => {
       lifecycle: 'closed',
       alreadyClosed: false,
     });
+    expect(state.requestShutdownApproval).toHaveBeenCalledOnce();
     expect(state.closeSession).toHaveBeenCalledWith('peer');
     await expect(state.collaboration.shutdown('caller', { sessionId: 'caller' }))
       .rejects.toThrow('caller session');
+  });
+
+  it('retains predecessor children and delivered teamless reply anchors after handoff', async () => {
+    const state = harness();
+    await state.collaboration.start();
+    insertSession(state.database, 'successor', 'codex-cli');
+    const wire = state.collaboration.send('caller', { sessionId: 'child', text: 'work' });
+    state.messages.markDelivered(wire.messageId, 10001);
+    state.records.set('successor', session('successor', state.workspaceRoot));
+    state.records.get('caller')!.lifecycle = 'closed';
+    state.successors.set('caller', 'successor');
+    const related = state.collaboration.list('successor', {
+      statusFilter: 'open', scope: 'related', limit: 50, offset: 0,
+    });
+    expect(related.sessions.map(row => row.sessionId)).toEqual(['child', 'successor']);
+    expect(state.collaboration.listEvents('successor', { sessionId: 'child', limit: 100, offset: 0 }).events).toEqual([]);
+    const reply = state.collaboration.send('child', {
+      sessionId: 'caller', text: 'done', replyToMessageId: wire.messageId,
+    });
+    expect(reply.sessionId).toBe('successor');
+    await state.collaboration.shutdown('successor', { sessionId: 'child' });
+    expect(state.requestShutdownApproval).not.toHaveBeenCalled();
   });
 
   it('re-runs adapter retirement for an already-closed session without rewriting it', async () => {

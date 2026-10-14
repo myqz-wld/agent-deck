@@ -23,6 +23,9 @@ vi.mock('@main/utils/logger', () => ({
   },
 }));
 
+vi.mock('@main/store/session-handoff-alias-repo', () => ({ findSessionHandOffSuccessor: () => null }));
+vi.mock('@main/session/hand-off/ownership', () => ({ sessionOwnershipLineage: (id: string) => [id] }));
+
 import { shutdownSessionHandler } from '../tools/handlers/shutdown';
 
 function session(id: string): SessionRecord {
@@ -45,7 +48,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.sessions.clear();
   mocks.sessions.set('caller-sid', session('caller-sid'));
-  mocks.sessions.set('target-sid', session('target-sid'));
+  mocks.sessions.set('target-sid', { ...session('target-sid'), spawnedBy: 'caller-sid' });
 });
 
 describe('shutdown_session operator logging', () => {

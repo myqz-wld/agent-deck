@@ -1,3 +1,4 @@
+import { HANDOFF_LIFECYCLE_DESCRIPTION } from '@main/agent-deck-mcp/session-tool-descriptions';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { HAND_OFF_SESSION_OUTPUT_SCHEMA } from '@main/agent-deck-mcp/tools/schemas';
 
@@ -15,7 +16,7 @@ export function registerServerCoreHandOffTool(
 ): void {
   server.registerTool('hand_off_session', {
     description:
-      'Atomically continue this logical session in a fresh Core-owned provider session. Cwd is Workspace-relative; tasks, active teams, worktree ownership, pending presentations, and message endpoints move only after the successor accepts its trusted continuation.',
+      'Atomically continue this logical session in a fresh Core-owned provider session. Cwd is Workspace-relative. Omitted runtime values inherit the source only for the same adapter; cross-adapter targets use Core defaults, explicit values win, and the Workspace ceiling still applies. Pending cwd transitions reject before creating a successor. Tasks, active teams, worktree ownership, pending presentations, and message endpoints move only after the successor accepts its trusted continuation. ' + HANDOFF_LIFECYCLE_DESCRIPTION,
     inputSchema: SERVER_CORE_HANDOFF_SESSION_SCHEMA,
     outputSchema: HAND_OFF_SESSION_OUTPUT_SCHEMA,
   }, async (args) => {

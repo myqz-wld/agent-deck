@@ -1,3 +1,4 @@
+import toolRegistry from '../../agent-deck-mcp/tools/index.ts?raw';
 import { describe, expect, it } from 'vitest';
 import { parseFrontmatter } from '@main/utils/frontmatter';
 import { parseCodexAgentToml } from '@shared/codex-agent-toml';
@@ -211,13 +212,19 @@ describe('bundled reviewer runtime contract', () => {
 
     for (const runtime of [claudeRuntime, codexRuntime, grokRuntime]) {
       expect(runtime).toContain(batchedScope);
-      expect(runtime).toContain('one bounded, independently executable subtask');
-      expect(runtime).toContain('exact scope and non-overlapping write set');
-      expect(runtime).toContain('A null `spawnPromptMessageId` is not a reply anchor');
-      expect(runtime).toContain('`spawn_session` non-idempotently starts one parallel target');
-      expect(runtime).toContain('Omitted `contextMode` is `fresh`');
+      expect(runtime).toContain('Independently validate returned work before integration');
       expect(runtime).toContain('count the surviving worker as complete batch coverage');
+      expect(runtime).not.toContain('spawnPromptMessageId');
+      expect(runtime).toContain('live description and input/output schema');
     }
+  });
+
+  it('keeps concrete spawn contracts in the tool definition', () => {
+    expect(toolRegistry).toContain('spawnPromptMessageId may validly be null');
+    expect(toolRegistry).toContain('contextMode defaults to fresh');
+    expect(toolRegistry).toContain('keep coupled producer/consumer files together');
+    expect(toolRegistry).toContain('prevent overlapping active write sets');
+    expect(toolRegistry).toContain('a duplicate call can create another target');
   });
 
   it('keeps hello-from-deck adapter wording specific and its response fixed', () => {

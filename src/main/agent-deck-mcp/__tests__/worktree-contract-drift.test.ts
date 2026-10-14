@@ -21,11 +21,6 @@ import {
   EXIT_WORKTREE_OUTPUT_SCHEMA,
 } from '../tools/schemas';
 
-const ENTER_ACCEPTANCE_SENTENCE =
-  'A success with `state: "waiting-tool-result"` is durable asynchronous acceptance, not proof that the current turn already runs in the worktree.';
-const EXIT_ACCEPTANCE_SENTENCE =
-  'An active structured lease is required. Success with `state: "waiting-tool-result"` accepts the reverse transition; it does not mean the worktree was already removed.';
-
 describe('worktree MCP contract drift', () => {
   it('publishes automatic next-turn semantics and strict success schemas', async () => {
     const tools = await buildAgentDeckTools({
@@ -227,34 +222,15 @@ describe('worktree MCP contract drift', () => {
       resolve(root, 'resources/grok-config/GROK_AGENTS.md'),
       'utf8',
     );
-    for (const instructions of [codex, claude]) {
-      expect(instructions).toContain(ENTER_ACCEPTANCE_SENTENCE);
-      expect(instructions).toContain(EXIT_ACCEPTANCE_SENTENCE);
-      expect(instructions).toContain(
-        'one internal continuation before any user input buffered during the transition',
-      );
-      expect(instructions).toContain(
-        'full worktree lease including its original cwd',
-      );
-      expect(instructions).not.toContain(
-        'MCP does not change the Codex SDK cwd',
-      );
-      expect(instructions).not.toContain(
-        'After entering the worktree, point read/write commands',
-      );
-      expect(instructions).toContain(
-        'Agent Deck resolves it once to `startCommit` and creates the worktree with detached HEAD',
-      );
-      expect(instructions).toContain(
-        'neither worktree MCP tool mutates refs',
-      );
+    for (const instructions of [codex, claude, grok]) {
+      expect(instructions).toContain('Before first using each Agent Deck MCP tool');
+      expect(instructions).toContain("Follow the tool's transition/terminal result");
+      expect(instructions).not.toContain('waiting-tool-result');
+      expect(instructions).not.toContain('discardChanges');
+      expect(instructions).not.toContain('After entering the worktree, point read/write commands');
     }
-    expect(grok).toContain(
-      '`exit_worktree` requires the caller\'s active structured lease',
-    );
-    expect(grok).toContain('creates only a detached worktree');
-    expect(grok).not.toContain(
-      'entering a worktree does not change the current process directory',
-    );
+    expect(claude).toContain('Claude native worktrees only for Desktop-local');
+    expect(codex).toContain('Codex has no native worktree lifecycle');
+    expect(grok).toContain('Use Agent Deck worktree tools');
   });
 });

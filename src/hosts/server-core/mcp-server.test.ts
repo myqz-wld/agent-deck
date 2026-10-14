@@ -32,20 +32,6 @@ describe('Server Core MCP tools', () => {
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
         'append_issue_context',
         'ask_user',
-        'browser_click',
-        'browser_close',
-        'browser_evaluate',
-        'browser_navigate',
-        'browser_open',
-        'browser_press',
-        'browser_read_console',
-        'browser_read_network',
-        'browser_screenshot',
-        'browser_scroll',
-        'browser_snapshot',
-        'browser_tabs',
-        'browser_type',
-        'browser_wait',
         'enter_worktree',
         'exit_worktree',
         'get_session',
@@ -65,23 +51,11 @@ describe('Server Core MCP tools', () => {
         'task_update',
         'update_issue_status',
       ]);
-      const browserTools = new Set([
-        'browser_click', 'browser_close', 'browser_evaluate', 'browser_navigate',
-        'browser_open', 'browser_press', 'browser_read_console', 'browser_read_network',
-        'browser_screenshot', 'browser_scroll', 'browser_snapshot', 'browser_tabs',
-        'browser_type', 'browser_wait',
-      ]);
       for (const tool of tools.tools) {
-        if (browserTools.has(tool.name)) expect(tool.outputSchema).toBeUndefined();
-        else expect(tool.outputSchema).toMatchObject({
-          type: 'object',
-          additionalProperties: false,
-        });
+        expect(tool.name.startsWith('browser_')).toBe(false);
+        expect(tool.outputSchema).toMatchObject({ type: 'object', additionalProperties: false });
       }
-      const tabs = await client.callTool({ name: 'browser_tabs', arguments: {} });
-      expect(tabs.isError).not.toBe(true);
-      expect(textPayload(tabs)).toEqual({ tabs: [] });
-      expect(host.browser.invoke).toHaveBeenCalledWith('caller-a', 'browser_tabs', {});
+      expect(host.browser.invoke).not.toHaveBeenCalled();
       const plan = await client.callTool({
         name: 'present_plan',
         arguments: { plan: '# Remote plan' },

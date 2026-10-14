@@ -136,7 +136,8 @@ export function createMcpServerHarness() {
       drainForHandOff: () => Promise.resolve(true),
       list: (_callerId, args) => {
         const rows = [...records.values()].filter(
-          (row) => row.lifecycle === (args.statusFilter ?? 'active'),
+          (row) => !args.statusFilter || args.statusFilter === 'all' ||
+            (args.statusFilter === 'open' ? row.lifecycle !== 'closed' : row.lifecycle === args.statusFilter),
         );
         return { total: rows.length, hasMore: false, sessions: rows.map((row) => ({
           sessionId: row.id, adapter: row.agentId, gateway: null, provider: null, cwd: '.',

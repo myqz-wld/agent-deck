@@ -26,7 +26,7 @@ afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 function mountEditor(index = 0) {
   let updated!: () => void;
-  const editor = { layout: vi.fn(), getLineChanges: () => null,
+  const editor = { layout: vi.fn(), revealFirstDiff: vi.fn(), getLineChanges: () => null,
     onDidUpdateDiff: (callback: () => void) => { updated = callback; return { dispose: vi.fn() }; } };
   act(() => state.mounts[index](editor as unknown as Parameters<DiffOnMount>[0], {} as Parameters<DiffOnMount>[1]));
   return { computed: () => act(() => updated()), editor };
@@ -43,6 +43,10 @@ describe('diff editor presentation readiness', () => {
     model.computed();
     await act(() => vi.advanceTimersByTimeAsync(40));
     expect(model.editor.layout).toHaveBeenCalled();
+    expect(model.editor.revealFirstDiff).toHaveBeenCalledOnce();
+    model.computed();
+    await act(() => vi.advanceTimersByTimeAsync(40));
+    expect(model.editor.revealFirstDiff).toHaveBeenCalledOnce();
     expect(screen.getByTestId('monaco-diff-surface').getAttribute('aria-busy')).toBe('false');
     expect(screen.queryByRole('status')).toBeNull();
   });
@@ -81,6 +85,7 @@ describe('diff editor presentation readiness', () => {
     old.computed();
     await act(() => vi.advanceTimersByTimeAsync(40));
     expect(screen.getByTestId('monaco-diff-surface').getAttribute('aria-busy')).toBe('true');
+    expect(old.editor.revealFirstDiff).not.toHaveBeenCalled();
     next.computed();
     await act(() => vi.advanceTimersByTimeAsync(40));
     expect(screen.getByTestId('monaco-diff-surface').getAttribute('aria-busy')).toBe('false');

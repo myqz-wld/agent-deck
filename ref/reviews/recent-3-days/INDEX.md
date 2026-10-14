@@ -15,6 +15,8 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-10-14 | `REVIEW_322_mcp-handoff-and-control.md` | Repair MCP handoff, pagination, control authority, and contracts | 3 MEDIUM fixed; staged typecheck and full test suite passed |
+| 2026-10-13 | `REVIEW_321_mcp-discovery-and-tool-contracts.md` | Audit MCP discovery, target authority, and host contract parity | 3 MEDIUM verified; implementation in REVIEW_322 |
 | 2026-10-13 | `REVIEW_320_claude-consecutive-message-interruption.md` | Classify streamed Claude corrections as interruptions and retain busy state | 2 MEDIUM fixed; full regression suite passed |
 | 2026-10-12 | `REVIEW_319_feishu-closed-assistant-recovery.md` | Restore deferred Codex assistant recovery before MCP initialization | 1 HIGH / 1 MEDIUM fixed; activation pending |
 | 2026-10-12 | `REVIEW_318_macos-installer-managed-services.md` | Pause managed KeepAlive services during local app installation | 1 HIGH / 2 MEDIUM fixed; native and full regression checks passed |

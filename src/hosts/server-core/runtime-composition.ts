@@ -8,6 +8,7 @@ import { AdapterRegistryClass } from '@main/adapters/registry-core';
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
 import { agentDeckTeamRepo } from '@main/store/agent-deck-team-repo';
 import { tokenUsageRepo } from '@main/store/token-usage-repo';
+import { sessionOwnershipLineage } from '@main/session/hand-off/ownership-lineage';
 import { findSessionHandOffSuccessor } from '@main/store/session-handoff-alias-repo';
 import { getSessionFileFinalDiff } from '@main/session/final-file-diff';
 import { handOffCutoverCoordinator } from '@main/session/hand-off/cutover-coordinator';
@@ -213,6 +214,8 @@ export function createServerCoreRuntimeWithOverrides(
     teams: agentDeckTeamRepo,
     messages: agentDeckMessageRepo,
     successor: findSessionHandOffSuccessor,
+    ownershipLineage: sessionOwnershipLineage,
+    requestShutdownApproval: (callerId, args, signal) => presentations.requestAsk(callerId, args, signal),
     closeSession: (sessionId) => repositories.sessionManager.close(sessionId),
     adapter: (adapterId) => registry.get(adapterId),
     appendChange: (kind, entityId, payload) => {

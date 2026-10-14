@@ -10,7 +10,6 @@ import { registerServerCoreSpawnTool } from './mcp-spawn-tools';
 import { registerServerCoreTaskTools } from './mcp-task-tools';
 import type { ServerCoreMcpToolHost } from './mcp-tool-host';
 import { registerServerCoreWorktreeTools } from './mcp-worktree-tools';
-import { registerServerCoreBrowserTools } from './mcp-browser-tools';
 import { registerServerCorePresentationTools } from './mcp-presentation-tools';
 import { registerServerCoreHandOffTool } from './mcp-handoff-tools';
 
@@ -37,7 +36,6 @@ export async function createServerCoreMcpServer(
   registerServerCoreSpawnTool(server, context);
   registerServerCoreHandOffTool(server, context);
   registerServerCoreWorktreeTools(server, context);
-  registerServerCoreBrowserTools(server, context);
   registerServerCorePresentationTools(server, context);
   registerServerCoreTaskTools(server, context);
   registerServerCoreIssueTools(server, context);

@@ -24,6 +24,16 @@ pnpm dev
 Open a project, choose a provider, start a session, and describe the task.
 Use Pending to respond when an agent needs your input.
 
+## Session collaboration
+
+`list_sessions` defaults to related active and dormant session metadata. Set `scope: "all"` to
+also discover unrelated sessions in the current Agent Deck instance or Core Workspace. Metadata
+visibility does not grant access to another session's activity history. Closing an agent's managed
+descendants remains direct; closing other live sessions requires a one-time user confirmation in
+Pending. Browser automation uses the session-scoped CLI on both Local and Core hosts.
+
+Opening a text change positions the diff viewer at its first changed region.
+
 ## Development
 
 | Command | Purpose |

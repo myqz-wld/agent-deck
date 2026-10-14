@@ -28,5 +28,6 @@ export interface ServerCoreMcpSessionPort {
   shutdown(
     callerSessionId: string,
     args: ShutdownSessionArgs,
+    signal?: AbortSignal,
   ): Promise<ShutdownSessionResult>;
 }

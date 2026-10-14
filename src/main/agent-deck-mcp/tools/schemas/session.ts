@@ -174,10 +174,14 @@ export const REQUEST_DIFF_REVIEW_SCHEMA = {
 };
 
 export const LIST_SESSIONS_SCHEMA = {
+  scope: z.enum(['related', 'all']).optional().describe('Default related: self, current handoff ownership, spawn ancestors/descendants, or shared active teams. Set all explicitly to also discover unrelated metadata across this host or Core Workspace. Related requires a real session caller; external Local read-only callers must specify all. Filters never expand this scope.'),
+  titleFilter: z.string().min(1).max(512).optional().describe('Optional case-insensitive substring of the session title.'),
+  cwdFilter: z.string().min(1).max(4096).optional().describe('Optional substring of the displayed working directory, using the host path domain.'),
+  includeArchived: z.boolean().optional().describe('Default false. With closed or all status, true also includes archived rows. Internal sessions are always excluded.'),
   statusFilter: z
-    .enum(['active', 'dormant', 'closed', 'all'])
-    .default('active')
-    .describe('Filter sessions by lifecycle. Defaults to active and, for real session callers, only returns caller-related sessions. Use "all" when recovering old teammates or checking whether a session was closed.'),
+    .enum(['open', 'active', 'dormant', 'closed', 'all'])
+    .default('open')
+    .describe('Lifecycle filter independent of scope. Default open includes active and dormant. Closed selects closed rows; all includes open and closed. Archived rows require includeArchived=true.'),
   adapterFilter: z
     .enum(['claude-code', 'codex-cli', 'grok-build'])
     .optional()
@@ -188,7 +192,7 @@ export const LIST_SESSIONS_SCHEMA = {
     .max(128)
     .optional()
     .describe(
-      'Filter to sessions whose spawnedBy equals this id. Use it to recover children after a lead context reset: pass the old lead session id to find stranded teammates, then message them by session id. No ownership check; any caller may query any spawnedBy id.',
+      'Filter to direct children whose historical spawnedBy equals this id. For unrelated old-lead recovery also set scope all. This filter never bypasses the selected scope or grants control over results.',
     ),
   limit: z
     .number()
@@ -248,7 +252,7 @@ export const SHUTDOWN_SESSION_SCHEMA = {
     .string()
     .max(500)
     .optional()
-    .describe('Optional short reason recorded for operators; it does not change shutdown behavior.'),
+    .describe('Optional short caller-supplied reason for this request; it never grants shutdown authority.'),
 };
 
 export type SendMessageArgs = z.infer<z.ZodObject<typeof SEND_MESSAGE_SCHEMA>>;
@@ -304,7 +308,7 @@ export type ProjectedSession = z.infer<typeof PROJECTED_SESSION_OUTPUT_SCHEMA>;
 /** list_sessions ok return shape（list.ts handler）。 */
 export const LIST_SESSIONS_OUTPUT_SCHEMA = z
   .object({
-    total: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative().describe('Number of sessions in this page, not the matching population.'),
     hasMore: z
       .boolean()
       .describe('True when another page may be available with offset + limit.'),

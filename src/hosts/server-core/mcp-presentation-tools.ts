@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
   REQUEST_DIFF_REVIEW_SCHEMA,
@@ -61,7 +62,7 @@ export function registerServerCorePresentationTools(
 
   server.registerTool('present_diff', {
     description: 'Present one PR or merge-conflict fragment in the connected Agent Deck Remote UI and block for approval, revision feedback, or the requested timeout. The exact presentation remains Server Core-owned.',
-    inputSchema: REQUEST_DIFF_REVIEW_SCHEMA,
+    inputSchema: { ...REQUEST_DIFF_REVIEW_SCHEMA, timeoutMs: z.number().int().min(1_000).max(86_400_000).optional().describe('Optional timeout in milliseconds. Core waits indefinitely when omitted; Local app timeout settings do not apply.') },
     outputSchema: REQUEST_DIFF_REVIEW_OUTPUT_SCHEMA,
     annotations: {
       readOnlyHint: false,

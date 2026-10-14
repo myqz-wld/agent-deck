@@ -40,9 +40,9 @@ export interface CallerContext {
 }
 
 /**
- * Agent Deck MCP tool names. The Local public registry exposes 20 core tools. Legacy `browser_*`
- * names remain typed for rollback and Server Core compatibility, but shipped Local adapter
- * profiles do not register them after the Browser skill + CLI cutover.
+ * Agent Deck MCP tool names. Local and Server Core expose these 20 collaboration tools.
+ * Browser automation uses the session-scoped CLI; Core may additionally register owner-specific
+ * Feishu tools when their host capabilities are available.
  */
 export const AGENT_DECK_TOOL_NAMES = {
   askUser: 'ask_user',
