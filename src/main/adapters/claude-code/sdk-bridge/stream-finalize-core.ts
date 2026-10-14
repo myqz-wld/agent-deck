@@ -7,6 +7,7 @@ import {
 } from './live-token-rate-core';
 import { rejectUnsettledClaudeTrustedContinuation } from './trusted-continuation-observer';
 import type { InternalSession } from './types';
+import { preserveClaudeStreamInputsCore } from './user-message-recovery-core';
 
 export interface ClaudeStreamFinalizeContext {
   readonly sessions: Map<string, InternalSession>;
@@ -28,7 +29,13 @@ export function finalizeClaudeStreamCore(
 ): void {
   rejectUnsettledClaudeTrustedContinuation(internal);
   try {
+    // No input may finish materializing into an already-ended provider stream.
+    internal.providerInputClosed = true;
+    const notify = internal.notify;
+    internal.notify = null;
+    notify?.();
     const sid = internal.applicationSid;
+    preserveClaudeStreamInputsCore(ctx.emit, internal, host);
     for (const entry of internal.pendingPermissions.values()) {
       if (entry.timer) clearTimeout(entry.timer);
       entry.resolver({ behavior: 'deny', message: 'session ended', interrupt: true });

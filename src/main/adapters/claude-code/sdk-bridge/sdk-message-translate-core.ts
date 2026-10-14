@@ -233,7 +233,7 @@ export function translateSdkMessageCore(
     }
   } else if (msg.type === 'result') {
     const interruptedByUserMessage = finishClaudeUserMessageInterruptionCore(internal, msg);
-    finishClaudeUserMessageTurnCore(internal);
+    finishClaudeUserMessageTurnCore(internal, emit, sessionId, host);
     const r = msg as ClaudeFinalResultUsage & {
       subtype?: string;
       is_error?: boolean;

@@ -95,6 +95,8 @@ export async function* createClaudeUserMessageStreamCore(
       try {
         message = await thunk();
       } catch (error) {
+        if (internal.providerInputClosed || internal.retireBoundaryReached) return;
+        if (internal.pendingUserMessages[0] !== thunk) continue;
         if (!thunk.deferredUserEvent?.turnCorrelationId) throw error;
         thunk.materializationError = error instanceof Error ? error.message : String(error);
         ctx.emit({

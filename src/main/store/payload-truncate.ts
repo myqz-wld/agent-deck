@@ -23,6 +23,8 @@
  */
 
 import { eventImages } from '@shared/event-images';
+import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
+import { readMessageDeliveryRecoveryPayload } from '@shared/message-delivery-recovery';
 
 const MAX_PAYLOAD_BYTES = 256 * 1024;
 const MAX_FILE_SNAPSHOT_BYTES = 1024 * 1024;
@@ -107,6 +109,13 @@ function shrinkLargeFieldsDeep(value: unknown, depth = 0): unknown {
 }
 
 export function safeStringifyPayload(payload: unknown): string {
+  // Failed input is user-owned recovery data, not diagnostic output. Keep its complete text within
+  // the ingress character limit and a hard byte cap (including JSON escaping and attachment refs).
+  const recovery = readMessageDeliveryRecoveryPayload(payload);
+  if (recovery && recovery.text.length <= MAX_USER_MESSAGE_LENGTH) {
+    const retained = JSON.stringify(payload);
+    if (Buffer.byteLength(retained, 'utf8') <= 1024 * 1024) return retained;
+  }
   // 总是 shrink 已知大字段（即使整体 < 256KB）：
   // 单字段 64KB（MAX_FIELD_BYTES）是「显示足够用 + 节省 DB 空间」的实用阈值，超过部分对 UI
   // 可读性几乎无增益，对长会话 DB 体积是巨大负担。

@@ -15,6 +15,9 @@ import {
   type RenderMode,
 } from '../shared';
 import { normalizeAgentMessage } from '../viewers/message-content';
+import { readMessageDeliveryRecovery } from '@shared/message-delivery-recovery';
+import { MessageRecoveryRow } from './message-recovery-row';
+import { resendRecoveredLocalMessage } from './resend-recovered-message';
 
 /** Prevent a single large prompt or log from dominating the activity list. */
 const COLLAPSE_THRESHOLD_CHARS = 800;
@@ -23,7 +26,16 @@ const COLLAPSE_THRESHOLD_CHARS = 800;
  * Each message owns its render mode. Errors remain plaintext so Markdown cannot obscure stacks.
  * User attachments are optional because ordinary text messages do not contain them.
  */
-export function MessageBubble({
+export function MessageBubble(props: { event: AgentEvent; agentId: string; showAttachments?: boolean }): JSX.Element {
+  const recovery = readMessageDeliveryRecovery(props.event);
+  if (recovery) return <MessageRecoveryRow key={`${props.event.sessionId}:${recovery.messageId ?? props.event.ts}`}
+    recovery={recovery} showAttachments={props.showAttachments}
+    onResend={props.showAttachments === false ? undefined
+      : () => resendRecoveredLocalMessage(props.agentId, props.event.sessionId, recovery)} />;
+  return <ConversationMessage {...props} />;
+}
+
+function ConversationMessage({
   event,
   agentId,
   showAttachments = true,

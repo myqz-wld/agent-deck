@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-10-14 | `REVIEW_328_claude-unacknowledged-input-loss.md` | Preserve failed Claude input and support explicit resending | 2 HIGH / 1 MEDIUM fixed; full regression passed |
 | 2026-10-14 | `REVIEW_327_session-metadata-startup.md` | Stabilize Gateway and context labels during session startup | 1 MEDIUM / 1 LOW fixed; full regression passed |
 | 2026-10-14 | `REVIEW_326_claude-background-task-activity.md` | Restore Claude task visibility, correction tracking, and tool pairing | 3 MEDIUM fixed; full regression and build checks passed |
 | 2026-10-14 | `REVIEW_325_handoff-dialog-state.md` | Retain handoff drafts and background work across dialog dismissal | 1 MEDIUM / 1 LOW fixed; regression and build checks passed |

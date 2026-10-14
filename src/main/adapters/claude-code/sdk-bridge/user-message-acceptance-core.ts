@@ -1,5 +1,6 @@
 import type { AgentEvent } from '@shared/types';
 import type { InternalSession } from './types';
+import { preserveClaudeUserMessageCore } from './user-message-recovery-core';
 
 const MAX_IGNORED_USER_MESSAGE_IDS = 32;
 const SLOW_INPUT_ACCEPTANCE_MS = 2_000;
@@ -75,9 +76,11 @@ export function confirmClaudeUserMessageAcceptanceCore(
   // Replay acknowledgements retain the input UUID even when persisted user frames replace it.
   // For idle input, message_start is sufficient: waiting for a completed assistant block also
   // waits for extended thinking. Mid-turn input still requires explicit UUID correlation.
-  internal.submittingUserMessage = null;
   const deferred = submitting.pending.deferredUserEvent;
-  if (!deferred) return;
+  if (!deferred) {
+    internal.submittingUserMessage = null;
+    return;
+  }
   const acceptedAt = host.now();
   if (submitting.pending.enqueuedAt != null && submitting.submittedAt != null) {
     const appQueueMs = Math.max(0, submitting.submittedAt - submitting.pending.enqueuedAt);
@@ -112,17 +115,26 @@ export function confirmClaudeUserMessageAcceptanceCore(
     ts: acceptedAt,
     source: 'sdk',
   });
+  internal.submittingUserMessage = null;
   const notify = internal.notify;
   internal.notify = null;
   notify?.();
 }
 
 /** An older turn's result must not drop a correction already handed to the SDK. */
-export function finishClaudeUserMessageTurnCore(internal: InternalSession): void {
+export function finishClaudeUserMessageTurnCore(
+  internal: InternalSession,
+  emit: (event: AgentEvent) => void,
+  sessionId: string,
+  host: ClaudeUserMessageAcceptanceHost,
+): void {
   const submitting = internal.submittingUserMessage;
   if (submitting?.precedingTurn) {
     submitting.precedingTurn = 'finished';
     return;
+  }
+  if (submitting && !internal.expectedClose && !internal.retireRequested) {
+    preserveClaudeUserMessageCore(emit, sessionId, submitting.pending, 'unknown', host);
   }
   discardClaudeSubmittingUserMessageCore(internal);
 }

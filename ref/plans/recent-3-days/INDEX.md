@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-10-14 | `PLAN_92_claude-input-recovery.md` | completed | Preserve failed Claude input and provide explicit resending | `REVIEW_328` |
 | 2026-10-14 | `PLAN_91_provider-runtime-readme-refresh.md` | execution-handoff | Refresh provider packages and prepare application activation | `CHANGELOG_680` |
 | 2026-10-14 | `PLAN_90_runtime-confirmation-parity.md` | completed | Align runtime confirmations and verify the IAB preview | `CHANGELOG_679` |
 | 2026-10-14 | `PLAN_89_runtime-log-observability.md` | completed | Implement private runtime diagnostics and bounded Worker logs | `CHANGELOG_678`, `REVIEW_324` |

@@ -290,14 +290,14 @@ describe('Claude user message acceptance Core', () => {
     const submitting = session.submittingUserMessage!;
     submitting.precedingTurn = 'active';
 
-    finishClaudeUserMessageTurnCore(session);
+    finishClaudeUserMessageTurnCore(session, emit, 'application-a', host);
 
     expect(session.submittingUserMessage).toBe(submitting);
     expect(submitting.precedingTurn).toBe('finished');
     expect(session.ignoredUserMessageIds?.size ?? 0).toBe(0);
     // Delayed output (including another result) is still not proof of this input's acceptance.
     confirmClaudeUserMessageAcceptanceCore(emit, 'application-a', { type: 'assistant' }, session, host);
-    finishClaudeUserMessageTurnCore(session);
+    finishClaudeUserMessageTurnCore(session, emit, 'application-a', host);
     expect(emit).not.toHaveBeenCalled();
     expect(session.submittingUserMessage).toBe(submitting);
     confirmClaudeUserMessageAcceptanceCore(emit, 'application-a', {
