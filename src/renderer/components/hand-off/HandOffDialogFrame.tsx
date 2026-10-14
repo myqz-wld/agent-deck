@@ -9,6 +9,7 @@ export function HandOffDialogFrame({
   statusText,
   busy,
   onClose,
+  onDiscard,
   children,
   footerStatus,
   primaryLabel,
@@ -23,6 +24,7 @@ export function HandOffDialogFrame({
   statusText?: string;
   busy: boolean;
   onClose: () => void;
+  onDiscard?: () => void;
   children: ReactNode;
   footerStatus?: ReactNode;
   primaryLabel: string;
@@ -54,23 +56,33 @@ export function HandOffDialogFrame({
             disabled={busy}
             aria-label="关闭接力窗口"
             className="flex h-5 w-5 items-center justify-center rounded text-[11px] text-deck-muted hover:bg-white/10 disabled:opacity-50"
-            title="取消"
+            title="暂时关闭"
           >
             <CloseIcon className="h-3.5 w-3.5" />
           </button>
         </header>
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4 scrollbar-deck">
+          <p className="text-[10px] leading-relaxed text-deck-muted">
+            关闭窗口后仍会继续整理，再次打开可继续。
+          </p>
           {children}
         </div>
         <footer className="flex shrink-0 items-center gap-2 border-t border-deck-border px-4 py-3">
-          <div className="min-w-0 flex-1">{footerStatus}</div>
+          <div className="min-w-0 flex-1">
+            {footerStatus ?? (onDiscard && (
+              <button type="button" onClick={onDiscard} disabled={busy}
+                className="text-[10px] text-deck-muted hover:text-deck-text disabled:opacity-50">
+                放弃本次接力
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
             className="rounded px-3 py-1 text-[11px] text-deck-muted hover:bg-white/5 disabled:opacity-50"
           >
-            取消
+            暂时关闭
           </button>
           <button
             type="button"

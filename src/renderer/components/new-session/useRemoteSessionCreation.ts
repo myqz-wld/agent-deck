@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   SESSION_CONSOLE_CREATE_OPTION_KEYS,
@@ -29,14 +29,18 @@ interface Input {
   scopeKey: string;
   source: RemoteSessionSourceView | null;
   workingDirectory: string;
+  initialDraft?: RemoteSessionCreationDraft | null;
 }
 
-interface AuthoringState {
-  scopeKey: string;
+export interface RemoteSessionCreationDraft {
   adapterId: string;
   options: SessionConsoleCreateOptions;
   overrides: readonly SessionConsoleCreateOptionKey[];
   retainedModel?: string | null;
+}
+
+interface AuthoringState extends RemoteSessionCreationDraft {
+  scopeKey: string;
 }
 
 interface CapabilitySnapshot {
@@ -53,6 +57,7 @@ interface RequestFailure {
 }
 
 export interface RemoteSessionCreationState {
+  draft: RemoteSessionCreationDraft;
   /** Exact source/availability cycle used to reset first-load presentation safely. */
   readinessIdentity: string;
   adapterId: string;
@@ -141,6 +146,7 @@ export function useRemoteSessionCreation({
   scopeKey: requestedScopeKey,
   source,
   workingDirectory,
+  initialDraft,
 }: Input): RemoteSessionCreationState {
   const sourceIdentity = source?.identity ?? 'no-remote-source';
   const canRead = source?.usable === true &&
@@ -156,7 +162,7 @@ export function useRemoteSessionCreation({
   }
   const scopeKey = `${requestedScopeKey}\u0000${sourceIdentity}\u0000${authorityCycle.current.value}`;
   const [authoringState, setAuthoringState] = useState<AuthoringState>(
-    () => emptyAuthoring(scopeKey),
+    () => ({ ...emptyAuthoring(scopeKey), ...initialDraft, scopeKey }),
   );
   const [snapshot, setSnapshot] = useState<CapabilitySnapshot | null>(null);
   const [failure, setFailure] = useState<RequestFailure | null>(null);
@@ -168,9 +174,9 @@ export function useRemoteSessionCreation({
   const generation = useRef(0);
   const gatewayDefaults = useRef(new Map<string, { model?: string; thinking?: string }>());
   const settledAdapterIdentity = useRef<string | null>(null);
-  const authoring = authoringState.scopeKey === scopeKey
+  const authoring = useMemo(() => authoringState.scopeKey === scopeKey
     ? authoringState
-    : emptyAuthoring(scopeKey);
+    : emptyAuthoring(scopeKey), [authoringState, scopeKey]);
   const authoringRef = useRef(authoring);
   authoringRef.current = authoring;
   const provider = authoring.options.provider ?? '';
@@ -287,6 +293,7 @@ export function useRemoteSessionCreation({
   ]);
 
   return {
+    draft: authoring,
     readinessIdentity: JSON.stringify([
       requestedScopeKey,
       sourceIdentity,

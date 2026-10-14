@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { source, otherSource, prepared } from './HandOffPreviewDialog.fixture';
 import { FAST_ASYNC_FALLBACK_GRACE_MS } from '@renderer/hooks/useDelayedAsyncFallback';
 import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
+import { localHandOffDrafts } from '../hand-off/local-draft';
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   let resolve!: (value: T) => void;
@@ -16,6 +17,7 @@ let handOffCommit: ReturnType<typeof vi.fn>;
 let handOffCancel: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  localHandOffDrafts.clear();
   handOffPrepare = vi.fn().mockResolvedValue(prepared);
   handOffCommit = vi.fn().mockResolvedValue({
     status: 'success',
@@ -350,7 +352,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
     fireEvent.click(screen.getByRole('button', { name: '打开新会话接力' }));
     expect((await screen.findByRole('alert')).textContent).not.toContain('orphan-persistent-7');
 
-    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    fireEvent.click(screen.getByRole('button', { name: '暂时关闭' }));
     expect(onClose).toHaveBeenCalled();
     view.rerender(<HandOffPreviewDialog open={false} session={source} onClose={onClose} />);
     view.rerender(<HandOffPreviewDialog open session={otherSource} onClose={onClose} />);

@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-10-14 | `REVIEW_325_handoff-dialog-state.md` | Retain handoff drafts and background work across dialog dismissal | 1 MEDIUM / 1 LOW fixed; regression and build checks passed |
 | 2026-10-14 | `REVIEW_324_runtime-log-observability.md` | Audit logging privacy, retention, and heartbeat evidence | 3 MEDIUM / 1 LOW fixed; full validation passed |
 | 2026-10-14 | `REVIEW_323_claude-input-latency-and-runtime-logs.md` | Diagnose Claude input latency, SSH faults, and server logging gaps | 1 HIGH / 1 MEDIUM fixed; server logging gaps confirmed |
 | 2026-10-14 | `REVIEW_322_mcp-handoff-and-control.md` | Repair MCP handoff, pagination, control authority, and contracts | 3 MEDIUM fixed; staged typecheck and full test suite passed |

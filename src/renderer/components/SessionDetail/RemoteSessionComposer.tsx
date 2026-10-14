@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
+import { useStore } from 'zustand';
 import { AlertTriangleIcon } from '../icons';
+import { getRemoteHandOffDraft, remoteHandOffIdentity } from '../hand-off/remote-draft';
 
 import {
   SESSION_CONSOLE_REMOTE_ATTACHMENT_MAX_BYTES,
@@ -33,6 +35,10 @@ export function RemoteSessionComposer({
   onHandOff?: () => void;
 }): JSX.Element {
   const identity = `${source.identity}:${sessionId}`;
+  const handOffPending = useStore(
+    getRemoteHandOffDraft(remoteHandOffIdentity(source.identity, sessionId)).store,
+    (draft) => draft.preparing || draft.committing,
+  );
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [interrupting, setInterrupting] = useState(false);
@@ -250,7 +256,8 @@ export function RemoteSessionComposer({
         onAdd: (files) => { void imgs.add(files); },
       }}
       handOff={{
-        disabled: !source.usable || !source.capabilities.has('sessions.handoff') || source.busy || turnBusy || turnWaiting,
+        disabled: !source.usable || !source.capabilities.has('sessions.handoff') ||
+          (source.busy && !handOffPending) || turnBusy || turnWaiting,
         label: '接力',
         title: !source.capabilities.has('sessions.handoff')
           ? '当前版本暂不支持接力'

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SessionHandOffPreparation, SessionRecord } from '@shared/types';
 import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
+import { localHandOffDrafts } from '../hand-off/local-draft';
 
 const session = {
   id: 'source-a',
@@ -44,6 +45,7 @@ let handOffCommit: ReturnType<typeof vi.fn>;
 let handOffCancel: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  localHandOffDrafts.clear();
   handOffCommit = vi.fn().mockResolvedValue({
     status: 'success',
     successorSessionId: 'successor-a',
@@ -120,7 +122,7 @@ describe('HandOffPreviewDialog modal interaction', () => {
     fireEvent.click(commit);
     expect(handOffCommit).toHaveBeenCalledOnce();
     const close = screen.getByRole('button', { name: '关闭接力窗口' }) as HTMLButtonElement;
-    const cancel = screen.getByRole('button', { name: '取消' }) as HTMLButtonElement;
+    const cancel = screen.getByRole('button', { name: '暂时关闭' }) as HTMLButtonElement;
     expect(close.disabled).toBe(true);
     expect(cancel.disabled).toBe(true);
     fireEvent.click(close);

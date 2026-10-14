@@ -2,10 +2,11 @@ import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dial
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import { RemoteSessionComposer } from './RemoteSessionComposer';
+import { getRemoteHandOffDraft, remoteHandOffDrafts, remoteHandOffIdentity } from '../hand-off/remote-draft';
 
 const ACTIVE_IMAGE_POLICY = {
   disabledReason: null,
@@ -18,6 +19,7 @@ const ACTIVE_IMAGE_POLICY = {
 
 afterEach(() => {
   cleanup();
+  remoteHandOffDrafts.clear();
   Reflect.deleteProperty(window, 'api');
 });
 
@@ -64,6 +66,22 @@ function source(overrides: Partial<RemoteSessionSourceView> = {}): RemoteSession
 }
 
 describe('RemoteSessionComposer parity and authority', () => {
+  it('allows reopening the current handoff while its preview keeps Remote busy', async () => {
+    const remote = source({ busy: true, capabilities: new Set(['sessions.handoff']) });
+    const onHandOff = vi.fn();
+    render(<RemoteSessionComposer source={remote} adapterId="claude-code"
+      sessionId="session-a" onHandOff={onHandOff} />);
+    const button = screen.getByRole('button', { name: '接力' });
+    expect(button).toHaveProperty('disabled', true);
+    act(() => getRemoteHandOffDraft(remoteHandOffIdentity(remote.identity, 'session-b'))
+      .store.setState({ preparing: true }));
+    expect(button).toHaveProperty('disabled', true);
+    act(() => getRemoteHandOffDraft(remoteHandOffIdentity(remote.identity, 'session-a'))
+      .store.setState({ preparing: true }));
+    expect(button).toHaveProperty('disabled', false);
+    fireEvent.click(button);
+    expect(onHandOff).toHaveBeenCalledOnce();
+  });
   it('reuses the Local composer surface while routing message and runtime writes to Remote', async () => {
     const listLocalClaudeGateways = vi.fn();
     const listLocalCodexGateways = vi.fn();

@@ -1,18 +1,13 @@
-import { storedSessionPermissionMode, type SessionPermissionMode } from '@shared/permission-modes';
+import { storedSessionPermissionMode } from '@shared/permission-modes';
+import { useStore } from 'zustand';
 import { useEffect, useId, useRef, useState, type JSX } from 'react';
 import type {
   SessionAdapterId,
-  SessionHandOffExecutionFailure,
-  SessionHandOffPreparation,
   SessionRecord,
 } from '@shared/types';
 import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
 import { AlertTriangleIcon, RefreshIcon } from './icons';
 import { StableButtonContent } from './StableButtonContent';
-import {
-  thinkingOptionsForAdapter,
-  type SessionThinkingChoice,
-} from './SessionModelFields';
 import {
   executionFailureLabel,
   qualityLabel,
@@ -28,6 +23,8 @@ import {
 } from './hand-off/TargetRuntimeFields';
 import { useModalFocus } from './use-modal-focus';
 import { HandOffDialogFrame } from './hand-off/HandOffDialogFrame';
+import { getLocalHandOffDraft, localHandOffDrafts, sourceThinking } from './hand-off/local-draft';
+export { DEFAULT_UI_CONTINUATION_INSTRUCTION } from './hand-off/local-draft';
 
 interface Props {
   open: boolean;
@@ -35,104 +32,41 @@ interface Props {
   onClose: () => void;
 }
 
-export const DEFAULT_UI_CONTINUATION_INSTRUCTION = '请基于以上会话续接上下文继续完成当前工作。';
-// Failed successor cleanup must remain acknowledged across close/reopen and source navigation.
-const pendingOrphanAcknowledgements = new Map<string, SessionHandOffExecutionFailure>();
-
 interface HandOffAdapterProjection {
   identity: string;
   adapters: HandOffAdapterOption[];
-}
-
-function sourceThinking(session: SessionRecord): SessionThinkingChoice {
-  const value = session.thinking ?? '';
-  return thinkingOptionsForAdapter(session.agentId).some((option) => option.value === value)
-    ? (value as SessionThinkingChoice)
-    : '';
+  error?: string;
 }
 
 export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Element | null {
+  return open ? <LocalHandOffDialog key={session.id} session={session} onClose={onClose} /> : null;
+}
+
+function LocalHandOffDialog({ session, onClose }: Omit<Props, 'open'>): JSX.Element {
   const sessionId = session.id;
-  const previousOpenRef = useRef(open);
-  const openCycleRef = useRef(0);
-  if (previousOpenRef.current !== open) {
-    previousOpenRef.current = open;
-    openCycleRef.current += 1;
-  }
-  const configurationIdentity = `local-handoff:${sessionId}:${openCycleRef.current}`;
+  const [draft] = useState(() => getLocalHandOffDraft(session));
+  const {
+    targetAdapter, targetProvider, targetModel, targetThinking, targetPermissionMode,
+    targetGrokSandbox, instruction, preparation, preparing, committing, completed,
+    error, executionFailure,
+  } = useStore(draft.store);
+  const configurationIdentity = `local-handoff:${sessionId}`;
   const [adapterProjection, setAdapterProjection] = useState<HandOffAdapterProjection>({
-    identity: '',
-    adapters: [],
+    identity: '', adapters: [],
   });
-  const adapters = adapterProjection.identity === configurationIdentity
-    ? adapterProjection.adapters
-    : [];
-  const [targetAdapter, setTargetAdapter] = useState<SessionAdapterId>(session.agentId as SessionAdapterId);
-  const [targetProvider, setTargetProvider] = useState(session.runtimeProvider ?? '');
-  const [targetModel, setTargetModel] = useState(session.model ?? '');
-  const [targetThinking, setTargetThinking] = useState<SessionThinkingChoice>(() =>
-    sourceThinking(session),
-  );
-  const [targetPermissionMode, setTargetPermissionMode] = useState<SessionPermissionMode>(
-    storedSessionPermissionMode(session) ?? 'auto',
-  );
-  const [targetGrokSandbox, setTargetGrokSandbox] = useState(
-    session.agentId === 'grok-build' ? session.grokSandbox ?? '' : '',
-  );
-  const [instruction, setInstruction] = useState(DEFAULT_UI_CONTINUATION_INSTRUCTION);
-  const [preparation, setPreparation] = useState<SessionHandOffPreparation | null>(null);
-  const [preparing, setPreparing] = useState(false);
-  const [committing, setCommitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [executionFailure, setExecutionFailure] =
-    useState<SessionHandOffExecutionFailure | null>(null);
-  const requestSequence = useRef(0);
-  const preparationId = useRef<string | null>(null);
-  const prepareInFlight = useRef(false);
-  const commitInFlight = useRef(false);
+  const adapters = adapterProjection.adapters;
+  const visibleError = error ?? adapterProjection.error;
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
-
-  const cancelPreparation = (): void => {
-    requestSequence.current += 1;
-    const id = preparationId.current;
-    preparationId.current = null;
-    setPreparation(null);
-    if (id) void window.api.handOffCancel(id).catch(() => undefined);
-  };
+  const completionHandled = useRef(false);
+  useEffect(() => {
+    if (!completed || completionHandled.current) return;
+    completionHandled.current = true;
+    localHandOffDrafts.delete(sessionId);
+    onClose();
+  }, [completed, onClose, sessionId]);
 
   useEffect(() => {
-    if (!open) return;
-    cancelPreparation();
-    setTargetAdapter(session.agentId as SessionAdapterId);
-    setTargetProvider(session.runtimeProvider ?? '');
-    setTargetModel(session.model ?? '');
-    setTargetThinking(sourceThinking(session));
-    setTargetPermissionMode(storedSessionPermissionMode(session) ?? 'auto');
-    setTargetGrokSandbox(
-      session.agentId === 'grok-build' ? session.grokSandbox ?? '' : '',
-    );
-    setInstruction(DEFAULT_UI_CONTINUATION_INSTRUCTION);
-    setPreparing(false);
-    setCommitting(false);
-    setError(null);
-    setExecutionFailure(pendingOrphanAcknowledgements.get(sessionId) ?? null);
-    prepareInFlight.current = false;
-    commitInFlight.current = false;
-    return () => {
-      requestSequence.current += 1;
-      const id = preparationId.current;
-      preparationId.current = null;
-      if (id && !commitInFlight.current) {
-        void window.api.handOffCancel(id).catch(() => undefined);
-      }
-    };
-    // sessionId is the reset boundary; other session fields are frozen again by main during prepare.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, sessionId]);
-
-  useEffect(() => {
-    if (!open) return;
     let cancelled = false;
     void window.api
       .listAdapters()
@@ -157,25 +91,22 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       })
       .catch((caught: unknown) => {
         if (!cancelled) {
-          setAdapterProjection({ identity: configurationIdentity, adapters: [] });
-          setError(`加载助手配置失败：${caught instanceof Error ? caught.message : String(caught)}`);
+          setAdapterProjection({
+            identity: configurationIdentity,
+            adapters: [],
+            error: `加载助手配置失败：${caught instanceof Error ? caught.message : String(caught)}`,
+          });
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [configurationIdentity, open]);
+  }, [configurationIdentity, draft]);
 
   const close = (): void => {
-    if (commitInFlight.current) return;
-    cancelPreparation();
-    prepareInFlight.current = false;
-    commitInFlight.current = false;
-    setPreparing(false);
-    setCommitting(false);
-    onClose();
+    if (!draft.store.getState().committing) onClose();
   };
-  const configurationPending = open && adapterProjection.identity !== configurationIdentity;
+  const configurationPending = adapterProjection.identity !== configurationIdentity;
   const presentation = useInitialAsyncPresentation(
     configurationPending,
     configurationIdentity,
@@ -184,120 +115,12 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
     blocked: committing,
     dialogRef,
     onClose: close,
-    open: open && presentation !== 'deferred',
+    open: presentation !== 'deferred',
   });
 
-  if (!open) return null;
   if (presentation === 'deferred') {
     return <div data-session-handoff-frame className="absolute inset-0 z-40 bg-black/40 backdrop-blur-sm" />;
   }
-
-  const invalidateAndChange = (change: () => void): void => {
-    if (preparationId.current) cancelPreparation();
-    setError(null);
-    change();
-  };
-
-  const prepare = async (): Promise<void> => {
-    if (
-      prepareInFlight.current ||
-      !instruction.trim() ||
-      (executionFailure && executionFailure.successorCleanup !== 'ok')
-    ) {
-      return;
-    }
-    prepareInFlight.current = true;
-    cancelPreparation();
-    setPreparing(true);
-    setError(null);
-    setExecutionFailure(null);
-    const sequence = requestSequence.current;
-    try {
-      const result = await window.api.handOffPrepare({
-        sourceSessionId: sessionId,
-        continuationInstruction: instruction,
-        target: {
-          adapter: targetAdapter,
-          ...(targetAdapter !== 'grok-build'
-            ? { provider: targetProvider.trim() || null }
-            : {}),
-          model: targetModel.trim() || null,
-          thinking: targetThinking || null,
-          permissionMode: targetPermissionMode,
-          ...(targetAdapter === 'grok-build' && targetGrokSandbox.trim()
-            ? { grokSandbox: targetGrokSandbox.trim() }
-            : {}),
-        },
-      });
-      if (sequence !== requestSequence.current) {
-        void window.api.handOffCancel(result.preparationId).catch(() => undefined);
-        return;
-      }
-      preparationId.current = result.preparationId;
-      setPreparation(result);
-    } catch (caught) {
-      if (sequence === requestSequence.current) {
-        setError(`生成续接上下文失败：${caught instanceof Error ? caught.message : String(caught)}`);
-      }
-    } finally {
-      if (sequence === requestSequence.current) {
-        prepareInFlight.current = false;
-        setPreparing(false);
-      }
-    }
-  };
-
-  const commit = async (): Promise<void> => {
-    const id = preparationId.current;
-    if (!id || commitInFlight.current) return;
-    commitInFlight.current = true;
-    const sequence = requestSequence.current;
-    setCommitting(true);
-    setError(null);
-    try {
-      const response = await window.api.handOffCommit(id);
-      if (sequence !== requestSequence.current) {
-        if (
-          response.status === 'execution-error'
-          && response.successorCleanup !== 'ok'
-        ) {
-          pendingOrphanAcknowledgements.set(sessionId, response);
-        }
-        return;
-      }
-      preparationId.current = null;
-      setPreparation(null);
-      if (response.status === 'execution-error') {
-        if (response.successorCleanup !== 'ok') {
-          pendingOrphanAcknowledgements.set(sessionId, response);
-        }
-        setExecutionFailure(response);
-        return;
-      }
-      const result = response;
-      if (result.sourceFinalizationWarning) {
-        setError(
-          '新会话已创建，但源会话收尾失败。' +
-            '新会话不会回滚；请检查源会话状态并按界面提示处理后，再切换继续。',
-        );
-        return;
-      }
-      onClose();
-    } catch (caught) {
-      if (sequence !== requestSequence.current) return;
-      const message = caught instanceof Error ? caught.message : String(caught);
-      if (/已过期|not found|not authorized|already been consumed/i.test(message)) {
-        preparationId.current = null;
-        setPreparation(null);
-      }
-      setError(`创建续接会话失败：${message}`);
-    } finally {
-      if (sequence === requestSequence.current) {
-        commitInFlight.current = false;
-        setCommitting(false);
-      }
-    }
-  };
 
   const busy = preparing || committing;
   const visibleWarnings = preparation?.warnings.flatMap((warning) => {
@@ -311,10 +134,11 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
       statusText={preparing ? '正在整理会话上下文…' : committing ? '正在创建…' : undefined}
       busy={committing}
       onClose={close}
+      onDiscard={preparation ? () => { draft.change({}); onClose(); } : undefined}
       primaryLabel="打开新会话接力"
       primaryBusyLabel="正在创建续接会话…"
       primaryDisabled={busy || !preparation}
-      onPrimary={() => { void commit(); }}
+      onPrimary={() => { void draft.commit(); }}
       ariaBusy={presentation === 'fallback'}
     >
         {presentation === 'fallback' ? (
@@ -338,42 +162,24 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
             targetThinking={targetThinking}
             targetPermissionMode={targetPermissionMode}
             targetGrokSandbox={targetGrokSandbox}
-            onAdapterChange={(next) =>
-              invalidateAndChange(() => {
-                setTargetAdapter(next);
-                if (next === session.agentId) {
-                  setTargetProvider(session.runtimeProvider ?? '');
-                  setTargetModel(session.model ?? '');
-                  setTargetThinking(sourceThinking(session));
-                  setTargetPermissionMode(storedSessionPermissionMode(session) ?? 'auto');
-                  setTargetGrokSandbox(
-                    session.agentId === 'grok-build' ? session.grokSandbox ?? '' : '',
-                  );
-                } else {
-                  setTargetProvider('');
-                  setTargetModel('');
-                  setTargetThinking('');
-                  setTargetPermissionMode('auto');
-                  setTargetGrokSandbox('');
-                }
-              })
-            }
-            onProviderChange={(next) =>
-              invalidateAndChange(() => {
-                setTargetProvider(next);
-                setTargetModel('');
-              })
-            }
-            onModelChange={(next) => invalidateAndChange(() => setTargetModel(next))}
-            onThinkingChange={(next) =>
-              invalidateAndChange(() => setTargetThinking(next))
-            }
-            onPermissionModeChange={(next) =>
-              invalidateAndChange(() => setTargetPermissionMode(next))
-            }
-            onGrokSandboxChange={(next) =>
-              invalidateAndChange(() => setTargetGrokSandbox(next))
-            }
+            onAdapterChange={(next) => draft.change({
+              targetAdapter: next,
+              ...(next === session.agentId ? {
+                targetProvider: session.runtimeProvider ?? '',
+                targetModel: session.model ?? '',
+                targetThinking: sourceThinking(session),
+                targetPermissionMode: storedSessionPermissionMode(session) ?? 'auto',
+                targetGrokSandbox: session.agentId === 'grok-build' ? session.grokSandbox ?? '' : '',
+              } : {
+                targetProvider: '', targetModel: '', targetThinking: '' as const,
+                targetPermissionMode: 'auto' as const, targetGrokSandbox: '',
+              }),
+            })}
+            onProviderChange={(next) => draft.change({ targetProvider: next, targetModel: '' })}
+            onModelChange={(next) => draft.change({ targetModel: next })}
+            onThinkingChange={(next) => draft.change({ targetThinking: next })}
+            onPermissionModeChange={(next) => draft.change({ targetPermissionMode: next })}
+            onGrokSandboxChange={(next) => draft.change({ targetGrokSandbox: next })}
           />
 
           <div className="flex flex-col gap-1 text-[10px] text-deck-muted">
@@ -393,15 +199,13 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
               disabled={busy}
               maxLength={102_400}
               rows={4}
-              onChange={(value) =>
-                invalidateAndChange(() => setInstruction(value))
-              }
+              onChange={(value) => draft.change({ instruction: value })}
             />
           </div>
 
           <button
             type="button"
-            onClick={() => void prepare()}
+            onClick={() => void draft.prepare()}
             disabled={
               busy ||
               !instruction.trim() ||
@@ -467,8 +271,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
                 <button
                   type="button"
                   onClick={() => {
-                    pendingOrphanAcknowledgements.delete(sessionId);
-                    setExecutionFailure(null);
+                    draft.store.setState({ executionFailure: null });
                   }}
                   className="rounded border border-status-error/40 px-2 py-1 text-[10px] hover:bg-status-error/10"
                 >
@@ -478,9 +281,9 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
             </div>
           )}
 
-          {error && (
+          {visibleError && (
             <div className="rounded bg-status-waiting/10 px-3 py-2 text-[11px] text-status-waiting">
-              <AlertTriangleIcon className="mr-1 inline h-3 w-3 align-text-bottom" />{error}
+              <AlertTriangleIcon className="mr-1 inline h-3 w-3 align-text-bottom" />{visibleError}
             </div>
           )}
         </>}

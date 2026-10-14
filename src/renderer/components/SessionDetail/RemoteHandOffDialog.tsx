@@ -1,9 +1,9 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useStore } from 'zustand';
 
 import type {
   SessionHandOffCommitResult,
   SessionHandOffPreviewParams,
-  SessionHandOffPreviewResult,
 } from '@contracts/index';
 import { DeckSelect } from '@renderer/components/DeckSelect';
 import { SessionModelDisclosure } from '@renderer/components/SessionModelDisclosure';
@@ -25,62 +25,61 @@ import {
 } from '../hand-off/ExpandableTextSurface';
 import { qualityLabel, warningLabel } from '../hand-off/labels';
 import { HandOffDialogFrame } from '../hand-off/HandOffDialogFrame';
+import { getRemoteHandOffDraft, remoteHandOffDrafts, remoteHandOffIdentity } from '../hand-off/remote-draft';
 
-const CONTINUATION_INSTRUCTION = '请基于以上会话续接上下文继续完成当前工作。';
 const SELECT_CLASS =
   'w-full rounded border border-deck-border bg-white/[0.04] px-2 py-1 text-left text-[11px] outline-none focus:border-white/20';
 
-interface PreparedHandOff {
-  input: Omit<SessionHandOffPreviewParams, 'sessionId'>;
-  result: SessionHandOffPreviewResult;
-}
-
-export function RemoteHandOffDialog({
-  source,
-  sessionId,
-  onClose,
-  onCommitted,
-}: {
+interface Props {
   source: RemoteSessionSourceView;
   sessionId: string;
   onClose(): void;
   onCommitted(result: SessionHandOffCommitResult): void;
-}): JSX.Element {
-  const identity = `${source.identity}:${sessionId}`;
+}
+
+export function RemoteHandOffDialog(props: Props): JSX.Element {
+  const identity = remoteHandOffIdentity(props.source.identity, props.sessionId);
+  return <RemoteHandOffDialogContent key={identity} {...props} identity={identity} />;
+}
+
+function RemoteHandOffDialogContent({
+  source, sessionId, onClose, onCommitted, identity,
+}: Props & { identity: string }): JSX.Element {
+  const [draft] = useState(() => getRemoteHandOffDraft(identity));
+  const { instruction, prepared, preparing, committing, error, completed } = useStore(draft.store);
   const remote = useRemoteSessionCreation({
     active: true,
     scopeKey: `remote-handoff:${sessionId}`,
     source,
     workingDirectory: '.',
+    initialDraft: draft.store.getState().selection,
   });
-  const [instruction, setInstruction] = useState(CONTINUATION_INSTRUCTION);
-  const [prepared, setPrepared] = useState<PreparedHandOff | null>(null);
-  const [preparing, setPreparing] = useState(false);
-  const [committing, setCommitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const requestSequence = useRef(0);
   const modalRootRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const displayDescriptor = remote.presentationDescriptor;
   const displayOptions = remote.presentationOptions;
-
+  const completionHandled = useRef(false);
+  useEffect(() => {
+    if (!completed || completionHandled.current) return;
+    completionHandled.current = true;
+    remoteHandOffDrafts.delete(identity);
+    onCommitted(completed);
+  }, [completed, identity, onCommitted]);
   useLayoutEffect(() => {
-    requestSequence.current += 1;
-    setInstruction(CONTINUATION_INSTRUCTION);
-    setPrepared(null);
-    setPreparing(false);
-    setCommitting(false);
-    setError(null);
-    return () => { requestSequence.current += 1; };
-  }, [identity]);
-
+    draft.store.setState({ selection: remote.draft });
+  }, [draft, remote.draft]);
+  const available = source.usable && source.capabilities.has('session-console.read') &&
+    source.capabilities.has('sessions.handoff');
   useLayoutEffect(() => {
-    requestSequence.current += 1;
-    setPrepared(null);
-    setPreparing(false);
-    setCommitting(false);
-    setError(null);
-  }, [remote.readinessIdentity]);
+    if (!available) draft.invalidate();
+  }, [available, draft]);
+  // Reopening revalidates capabilities; retain the preview only for the same effective target.
+  useLayoutEffect(() => {
+    if (!remote.descriptor || !prepared) return;
+    if (prepared.input.target.adapterId !== remote.adapterId ||
+      Object.entries(prepared.input.target.options).some(([key, value]) =>
+        remote.options[key as keyof typeof remote.options] !== value)) draft.invalidate();
+  }, [draft, prepared, remote.adapterId, remote.descriptor, remote.options]);
 
   const controls = useMemo(() => remoteControls(
     displayDescriptor,
@@ -88,9 +87,8 @@ export function RemoteHandOffDialog({
     remote.setOption,
   ), [displayDescriptor, displayOptions, remote.setOption]);
   const invalidate = (change: () => void): void => {
-    requestSequence.current += 1;
-    setPrepared(null);
-    setError(null);
+    if (draft.store.getState().preparing || draft.store.getState().committing) return;
+    draft.invalidate();
     change();
   };
   const input = (): Omit<SessionHandOffPreviewParams, 'sessionId'> => {
@@ -105,48 +103,11 @@ export function RemoteHandOffDialog({
       },
     };
   };
-  const prepare = async (): Promise<void> => {
-    if (preparing || committing || !instruction.trim()) return;
-    const sequence = ++requestSequence.current;
-    setPreparing(true);
-    setPrepared(null);
-    setError(null);
-    try {
-      const request = input();
-      const result = await source.previewHandOff(request);
-      if (sequence !== requestSequence.current) return;
-      setPrepared({ input: request, result });
-    } catch (cause) {
-      if (sequence === requestSequence.current) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      }
-    } finally {
-      if (sequence === requestSequence.current) setPreparing(false);
-    }
-  };
-  const commit = async (): Promise<void> => {
-    if (!prepared || committing || preparing) return;
-    const sequence = ++requestSequence.current;
-    setCommitting(true);
-    setError(null);
-    try {
-      const result = await source.commitHandOff({
-        ...prepared.input,
-        expectedBindingDigest: prepared.result.bindingDigest,
-      });
-      if (sequence !== requestSequence.current) return;
-      onCommitted(result);
-    } catch (cause) {
-      if (sequence === requestSequence.current) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      }
-    } finally {
-      if (sequence === requestSequence.current) setCommitting(false);
-    }
+  const prepare = (): void => {
+    if (remote.descriptor && available) void draft.prepare(source, input());
   };
   const close = (): void => {
-    requestSequence.current += 1;
-    onClose();
+    if (!draft.store.getState().committing) onClose();
   };
   const busy = preparing || committing || source.busy;
   const configurationInteractionBlocked = remote.loading;
@@ -158,8 +119,8 @@ export function RemoteHandOffDialog({
     presentation === 'ready' && remote.loading,
     `remote-handoff:${identity}:${remote.readinessIdentity}:configuration`,
   );
-  const primaryDisabled = busy || configurationInteractionBlocked || !prepared;
-  const prepareDisabled = busy || configurationInteractionBlocked ||
+  const primaryDisabled = busy || !available || configurationInteractionBlocked || !prepared;
+  const prepareDisabled = busy || !available || configurationInteractionBlocked ||
     !remote.descriptor || !instruction.trim();
   const settledPrimaryDisabledRef = useRef(primaryDisabled);
   const settledPrepareDisabledRef = useRef(prepareDisabled);
@@ -195,6 +156,7 @@ export function RemoteHandOffDialog({
       statusText={preparing ? '正在整理会话上下文…' : committing ? '正在创建…' : undefined}
       busy={committing}
       onClose={close}
+      onDiscard={prepared ? () => { draft.invalidate(); onClose(); } : undefined}
       primaryLabel="打开新会话接力"
       primaryBusyLabel="正在创建续接会话…"
       primaryDisabled={primaryDisabled}
@@ -207,7 +169,7 @@ export function RemoteHandOffDialog({
           正在更新会话配置…
         </div>
       ) : undefined}
-      onPrimary={() => { void commit(); }}
+      onPrimary={() => { if (available && remote.descriptor) void draft.commit(source); }}
       ariaBusy={presentation === 'fallback'}
     >
         {presentation === 'fallback' ? (
@@ -307,7 +269,7 @@ export function RemoteHandOffDialog({
               disabled={busy}
               maxLength={102_400}
               rows={4}
-              onChange={(value) => invalidate(() => setInstruction(value))}
+              onChange={(value) => invalidate(() => draft.store.setState({ instruction: value }))}
             />
           </label>
           <button
