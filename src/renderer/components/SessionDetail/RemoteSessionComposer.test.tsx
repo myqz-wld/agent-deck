@@ -99,7 +99,7 @@ describe('RemoteSessionComposer parity and authority', () => {
     fireEvent.click(screen.getByLabelText('沙盒'));
     fireEvent.click(screen.getByRole('option', { name: '完全开放' }));
     await waitFor(() => expect(confirmDialog).toHaveBeenCalledWith(expect.objectContaining({
-      title: '关闭 Claude Code 沙盒？',
+      title: '将沙盒设为完全开放？',
     })));
     await waitFor(() => expect(remote.updateRuntime).toHaveBeenCalledWith({
       claudeCodeSandbox: 'off',
@@ -249,7 +249,7 @@ describe('RemoteSessionComposer parity and authority', () => {
   it('keeps next-turn runtime controls editable while a provider turn is working', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
-      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset() },
+      value: { confirmDialog: vi.mocked(requestConfirmation).mockReset().mockResolvedValue(true) },
     });
     const remote = source({
       capabilities: new Set([
@@ -272,10 +272,10 @@ describe('RemoteSessionComposer parity and authority', () => {
 
     expect((screen.getByRole('button', { name: '接力' }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByLabelText('模型') as HTMLInputElement).disabled).toBe(false);
-    expect((screen.getByLabelText('权限模式') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByLabelText('权限') as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByLabelText('沙盒') as HTMLButtonElement).disabled).toBe(false);
 
-    fireEvent.click(screen.getByLabelText('权限模式'));
+    fireEvent.click(screen.getByLabelText('权限'));
     fireEvent.click(screen.getByRole('option', { name: '不再询问' }));
     await waitFor(() => expect(remote.updateRuntime).toHaveBeenCalledWith({
       permissionMode: 'bypassPermissions',

@@ -112,6 +112,13 @@ export async function applyServerCoreRuntimePatch(
   if (keys[0] === 'permissionMode') {
     const value = oneField(patch, 'permissionMode');
     if (!isSessionPermissionMode(value)) invalid();
+    if (record.agentId === 'claude-code' && value === 'bypassPermissions') {
+      if (!adapter.restartWithPermissionMode) unavailable();
+      const replacementSessionId = await adapter.restartWithPermissionMode(
+        record.id, value, SDK_RESTART_RESUME_PROMPT,
+      );
+      return { effect: 'restart-required', replacementSessionId };
+    }
     if (!adapter.setPermissionMode) unavailable();
     await adapter.setPermissionMode(record.id, value);
     return { effect: 'hot-applied', replacementSessionId: null };

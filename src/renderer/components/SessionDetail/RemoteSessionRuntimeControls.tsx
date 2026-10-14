@@ -1,4 +1,4 @@
-import { confirmDialog } from '@renderer/lib/confirm-dialog';
+import { useRuntimeChangeConfirmation } from '@renderer/hooks/useRuntimeChangeConfirmation';
 import { useEffect, useRef, useState, type JSX } from 'react';
 
 import type { SessionThinkingChoice } from '../SessionModelFields';
@@ -12,8 +12,6 @@ import {
 import { ErrorBanner } from './composer-sdk/ErrorBanner';
 import {
   GROK_SANDBOX_MODE_OPTIONS,
-  type ClaudeSandboxMode,
-  type CodexSandboxMode,
 } from '@renderer/lib/sandbox-options';
 import type { RemoteHostJsonObject } from '@shared/remote-host';
 import type { SessionConsoleCreateOptionSchema } from '@contracts/index';
@@ -111,6 +109,7 @@ export function RemoteSessionRuntimeControls({
     identity,
   };
   const disabled = busy || !canWrite || !values;
+  const confirmChange = useRuntimeChangeConfirmation(`${adapterId}:${identity}:${canWrite}:${busy}`);
 
   const applyPatch = async (
     patch: RemoteHostJsonObject,
@@ -259,6 +258,12 @@ export function RemoteSessionRuntimeControls({
     return (await applyPatch(patch, onApply, identity)) === 'applied';
   };
   const currentPermission = stringValue(values, 'permissionMode');
+  const changeRuntime = async (kind: 'permission' | 'sandbox', field: string, next: string | null): Promise<boolean> => {
+    const current = stringValue(values, field);
+    if (next === current || (next === null && current === '')) return true;
+    if (!await confirmChange({ adapterId, kind, value: next, remote: true })) return false;
+    return apply({ [field]: next });
+  };
   const permissionOptions = [...PERMISSION_MODE_OPTIONS];
   const claudeSandbox = stringValue(values, 'claudeCodeSandbox');
   const codexSandbox = stringValue(values, 'codexSandbox');
@@ -297,14 +302,14 @@ export function RemoteSessionRuntimeControls({
         onDismissError={() => undefined}
       />
           <SelectRow
-            label="权限模式"
+            label="权限"
             value={currentPermission || PROVIDER_DEFAULT_RUNTIME_VALUE}
             options={permissionOptions}
             fallbackLabel="沿用会话原有权限"
             disabled={disabled}
             onChange={(next) => {
               if (next !== PROVIDER_DEFAULT_RUNTIME_VALUE && isSelectablePermissionMode(next)) {
-                void apply({ permissionMode: next });
+                void changeRuntime('permission', 'permissionMode', next);
               }
             }}
           />
@@ -317,7 +322,7 @@ export function RemoteSessionRuntimeControls({
             disabled={disabled}
             onChange={(next) => {
               if (next !== PROVIDER_DEFAULT_RUNTIME_VALUE) {
-                void confirmClaudeSandbox(next as ClaudeSandboxMode, apply);
+                void changeRuntime('sandbox', 'claudeCodeSandbox', next);
               }
             }}
           />
@@ -332,7 +337,7 @@ export function RemoteSessionRuntimeControls({
             disabled={disabled}
             onChange={(next) => {
               if (next !== PROVIDER_DEFAULT_RUNTIME_VALUE) {
-                void confirmCodexSandbox(next as CodexSandboxMode, apply);
+                void changeRuntime('sandbox', 'codexSandbox', next);
               }
             }}
           />
@@ -343,7 +348,7 @@ export function RemoteSessionRuntimeControls({
           <RemoteGrokSandbox
             value={stringValue(values, 'grokSandbox')}
             disabled={disabled}
-            onApply={(next) => apply({ grokSandbox: next || null })}
+            onApply={(next) => changeRuntime('sandbox', 'grokSandbox', next || null)}
           />
         </>
       )}
@@ -363,30 +368,6 @@ export function RemoteSessionRuntimeControls({
       <ErrorBanner message={error} prefix="运行设置失败" onDismiss={() => setError(null)} />
     </>
   );
-}
-
-async function confirmClaudeSandbox(
-  next: ClaudeSandboxMode,
-  apply: (patch: RemoteHostJsonObject) => Promise<boolean>,
-): Promise<void> {
-  if (next === 'off' && !await confirmDialog({
-    title: '关闭 Claude Code 沙盒？',
-    message: '将重启当前会话并解除系统沙盒限制，工具授权规则仍然生效。',
-    okLabel: '重启并关闭沙盒', cancelLabel: '取消', destructive: true,
-  })) return;
-  await apply({ claudeCodeSandbox: next });
-}
-
-async function confirmCodexSandbox(
-  next: CodexSandboxMode,
-  apply: (patch: RemoteHostJsonObject) => Promise<boolean>,
-): Promise<void> {
-  if (next === 'danger-full-access' && !await confirmDialog({
-    title: '将 Codex CLI 沙盒设为完全开放？',
-    message: '下一轮起可读写任意文件、执行任意命令，当前轮次继续运行。',
-    okLabel: '设为完全开放', cancelLabel: '取消', destructive: true,
-  })) return;
-  await apply({ codexSandbox: next });
 }
 
 function RemoteGrokSandbox({
@@ -413,7 +394,9 @@ function RemoteGrokSandbox({
           onChange={(next) => {
             if (next === CUSTOM_GROK_PROFILE) { setCustomActive(true); return; }
             setCustomActive(false);
-            void onApply(next);
+            void onApply(next).then((applied) => {
+              if (!applied) setCustomActive(custom);
+            });
           }}
           disabled={disabled}
           options={[

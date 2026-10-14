@@ -19,18 +19,19 @@ export function FeishuRuntimePreferenceFields({ field, purposeLabel, value, desc
   disabled: boolean;
   onChange(value: string | null): void;
 }): JSX.Element {
-  const nativeLabels: ReadonlyArray<{ value: string; label: string }> = field === 'permissionMode' ? PERMISSION_OPTIONS
+  const nativeLabels: ReadonlyArray<{ value: string; label: string; warning?: boolean }> = field === 'permissionMode' ? PERMISSION_OPTIONS
     : field === 'approvalPolicy' ? CODEX_APPROVAL_POLICY_OPTIONS
       : field === 'sessionMode' ? adapterSessionModeOptions(ADAPTER_SESSION_MODES) : [];
   const selected = value ?? descriptor?.defaultValue ?? '';
   const choices: DeckSelectOption<string>[] = field === sandbox.optionKey
     ? remoteSandboxOptions(sandbox.choices, sandbox.optionKey)
       .filter(option => descriptor?.allowedValues?.includes(option.value))
-    : (descriptor?.allowedValues ?? []).map(option => ({ value: option,
-      label: nativeLabels.find(item => item.value === option)?.label ?? option }));
+    : (descriptor?.allowedValues ?? []).map(option =>
+      nativeLabels.find(item => item.value === option) ?? { value: option, label: option });
   if (selected && !choices.some(option => option.value === selected)) {
-    const label = nativeLabels.find(item => item.value === selected)?.label ?? selected;
-    choices.push({ value: selected, label: `${label}（暂不可用）`, disabled: true });
+    const native = nativeLabels.find(item => item.value === selected);
+    choices.push({ value: selected, label: `${native?.label ?? selected}（暂不可用）`,
+      warning: native?.warning, disabled: true });
   }
   return <label className="text-[10px] text-deck-muted">{LABELS[field]}
     <DeckSelect ariaLabel={`${purposeLabel} ${LABELS[field]}`} value={selected} options={choices}

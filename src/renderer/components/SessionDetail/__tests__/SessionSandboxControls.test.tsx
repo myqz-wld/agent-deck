@@ -77,13 +77,13 @@ describe('Codex live approval control', () => {
     fireEvent.click(screen.getByRole('option', { name: '完全开放' }));
 
     await waitFor(() => {
-      expect(confirmDialog).toHaveBeenCalledWith({
-        title: '将 Codex CLI 沙盒设为完全开放？',
-        message: '下一轮起可读写任意文件、执行任意命令，当前轮次继续运行。',
-        okLabel: '设为完全开放',
+      expect(confirmDialog).toHaveBeenCalledWith(expect.objectContaining({
+        title: '将沙盒设为完全开放？',
+        detail: '从下一轮生效，当前轮次继续运行。',
+        okLabel: '确认切换',
         cancelLabel: '取消',
         destructive: true,
-      });
+      }));
     });
   });
 });
@@ -105,13 +105,13 @@ describe('Claude Code live sandbox control', () => {
     fireEvent.click(screen.getByRole('option', { name: '完全开放' }));
 
     await waitFor(() => {
-      expect(confirmDialog).toHaveBeenCalledWith({
-        title: '关闭 Claude Code 沙盒？',
-        message: '将重启当前会话并解除系统沙盒限制，工具授权规则仍然生效。',
-        okLabel: '重启并关闭沙盒',
+      expect(confirmDialog).toHaveBeenCalledWith(expect.objectContaining({
+        title: '将沙盒设为完全开放？',
+        detail: '当前会话会重启。',
+        okLabel: '确认切换',
         cancelLabel: '取消',
         destructive: true,
-      });
+      }));
     });
   });
 });
@@ -209,13 +209,13 @@ describe('Grok Build live sandbox control', () => {
     fireEvent.click(screen.getByRole('option', { name: '完全开放' }));
 
     await waitFor(() => {
-      expect(confirmDialog).toHaveBeenCalledWith({
-        title: '关闭 Grok Build 沙盒？',
-        message: '当前轮结束后将重启会话并解除系统沙盒限制，工具授权规则仍然生效。',
-        okLabel: '关闭沙盒',
+      expect(confirmDialog).toHaveBeenCalledWith(expect.objectContaining({
+        title: '将沙盒设为完全开放？',
+        detail: '当前轮结束后会重启会话。',
+        okLabel: '确认切换',
         cancelLabel: '取消',
         destructive: true,
-      });
+      }));
     });
     expect(restartWithGrokSandbox).toHaveBeenCalledWith(
       'grok-build',

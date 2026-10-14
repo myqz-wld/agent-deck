@@ -34,6 +34,12 @@ Planning, question-only, and edit-only presets are absent from these controls. E
 sessions keep their native permission state until a new choice is applied. Grok's `read-only`
 sandbox keeps project files read-only while allowing its state and temporary directories to be written.
 
+Session details use the compact label **权限**. When changing an existing session, all three
+providers confirm switching to **不再询问** or the **完全开放** sandbox; automatic approval and
+other built-in sandbox choices apply directly. Both unrestricted choices use the same warning
+icon. Confirmations describe native restart or next-turn timing separately, and Remote descriptions
+retain the Workspace boundary. Changing sessions or disconnecting dismisses pending confirmations.
+
 ## Session collaboration
 
 `list_sessions` defaults to related active and dormant session metadata. Set `scope: "all"` to

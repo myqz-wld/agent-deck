@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-10-14 | `CHANGELOG_679_runtime-confirmation-parity.md` | Align permission and sandbox confirmations across providers and surfaces |
 | 2026-10-14 | `CHANGELOG_678_runtime-log-observability.md` | Bound Worker logs and add private runtime/heartbeat diagnostics |
 | 2026-10-14 | `CHANGELOG_677_unified-permission-modes.md` | Unify native approval presets across Claude, Codex, and Grok |
 | 2026-10-14 | `CHANGELOG_676_mcp-discovery-and-diff-focus.md` | Discover independent sessions, gate shutdown, and reveal the first diff |

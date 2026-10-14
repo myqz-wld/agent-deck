@@ -2,10 +2,14 @@ import { confirmDialog as requestConfirmation } from '@renderer/lib/confirm-dial
 // @vitest-environment happy-dom
 import { StrictMode } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@renderer/lib/confirm-dialog', () => ({ confirmDialog: vi.fn() }));
 
 import { RemoteSessionRuntimeControls } from './RemoteSessionRuntimeControls';
+
+beforeEach(() => {
+  vi.mocked(requestConfirmation).mockReset().mockResolvedValue(true);
+});
 
 afterEach(() => {
   cleanup();
@@ -32,7 +36,7 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
           busy={false}
           canWrite
           identity="remote-a:core-a:1:session-a"
-          values={{ permissionMode: 'auto', model: 'old-model' }}
+          values={{ permissionMode: 'bypassPermissions', model: 'old-model' }}
           onApply={onApply}
         />
       </StrictMode>,
@@ -47,7 +51,7 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
       thinking: null,
     }));
 
-    fireEvent.click(screen.getByLabelText('权限模式'));
+    fireEvent.click(screen.getByLabelText('权限'));
     fireEvent.click(screen.getByRole('option', { name: '自动审批' }));
     await waitFor(() => expect(onApply).toHaveBeenCalledWith({ permissionMode: 'auto' }));
     expect(onApply).toHaveBeenCalledTimes(2);
@@ -65,7 +69,7 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
       />,
     );
 
-    expect(screen.getByLabelText('权限模式').textContent).toContain('沿用会话原有权限');
+    expect(screen.getByLabelText('权限').textContent).toContain('沿用会话原有权限');
     expect(screen.getByLabelText('沙盒').textContent).toContain('使用当前默认值');
   });
 
@@ -81,7 +85,7 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
       />,
     );
 
-    expect(screen.getByLabelText('权限模式').textContent).toContain('自动审批');
+    expect(screen.getByLabelText('权限').textContent).toContain('自动审批');
   });
 
   it('keeps Grok sandbox editable during an active turn', async () => {
@@ -176,15 +180,15 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
         busy={false}
         canWrite
         identity="remote-a:core-a:1:session-a"
-        values={{ permissionMode: 'auto', codexSandbox: 'read-only' }}
+        values={{ permissionMode: 'default', codexSandbox: 'read-only' }}
         onApply={oldApply}
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('权限模式'));
+    fireEvent.click(screen.getByLabelText('权限'));
     fireEvent.click(screen.getByRole('option', { name: '自动审批' }));
     await waitFor(() => expect(oldApply).toHaveBeenCalledOnce());
-    fireEvent.click(screen.getByLabelText('权限模式'));
+    fireEvent.click(screen.getByLabelText('权限'));
     fireEvent.click(screen.getByRole('option', { name: '不再询问' }));
 
     view.rerender(

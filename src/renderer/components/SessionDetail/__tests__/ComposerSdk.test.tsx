@@ -95,7 +95,7 @@ describe('ComposerSdk unified input routing', () => {
       sessionModes: ['default', 'plan', 'ask'],
     }] as never);
     render(<ComposerSdk session={makeSession({ agentId, permissionMode: 'bypassPermissions' })} />);
-    fireEvent.click(await screen.findByLabelText('权限模式'));
+    fireEvent.click(await screen.findByLabelText('权限'));
     expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(['自动审批', '不再询问']);
     fireEvent.click(screen.getByRole('option', { name: '自动审批' }));
     await waitFor(() => expect(setAdapterPermissionMode).toHaveBeenCalledWith(agentId, 'sess-1', 'auto'));
@@ -111,7 +111,7 @@ describe('ComposerSdk unified input routing', () => {
     render(<ComposerSdk session={makeSession({
       permissionMode: 'bypassPermissions', codexApprovalPolicy: 'on-request',
     })} />);
-    expect((await screen.findByLabelText('权限模式')).textContent).toContain('沿用会话原有权限');
+    expect((await screen.findByLabelText('权限')).textContent).toContain('沿用会话原有权限');
     expect(setAdapterPermissionMode).not.toHaveBeenCalled();
   });
 

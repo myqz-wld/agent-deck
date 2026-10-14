@@ -18,12 +18,13 @@ export const PERMISSION_OPTIONS: { value: PermissionModeChoice; label: string; t
   {
     value: 'auto',
     label: '自动审批',
-    title: '由当前适配器的原生审批机制判断操作是否允许；沙盒设置单独生效',
+    title: '由助手自动判断是否允许操作，必要时仍会询问；访问范围由沙盒限制',
   },
   {
     value: 'bypassPermissions',
     label: '不再询问',
-    title: '不再请求常规工具审批；系统沙盒和适配器的强制限制仍生效',
+    warning: true,
+    title: '执行命令、修改文件时不再逐项询问；仍受沙盒和原生强制限制',
   },
 ];
 

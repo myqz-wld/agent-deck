@@ -1,4 +1,4 @@
-import { confirmDialog } from '@renderer/lib/confirm-dialog';
+import { useRuntimeChangeConfirmation } from '@renderer/hooks/useRuntimeChangeConfirmation';
 import { useEffect, useState, type JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
@@ -26,20 +26,12 @@ export function SessionSandboxControls({
 }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const confirmChange = useRuntimeChangeConfirmation(`${session.agentId}:${session.id}`);
 
   const changeCodex = async (next: CodexSandboxMode): Promise<void> => {
     const current = session.codexSandbox ?? 'workspace-write';
     if (next === current || busy) return;
-    if (next === 'danger-full-access') {
-      const approved = await confirmDialog({
-        title: '将 Codex CLI 沙盒设为完全开放？',
-        message: '下一轮起可读写任意文件、执行任意命令，当前轮次继续运行。',
-        okLabel: '设为完全开放',
-        cancelLabel: '取消',
-        destructive: true,
-      });
-      if (!approved) return;
-    }
+    if (!await confirmChange({ adapterId: session.agentId, kind: 'sandbox', value: next })) return;
     await run(async () =>
       window.api.setCodexSandbox(
         session.agentId,
@@ -52,16 +44,7 @@ export function SessionSandboxControls({
   const changeClaude = async (next: ClaudeSandboxMode): Promise<void> => {
     const current = session.claudeCodeSandbox ?? 'off';
     if (next === current || busy) return;
-    if (next === 'off') {
-      const approved = await confirmDialog({
-        title: '关闭 Claude Code 沙盒？',
-        message: '将重启当前会话并解除系统沙盒限制，工具授权规则仍然生效。',
-        okLabel: '重启并关闭沙盒',
-        cancelLabel: '取消',
-        destructive: true,
-      });
-      if (!approved) return;
-    }
+    if (!await confirmChange({ adapterId: session.agentId, kind: 'sandbox', value: next })) return;
     await run(async () =>
       window.api.restartWithClaudeCodeSandbox(
         session.agentId,
@@ -113,6 +96,7 @@ export function SessionSandboxControls({
           session={session}
           disabled={busy}
           run={run}
+          confirmChange={confirmChange}
         />
       )}
       <ErrorBanner
@@ -128,10 +112,12 @@ function GrokSessionSandboxControl({
   session,
   disabled,
   run,
+  confirmChange,
 }: {
   session: SessionRecord;
   disabled: boolean;
   run: (operation: () => Promise<unknown>) => Promise<boolean>;
+  confirmChange: ReturnType<typeof useRuntimeChangeConfirmation>;
 }): JSX.Element {
   const current = session.grokSandbox ?? '';
   const currentIsSelectableBuiltin = GROK_SANDBOX_MODE_OPTIONS.some(
@@ -150,16 +136,7 @@ function GrokSessionSandboxControl({
 
   const apply = async (profile: string | null): Promise<boolean> => {
     if (profile === current || (profile === null && current === '')) return true;
-    if (profile === 'off') {
-      const approved = await confirmDialog({
-        title: '关闭 Grok Build 沙盒？',
-        message: '当前轮结束后将重启会话并解除系统沙盒限制，工具授权规则仍然生效。',
-        okLabel: '关闭沙盒',
-        cancelLabel: '取消',
-        destructive: true,
-      });
-      if (!approved) return false;
-    }
+    if (!await confirmChange({ adapterId: session.agentId, kind: 'sandbox', value: profile })) return false;
     return run(() =>
       window.api.restartWithGrokSandbox(
         session.agentId,

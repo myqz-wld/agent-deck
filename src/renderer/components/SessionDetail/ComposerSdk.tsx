@@ -1,4 +1,4 @@
-import { confirmDialog } from '@renderer/lib/confirm-dialog';
+import { useRuntimeChangeConfirmation } from '@renderer/hooks/useRuntimeChangeConfirmation';
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import {
   isSelectablePermissionMode,
@@ -46,6 +46,7 @@ export function ComposerSdk({
 }): JSX.Element {
   const sessionId = session.id;
   const agentId = session.agentId;
+  const confirmRuntimeChange = useRuntimeChangeConfirmation(`${agentId}:${sessionId}`);
   const composer = useSessionStore((state) =>
     composerSessionFor(state.composerBySession, state.composerAliases, sessionId));
   const ensureComposerSession = useSessionStore((state) => state.ensureComposerSession);
@@ -210,16 +211,7 @@ export function ComposerSdk({
     if (next === permissionMode || pmBusy) return;
     if (!isSelectablePermissionMode(next)) return;
     const selectableNext: SelectablePermissionMode = next;
-    if (agentId === 'claude-code' && selectableNext === 'bypassPermissions') {
-      const ok = await confirmDialog({
-        title: '切换到完全免询问？',
-        message: '将重启当前会话，之后文件修改、命令执行等工具操作将不再询问。',
-        okLabel: '重启并启用',
-        cancelLabel: '取消',
-        destructive: true,
-      });
-      if (!ok) return;
-    }
+    if (!await confirmRuntimeChange({ adapterId: agentId, kind: 'permission', value: selectableNext })) return;
     const originSessionId = sessionId;
     const originAgentId = agentId;
     const generation = beginComposerRequest(
@@ -278,7 +270,7 @@ export function ComposerSdk({
           <SessionRuntimeControls session={session} />
           {supportsPermissionMode && (
             <SelectRow
-              label="权限模式"
+              label="权限"
               value={permissionMode}
               options={permissionModeOptions}
               fallbackLabel={permissionMode === 'dontAsk' ? '当前状态：仅执行已授权操作' : '沿用会话原有权限'}

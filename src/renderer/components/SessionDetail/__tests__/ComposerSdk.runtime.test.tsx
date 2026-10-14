@@ -133,7 +133,7 @@ describe('ComposerSdk runtime controls and handoff', () => {
       thinking: 'xhigh',
     })} />);
 
-    expect(screen.queryByLabelText('权限模式')).toBeNull();
+    expect(screen.queryByLabelText('权限')).toBeNull();
     expect(screen.queryByText('模型网关、模型与思考程度')).toBeNull();
 
     await act(async () => resolveAdapters([{
@@ -146,7 +146,7 @@ describe('ComposerSdk runtime controls and handoff', () => {
       sessionModes: [],
     }]));
 
-    expect(await screen.findByLabelText('权限模式')).toBeTruthy();
+    expect(await screen.findByLabelText('权限')).toBeTruthy();
     fireEvent.click(screen.getByText('模型网关、模型与思考程度'));
     expect((screen.getByLabelText('模型网关') as HTMLInputElement).value).toBe('gateway-a');
     expect((screen.getByLabelText('模型') as HTMLInputElement).value).toBe('claude-opus-4-8');
@@ -169,7 +169,7 @@ describe('ComposerSdk runtime controls and handoff', () => {
     expect(screen.queryByText('正在读取会话运行配置…')).toBeNull();
     act(() => vi.advanceTimersByTime(1));
     expect(screen.getByText('正在读取会话运行配置…')).toBeTruthy();
-    expect(screen.queryByLabelText('权限模式')).toBeNull();
+    expect(screen.queryByLabelText('权限')).toBeNull();
   });
 
   it('automatically applies a free-form model and dropdown thinking level to the next round', async () => {
@@ -363,7 +363,7 @@ describe('ComposerSdk runtime controls and handoff', () => {
       sessionModes: ['default', 'plan', 'ask'],
     }] as never);
     render(<ComposerSdk session={makeSession({ agentId: 'grok-build', permissionMode: 'auto' })} />);
-    expect(await screen.findByLabelText('权限模式')).toBeTruthy();
+    expect(await screen.findByLabelText('权限')).toBeTruthy();
     expect(screen.queryByLabelText('模式')).toBeNull();
     expect(setAdapterSessionMode).not.toHaveBeenCalled();
   });
@@ -396,7 +396,7 @@ describe('ComposerSdk runtime controls and handoff', () => {
       />,
     );
 
-    const permission = await screen.findByLabelText('权限模式');
+    const permission = await screen.findByLabelText('权限');
     expect(permission.textContent).toContain('当前状态：仅执行已授权操作');
     fireEvent.click(permission);
     expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(['自动审批', '不再询问']);

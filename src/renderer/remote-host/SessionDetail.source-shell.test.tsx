@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { SessionDetail } from '@renderer/components/SessionDetail';
@@ -193,10 +193,12 @@ describe('SessionDetail source shell', () => {
     const source = remoteSource();
     render(<SessionDetail remoteSource={source} onClose={vi.fn()} />);
 
+    const navigation = within(screen.getByRole('navigation'));
     for (const label of ['活动', '任务', '改动', '总结', '跨会话']) {
-      expect(screen.getByRole('button', { name: label })).toBeTruthy();
+      expect(navigation.getByRole('button', { name: label })).toBeTruthy();
     }
-    expect(screen.queryByRole('button', { name: '权限' })).toBeNull();
+    expect(navigation.queryByRole('button', { name: '权限' })).toBeNull();
+    expect(screen.getByLabelText('权限')).toBeTruthy();
   });
 
   it('loads bounded Remote cross-session messages lazily through the shared presentation', async () => {
