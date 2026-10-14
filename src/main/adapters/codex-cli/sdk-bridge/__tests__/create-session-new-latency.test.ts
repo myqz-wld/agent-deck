@@ -1,4 +1,5 @@
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
+import { CODEX_DEFAULT_BUCKET } from '@shared/model-normalize';
 import { describe, expect, it, vi } from 'vitest';
 import {
   appServerClientMock,
@@ -35,6 +36,30 @@ describe('codex createSession new path latency', () => {
       'modelReasoningEffort',
     );
     expect(sessionRepo.setThinking).not.toHaveBeenCalled();
+    expect(emits.find((event) => event.kind === 'session-start')?.payload).toMatchObject({
+      initialRuntime: { runtimeProvider: 'openrouter', model: CODEX_DEFAULT_BUCKET },
+    });
+  });
+
+  it('publishes Gateway, model and thinking before the native thread is ready', async () => {
+    vi.useFakeTimers();
+    const thread = new PushThread();
+    appServerClientMock.nextThread = thread;
+    const handle = await makeBridge().createSession({
+      cwd: '/repo', prompt: 'hi', provider: 'working-provider',
+      model: 'gpt-current', modelReasoningEffort: 'high', codexSandbox: 'workspace-write',
+    });
+
+    expect(thread.runStreamed).not.toHaveBeenCalled();
+    expect(emits[0]).toMatchObject({
+      kind: 'session-start', sessionId: handle.sessionId,
+      payload: { initialRuntime: {
+        runtimeProvider: 'working-provider', model: 'gpt-current', thinking: 'high',
+      } },
+    });
+    expect(sessionRepo.setRuntimeProvider).toHaveBeenCalledWith(handle.sessionId, 'working-provider');
+    expect(sessionRepo.setModel).toHaveBeenCalledWith(handle.sessionId, 'gpt-current');
+    expect(sessionRepo.setThinking).toHaveBeenCalledWith(handle.sessionId, 'high');
   });
 
   it('stages a loaded-thread Gateway switch for the next turn', async () => {

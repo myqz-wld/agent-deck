@@ -123,7 +123,10 @@ export function RemoteSessionSummaryCard({
           thinking={session.thinking}
           compact
         />
-        <SessionContextSnapshotChip context={session.context} />
+        <SessionContextSnapshotChip
+          context={session.context}
+          identity={JSON.stringify([session.id, session.adapterId, session.runtimeProvider, session.model])}
+        />
       </div>
       <div className="mt-1 min-w-0">
         {history

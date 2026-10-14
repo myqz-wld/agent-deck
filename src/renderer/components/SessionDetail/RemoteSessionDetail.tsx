@@ -273,7 +273,10 @@ function RemoteSessionMetadata({
           ? <SessionContextUnavailableChip reason={source.contextLoadError} />
           : (
             <SessionContextUsageChip session={{
+              id: source.selectedSession.id,
               agentId: source.selectedSession.adapterId,
+              runtimeProvider: presentation?.runtimeProvider,
+              model,
               contextUsage: source.context?.contextUsage ?? null,
             }} />
           )

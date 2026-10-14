@@ -1,37 +1,48 @@
 import type { JSX } from 'react';
 import type { SessionRecord } from '@shared/types';
+import { useInitialAsyncPresentation } from '@renderer/hooks/useDelayedAsyncFallback';
 
 interface Props {
-  session: Pick<SessionRecord, 'agentId' | 'contextUsage'>;
+  session: Pick<SessionRecord, 'id' | 'agentId' | 'contextUsage'> &
+    Partial<Pick<SessionRecord, 'model' | 'runtimeProvider'>>;
 }
 
 export function SessionContextUsageChip({ session }: Props): JSX.Element {
   const display = contextUsageDisplay(session);
-  return (
-    <span
-      aria-label="上下文窗口用量"
-      className={`whitespace-nowrap rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] tabular-nums ${display.className}`}
-      title={display.title}
-    >
-      {display.label}
-    </span>
-  );
+  return <ContextChip
+    display={display}
+    pending={!session.contextUsage}
+    identity={JSON.stringify([session.id, session.agentId, session.runtimeProvider, session.model])}
+  />;
 }
 
 export function SessionContextSnapshotChip({
   context,
+  identity,
   unavailableReason = '当前还没有上下文用量',
 }: {
   context: { usedTokens: number | null; windowTokens: number | null } | null;
+  identity: string;
   unavailableReason?: string;
 }): JSX.Element {
-  if (!context) return <SessionContextUnavailableChip reason={unavailableReason} />;
-  const display = contextValuesDisplay(context.usedTokens, context.windowTokens);
+  const display = context
+    ? contextValuesDisplay(context.usedTokens, context.windowTokens)
+    : { label: '上下文 暂无数据', title: unavailableReason, className: 'text-deck-muted/65' };
+  return <ContextChip display={display} pending={!context} identity={identity} />;
+}
+
+function ContextChip({ display, pending, identity }: {
+  display: { label: string; title: string; className: string };
+  pending: boolean;
+  identity: string;
+}): JSX.Element {
+  const deferred = useInitialAsyncPresentation(pending, identity) === 'deferred';
   return (
     <span
-      aria-label="上下文窗口用量"
-      className={`whitespace-nowrap rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] tabular-nums ${display.className}`}
-      title={display.title}
+      aria-label={deferred ? undefined : '上下文窗口用量'}
+      aria-hidden={deferred || undefined}
+      className={`whitespace-nowrap rounded bg-white/[0.04] px-1.5 py-0.5 text-[9px] tabular-nums ${display.className}${deferred ? ' invisible' : ''}`}
+      title={deferred ? undefined : display.title}
     >
       {display.label}
     </span>

@@ -45,6 +45,12 @@ export async function runCreateSessionNewPath(
   // 过 token,这里直接复用,不再二次 randomUUID(避免 token / Codex 实例 / sessions Map 三处 key
   // 不一致)。realId 与 initialSid 不同时,sessionManager.renameSdkSession 函数体内(Step 2.8)
   // 统一 rename codexBySession Map + token map（不变量 7）。
+  // Publish known metadata in the first record, before the renderer can observe the session.
+  const effectiveModel = opts.model ?? (
+    opts.provider
+      ? CODEX_DEFAULT_BUCKET
+      : deps.runtimeHost.configuration.readConfiguredModel() ?? CODEX_DEFAULT_BUCKET
+  );
   const tempKey = validate.initialSid;
   deps.sessions.set(tempKey, internal);
   deps.runtimeHost.sessions.claimAsSdk(tempKey);
@@ -55,6 +61,11 @@ export async function runCreateSessionNewPath(
     payload: {
       cwd,
       source: 'sdk',
+      initialRuntime: {
+        ...(opts.provider ? { runtimeProvider: opts.provider } : {}),
+        model: effectiveModel,
+        ...(opts.modelReasoningEffort ? { thinking: opts.modelReasoningEffort } : {}),
+      },
       ...(opts.initialSessionRegistration
         ? { initialSpawnLink: opts.initialSessionRegistration.spawnLink }
         : {}),
@@ -103,11 +114,6 @@ export async function runCreateSessionNewPath(
   // codex（不显式传 model 走 $CODEX_HOME/config.toml 默认）落 null → 全折进 unknown bucket。
   // effective = explicit/Gateway model > native config model when no Gateway is selected >
   // `codex-default` placeholder. A selected Gateway with no `model` never borrows config.toml.
-  const effectiveModel = opts.model ?? (
-    opts.provider
-      ? CODEX_DEFAULT_BUCKET
-      : deps.runtimeHost.configuration.readConfiguredModel() ?? CODEX_DEFAULT_BUCKET
-  );
   persistSessionFields({
     runtimeHost: deps.runtimeHost,
     sessionId: internal.applicationSid,
