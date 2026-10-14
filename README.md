@@ -24,51 +24,9 @@ pnpm dev
 Open a project, choose a provider, start a session, and describe the task.
 Use Pending to respond when an agent needs your input.
 
-Session creation, live controls, handoff, and Feishu preferences share two permission choices:
-**自动审批** uses the provider's native automatic approval mechanism; **不再询问** skips routine
-approval prompts. Claude uses `auto` / `bypassPermissions`, Codex uses `on-request` with
-`auto_review` / `never`, and Grok uses its native auto / always-approve controls. Provider policy
-can still restrict either choice. Sandbox access remains a separate setting.
-
-Planning, question-only, and edit-only presets are absent from these controls. Existing live
-sessions keep their native permission state until a new choice is applied. Grok's `read-only`
-sandbox keeps project files read-only while allowing its state and temporary directories to be written.
-
-Session details use the compact label **权限**. When changing an existing session, all three
-providers confirm switching to **不再询问** or the **完全开放** sandbox; automatic approval and
-other built-in sandbox choices apply directly. Both unrestricted choices use the same warning
-icon. Confirmations describe native restart or next-turn timing separately, and Remote descriptions
-retain the Workspace boundary. Changing sessions or disconnecting dismisses pending confirmations.
-
-## Session collaboration
-
-`list_sessions` defaults to related active and dormant session metadata. Set `scope: "all"` to
-also discover unrelated sessions in the current Agent Deck instance or Core Workspace. Metadata
-visibility does not grant access to another session's activity history. Closing an agent's managed
-descendants remains direct; closing other live sessions requires a one-time user confirmation in
-Pending. Browser automation uses the session-scoped CLI on both Local and Core hosts.
-
-Opening a text change positions the diff viewer at its first changed region.
-
-## Runtime diagnostics
-
-Desktop logs treat successful slow summaries as information, with anonymous correlation IDs;
-actual summary failures remain warnings. Expected remote IPC `service_stopped` errors are omitted
-from the file log only during application shutdown. SSH heartbeat timeouts include ping write
-completion, recent receive age, write queue size, and timer delay without recording traffic.
-
-Headless Core/Worker and Relay diagnostics use timestamped JSON on stderr, retaining approved
-metrics, error categories, and anonymous run-scoped identifiers. Repeated records are aggregated
-within a minute; the next record reports the suppressed count. Relay logs attachment changes,
-heartbeat expiry, and forwarding failures, while healthy heartbeats remain quiet. Unknown provider
-messages are fingerprinted rather than copied with potential private content.
-
-For macOS Workers launched by the managed service, stdout and stderr each retain a 10 MiB active
-file and three rolling backups (80 MiB total). On first adoption, existing content is preserved in
-a separate `.legacy` file outside that limit. Rotation preserves launchd's open file descriptors;
-the dependency-free bootstrap also catches and aggregates ESM startup failures. This policy applies
-to managed JavaScript log writes; interactive output is unchanged and Linux retention belongs to
-the service journal. Updating source alone does not activate these changes in running services.
+Choose **自动审批** or **不再询问** under **权限**, and set sandbox access separately.
+Switching an existing session to **不再询问** or **完全开放** asks for confirmation.
+Provider restrictions and remote workspace boundaries still apply.
 
 ## Development
 

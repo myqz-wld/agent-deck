@@ -20,15 +20,15 @@ Dev (`pnpm dev`) reads `<repo>/resources/*` directly; production reads the
 
 ## Bundled Runtime Versions
 
-The lockfile pins these npm `latest` releases, checked on 2026-10-11. Application and macOS Worker
+The lockfile pins these npm `latest` releases, checked on 2026-10-14. Application and macOS Worker
 packaging use the same provider versions.
 
 | Package | Version |
 |---|---|
-| Claude Agent SDK / bundled Claude Code | 0.3.296 / 2.1.296 |
+| Claude Agent SDK / bundled Claude Code | 0.3.299 / 2.1.299 |
 | Anthropic API SDK | 0.133.0 |
 | Codex CLI | 0.162.1 |
-| Grok CLI | 1.0.50 |
+| Grok CLI | 1.0.52 |
 | ACP SDK | 1.8.0 |
 | MCP SDK | 1.32.1 |
 
