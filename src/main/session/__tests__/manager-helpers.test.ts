@@ -101,6 +101,12 @@ describe('nextActivityState', () => {
     expect(nextActivityState('idle', 'subagent-end', {})).toBe('working');
   });
 
+  it.each(['running', 'completed', 'failed'])('keeps foreground activity independent of a %s background task', (status) => {
+    expect(nextActivityState('finished', 'background-task', { status })).toBe('finished');
+    expect(nextActivityState('waiting', 'background-task', { status })).toBe('waiting');
+    expect(nextActivityState('working', 'background-task', { status })).toBe('working');
+  });
+
   it('普通 tool-use-end 不清除既有 waiting activity', () => {
     expect(nextActivityState('waiting', 'tool-use-end', {})).toBe('waiting');
   });

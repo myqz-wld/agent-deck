@@ -49,6 +49,33 @@ function host(): ClaudeSdkMessageTranslationHost & {
 }
 
 describe('Claude SDK message translator Core', () => {
+  it.each([
+    { type: 'assistant', parent_tool_use_id: 'child-call', message: { content: [] } },
+    { type: 'stream_event', parent_tool_use_id: 'child-call',
+      event: { type: 'message_start', message: { role: 'assistant' } } },
+    { type: 'stream_event', event: { type: 'ping' } },
+    { type: 'system', subtype: 'task_started', task_id: 'background', is_backgrounded: true },
+  ])('does not confuse child/background activity with a foreground turn: %j', (frame) => {
+    const internal = makeInternalSession({ cwd: '/workspace', applicationSid: 'session-a' });
+    internal.userTurnInFlight = false;
+    translateSdkMessageCore(vi.fn(), 'session-a', frame, internal, host());
+    expect(internal.userTurnInFlight).toBe(false);
+  });
+
+  it('projects SDK background lifecycle events into the durable activity stream', () => {
+    const internal = makeInternalSession({ cwd: '/workspace', applicationSid: 'session-a' });
+    const emit = vi.fn();
+    translateSdkMessageCore(emit, 'session-a', {
+      type: 'system', subtype: 'task_notification', task_id: 'background',
+      status: 'failed', summary: 'Build failed',
+    }, internal, host());
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-a', kind: 'background-task',
+      payload: expect.objectContaining({ taskId: 'background', status: 'failed', summary: 'Build failed' }),
+    }));
+    expect(emit.mock.calls.some(([event]) => event.kind === 'finished')).toBe(false);
+  });
+
   it('persists a deferred user turn before translating its UUID-rewritten assistant response', () => {
     const translationHost = host();
     const internal = makeInternalSession({

@@ -49,4 +49,12 @@ describe('session event contracts', () => {
       payload: { text: 'x'.repeat(SESSION_EVENT_MAX_PAYLOAD_BYTES + 1) },
     })).toThrow(SessionConsoleContractError);
   });
+
+  it('transports native background task snapshots through the same bounded event page', () => {
+    expect(parseSessionEventListResult({
+      events: [{ id: 4, sessionId: 'session-a', agentId: 'claude-code', kind: 'background-task',
+        payload: { taskId: 'checks', runId: 'run-1', status: 'running', description: 'Build checks', revision: 1 }, ts: 5 }],
+      revision: 10, truncated: false,
+    }, 'session-a', 20)).toMatchObject({ events: [{ kind: 'background-task' }] });
+  });
 });

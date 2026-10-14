@@ -19,6 +19,7 @@ export type SessionEventKind =
   | 'context-compaction-end'
   | 'subagent-start'
   | 'subagent-end'
+  | 'background-task'
   | 'waiting-for-user'
   | 'finished'
   | 'session-end'
@@ -53,7 +54,7 @@ const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u202
 const EVENT_KINDS = new Set<SessionEventKind>([
   'session-start', 'message', 'message-display', 'thinking', 'tool-use-start',
   'tool-use-end', 'file-changed', 'context-compaction-start',
-  'context-compaction-end', 'subagent-start', 'subagent-end', 'waiting-for-user',
+  'context-compaction-end', 'subagent-start', 'subagent-end', 'background-task', 'waiting-for-user',
   'finished', 'session-end', 'team-task-created', 'team-task-completed',
   'team-teammate-idle', 'context-usage', 'token-usage',
 ]);

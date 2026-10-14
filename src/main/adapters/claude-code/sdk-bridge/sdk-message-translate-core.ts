@@ -35,9 +35,11 @@ import {
 } from './final-result-usage-core';
 import { claudeFinishedPayload } from './result-outcome';
 import { finishClaudeUserMessageInterruptionCore } from './user-message-interruption-core';
+import { translateClaudeBackgroundTasksCore } from './background-tasks-core';
 import {
   confirmClaudeUserMessageAcceptanceCore,
   finishClaudeUserMessageTurnCore,
+  isClaudeMainResponseFrame,
   type ClaudeUserMessageAcceptanceHost,
 } from './user-message-acceptance-core';
 import {
@@ -83,6 +85,8 @@ export function translateSdkMessageCore(
     emit({ sessionId, agentId: host.agentId, kind, payload, ts, source: 'sdk' });
   };
   confirmClaudeUserMessageAcceptanceCore(emit, sessionId, msg, internal, host);
+  if (isClaudeMainResponseFrame(msg)) internal.userTurnInFlight = true;
+  if (translateClaudeBackgroundTasksCore(msg, internal, (snapshot) => e('background-task', snapshot))) return;
 
   // SDK system/init is the authoritative primary-model report for the main session. Keep this
   // separate from assistant.message.model: assistant frames may describe fallback/subagent routing.

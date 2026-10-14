@@ -68,6 +68,44 @@ function host(): ClaudeStreamProcessorHost & {
 }
 
 describe('Claude stream processor Core', () => {
+  it.each(['assistant', 'message_start'])(
+    'tracks an automatic background-result turn before a correction (%s)', async (start) => {
+      const internal = makeInternalSession({ cwd: '/workspace', applicationSid: 'session-a' });
+      const emit = vi.fn();
+      const processor = new ClaudeStreamProcessorCore({
+        sessions: new Map([['session-a', internal]]), emit,
+      }, host());
+      const input = processor.createUserMessageStream(internal, 'session-a')[Symbol.asyncIterator]();
+      internal.query = queryFrom(async function* () {
+        yield { type: 'result', subtype: 'success', user_message_uuid: 'original' };
+        expect(internal.userTurnInFlight).toBe(false);
+        yield { type: 'system', subtype: 'task_notification', task_id: 'background-command',
+          status: 'completed', summary: 'checks passed' };
+        yield start === 'assistant'
+          ? { type: 'assistant', parent_tool_use_id: null,
+              message: { role: 'assistant', content: [{ type: 'text', text: 'Checking the result' }] } }
+          : { type: 'stream_event', parent_tool_use_id: null,
+              event: { type: 'message_start', message: { role: 'assistant' } } };
+        const correction = processor.makeUserMessage('session-a', 'new instruction');
+        correction.deferredUserEvent = { text: 'new instruction', turnCorrelationId: 'correction' };
+        internal.pendingUserMessages.push(correction);
+        await expect(input.next()).resolves.toMatchObject({ value: { uuid: 'correction' } });
+        yield { type: 'user', uuid: 'correction', parent_tool_use_id: null };
+        yield { type: 'result', subtype: 'error_during_execution', is_error: true,
+          user_message_uuid: 'background-notification', queued_turn_count: 1,
+          errors: ['[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null'] };
+        yield { type: 'result', subtype: 'success', user_message_uuid: 'correction' };
+      });
+      await processor.consume(internal, 'session-a', vi.fn());
+      await input.return?.();
+      expect(emit.mock.calls.map(([event]) => event).filter((event) =>
+        event.kind === 'message' && event.payload.error)).toEqual([]);
+      expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+        kind: 'finished', payload: { ok: false, subtype: 'interrupted' },
+      }));
+    },
+  );
+
   it('adopts the first provider id, translates content, and finalizes exact ownership', async () => {
     const internal = makeInternalSession({ cwd: '/workspace', applicationSid: 'temp-sid' });
     internal.query = queryFrom(async function* () {

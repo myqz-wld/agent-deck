@@ -40,6 +40,8 @@ vi.mock('@main/utils/logger', () => ({
 vi.mock('../session-hand-off', () => ({ registerSessionHandOffIpc: vi.fn() }));
 
 import { registerSessionsIpc } from '../sessions';
+import { eventRepo } from '@main/store/event-repo';
+import { sessionRepo } from '@main/store/session-repo';
 
 function handler(channel: string) {
   return vi.mocked(ipcMain.handle).mock.calls.find(([name]) => name === channel)?.[1];
@@ -69,6 +71,17 @@ describe('session file-change IPC', () => {
     });
     expect(result).toEqual({ items: [{ id: 1 }], nextCursor: null });
     expect(() => invoke!({} as never, 's1', { limit: 5000 })).toThrow(IpcInputError);
+  });
+
+  it('hydrates stored event adapter identities before mixing history with live events', () => {
+    vi.mocked(sessionRepo.get).mockReturnValue({ id: 's1', agentId: 'claude-code' } as never);
+    vi.mocked(eventRepo.listForSession).mockReturnValue([{
+      id: 1, sessionId: 's1', agentId: '', kind: 'tool-use-start',
+      payload: { toolUseId: 'call-a', toolName: 'Bash' }, ts: 1,
+    }]);
+    const result = handler(IpcInvoke.SessionListEvents)!({} as never, 's1', 50);
+    expect(eventRepo.listForSession).toHaveBeenCalledWith('s1', 50);
+    expect(result).toEqual([expect.objectContaining({ agentId: 'claude-code' })]);
   });
 
   it('binds payload lookup to the requested session and numeric id', () => {

@@ -38,6 +38,21 @@ const stored: FileChangePayload = { id: 42, sessionId: 'session', filePath: 'src
   toolCallId: 'edit-1', ts: 2, metadata: { source: 'Edit' } };
 
 describe('tool calls and recorded file changes', () => {
+  it('pairs a history-loaded start with its live completion after reopening a session', () => {
+    const start = { ...event('tool-use-start', {
+      toolName: 'Bash', toolUseId: 'long-command', toolInput: { command: 'make check' },
+    }), agentId: '' };
+    const view = render(records([start]));
+    const end = event('tool-use-end', {
+      toolName: 'Bash', toolUseId: 'long-command', status: 'completed', toolResult: 'checks passed',
+    }, 100_000);
+    view.rerender(records([end, start]));
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+    expect(view.container.textContent).toContain('make check');
+    expect(view.container.textContent).toContain('完成');
+    expect(view.container.textContent).not.toContain('已开始');
+  });
+
   it.each(['Edit', 'Write', 'MultiEdit'])('shows one completed %s card with one diff disclosure', async (tool) => {
     const { container } = render(records(editEvents(tool).reverse()));
     expect(screen.getAllByRole('listitem')).toHaveLength(1);

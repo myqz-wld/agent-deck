@@ -22,6 +22,8 @@ import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import { planEventId } from '@shared/agent-event-update';
 import { presentMessageDisplays } from './message-display-presentation';
 import { activityToolCallKey, deriveToolCallPresentation } from './tool-call-presentation';
+import { backgroundTaskIdentity, presentBackgroundTasks } from './background-task-presentation';
+import { BackgroundTaskRow } from './rows/background-task-row';
 
 type ResolvePending = (sessionId: string, requestId: string) => void;
 const EMPTY_IDS: ReadonlySet<string> = new Set();
@@ -53,7 +55,7 @@ export interface ActivityRecordsViewProps {
 }
 
 export function ActivityRecordsView({
-  events,
+  events: incomingEvents,
   loaded,
   loadError,
   sessionId,
@@ -71,7 +73,12 @@ export function ActivityRecordsView({
   imageReader,
   fileChangeReader,
 }: ActivityRecordsViewProps): JSX.Element {
-  const presentedEvents = useMemo(() => presentMessageDisplays(events), [events]);
+  // Older Local snapshots omitted the adapter; hydrate only the current session's missing value.
+  // Keep explicit adapter identities intact so concurrent providers cannot share tool rows.
+  const events = useMemo(() => incomingEvents.map((event) =>
+    !event.agentId && event.sessionId === sessionId ? { ...event, agentId } : event),
+  [agentId, incomingEvents, sessionId]);
+  const presentedEvents = useMemo(() => presentBackgroundTasks(presentMessageDisplays(events)), [events]);
   const derived = useMemo(() => deriveSources(events, pendingIds, isSdk), [events, pendingIds, isSdk]);
   const initialPending = !loaded && loadError === null && events.length === 0;
   const showInitialLoading = useDelayedAsyncFallback(
@@ -117,6 +124,7 @@ export function ActivityRecordsView({
           if (derived.attachedFileChanges.has(event)) return null;
           const displayMessageId = (event.payload as { displayMessageId?: string } | null)?.displayMessageId;
           const useId = activityToolCallKey(event);
+          const backgroundId = backgroundTaskIdentity(event);
           const pairedStart = event.kind === 'tool-use-end' && useId
             ? derived.toolStartByUseId.get(useId) : undefined;
           if (event.kind === 'tool-use-start' && useId && derived.toolEndByUseId.has(useId)) return null;
@@ -126,7 +134,7 @@ export function ActivityRecordsView({
           const row = deriveRowState(event, derived);
           return (
             <ActivityRow
-              key={displayMessageId ? `display:${displayMessageId}`
+              key={backgroundId ? `background:${backgroundId}` : displayMessageId ? `display:${displayMessageId}`
                 : event.kind !== 'file-changed' && useId ? `tool:${useId}`
                 : planEventId(event) ? `${event.sessionId}:plan:${planEventId(event)}` : activityEventIdentity(event)}
               event={visibleEvent}
@@ -201,6 +209,7 @@ export const ActivityRow = memo(function ActivityRow({
     return <MessageBubble event={event} agentId={agentId} showAttachments={allowLocalAssets} />;
   }
   if (event.kind === 'thinking') return <ThinkingBubble event={event} agentId={agentId} />;
+  if (event.kind === 'background-task') return <BackgroundTaskRow event={event} />;
   if (event.kind === 'file-changed') return <FileChangeRow event={event} fileChanges={fileChanges} />;
   if (event.kind === 'waiting-for-user') {
     const injected = renderPendingEvent?.(event);

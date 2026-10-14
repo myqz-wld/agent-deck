@@ -36,6 +36,12 @@ function isAssistantResponseStart(event: unknown): boolean {
     && 'role' in message && message.role === 'assistant';
 }
 
+/** Task notifications and scheduled prompts can start a main turn without an application send. */
+export function isClaudeMainResponseFrame(msg: ClaudeAcceptanceFrame): boolean {
+  return msg.parent_tool_use_id == null && (msg.type === 'assistant' ||
+    (msg.type === 'stream_event' && isAssistantResponseStart(msg.event)));
+}
+
 export function confirmClaudeUserMessageAcceptanceCore(
   emit: (event: AgentEvent) => void,
   sessionId: string,
@@ -58,8 +64,7 @@ export function confirmClaudeUserMessageAcceptanceCore(
     const ids = Array.isArray(msg.user_message_uuids) ? msg.user_message_uuids : [];
     const correlated = msg.user_message_uuid === submitting.providerMessageId
       || ids.includes(submitting.providerMessageId);
-    const startsResponse = msg.type === 'assistant'
-      || (msg.type === 'stream_event' && isAssistantResponseStart(msg.event));
+    const startsResponse = isClaudeMainResponseFrame(msg);
     if (!correlated && (
       !startsResponse
       || submitting.precedingTurn != null

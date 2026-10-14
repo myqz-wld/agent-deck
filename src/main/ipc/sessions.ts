@@ -39,7 +39,8 @@ export function registerSessionsIpc(): void {
       min: 1,
       max: 5_000,
     });
-    return eventRepo.listForSession(sessionId, safeLimit);
+    const agentId = sessionRepo.get(sessionId)?.agentId ?? '';
+    return eventRepo.listForSession(sessionId, safeLimit).map((event) => ({ ...event, agentId }));
   });
   on(IpcInvoke.SessionListFileChangePage, (_event, id, rawOptions) => {
     const sessionId = parseStringId('sessionId', id);
