@@ -48,7 +48,7 @@ ordinary system messages as centered gray bubbles.
 
 Implementation and source validation are complete. The user has requested commit, push, macOS
 packaging, and local installation. Any shutdown of the running installed application requires
-explicit target approval. Private preview, release progress, and validation scratch remain in
-`.ref/` for local inspection.
+explicit target approval. The owner requested complete `.ref/` cleanup after validation; release
+progress and subsequent packaging logs use a private system temporary directory.
 
 See [CHANGELOG_681](../../changelogs/recent-3-days/CHANGELOG_681_unified-compaction-status.md).

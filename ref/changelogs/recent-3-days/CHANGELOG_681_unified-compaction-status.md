@@ -79,8 +79,8 @@ None required. New modules and modified compaction translation/presentation modu
 - The README keeps one concise feature bullet; implementation and validation details stay in
   this record. Commit, push, macOS packaging, and local installation are authorized follow-up
   delivery; stopping the running installed application requires explicit target approval.
-- Private Browser previews and raw validation output remain non-final workspace material in `.ref/`.
-- Obsolete scratch and duplicate validation output were cleaned; active preview files and release
-  handoff material remain available. A completed earlier installation checklist was archived as
+- The owner requested complete `.ref/` cleanup. Preview files and raw validation output were
+  removed after validation; subsequent release scratch uses a private system temporary directory.
+  A completed earlier installation checklist was archived as
   [PLAN_94](../../plans/recent-3-days/PLAN_94_claude-message-installation.md).
 - Related plan: [PLAN_93](../../plans/recent-3-days/PLAN_93_unified-compaction-status.md).
