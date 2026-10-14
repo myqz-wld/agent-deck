@@ -63,6 +63,7 @@ export interface SshTransportTiming {
 }
 
 export interface SshTransportOptions {
+  onHeartbeatTimeout?: (details: Readonly<Record<string, unknown>>) => void;
   spawn?: SpawnSshProcess;
   reconnect?: Partial<SshReconnectPolicy>;
   bounds?: Partial<SshTransportBounds>;

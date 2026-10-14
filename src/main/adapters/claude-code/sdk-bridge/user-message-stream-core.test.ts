@@ -78,6 +78,8 @@ describe('Claude user message stream Core', () => {
       host,
     )[Symbol.asyncIterator]();
 
+    expect(pending.enqueuedAt).toBe(5150);
+    host.now = () => 6150;
     const next = await stream.next();
 
     expect(next.done).toBe(false);
@@ -88,6 +90,7 @@ describe('Claude user message stream Core', () => {
     expect(internal.submittingUserMessage).toEqual({
       pending,
       providerMessageId: 'provider-message-1',
+      submittedAt: 6150,
       status: 'submitting',
     });
     expect(host.refreshBrowserRuntime).toHaveBeenCalledWith('session-core');

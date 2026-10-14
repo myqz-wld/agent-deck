@@ -319,6 +319,13 @@ case "${1:-}" in
     ;;
 esac
 
+worker_node_args=("$entrypoint" "$@")
+if [[ "$platform" == Darwin && "${1:-}" == serve ]]; then
+  log_bootstrap="$(canonical_file "$script_dir/worker-log-bootstrap.cjs")"
+  canonical_file "$script_dir/worker-log-retention.cjs" >/dev/null
+  worker_node_args=("$log_bootstrap" "$entrypoint" "$@")
+fi
+
 exec /usr/bin/env -i \
   "${node_environment[@]}" PATH=/usr/bin:/bin LANG=C LC_ALL=C \
-  "$node" "$entrypoint" "$@"
+  "$node" "${worker_node_args[@]}"

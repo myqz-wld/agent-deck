@@ -15,6 +15,9 @@ import { RemoteHostPublicError } from './errors';
 import { RemoteHostProfileStore } from './profile-store';
 import { RemoteHostService } from './service';
 import { RemoteHostDesktopBrowserBroker } from './desktop-browser-broker';
+import { setRemoteShutdownLogState } from '@main/utils/remote-shutdown-log-state';
+import { runtimeDiagnosticFields } from '@hosts/linux-runtime/diagnostic-fields';
+import log from '@main/utils/logger';
 
 let service: RemoteHostService | null = null;
 let acceptingRequests = true;
@@ -29,6 +32,9 @@ export function createProductionRemoteHostService(): RemoteHostService {
   const registry = new ElectronHostRegistry({
     appVersion: app.getVersion(),
     createClient: createElectronHostClientFactory({
+      ssh: { onHeartbeatTimeout: (details) => {
+        log.scope('remote-heartbeat').warn('SSH heartbeat timed out', runtimeDiagnosticFields(details));
+      } },
       createStandalone: () => {
         throw new Error('Standalone continues to use the existing local desktop flows');
       },
@@ -51,6 +57,7 @@ export function createProductionRemoteHostService(): RemoteHostService {
 export function setRemoteHostService(next: RemoteHostService | null): void {
   service = next;
   acceptingRequests = true;
+  setRemoteShutdownLogState(false);
   shutdownPromise = null;
 }
 
@@ -65,6 +72,7 @@ export function getRemoteHostService(): RemoteHostService {
 export function shutdownRemoteHostServiceIfCreated(): Promise<void> {
   if (shutdownPromise) return shutdownPromise;
   acceptingRequests = false;
+  setRemoteShutdownLogState(true);
   const current = service;
   shutdownPromise = current
     ? Promise.resolve().then(() => current.shutdown())

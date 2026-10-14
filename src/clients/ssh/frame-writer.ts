@@ -30,6 +30,7 @@ export class BoundedFrameWriter {
   private readonly queue: Uint8Array[] = [];
   private readonly controlQueue: Uint8Array[] = [];
   private readonly outstanding = new Set<OutstandingWrite>();
+  private readonly writeObservers = new WeakMap<Uint8Array, () => void>();
   private queuedBytes = 0;
   private outstandingBytes = 0;
   private blocked = false;
@@ -58,11 +59,20 @@ export class BoundedFrameWriter {
     this.maxFrameBytes = Math.min(this.limits.maxFrameBytes, maxFrameBytes);
   }
 
-  enqueue(value: JsonValue): void {
+  diagnosticSnapshot(): { queuedBytes: number; queuedFrames: number; blocked: boolean } {
+    return {
+      queuedBytes: this.queuedBytes + this.outstandingBytes,
+      queuedFrames: this.queue.length + this.controlQueue.length + this.outstanding.size,
+      blocked: this.blocked,
+    };
+  }
+
+  enqueue(value: JsonValue, onWritten?: () => void): void {
     if (this.closed) {
       throw new SshTransportError('connection_closed', 'SSH write channel is closed');
     }
     const frame = encodeJsonFrame(value, this.maxFrameBytes);
+    if (onWritten) this.writeObservers.set(frame, onWritten);
     const control = isControlFrame(value);
     const queuedFrameCount = this.queue.length + this.controlQueue.length + this.outstanding.size;
     const frameLimit = control
@@ -97,9 +107,10 @@ export class BoundedFrameWriter {
     this.releaseOutstanding();
     this.blocked = false;
     this.clearProgressTimer();
-    this.writable.off('error', this.handleError);
-    this.writable.off('close', this.handleClose);
     this.writable.off('drain', this.handleDrain);
+    // A failed write invokes its callback before emitting `error`. Keep the closed writer's
+    // error handler until the stream closes, including when retirement races an in-flight write.
+    if (this.writable.closed) this.detachTerminalListeners();
   }
 
   private readonly handleError = (error: Error): void => {
@@ -108,9 +119,15 @@ export class BoundedFrameWriter {
   };
 
   private readonly handleClose = (): void => {
+    this.detachTerminalListeners();
     if (this.closed) return;
     this.fail(new SshTransportError('connection_closed', 'SSH write channel closed'));
   };
+
+  private detachTerminalListeners(): void {
+    this.writable.off('error', this.handleError);
+    this.writable.off('close', this.handleClose);
+  }
 
   private readonly handleDrain = (): void => {
     if (this.closed) return;
@@ -136,7 +153,11 @@ export class BoundedFrameWriter {
             this.fail(error);
             return;
           }
+          const active = write.active;
           this.complete(write);
+          if (active) {
+            try { this.writeObservers.get(frame)?.(); } catch { /* observer only */ }
+          }
         });
         if (this.closed) return;
         if (!accepted) {
@@ -166,16 +187,7 @@ export class BoundedFrameWriter {
 
   private fail(error: Error): void {
     if (this.closed) return;
-    this.closed = true;
-    this.controlQueue.length = 0;
-    this.queue.length = 0;
-    this.queuedBytes = 0;
-    this.releaseOutstanding();
-    this.blocked = false;
-    this.clearProgressTimer();
-    this.writable.off('error', this.handleError);
-    this.writable.off('close', this.handleClose);
-    this.writable.off('drain', this.handleDrain);
+    this.close();
     this.onError(error);
   }
 

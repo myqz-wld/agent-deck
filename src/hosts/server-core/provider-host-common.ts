@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { runtimeDiagnosticFields } from '@hosts/linux-runtime/diagnostic-fields';
 
 import type {
   AdapterContext,
@@ -80,8 +81,7 @@ export interface ServerCoreProviderLogger {
 
 function safeDetails(details: readonly unknown[]): Readonly<Record<string, unknown>> | undefined {
   if (details.length === 0) return undefined;
-  return Object.freeze({ details: details.map((value) =>
-    value instanceof Error ? value.name : typeof value) });
+  return Object.freeze(runtimeDiagnosticFields(...details));
 }
 
 export function providerLogger(
@@ -100,7 +100,8 @@ export function providerLogger(
     }
   };
   return Object.freeze({
-    debug: (...details) => write('info', details),
+    // Debug was previously silent in the default headless sink. Do not turn it into info noise.
+    debug: () => undefined,
     info: (...details) => write('info', details),
     warn: (...details) => write('warn', details),
     error: (...details) => write('warn', details),

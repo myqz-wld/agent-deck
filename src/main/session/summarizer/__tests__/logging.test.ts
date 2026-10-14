@@ -43,7 +43,7 @@ beforeEach(() => {
 });
 
 describe('SummarizerDiagnosticCoordinator', () => {
-  it('keeps fast success silent, warns at the exact slow threshold, and recovers once', () => {
+  it('keeps fast success silent, records slow success as info, and correlates recovery', () => {
     let now = 0;
     const coordinator = new SummarizerDiagnosticCoordinator(() => now);
 
@@ -57,13 +57,15 @@ describe('SummarizerDiagnosticCoordinator', () => {
     const slowStartedAt = coordinator.begin();
     now += SLOW_THRESHOLD_MS;
     coordinator.observeSuccess('session secret', slowStartedAt);
-    expect(mocks.logger.warn).toHaveBeenCalledOnce();
-    expect(mocks.logger.warn.mock.calls[0]?.[0]).toBe(
-      'summarizer state degraded',
+    expect(mocks.logger.warn).not.toHaveBeenCalled();
+    expect(mocks.logger.info).toHaveBeenCalledOnce();
+    expect(mocks.logger.info.mock.calls[0]?.[0]).toBe(
+      'summarizer completed slowly',
     );
-    expect(diagnostic('warn')).toEqual({
+    expect(diagnostic('info')).toEqual({
       event: 'summarizer-state',
       runId: 'summarizer-test-run',
+      correlationRef: expect.stringMatching(/^summary-[a-f0-9]{12}$/),
       state: 'slow-success',
       previousState: 'healthy',
       transition: 'transition',
@@ -80,11 +82,12 @@ describe('SummarizerDiagnosticCoordinator', () => {
     const recoveryStartedAt = coordinator.begin();
     now += 1;
     coordinator.observeSuccess('session secret', recoveryStartedAt);
-    expect(mocks.logger.info).toHaveBeenCalledOnce();
-    expect(mocks.logger.info.mock.calls[0]?.[0]).toBe(
-      'summarizer state recovered',
+    expect(mocks.logger.info).toHaveBeenCalledTimes(2);
+    expect(mocks.logger.info.mock.calls[1]?.[0]).toBe(
+      'summarizer latency recovered',
     );
-    expect(diagnostic('info')).toMatchObject({
+    expect(diagnostic('info', 1)).toMatchObject({
+      correlationRef: diagnostic('info').correlationRef,
       state: 'healthy',
       previousState: 'slow-success',
       durationMs: 1,
@@ -92,7 +95,7 @@ describe('SummarizerDiagnosticCoordinator', () => {
     });
 
     coordinator.observeSuccess('session secret', null);
-    expect(mocks.logger.info).toHaveBeenCalledOnce();
+    expect(mocks.logger.info).toHaveBeenCalledTimes(2);
   });
 
   it('uses fixed transient and permanent failure signatures', () => {

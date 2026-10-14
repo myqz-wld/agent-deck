@@ -2,6 +2,7 @@ import type { WorkspaceSandboxSpec } from '@contracts/workspace-sandbox';
 
 import type { ServerCoreRuntimeDiagnostics } from './repository-host';
 import type { ServerCoreProviderGrokContainerPort } from './runtime-provider-container';
+import { createRuntimeDiagnostics } from '@hosts/linux-runtime/runtime-diagnostics';
 
 export const SERVER_CORE_CREDENTIAL_FILE = '/run/secrets/agent-deck/credentials.json';
 export const SERVER_CORE_PROVIDER_AUTH_SOURCE = '/run/secrets/agent-deck/provider-home';
@@ -21,10 +22,5 @@ export interface ServerCoreRuntimeCompositionOverrides {
 }
 
 export function createServerCoreRuntimeDiagnostics(): ServerCoreRuntimeDiagnostics {
-  return Object.freeze({
-    info: () => undefined,
-    warn: () => {
-      process.stderr.write('Server Core runtime warning; details hidden.\n');
-    },
-  });
+  return createRuntimeDiagnostics();
 }

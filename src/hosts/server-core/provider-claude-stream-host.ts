@@ -30,9 +30,11 @@ function liveRate(input: ServerCoreProviderHostInput): ClaudeLiveRateHost {
 function translation(
   input: ServerCoreProviderHostInput,
 ): ClaudeSdkMessageTranslationHost {
+  const logger = providerLogger(input.diagnostics, 'claude-input');
   return {
     agentId: 'claude-code',
     now: Date.now,
+    observeSlowAcceptance: (timing) => logger.info('Claude input acceptance delayed', timing),
     runtimeMetadata: claudeRuntimeMetadataHost(input),
     liveRate: liveRate(input),
     state: {

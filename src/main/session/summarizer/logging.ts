@@ -6,6 +6,7 @@ import {
 import log from '@main/utils/logger';
 import { getProcessRunId } from '@main/utils/run-context';
 import { safeDiagnostic } from '@main/utils/safe-diagnostic';
+import { runScopedCorrelationId } from '@main/utils/runtime-correlation';
 
 const logger = log.scope('session-summarizer');
 
@@ -186,13 +187,14 @@ export class SummarizerDiagnosticCoordinator {
       this.tracker.forget(key);
       return;
     }
-    emitDecision(decision, durationMs);
+    emitDecision(decision, durationMs, runScopedCorrelationId('summary', key));
   }
 }
 
 function emitDecision(
   decision: LogStateDecision<SummarizerDiagnosticState>,
   durationMs: number | null,
+  correlationRef: string,
 ): void {
   if (decision.kind === 'repeat') return;
   if (decision.kind === 'initial' && !decision.current.abnormal) return;
@@ -209,6 +211,7 @@ function emitDecision(
   const details = safeDiagnostic({
     event: 'summarizer-state',
     runId: getProcessRunId(),
+    correlationRef,
     state: decision.current.signature,
     previousState: decision.flushed?.signature ?? null,
     transition: decision.kind,
@@ -222,7 +225,14 @@ function emitDecision(
   });
 
   try {
-    if (decision.current.abnormal) {
+    if (decision.current.signature === 'slow-success') {
+      logger.info(
+        decision.kind === 'periodic-summary'
+          ? 'summarizer remains slow'
+          : 'summarizer completed slowly',
+        details,
+      );
+    } else if (decision.current.abnormal) {
       logger.warn(
         decision.kind === 'periodic-summary'
           ? 'summarizer state remains degraded'
@@ -230,7 +240,12 @@ function emitDecision(
         details,
       );
     } else if (priorAbnormal) {
-      logger.info('summarizer state recovered', details);
+      logger.info(
+        priorAbnormal.signature === 'slow-success'
+          ? 'summarizer latency recovered'
+          : 'summarizer state recovered',
+        details,
+      );
     }
   } catch {
     // Diagnostic sinks cannot affect summarizer behavior.

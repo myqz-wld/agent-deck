@@ -2,10 +2,21 @@ import type { AgentEvent } from '@shared/types';
 import type { InternalSession } from './types';
 
 const MAX_IGNORED_USER_MESSAGE_IDS = 32;
+const SLOW_INPUT_ACCEPTANCE_MS = 2_000;
+
+export interface ClaudeInputAcceptanceTiming {
+  sessionId: string;
+  messageId: string;
+  appQueueMs: number;
+  sdkAcceptanceMs: number;
+  acceptanceFrame: string;
+  midTurn: boolean;
+}
 
 export interface ClaudeUserMessageAcceptanceHost {
   readonly agentId: string;
   now(): number;
+  observeSlowAcceptance?(timing: ClaudeInputAcceptanceTiming): void;
 }
 
 interface ClaudeAcceptanceFrame {
@@ -14,6 +25,15 @@ interface ClaudeAcceptanceFrame {
   parent_tool_use_id?: unknown;
   user_message_uuid?: unknown;
   user_message_uuids?: unknown;
+  event?: unknown;
+}
+
+function isAssistantResponseStart(event: unknown): boolean {
+  if (typeof event !== 'object' || event === null || !('type' in event)) return false;
+  if (event.type !== 'message_start' || !('message' in event)) return false;
+  const message = event.message;
+  return typeof message === 'object' && message !== null
+    && 'role' in message && message.role === 'assistant';
 }
 
 export function confirmClaudeUserMessageAcceptanceCore(
@@ -38,18 +58,40 @@ export function confirmClaudeUserMessageAcceptanceCore(
     const ids = Array.isArray(msg.user_message_uuids) ? msg.user_message_uuids : [];
     const correlated = msg.user_message_uuid === submitting.providerMessageId
       || ids.includes(submitting.providerMessageId);
+    const startsResponse = msg.type === 'assistant'
+      || (msg.type === 'stream_event' && isAssistantResponseStart(msg.event));
     if (!correlated && (
-      msg.type !== 'assistant'
+      !startsResponse
       || submitting.precedingTurn != null
       || typeof msg.user_message_uuid === 'string'
       || ids.length > 0
     )) return;
   }
   // Replay acknowledgements retain the input UUID even when persisted user frames replace it.
-  // Uncorrelated assistant fallback is safe only for input submitted while the provider was idle.
+  // For idle input, message_start is sufficient: waiting for a completed assistant block also
+  // waits for extended thinking. Mid-turn input still requires explicit UUID correlation.
   internal.submittingUserMessage = null;
   const deferred = submitting.pending.deferredUserEvent;
   if (!deferred) return;
+  const acceptedAt = host.now();
+  if (submitting.pending.enqueuedAt != null && submitting.submittedAt != null) {
+    const appQueueMs = Math.max(0, submitting.submittedAt - submitting.pending.enqueuedAt);
+    const sdkAcceptanceMs = Math.max(0, acceptedAt - submitting.submittedAt);
+    if (appQueueMs + sdkAcceptanceMs >= SLOW_INPUT_ACCEPTANCE_MS) {
+      try {
+        host.observeSlowAcceptance?.({
+          sessionId,
+          messageId: submitting.providerMessageId,
+          appQueueMs,
+          sdkAcceptanceMs,
+          acceptanceFrame: msg.type,
+          midTurn: submitting.precedingTurn != null,
+        });
+      } catch {
+        // Diagnostics cannot reject acceptance or prevent the next queued input from waking.
+      }
+    }
+  }
   emit({
     sessionId,
     agentId: host.agentId,
@@ -62,7 +104,7 @@ export function confirmClaudeUserMessageAcceptanceCore(
         ? { turnCorrelationId: deferred.turnCorrelationId }
         : {}),
     },
-    ts: host.now(),
+    ts: acceptedAt,
     source: 'sdk',
   });
   const notify = internal.notify;

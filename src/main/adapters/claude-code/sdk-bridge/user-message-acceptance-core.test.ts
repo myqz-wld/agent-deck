@@ -129,6 +129,56 @@ describe('Claude user message acceptance Core', () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
+  it('accepts an idle input at response start before a long thinking block completes', () => {
+    const session = internal();
+    const emit = vi.fn();
+    const notify = vi.fn();
+    submitted(session);
+    session.notify = notify;
+
+    confirmClaudeUserMessageAcceptanceCore(emit, 'application-a', {
+      type: 'stream_event',
+      parent_tool_use_id: null,
+      event: { type: 'message_start', message: { role: 'assistant' } },
+    }, session, host);
+
+    expect(session.submittingUserMessage).toBeNull();
+    expect(emit).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledOnce();
+    confirmClaudeUserMessageAcceptanceCore(emit, 'application-a', {
+      type: 'assistant',
+    }, session, host);
+    expect(emit).toHaveBeenCalledOnce();
+  });
+
+  it('does not acknowledge input from ambiguous streaming activity', () => {
+    const session = internal();
+    const emit = vi.fn();
+    submitted(session);
+    const responseStart = {
+      type: 'stream_event',
+      event: { type: 'message_start', message: { role: 'assistant' } },
+    };
+    for (const message of [
+      { type: 'stream_event' },
+      { type: 'stream_event', event: { type: 'ping' } },
+      { type: 'stream_event', event: { type: 'content_block_delta' } },
+      { type: 'stream_event', event: { type: 'message_start' } },
+      { type: 'stream_event', event: { type: 'message_start', message: { role: 'user' } } },
+      { ...responseStart, parent_tool_use_id: 'subagent-tool' },
+      { ...responseStart, user_message_uuid: 'previous-input' },
+      { ...responseStart, user_message_uuids: ['previous-input'] },
+    ]) {
+      confirmClaudeUserMessageAcceptanceCore(emit, 'application-a', message, session, host);
+    }
+    for (const precedingTurn of ['active', 'finished'] as const) {
+      session.submittingUserMessage!.precedingTurn = precedingTurn;
+      confirmClaudeUserMessageAcceptanceCore(emit, 'application-a', responseStart, session, host);
+    }
+    expect(emit).not.toHaveBeenCalled();
+    expect(session.submittingUserMessage).not.toBeNull();
+  });
+
   it('ignores non-user, malformed, mismatched, and explicitly fenced echoes', () => {
     const session = internal();
     const emit = vi.fn();
@@ -265,5 +315,62 @@ describe('Claude user message acceptance Core', () => {
     }, session, host);
     expect(emit).not.toHaveBeenCalled();
     expect(session.submittingUserMessage).not.toBeNull();
+  });
+
+  it('reports app queue and SDK acceptance delays separately without prompt content', () => {
+    const session = internal();
+    const emit = vi.fn();
+    const observeSlowAcceptance = vi.fn();
+    submitted(session);
+    session.submittingUserMessage!.pending.enqueuedAt = 100;
+    session.submittingUserMessage!.submittedAt = 150;
+    session.submittingUserMessage!.precedingTurn = 'active';
+
+    confirmClaudeUserMessageAcceptanceCore(emit, 'application-a', {
+      type: 'user', uuid: 'provider-1',
+    }, session, { ...host, observeSlowAcceptance });
+
+    expect(observeSlowAcceptance).toHaveBeenCalledOnce();
+    expect(observeSlowAcceptance).toHaveBeenCalledWith({
+      sessionId: 'application-a', messageId: 'provider-1',
+      appQueueMs: 50, sdkAcceptanceMs: 5000, acceptanceFrame: 'user', midTurn: true,
+    });
+    expect(emit).toHaveBeenCalledOnce();
+  });
+
+  it('does not produce a slow-input diagnostic for fast or unrelated responses', () => {
+    const session = internal();
+    const observeSlowAcceptance = vi.fn();
+    submitted(session);
+    session.submittingUserMessage!.pending.enqueuedAt = 5100;
+    session.submittingUserMessage!.submittedAt = 5120;
+    for (const uuid of ['unrelated-message', 'provider-1']) {
+      confirmClaudeUserMessageAcceptanceCore(vi.fn(), 'application-a', {
+        type: 'user', uuid,
+      }, session, { ...host, observeSlowAcceptance });
+    }
+    expect(observeSlowAcceptance).not.toHaveBeenCalled();
+  });
+
+  it('still acknowledges and wakes the next input when slow-input logging fails', () => {
+    const session = internal();
+    const emit = vi.fn();
+    const notify = vi.fn();
+    submitted(session);
+    session.notify = notify;
+    session.submittingUserMessage!.pending.enqueuedAt = 100;
+    session.submittingUserMessage!.submittedAt = 3100;
+    const observeSlowAcceptance = vi.fn(() => { throw new Error('diagnostics unavailable'); });
+
+    confirmClaudeUserMessageAcceptanceCore(emit, 'application-a', {
+      type: 'user', uuid: 'provider-1',
+    }, session, { ...host, now: () => 3150, observeSlowAcceptance });
+
+    expect(observeSlowAcceptance).toHaveBeenCalledWith(expect.objectContaining({
+      appQueueMs: 3000, sdkAcceptanceMs: 50,
+    }));
+    expect(session.submittingUserMessage).toBeNull();
+    expect(emit).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledOnce();
   });
 });

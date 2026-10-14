@@ -31,7 +31,7 @@ export function makeClaudeUserMessageCore(
   };
   const retainForHandOff = (
     materialize: () => Promise<SDKUserMessage>,
-  ): PendingUserMessage => Object.assign(materialize, { handOffMessage });
+  ): PendingUserMessage => Object.assign(materialize, { handOffMessage, enqueuedAt: host.now() });
   if (!attachments || attachments.length === 0) {
     const message: SDKUserMessage = {
       type: 'user',
@@ -126,6 +126,7 @@ export async function* createClaudeUserMessageStreamCore(
         internal.submittingUserMessage = {
           pending: thunk,
           providerMessageId,
+          submittedAt: host.now(),
           status: 'submitting',
           ...(internal.userTurnInFlight ? { precedingTurn: 'active' as const } : {}),
         };

@@ -32,6 +32,7 @@ import {
   validateSshHostHello,
 } from './handshake';
 import { ProtocolHeartbeat } from './heartbeat';
+import { createConnectionHeartbeat } from './connection-heartbeat';
 import { captureSshStderr, decodeSshStdout } from './connection-io';
 import { routeHostProtocolMessage } from './connection-message-router';
 import { SshConnectionStatePublisher } from './connection-state';
@@ -86,16 +87,11 @@ export class SshProtocolConnection {
     this.profile = freezeSshHostProfile(profile);
     this.resolved = resolveSshTransportOptions(options);
     this.spawn = options.spawn ?? spawnOpenSsh;
-    this.heartbeat = new ProtocolHeartbeat(
-      this.resolved.timing,
-      () => this.createId('ping'),
-      (nonce) => this.send({ type: 'ping', nonce }),
-      () =>
-        this.handleFailure(
-          this.context,
-          new SshTransportError('connection_failed', 'SSH protocol pong timed out', true),
-        ),
-    );
+    this.heartbeat = createConnectionHeartbeat({
+      profileId: this.profile.id, timing: this.resolved.timing, options,
+      context: () => this.context, createNonce: () => this.createId('ping'),
+      fail: (context, error) => this.handleFailure(context, error),
+    });
     this.states = new SshConnectionStatePublisher(this.profile);
   }
   get state(): SshConnectionState {
@@ -272,6 +268,7 @@ export class SshProtocolConnection {
 
   private handleStdout(context: ConnectionContext, chunk: unknown): void {
     if (this.context !== context || context.terminated) return;
+    this.heartbeat.observeReceive();
     try {
       decodeSshStdout(context, chunk, (message) => this.handleMessage(context, message));
     } catch (error) {

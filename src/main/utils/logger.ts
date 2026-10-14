@@ -20,6 +20,7 @@ import log from 'electron-log/main';
 import path from 'node:path';
 import fs from 'node:fs';
 import { installSafeDiagnosticLogHook } from './safe-diagnostic';
+import { isRemoteShutdownForLogging } from './remote-shutdown-log-state';
 
 // electron-log v5 LogLevel(无 fatal,有 verbose): 'error' | 'warn' | 'info' | 'verbose' | 'debug' | 'silly'
 // 注: 原 plan §D4 写「silly|debug|info|warn|error|fatal」是错的(electron-log type defs 实证)
@@ -211,7 +212,10 @@ export function shouldDropExpectedRemoteHostStaleScopeNoise(
     if (item && (typeof item === 'object' || typeof item === 'function')) {
       try {
         const error = item as { name?: unknown; code?: unknown };
-        if (error.name === 'RemoteHostPublicError' && error.code === 'stale_scope') {
+        if (error.name === 'RemoteHostPublicError' && (
+          error.code === 'stale_scope'
+          || (error.code === 'service_stopped' && isRemoteShutdownForLogging())
+        )) {
           hasStaleScopeError = true;
         }
       } catch {

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { Writable } from 'node:stream';
+import { Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -104,9 +104,10 @@ describe('BoundedFrameWriter exact outstanding bounds', () => {
     const subject = writer(writable, { maxQueuedBytes: 4096, maxQueuedFrames: 2 }, onError);
     subject.enqueue({ sequence: 1 });
     writable.completeNext(new Error('write failed'));
-    writable.on('error', () => undefined);
-    writable.emit('error', new Error('duplicate stream error'));
+    expect(() => writable.emit('error', new Error('duplicate stream error'))).not.toThrow();
     writable.emit('close');
+    expect(writable.listenerCount('error')).toBe(0);
+    expect(writable.listenerCount('close')).toBe(0);
     subject.close();
     expect(onError).toHaveBeenCalledOnce();
     expect(() => subject.enqueue({ sequence: 2 })).toThrowError('closed');
@@ -144,6 +145,43 @@ describe('BoundedFrameWriter exact outstanding bounds', () => {
     expect(onError).toHaveBeenCalledOnce();
     expect(writable.writes).toHaveLength(1);
     expect(() => subject.enqueue({ sequence: 3 })).toThrowError('closed');
+  });
+
+  it('absorbs a pending write error after explicit close and releases listeners on stream close', () => {
+    const writable = new ControlledWritable();
+    const onError = vi.fn();
+    const subject = writer(writable, { maxQueuedBytes: 4096, maxQueuedFrames: 2 }, onError);
+    subject.enqueue({ sequence: 1 });
+    subject.close();
+    writable.completeNext(new Error('late write failure'));
+    expect(() => writable.emit('error', new Error('late stream failure'))).not.toThrow();
+    expect(onError).not.toHaveBeenCalled();
+    writable.emit('close');
+    expect(writable.listenerCount('error')).toBe(0);
+    expect(writable.listenerCount('close')).toBe(0);
+    expect(writable.listenerCount('drain')).toBe(0);
+  });
+
+  it('handles the real Writable callback/error/close sequence without an unhandled EPIPE', async () => {
+    const error = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+    const writable = new Writable({
+      write: (_chunk, _encoding, callback) => callback(error),
+    });
+    const closed = new Promise<void>((resolve) => writable.once('close', resolve));
+    const onError = vi.fn();
+    const subject = new BoundedFrameWriter(writable, {
+      maxFrameBytes: 1024, maxQueuedBytes: 4096, maxQueuedFrames: 2,
+      writeProgressTimeoutMs: 10_000,
+    }, onError);
+
+    subject.enqueue({ sequence: 1 });
+    await closed;
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(error);
+    expect(writable.listenerCount('error')).toBe(0);
+    expect(writable.listenerCount('close')).toBe(0);
+    expect(() => subject.enqueue({ sequence: 2 })).toThrowError('closed');
   });
 
   it('writes a queued pong before unsent business requests after drain', () => {

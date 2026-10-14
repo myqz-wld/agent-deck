@@ -101,6 +101,8 @@ export interface PendingExitPlanModeEntry {
  *   等磁盘读（10MB ~10ms 级别）—— 可接受
  */
 export type PendingUserMessage = (() => Promise<SDKUserMessage>) & {
+  /** Local input preparation time; never persisted with the prompt. */
+  enqueuedAt?: number;
   /** Provider-neutral copy retained while the lazy SDK message still waits in the source queue. */
   handOffMessage?: QueuedAgentMessage;
   /** Emit this internal user event only when the provider acknowledges the input. */
@@ -116,6 +118,8 @@ export type PendingUserMessage = (() => Promise<SDKUserMessage>) & {
 export interface ClaudeSubmittingUserMessage {
   pending: PendingUserMessage;
   providerMessageId: string;
+  /** Time the input iterator handed this message to the SDK. */
+  submittedAt?: number;
   status: 'submitting' | 'cancelling';
   /** Earlier-turn output cannot acknowledge or discard input submitted during that turn. */
   precedingTurn?: 'active' | 'finished';

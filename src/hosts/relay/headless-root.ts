@@ -20,6 +20,7 @@ import { parseRelayCredentialAuthority } from './credential-authority';
 import type { RelayHeadlessConfig } from './headless-config';
 import { RelayMetadataFileService } from './metadata-file';
 import { RelayStreamRouter } from './router';
+import { DiagnosticRelayStreamRouter } from './diagnostic-router';
 
 export interface RelayServicePaths {
   readonly stateDirectory: string;
@@ -90,7 +91,9 @@ export async function createRelayController(
     instanceId: config.instanceId,
     credentials: authority.credentials,
   });
-  const router = new RelayStreamRouter(config.instanceId, metadata.metadata);
+  const router = new DiagnosticRelayStreamRouter(
+    config.instanceId, metadata.metadata, undefined, config.tickIntervalMs,
+  );
   const credentials = new RelayCredentialAuthorityService({
     instanceId: config.instanceId,
     authorityFile: config.authorityFile,

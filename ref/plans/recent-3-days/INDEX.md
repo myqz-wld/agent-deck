@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-10-14 | `PLAN_89_runtime-log-observability.md` | completed | Implement private runtime diagnostics and bounded Worker logs | `CHANGELOG_678`, `REVIEW_324` |
 | 2026-10-14 | `PLAN_88_unified-permission-modes.md` | completed | Unify permission choices and native runtime mappings | `CHANGELOG_677` |
 | 2026-10-14 | `PLAN_87_mcp-discovery-and-control.md` | completed | Implement MCP discovery, exact shutdown grants, and first-diff focus | `CHANGELOG_676`, `REVIEW_322` |
 | 2026-10-13 | `PLAN_86_mcp-tool-contract-audit.md` | completed | Audit all MCP tool scopes and propose session discovery options | `REVIEW_321_mcp-discovery-and-tool-contracts.md` |

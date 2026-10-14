@@ -153,4 +153,32 @@ describe('SshAgentDeckClient protocol failure modes', () => {
     expect(process.killedSignals).toEqual([]);
     await client.close();
   });
+
+  it('captures a blocked heartbeat write before failure and tolerates a throwing observer', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    try {
+      const harness = new FakeSpawnHarness();
+      const observer = vi.fn((_details: Readonly<Record<string, unknown>>) => {
+        throw new Error('diagnostic sink unavailable');
+      });
+      const client = makeClient(harness, 'heartbeat-observer', 'full', {
+        timing: { pingIntervalMs: 10, pongTimeoutMs: 5 },
+        reconnect: { maxAttempts: 0 },
+        onHeartbeatTimeout: observer,
+      });
+      const process = await completeConnect(client, harness, 'desktop-heartbeat-observer');
+      process.stdin.autoCompleteWrites = false;
+      process.stdin.blocked = true;
+      await vi.advanceTimersByTimeAsync(15);
+      expect(observer).toHaveBeenCalledOnce();
+      expect(observer).toHaveBeenCalledWith(expect.objectContaining({
+        elapsedMs: 5, timeoutMs: 5, timerLagMs: 0, lastReceiveAgeMs: 15,
+        writeCompleted: false, queuedFrames: 1, blocked: true, generation: 1,
+      }));
+      expect(observer.mock.calls[0]![0]).not.toHaveProperty('writeDelayMs');
+      expect(client.connectionState).toMatchObject({ status: 'offline', errorCode: 'connection_failed' });
+      await client.close();
+    } finally { vi.useRealTimers(); }
+  });
 });

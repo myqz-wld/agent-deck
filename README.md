@@ -44,6 +44,26 @@ Pending. Browser automation uses the session-scoped CLI on both Local and Core h
 
 Opening a text change positions the diff viewer at its first changed region.
 
+## Runtime diagnostics
+
+Desktop logs treat successful slow summaries as information, with anonymous correlation IDs;
+actual summary failures remain warnings. Expected remote IPC `service_stopped` errors are omitted
+from the file log only during application shutdown. SSH heartbeat timeouts include ping write
+completion, recent receive age, write queue size, and timer delay without recording traffic.
+
+Headless Core/Worker and Relay diagnostics use timestamped JSON on stderr, retaining approved
+metrics, error categories, and anonymous run-scoped identifiers. Repeated records are aggregated
+within a minute; the next record reports the suppressed count. Relay logs attachment changes,
+heartbeat expiry, and forwarding failures, while healthy heartbeats remain quiet. Unknown provider
+messages are fingerprinted rather than copied with potential private content.
+
+For macOS Workers launched by the managed service, stdout and stderr each retain a 10 MiB active
+file and three rolling backups (80 MiB total). On first adoption, existing content is preserved in
+a separate `.legacy` file outside that limit. Rotation preserves launchd's open file descriptors;
+the dependency-free bootstrap also catches and aggregates ESM startup failures. This policy applies
+to managed JavaScript log writes; interactive output is unchanged and Linux retention belongs to
+the service journal. Updating source alone does not activate these changes in running services.
+
 ## Development
 
 | Command | Purpose |
