@@ -77,6 +77,17 @@ beforeEach(() => {
 });
 
 describe('Codex approval-policy next-turn controller', () => {
+  it('rejects legacy policy changes that would be shadowed by an active shared preset', async () => {
+    mocks.record = record({ permissionMode: 'auto', codexApprovalPolicy: 'on-request' });
+    const applyLive = vi.fn(() => true);
+    const { controller: subject } = controller(applyLive);
+
+    await expect(subject.setCodexApprovalPolicy('codex-session', 'never'))
+      .rejects.toThrow('统一权限模式');
+    expect(mocks.setCodexApprovalPolicy).not.toHaveBeenCalled();
+    expect(applyLive).not.toHaveBeenCalled();
+  });
+
   it('persists, emits, and patches a live thread', async () => {
     const applyLive = vi.fn(() => true);
     const { controller: subject, emit } = controller(applyLive);

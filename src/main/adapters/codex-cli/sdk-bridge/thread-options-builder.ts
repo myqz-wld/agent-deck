@@ -18,6 +18,7 @@
 import { toCodexModelOverride } from '../sdk-model';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
+import type { SessionPermissionMode } from '@shared/permission-modes';
 
 export type CodexReasoningEffort = CodexThinkingLevel;
 export type CodexReasoningSummary = 'none' | 'auto';
@@ -39,6 +40,7 @@ export interface CodexWorkspacePermissionBoundary {
 }
 
 export interface BuildCodexThreadOptionsArgs {
+  permissionMode?: SessionPermissionMode;
   /** Codex 子进程 chdir 目标 (resume 路径:effectiveCwd / spawn 路径:cwd) */
   workingDirectory: string;
   /** opts.codexSandbox ?? sessionRepo.codexSandbox ?? settingsStore default 三层 fallback 链解析后值 */
@@ -82,6 +84,8 @@ export interface BuildCodexThreadOptionsArgs {
 }
 
 export interface CodexThreadOptions {
+  permissionMode?: SessionPermissionMode;
+  approvalsReviewer?: 'user' | 'auto_review';
   workingDirectory: string;
   sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';
   approvalPolicy?: 'untrusted' | 'on-request' | 'never';
@@ -116,6 +120,7 @@ export function buildCodexThreadOptions(args: BuildCodexThreadOptionsArgs): Code
   );
   return {
     workingDirectory: args.workingDirectory,
+    ...(args.permissionMode !== undefined ? { permissionMode: args.permissionMode } : {}),
     sandboxMode: args.sandboxMode,
     ...(args.approvalPolicy !== undefined
       ? { approvalPolicy: args.approvalPolicy }

@@ -177,7 +177,7 @@ describe('Feishu session-console methods', () => {
     expect(historyCall?.params).toMatchObject({ sessionId: 'session-3', limit: 1 });
 
     await gateway.handle(
-      messageEvent('runtime', '/runtime-set 10 {"approvalPolicy":"never"}'),
+      messageEvent('runtime', '/runtime-set 10 {"permissionMode":"bypassPermissions"}'),
     );
     const runtime = client.calls.find((call) => call.method === 'session.runtime.update');
     expect(runtime?.options).toMatchObject({
@@ -195,7 +195,7 @@ describe('Feishu session-console methods', () => {
     const client = onlyClient(clients);
     client.sessions.set('session-1', session('session-1', 'codex-cli'));
     const result = await gateway.handle(
-      messageEvent('bad-runtime', '/runtime-set 10 {"permissionMode":"bypassPermissions"}'),
+      messageEvent('bad-runtime', '/runtime-set 10 {"claudeCodeSandbox":"strict"}'),
     );
     expect(result.code).toBe('capability_unavailable');
     expect(client.calls.some((call) => call.method === 'session.runtime.update')).toBe(false);

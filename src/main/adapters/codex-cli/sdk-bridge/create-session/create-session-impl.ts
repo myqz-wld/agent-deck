@@ -131,6 +131,7 @@ export async function createSessionImpl(
       readDefaultSandbox: deps.runtimeHost.configuration.readDefaultSandbox,
     });
     const {
+      permissionMode,
       approvalPolicy: sessionApprovalPolicy,
       developerInstructions,
       effectiveOpts,
@@ -159,6 +160,7 @@ export async function createSessionImpl(
           workingDirectory: cwd,
           sandboxMode,
           approvalPolicy: sessionApprovalPolicy,
+          permissionMode,
           modelProvider,
           model: effectiveOpts.model,
           modelReasoningEffort: threadModelReasoningEffort,
@@ -176,6 +178,7 @@ export async function createSessionImpl(
           workingDirectory: cwd,
           sandboxMode,
           approvalPolicy: sessionApprovalPolicy,
+          permissionMode,
           modelProvider,
           model: effectiveOpts.model,
           modelReasoningEffort: threadModelReasoningEffort,

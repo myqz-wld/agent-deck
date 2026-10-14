@@ -76,6 +76,7 @@ export interface CodexJsonlFallbackOpts {
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /** rec.codexApprovalPolicy ?? undefined; recovery preserves the session's resolved policy. */
   approvalPolicy?: CodexApprovalPolicy;
+  permissionMode?: import('@shared/types').PermissionMode;
   /** rec.runtimeProvider ?? undefined; fresh fallback must retain model_provider. */
   provider?: string;
   /** rec.model ?? undefined (Codex runtime v0.131.0+ per-thread override) */
@@ -193,6 +194,7 @@ export async function maybeCodexJsonlFallback(
     provider: opts.provider,
     codexSandbox: opts.codexSandbox,
     approvalPolicy: opts.approvalPolicy,
+    permissionMode: opts.permissionMode,
     model: toCodexModelOverride(opts.model),
     modelReasoningEffort: opts.modelReasoningEffort,
     extraAllowWrite: opts.extraAllowWrite,

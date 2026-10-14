@@ -54,8 +54,8 @@ describe('separate assistant and work runtime controls', () => {
   });
 
   it('routes reads, displayed edit commands and writes to the explicitly selected purpose', async () => {
-    expect(parseFeishuCommand('/chat runtime-set 8 {\n"approvalPolicy":"on-request"\n}'))
-      .toEqual({ kind: 'runtime-update', target: 'assistant', expectedRevision: 8, patch: { approvalPolicy: 'on-request' } });
+    expect(parseFeishuCommand('/chat runtime-set 8 {\n"permissionMode":"auto"\n}'))
+      .toEqual({ kind: 'runtime-update', target: 'assistant', expectedRevision: 8, patch: { permissionMode: 'auto' } });
     const t = setup();
     await t.gateway.handle(messageEvent('chat', '你好'));
     await t.gateway.handle(messageEvent('work', '/new'));
@@ -66,13 +66,13 @@ describe('separate assistant and work runtime controls', () => {
     await t.gateway.handle(messageEvent('work-runtime', '/runtime'));
     expect(t.transport.messages.at(-1)?.text).toContain('/runtime-set');
     expect(t.transport.messages.at(-1)?.text).not.toContain('/chat runtime-set');
-    await t.gateway.handle(messageEvent('set-chat', '/chat runtime-set 10 {"approvalPolicy":"on-request"}'));
+    await t.gateway.handle(messageEvent('set-chat', '/chat runtime-set 10 {"permissionMode":"auto"}'));
     await t.gateway.handle(messageEvent('set-work', '/runtime-set 11 {"codexSandbox":"read-only"}'));
     expect(client.calls.filter(c => c.method === 'session.runtime.update').map(c => c.params)).toEqual([
-      { sessionId: context.assistantSessionId, patch: { approvalPolicy: 'on-request' } },
+      { sessionId: context.assistantSessionId, patch: { permissionMode: 'auto' } },
       { sessionId: context.activeSessionId, patch: { codexSandbox: 'read-only' } },
     ]);
-    expect(client.preferences.conversation.approvalPolicy).toBeUndefined();
+    expect(client.preferences.conversation.permissionMode).toBeUndefined();
     await t.gateway.close();
   });
 

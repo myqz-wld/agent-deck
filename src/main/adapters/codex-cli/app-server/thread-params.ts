@@ -1,4 +1,5 @@
 import { isAbsolute, relative, resolve } from 'node:path';
+import { codexPermissionPreset } from '@shared/permission-modes';
 
 import {
   AGENT_DECK_MCP_SERVER_NAME,
@@ -85,9 +86,7 @@ function buildThreadCommonParams(
       : options.runtimeWorkspaceRoots !== undefined
         ? { runtimeWorkspaceRoots: [...options.runtimeWorkspaceRoots] }
         : {}),
-    ...(options.approvalPolicy !== undefined
-      ? { approvalPolicy: options.approvalPolicy }
-      : {}),
+    ...buildApprovalParams(options),
     ...(options.model !== undefined ? { model: options.model } : {}),
     ...(options.modelProvider !== undefined
       ? { modelProvider: options.modelProvider }
@@ -192,9 +191,7 @@ export function buildTurnStartParams(
     threadId,
     input,
     cwd: options.workingDirectory,
-    ...(options.approvalPolicy !== undefined
-      ? { approvalPolicy: options.approvalPolicy }
-      : {}),
+    ...buildApprovalParams(options),
     ...(permissionProfile === null
       ? { sandboxPolicy: buildSandboxPolicy(options, effectiveConfig) }
       : { permissions: permissionProfile }),
@@ -211,6 +208,14 @@ export function buildTurnStartParams(
       : turnOptions.runtimeWorkspaceRoots !== undefined
         ? { runtimeWorkspaceRoots: [...turnOptions.runtimeWorkspaceRoots] }
         : {}),
+  };
+}
+
+function buildApprovalParams(options: CodexThreadOptions): JsonObject {
+  if (options.permissionMode) return codexPermissionPreset(options.permissionMode);
+  return {
+    ...(options.approvalPolicy !== undefined ? { approvalPolicy: options.approvalPolicy } : {}),
+    ...(options.approvalsReviewer !== undefined ? { approvalsReviewer: options.approvalsReviewer } : {}),
   };
 }
 

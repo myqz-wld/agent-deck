@@ -248,6 +248,7 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
             input.repositories.sessions.setCodexSandbox(sessionId, value),
           setCodexApprovalPolicy: (sessionId, value) =>
             input.repositories.sessions.setCodexApprovalPolicy(sessionId, value),
+          setPermissionMode: (sessionId, value) => input.repositories.sessions.setPermissionMode(sessionId, value),
           setRuntimeProvider: (sessionId, value) =>
             input.repositories.sessions.setRuntimeProvider(sessionId, value),
           setModel: (sessionId, value) => input.repositories.sessions.setModel(sessionId, value),

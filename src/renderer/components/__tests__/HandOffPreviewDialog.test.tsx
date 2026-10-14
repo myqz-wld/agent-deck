@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { SessionHandOffPreparation, SessionRecord } from '@shared/types';
+import { source, otherSource, prepared } from './HandOffPreviewDialog.fixture';
 import { FAST_ASYNC_FALLBACK_GRACE_MS } from '@renderer/hooks/useDelayedAsyncFallback';
 import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
 
@@ -10,53 +10,6 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
-
-const source: SessionRecord = {
-  id: 'source-1',
-  agentId: 'claude-code',
-  cwd: '/repo',
-  title: 'Source',
-  source: 'sdk',
-  lifecycle: 'active',
-  activity: 'idle',
-  startedAt: 1,
-  lastEventAt: 2,
-  endedAt: null,
-  archivedAt: null,
-  model: 'sonnet',
-  thinking: 'high',
-};
-
-const otherSource: SessionRecord = {
-  ...source,
-  id: 'source-2',
-  title: 'Other source',
-};
-
-const prepared: SessionHandOffPreparation = {
-  preparationId: 'prep-1',
-  preview: '只读的会话续接上下文',
-  previewTruncated: false,
-  quality: 'full',
-  source: { eventRevision: 42, rebuildAfterRevision: 0 },
-  checkpoint: { id: 7, throughRevision: 42, formatVersion: 1, refreshed: true },
-  metrics: {
-    estimatedPromptTokens: 1_234,
-    checkpointTokens: 300,
-    rawTailTokens: 700,
-    includedUserMessages: 4,
-    truncatedBoundaryMessages: 0,
-    rawRetentionCeilingTokens: 64_000,
-    elapsedMs: 120,
-  },
-  warnings: [],
-  target: {
-    adapter: 'codex-cli',
-    provider: null,
-    model: 'gpt-custom',
-    thinking: 'ultra',
-  },
-};
 
 let handOffPrepare: ReturnType<typeof vi.fn>;
 let handOffCommit: ReturnType<typeof vi.fn>;
@@ -154,6 +107,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
           provider: 'openai-custom',
           model: 'gpt-custom',
           thinking: 'ultra',
+          permissionMode: 'auto',
         },
       });
     });
@@ -204,7 +158,7 @@ describe('HandOffPreviewDialog unified preparation flow', () => {
           adapter: 'grok-build',
           model: null,
           thinking: null,
-          sessionMode: 'default',
+          permissionMode: 'auto',
           grokSandbox: 'project-locked',
         },
       });

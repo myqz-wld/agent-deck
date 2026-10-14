@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { isSessionPermissionMode } from '@shared/permission-modes';
 import type {
   AdapterSessionMode,
   ProjectTrustDescriptor,
@@ -257,7 +258,7 @@ export function useSessionCreationOptions({
     defaultsLoading,
     configurationLoading: defaultsLoading || providerOptionsLoading,
     providerOptions,
-    permissionMode: current.permissionMode,
+    permissionMode: isSessionPermissionMode(current.permissionMode) ? current.permissionMode : 'auto',
     sessionMode: current.sessionMode,
     approvalPolicy: current.approvalPolicy,
     codexSandbox: current.codexSandbox,

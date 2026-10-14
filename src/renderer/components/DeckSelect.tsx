@@ -30,6 +30,7 @@ interface DeckSelectProps<T extends string> {
   menuMinWidth?: number;
   title?: string;
   ariaLabel?: string;
+  fallbackLabel?: ReactNode;
 }
 
 interface MenuStyle {
@@ -65,6 +66,7 @@ export function DeckSelect<T extends string>({
   menuMinWidth = 160,
   title,
   ariaLabel,
+  fallbackLabel,
 }: DeckSelectProps<T>): JSX.Element {
   const generatedId = useId();
   const selectId = id ?? generatedId;
@@ -74,7 +76,9 @@ export function DeckSelect<T extends string>({
   const [menuStyle, setMenuStyle] = useState<MenuStyle | null>(null);
   const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
   const [activeIndex, setActiveIndex] = useState(selectedIndex);
-  const selected = options[selectedIndex] ?? options[0];
+  const matchingOption = options.find((option) => option.value === value);
+  const selected: DeckSelectOption<T> | undefined = matchingOption ??
+    (fallbackLabel === undefined ? options[0] : { value, label: fallbackLabel });
 
   const updateMenuGeometry = (): void => {
     const button = buttonRef.current;

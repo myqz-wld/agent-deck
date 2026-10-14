@@ -5,9 +5,9 @@ import {
   unsupportedTargetRuntimeFieldMessage,
 } from '@main/adapters/runtime-control-contracts';
 import {
-  isSelectablePermissionMode,
   type SessionRecord,
 } from '@shared/types';
+import { isSessionPermissionMode, storedSessionPermissionMode } from '@shared/permission-modes';
 
 import type { SpawnSessionArgs } from '../schemas';
 import { defaultPermissionModeForTargetAdapter } from './spawn-defaults';
@@ -20,22 +20,17 @@ interface RuntimeControlError {
 export function validateSpawnRuntimeControls(
   args: SpawnSessionArgs,
 ): RuntimeControlError | null {
+  if (args.permissionMode !== undefined && !isSessionPermissionMode(args.permissionMode)) {
+    return { error: 'permissionMode must be auto or bypassPermissions',
+      hint: 'Select auto for native automatic approval or bypassPermissions for no routine prompts.' };
+  }
   const unsupported = firstUnsupportedTargetRuntimeField(args.adapter, args);
   if (unsupported === null) return null;
   const owners = targetRuntimeFieldAdapters(unsupported).join(' or ');
-  if (unsupported === 'permissionMode') {
-    return {
-      error: unsupportedTargetRuntimeFieldMessage(args.adapter, unsupported),
-      hint:
-        args.adapter === 'grok-build'
-          ? 'Remove permissionMode. Grok ACP work modes (default, plan, ask) are distinct from Claude Code permission modes.'
-          : `Remove permissionMode or choose ${owners}.`,
-    };
-  }
   if (unsupported === 'sessionMode') {
     return {
       error: unsupportedTargetRuntimeFieldMessage(args.adapter, unsupported),
-      hint: 'Remove sessionMode or choose grok-build. Grok work modes are distinct from Claude Code permission modes.',
+      hint: 'Remove sessionMode or choose grok-build. Common permission presets are selected with permissionMode.',
     };
   }
   if (
@@ -63,15 +58,14 @@ export function resolveSpawnRuntimeControls(input: {
   codexSandboxFromAgent: SpawnSessionArgs['codexSandbox'] | undefined;
 }) {
   const { args, capabilities, leadRecord, inherit } = input;
+  const inheritedPermission = inherit && leadRecord && isSessionPermissionMode(leadRecord.permissionMode)
+    ? storedSessionPermissionMode(leadRecord) : null;
   return {
     effectivePermissionMode: capabilities.canSetPermissionMode
       ? args.permissionMode ??
         (inherit
-          ? (isSelectablePermissionMode(leadRecord?.permissionMode)
-              ? leadRecord.permissionMode
-              : leadRecord?.permissionMode === 'dontAsk'
-                ? 'default'
-                : undefined)
+          ? inheritedPermission ?? (args.adapter !== 'codex-cli' && leadRecord?.permissionMode
+              ? 'auto' : defaultPermissionModeForTargetAdapter(args.adapter))
           : defaultPermissionModeForTargetAdapter(args.adapter))
       : undefined,
     effectiveSessionMode: capabilities.canSetSessionMode

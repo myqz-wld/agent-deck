@@ -66,7 +66,7 @@ beforeEach(() => {
         {
           id: 'codex-cli',
           displayName: 'Codex',
-          capabilities: { canCreateSession: true, canSetPermissionMode: false },
+          capabilities: { canCreateSession: true, canSetPermissionMode: true },
         },
       ]),
       getAdapterSessionCreationDefaults: vi.fn().mockResolvedValue(
@@ -137,12 +137,12 @@ describe('ResolveInNewSessionDialog model options', () => {
     });
     fireEvent.click(screen.getByLabelText('思考程度'));
     fireEvent.click(screen.getByRole('option', { name: 'ULTRA' }));
-    const approvalPicker = screen.getByLabelText('审批策略');
+    const approvalPicker = screen.getByLabelText('权限模式');
     await waitFor(() => {
-      expect(approvalPicker.textContent).toContain('非可信命令前询问');
+      expect(approvalPicker.textContent).toContain('不再询问');
     });
     fireEvent.click(approvalPicker);
-    fireEvent.click(screen.getByRole('option', { name: '按需询问' }));
+    fireEvent.click(screen.getByRole('option', { name: '自动审批' }));
     const create = await screen.findByRole('button', { name: '新建会话' }) as HTMLButtonElement;
     await waitFor(() => expect(create.disabled).toBe(false));
     fireEvent.click(create);
@@ -155,7 +155,7 @@ describe('ResolveInNewSessionDialog model options', () => {
           provider: 'openai-custom',
           model: 'gpt-custom-preview',
           thinking: 'ultra',
-          approvalPolicy: 'on-request',
+          permissionMode: 'auto',
         }),
       );
     });

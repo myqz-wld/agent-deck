@@ -39,7 +39,7 @@ export function createFeishuWorkHarness() {
     setTitle: vi.fn((id: string, title: string) => { const row = records.get(id); if (row) records.set(id, { ...row, title }); }),
     listChildren: (id: string, state: 'active') => [...records.values()].filter(r => r.spawnedBy === id && r.lifecycle === state) };
   let preferences: FeishuPreferences = {
-    conversation: { adapterId: 'codex-cli', provider: '', model: 'chat-model', thinking: 'max', approvalPolicy: 'on-request' },
+    conversation: { adapterId: 'codex-cli', provider: '', model: 'chat-model', thinking: 'max', permissionMode: 'auto' },
     session: { adapterId: 'codex-cli', provider: '', model: 'work-model', thinking: 'medium' }, settingsRevision: 2,
   };
   const store = { read: () => structuredClone(preferences), write: vi.fn((value: FeishuPreferences) => { preferences = structuredClone(value); }) };

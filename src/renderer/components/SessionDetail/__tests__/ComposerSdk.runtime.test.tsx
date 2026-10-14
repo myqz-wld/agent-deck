@@ -133,7 +133,7 @@ describe('ComposerSdk runtime controls and handoff', () => {
       thinking: 'xhigh',
     })} />);
 
-    expect(screen.queryByLabelText('权限')).toBeNull();
+    expect(screen.queryByLabelText('权限模式')).toBeNull();
     expect(screen.queryByText('模型网关、模型与思考程度')).toBeNull();
 
     await act(async () => resolveAdapters([{
@@ -146,7 +146,7 @@ describe('ComposerSdk runtime controls and handoff', () => {
       sessionModes: [],
     }]));
 
-    expect(await screen.findByLabelText('权限')).toBeTruthy();
+    expect(await screen.findByLabelText('权限模式')).toBeTruthy();
     fireEvent.click(screen.getByText('模型网关、模型与思考程度'));
     expect((screen.getByLabelText('模型网关') as HTMLInputElement).value).toBe('gateway-a');
     expect((screen.getByLabelText('模型') as HTMLInputElement).value).toBe('claude-opus-4-8');
@@ -169,7 +169,7 @@ describe('ComposerSdk runtime controls and handoff', () => {
     expect(screen.queryByText('正在读取会话运行配置…')).toBeNull();
     act(() => vi.advanceTimersByTime(1));
     expect(screen.getByText('正在读取会话运行配置…')).toBeTruthy();
-    expect(screen.queryByLabelText('权限')).toBeNull();
+    expect(screen.queryByLabelText('权限模式')).toBeNull();
   });
 
   it('automatically applies a free-form model and dropdown thinking level to the next round', async () => {
@@ -356,50 +356,19 @@ describe('ComposerSdk runtime controls and handoff', () => {
     });
   });
 
-  it('shows Grok work modes from the adapter profile and applies a change', async () => {
-    Object.defineProperty(window, 'api', {
-      configurable: true,
-      value: {
-        ...(window.api as object),
-        listAdapters: vi.fn().mockResolvedValue([
-          {
-            id: 'grok-build',
-            displayName: 'Grok Build',
-            capabilities: {
-              canAcceptAttachments: false,
-              canSetSessionMode: true,
-              canSetPermissionMode: false,
-            },
-            sessionModes: ['default', 'plan', 'ask'],
-          },
-        ]),
-        setAdapterSessionMode,
-      },
-    });
-
-    render(
-      <ComposerSdk
-        session={makeSession({
-          agentId: 'grok-build',
-          title: 'Grok',
-          sessionMode: 'default',
-        })}
-      />,
-    );
-    fireEvent.click(await screen.findByLabelText('模式'));
-    fireEvent.click(screen.getByRole('option', { name: '问答模式' }));
-
-    await waitFor(() => {
-      expect(setAdapterSessionMode).toHaveBeenCalledWith(
-        'grok-build',
-        'sess-1',
-        'ask',
-      );
-    });
-    expect(screen.queryByText('权限')).toBeNull();
+  it('does not offer work modes even when the native adapter reports them', async () => {
+    vi.mocked(window.api.listAdapters).mockResolvedValueOnce([{
+      id: 'grok-build', displayName: 'Grok Build',
+      capabilities: { canSetSessionMode: true, canSetPermissionMode: true },
+      sessionModes: ['default', 'plan', 'ask'],
+    }] as never);
+    render(<ComposerSdk session={makeSession({ agentId: 'grok-build', permissionMode: 'auto' })} />);
+    expect(await screen.findByLabelText('权限模式')).toBeTruthy();
+    expect(screen.queryByLabelText('模式')).toBeNull();
+    expect(setAdapterSessionMode).not.toHaveBeenCalled();
   });
 
-  it('shows provider-restored dontAsk exactly but keeps it read-only', async () => {
+  it('preserves a provider-restored mode without offering it as a third choice', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
@@ -427,14 +396,10 @@ describe('ComposerSdk runtime controls and handoff', () => {
       />,
     );
 
-    const permission = await screen.findByLabelText('权限');
-    expect(permission.textContent).toContain('当前状态：不询问（只读）');
+    const permission = await screen.findByLabelText('权限模式');
+    expect(permission.textContent).toContain('当前状态：仅执行已授权操作');
     fireEvent.click(permission);
-    const restored = screen.getByRole('option', {
-      name: '当前状态：不询问（只读）',
-    }) as HTMLButtonElement;
-    expect(restored.disabled).toBe(true);
-    expect(screen.getAllByRole('option')).toHaveLength(6);
+    expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(['自动审批', '不再询问']);
     expect(setAdapterPermissionMode).not.toHaveBeenCalled();
   });
 });

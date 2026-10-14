@@ -150,7 +150,7 @@ describe('DefaultPlanReviewSessionCoordinator', () => {
 
   it.each([
     ['bypassPermissions', 'bypassPermissions'],
-    ['dontAsk', 'default'],
+    ['dontAsk', 'auto'],
   ] as const)('forks Claude with its own %s permission and sandbox controls', async (
     permissionMode, expectedMode,
   ) => {

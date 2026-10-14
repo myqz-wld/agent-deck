@@ -36,9 +36,9 @@ describe('agent-deck new model options', () => {
       '--adapter',
       'claude-code',
       '--permission-mode',
-      'plan',
+      'auto',
     ])).toMatchObject({
-      permissionMode: 'plan',
+      permissionMode: 'auto',
     });
   });
 
@@ -199,23 +199,11 @@ describe('agent-deck new model options', () => {
     ).toThrow('--permission-mode 取值无效');
   });
 
-  it('rejects Claude permission modes for Codex and Grok instead of ignoring them', () => {
-    expect(() => parseCliInvocation([
-      '/Applications/Agent Deck',
-      'new',
-      '--adapter',
-      'codex-cli',
-      '--permission-mode',
-      'bypassPermissions',
-    ])).toThrow('--permission-mode 与 adapter "codex-cli" 不兼容');
-    expect(() => parseCliInvocation([
-      '/Applications/Agent Deck',
-      'new',
-      '--adapter',
-      'grok-build',
-      '--permission-mode',
-      'plan',
-    ])).toThrow('--permission-mode 与 adapter "grok-build" 不兼容');
+  it.each(['codex-cli', 'grok-build'])('accepts shared permissions and rejects planning for %s', adapter => {
+    expect(parseCliInvocation(['agent-deck', 'new', '--adapter', adapter, '--permission-mode', 'bypassPermissions']))
+      .toMatchObject({ permissionMode: 'bypassPermissions' });
+    expect(() => parseCliInvocation(['agent-deck', 'new', '--adapter', adapter, '--permission-mode', 'plan']))
+      .toThrow('--permission-mode 取值无效');
   });
 
   it('rejects Codex sandbox flags for non-Codex adapters', () => {

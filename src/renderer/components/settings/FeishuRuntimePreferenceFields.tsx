@@ -29,7 +29,8 @@ export function FeishuRuntimePreferenceFields({ field, purposeLabel, value, desc
     : (descriptor?.allowedValues ?? []).map(option => ({ value: option,
       label: nativeLabels.find(item => item.value === option)?.label ?? option }));
   if (selected && !choices.some(option => option.value === selected)) {
-    choices.push({ value: selected, label: `${selected}（暂不可用）`, disabled: true });
+    const label = nativeLabels.find(item => item.value === selected)?.label ?? selected;
+    choices.push({ value: selected, label: `${label}（暂不可用）`, disabled: true });
   }
   return <label className="text-[10px] text-deck-muted">{LABELS[field]}
     <DeckSelect ariaLabel={`${purposeLabel} ${LABELS[field]}`} value={selected} options={choices}

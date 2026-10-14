@@ -401,6 +401,7 @@ export type SessionAdapterId = RuntimeAdapterId;
 
 export interface SessionHandOffTarget {
   adapter: SessionAdapterId;
+  permissionMode?: 'auto' | 'bypassPermissions';
   /** Claude or Codex Gateway profile id; null delegates to native defaults. */
   provider?: string | null;
   /** Empty/null delegates model selection to the target provider. */

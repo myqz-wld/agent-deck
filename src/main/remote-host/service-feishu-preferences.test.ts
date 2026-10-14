@@ -10,10 +10,10 @@ describe('Feishu settings IPC scope', () => {
     expectedAuthority: { authoritativeCoreId: 'core-a', workerGeneration: 1 }, intentId: 'choice-1' };
   it('accepts adapter-owned controls and rejects foreign fields or incomplete authority before transport', () => {
     expect(parseRemoteHostFeishuPreferencesUpdate(request)).toEqual(request);
-    const configured = { ...request, preference: { ...request.preference, approvalPolicy: 'on-request', codexSandbox: 'read-only' } };
+    const configured = { ...request, preference: { ...request.preference, permissionMode: 'auto', codexSandbox: 'read-only' } };
     expect(parseRemoteHostFeishuPreferencesUpdate(configured)).toEqual(configured);
     for (const input of [{ ...request, unexpected: true }, { ...request, expectedAuthority: {} },
-      { ...request, preference: { ...request.preference, permissionMode: 'default' } }]) {
+      { ...request, preference: { ...request.preference, claudeCodeSandbox: 'strict' } }]) {
       expect(() => parseRemoteHostFeishuPreferencesUpdate(input)).toThrow();
     }
   });

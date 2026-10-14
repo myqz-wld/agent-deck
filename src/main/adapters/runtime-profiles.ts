@@ -1,8 +1,8 @@
 import type { AgentDeckToolName } from '@main/agent-deck-mcp/types';
 import {
-  PERMISSION_MODES,
   type SelectablePermissionMode,
 } from '@shared/types';
+import { SESSION_PERMISSION_MODES } from '@shared/permission-modes';
 import type {
   AdapterSessionMode,
   SessionAdapterId,
@@ -78,7 +78,7 @@ const profiles = {
       thinkingLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
     },
     runtimeControls: {
-      permissionModes: PERMISSION_MODES,
+      permissionModes: SESSION_PERMISSION_MODES,
       sessionModes: [],
       providerOverride: 'claude-gateway',
       sandbox: 'claude',
@@ -98,7 +98,7 @@ const profiles = {
       canSteerTurn: true,
       canInstallHooks: true,
       canRespondPermission: true,
-      canSetPermissionMode: false,
+      canSetPermissionMode: true,
       canSetCodexApprovalPolicy: true,
       canSetSessionMode: false,
       canRestartWithPermissionMode: false,
@@ -118,7 +118,7 @@ const profiles = {
       thinkingLevels: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
     },
     runtimeControls: {
-      permissionModes: [],
+      permissionModes: SESSION_PERMISSION_MODES,
       sessionModes: [],
       providerOverride: 'codex-gateway',
       sandbox: 'codex',
@@ -138,7 +138,7 @@ const profiles = {
       canSteerTurn: true,
       canInstallHooks: true,
       canRespondPermission: true,
-      canSetPermissionMode: false,
+      canSetPermissionMode: true,
       canSetCodexApprovalPolicy: false,
       canSetSessionMode: true,
       canRestartWithPermissionMode: false,
@@ -159,7 +159,7 @@ const profiles = {
       thinkingLevels: ['low', 'medium', 'high', 'xhigh'],
     },
     runtimeControls: {
-      permissionModes: [],
+      permissionModes: SESSION_PERMISSION_MODES,
       sessionModes: ['default', 'plan', 'ask'],
       providerOverride: 'none',
       sandbox: 'grok',

@@ -372,7 +372,7 @@ describe('ServerCoreSessionCreateCapabilities', () => {
       request.adapterId,
       descriptor.capabilityRevision,
       request.workingDirectory,
-      { ...options, permissionMode: 'bypassPermissions' },
+      { ...options, permissionMode: 'plan' },
     )).rejects.toMatchObject({ code: 'invalid_request' });
     await expect(subject.describe({
       adapterId: 'grok-build', provider: '', workingDirectory: 'repo',

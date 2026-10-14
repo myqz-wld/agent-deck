@@ -17,11 +17,11 @@ import {
   isCodexThinkingLevel,
 } from '@shared/session-metadata';
 import {
-  isSelectablePermissionMode,
   type AgentEvent,
   type ExitPlanModeRequest,
   type ExitPlanModeResponse,
 } from '@shared/types';
+import { storedSessionPermissionMode } from '@shared/permission-modes';
 import {
   buildLatePlanDecisionPrompt,
   buildPlanReviewForkPrompt,
@@ -123,6 +123,7 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
       throw new Error('源会话不可用，无法创建隔离的原生 fork。');
     }
     const thinking = inheritedThinking(source.agentId, source.thinking);
+    const permissionMode = storedSessionPermissionMode(source);
 
     let result: Awaited<ReturnType<typeof spawnSessionHandler>>;
     try {
@@ -140,10 +141,10 @@ export class DefaultPlanReviewSessionCoordinator implements PlanReviewSessionCoo
           : '计划深度审阅',
         ...(source.model ? { model: source.model } : {}),
         ...(thinking ? { thinking } : {}),
-        ...(source.agentId === 'claude-code' && isSelectablePermissionMode(source.permissionMode)
-          ? { permissionMode: source.permissionMode }
+        ...(permissionMode
+          ? { permissionMode }
           : source.agentId === 'claude-code' && source.permissionMode === 'dontAsk'
-            ? { permissionMode: 'default' as const }
+            ? { permissionMode: 'auto' as const }
             : {}),
         ...(source.agentId === 'codex-cli' && source.codexApprovalPolicy
           ? { approvalPolicy: source.codexApprovalPolicy }

@@ -8,11 +8,11 @@ import type { AgentAdapter } from '@main/adapters/types';
 import {
   isAdapterSessionMode,
   isCodexApprovalPolicy,
-  isSelectablePermissionMode,
   type SessionRecord,
 } from '@shared/types';
 import { serverCoreGrokSandbox } from './provider-grok-sandbox';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
+import { storedSessionPermissionMode, isSessionPermissionMode } from '@shared/permission-modes';
 
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 const MODEL_FIELDS = new Set(['model', 'provider', 'thinking']);
@@ -43,6 +43,7 @@ function optionalText(value: JsonValue | undefined): string | null {
 
 export function serverCoreRuntimeValues(record: SessionRecord): JsonObject {
   const common: JsonObject = {
+    permissionMode: storedSessionPermissionMode(record),
     model: record.model ?? null,
     provider: record.runtimeProvider ?? null,
     thinking: record.thinking ?? null,
@@ -110,7 +111,7 @@ export async function applyServerCoreRuntimePatch(
 
   if (keys[0] === 'permissionMode') {
     const value = oneField(patch, 'permissionMode');
-    if (record.agentId !== 'claude-code' || !isSelectablePermissionMode(value)) invalid();
+    if (!isSessionPermissionMode(value)) invalid();
     if (!adapter.setPermissionMode) unavailable();
     await adapter.setPermissionMode(record.id, value);
     return { effect: 'hot-applied', replacementSessionId: null };

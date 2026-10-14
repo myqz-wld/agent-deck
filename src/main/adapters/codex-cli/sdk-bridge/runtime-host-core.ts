@@ -42,6 +42,7 @@ export interface CodexBridgeTokenPort {
 
 export interface CodexBridgeSessionRecordPort {
   get(sessionId: string): SessionRecord | null;
+  setPermissionMode(sessionId: string, value: import('@shared/types').PermissionMode | null): void;
   setCodexSandbox(sessionId: string, value: 'workspace-write' | 'read-only' | 'danger-full-access' | null): void;
   setCodexApprovalPolicy(sessionId: string, value: CodexApprovalPolicy | null): void;
   setRuntimeProvider(sessionId: string, value: string | null): void;

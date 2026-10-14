@@ -67,7 +67,7 @@ export interface CodexCliAdapterHost {
  * - ✅ app-server native command / file / permission / MCP tool approval requests
  * - ❌ 通用 AskUserQuestion / ExitPlanMode（MCP tool approval 的 requestUserInput
  *   由 permission queue 单独承接）
- * - ❌ 通用 setPermissionMode
+ * - ✅ Shared auto / bypass permission presets projected onto native approval parameters
  * - ✅ Codex approvalPolicy 可持久化热切，下一次 turn/start 生效
  *
  * 新建会话的 approval policy 默认 `never`；caller 显式值和同 adapter 继承值优先。
@@ -137,6 +137,7 @@ export class CodexCliAdapter implements AgentAdapter {
       // plan codex-handoff-team-alignment-20260518 §P3 Step 3.5: 4 个新字段（codex teammate
       // spawn default 由 options-builder narrowToCodexOpts spread；此处只透传不主动 enforce）
       approvalPolicy: opts.approvalPolicy,
+      permissionMode: opts.permissionMode,
       networkAccessEnabled: opts.networkAccessEnabled,
       additionalDirectories: opts.additionalDirectories,
       // plan handoff-render-and-image-batch-20260521 §Phase 2 Step 2.2 第 7 步(facade wrapper):
@@ -170,6 +171,7 @@ export class CodexCliAdapter implements AgentAdapter {
       codexConfigOverrides: opts.codexConfigOverrides,
       extraAllowWrite: opts.extraAllowWrite,
       approvalPolicy: opts.approvalPolicy,
+      permissionMode: opts.permissionMode,
       networkAccessEnabled: opts.networkAccessEnabled,
       additionalDirectories: opts.additionalDirectories,
       handOff: opts.handOff,
@@ -212,6 +214,7 @@ export class CodexCliAdapter implements AgentAdapter {
       codexConfigOverrides: target.codexConfigOverrides,
       extraAllowWrite: target.extraAllowWrite,
       approvalPolicy: target.approvalPolicy,
+      permissionMode: target.permissionMode,
       networkAccessEnabled: target.networkAccessEnabled,
       additionalDirectories: target.additionalDirectories,
       handOff: target.handOff,
@@ -427,6 +430,11 @@ export class CodexCliAdapter implements AgentAdapter {
     await this.bridge.setCodexApprovalPolicy(sessionId, policy);
   }
 
+  async setPermissionMode(sessionId: string, mode: import('@shared/types').PermissionMode): Promise<void> {
+    if (!this.bridge) throw new Error('codex-cli adapter not initialized');
+    await this.bridge.setPermissionMode(sessionId, mode);
+  }
+
   /** Periodic session-list summary; continuation checkpoints use the isolated runtime. */
   async summariseEvents(
     cwd: string,
@@ -437,7 +445,7 @@ export class CodexCliAdapter implements AgentAdapter {
     return this.host.summariseEvents(cwd, events, evidenceContext, runtime);
   }
 
-  // 不实现：通用 respondAskUserQuestion / respondExitPlanMode / setPermissionMode。
+  // 不实现：通用 respondAskUserQuestion / respondExitPlanMode。
   // MCP tool approval 的 requestUserInput 复用 respondPermission。
 }
 

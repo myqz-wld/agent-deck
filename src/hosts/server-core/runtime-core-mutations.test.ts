@@ -63,7 +63,7 @@ describe('ServerCoreDaemonRuntime mutations and subscriptions', () => {
     await runtime.start();
     metadata.appendChange('existing', null, null);
     const request = input('session.runtime.update', {
-      sessionId: 'session-a', patch: { permissionMode: 'plan' },
+      sessionId: 'session-a', patch: { permissionMode: 'auto' },
     }, { idempotencyKey: 'runtime-intent', expectedRevision: 0 });
     await expect(runtime.execute(request)).rejects.toMatchObject({ code: 'conflict' });
     expect(setPermissionMode).not.toHaveBeenCalled();
@@ -210,14 +210,14 @@ describe('ServerCoreDaemonRuntime mutations and subscriptions', () => {
       sessions.set('session-a', record({ permissionMode: mode }));
     });
     const updated = await runtime.execute(input('session.runtime.update', {
-      sessionId: 'session-a', patch: { permissionMode: 'plan' },
+      sessionId: 'session-a', patch: { permissionMode: 'auto' },
     }, { idempotencyKey: 'runtime-intent', expectedRevision: 0 }));
     expect(updated.result).toEqual({
       controls: {
         adapterId: 'claude-code',
         values: {
           model: null, provider: null, thinking: null,
-          claudeCodeSandbox: null, permissionMode: 'plan',
+          claudeCodeSandbox: null, permissionMode: 'auto',
         },
         revision: 1,
       },

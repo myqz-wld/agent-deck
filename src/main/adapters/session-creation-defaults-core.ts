@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { readGrokModelDefaults } from '@shared/grok-config';
+import { readGrokModelDefaults, readGrokPermissionModeDefault } from '@shared/grok-config';
 import { readClaudeThinkingDefault } from '@shared/claude-config';
 import {
   isCodexThinkingLevel,
@@ -232,17 +232,19 @@ async function resolveCodexDefaults(
         : 'high');
   const configuredApproval = config.approval_policy;
   const fileApproval = readTopLevelQuotedString(fileContent, 'approval_policy');
+  const approvalPolicy = gateway?.defaultApproval ?? (isCodexApprovalPolicy(configuredApproval)
+    ? configuredApproval
+    : isCodexApprovalPolicy(fileApproval)
+      ? fileApproval
+      : 'never');
 
   return {
     ...base,
     provider,
     model,
     thinking,
-    approvalPolicy: gateway?.defaultApproval ?? (isCodexApprovalPolicy(configuredApproval)
-      ? configuredApproval
-      : isCodexApprovalPolicy(fileApproval)
-        ? fileApproval
-        : 'never'),
+    permissionMode: approvalPolicy === 'never' ? 'bypassPermissions' : 'auto',
+    approvalPolicy,
   };
 }
 
@@ -259,6 +261,7 @@ async function resolveGrokDefaults(
   const configuredThinking = configured.thinking;
   return {
     ...base,
+    permissionMode: readGrokPermissionModeDefault(content),
     model,
     thinking: isGrokThinkingLevel(configuredThinking) ? configuredThinking : 'high',
   };

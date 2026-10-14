@@ -18,6 +18,7 @@ import {
 
 export interface GrokBridgeSessionRecordPort {
   get(sessionId: string): SessionRecord | null;
+  setPermissionMode(sessionId: string, mode: import('@shared/types').PermissionMode | null): void;
   setAgentRuntimeProfile(sessionId: string, profile: {
     agentProfileName: string | null;
     agentProfileSource: AgentProfileSource | null;
@@ -60,6 +61,7 @@ export interface GrokHandOffIngressArgs {
 
 const noopRecords: GrokBridgeSessionRecordPort = {
   get: () => null,
+  setPermissionMode: () => undefined,
   setAgentRuntimeProfile: () => undefined,
   setRuntimeProvider: () => undefined,
   setModel: () => undefined,

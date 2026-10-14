@@ -50,7 +50,7 @@ function harness() {
 describe('Core-owned Feishu selections', () => {
   it('persists native controls but rejects a sandbox choice outside current Core capabilities', async () => {
     const t = harness();
-    const selected = { ...choice, approvalPolicy: 'on-request', codexSandbox: 'read-only' };
+    const selected = { ...choice, permissionMode: 'auto', codexSandbox: 'read-only' };
     await t.runtime.execute(t.request({ purpose: 'conversation', preference: selected, expectedSettingsRevision: 0 }));
     expect(t.store.read().conversation).toEqual(selected);
     const caps = sessionConsoleCapabilitiesFixture();

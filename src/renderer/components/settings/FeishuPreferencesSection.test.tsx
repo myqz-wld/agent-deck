@@ -55,12 +55,12 @@ describe('Feishu assistant automatic settings', () => {
     expect(screen.queryByRole('button', { name: /保存|刷新/ })).toBeNull();
     expect(screen.queryByLabelText('新建会话 模型')).toBeNull();
     expect(screen.getByLabelText('机器人聊天 沙盒').closest('[data-generator-fields]')).toBeTruthy();
-    choose('审批策略', '按需询问');
+    choose('权限模式', '自动审批');
     await waitFor(() => expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1));
     choose('沙盒', /^完全只读/);
     await waitFor(() => expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(2));
     expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenLastCalledWith({ profileId: 'remote-a', purpose: 'conversation',
-      preference: { adapterId: 'codex-cli', provider: '', model: 'chat-model', thinking: 'high', approvalPolicy: 'on-request', codexSandbox: 'read-only' },
+      preference: { adapterId: 'codex-cli', provider: '', model: 'chat-model', thinking: 'high', permissionMode: 'auto', codexSandbox: 'read-only' },
       expectedSettingsRevision: 5, expectedAuthority: source.expectedAuthority, intentId: expect.any(String) });
     expect(backend.listClaudeGatewayProfiles).not.toHaveBeenCalled();
     expect(backend.listCodexGatewayProfiles).not.toHaveBeenCalled();
@@ -85,13 +85,13 @@ describe('Feishu assistant automatic settings', () => {
     await screen.findByLabelText('机器人聊天 模型');
     changeModel('first-model');
     await waitFor(() => expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1));
-    choose('审批策略', '按需询问');
+    choose('权限模式', '自动审批');
     changeModel('latest-model');
     expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1);
     await act(async () => gate.resolve());
     await waitFor(() => expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(2));
     expect(backend.updateRemoteHostFeishuPreferences.mock.calls[1][0]).toMatchObject({
-      expectedSettingsRevision: 5, preference: { model: 'latest-model', approvalPolicy: 'on-request' },
+      expectedSettingsRevision: 5, preference: { model: 'latest-model', permissionMode: 'auto' },
     });
     expect((screen.getByLabelText('机器人聊天 模型') as HTMLInputElement).value).toBe('latest-model');
   });
@@ -129,19 +129,19 @@ describe('Feishu assistant automatic settings', () => {
   });
 
   it('keeps unsupported saved policies visible and does not autosave an invalid configuration', async () => {
-    const backend = api({ ...settings(), conversation: { ...settings().conversation, approvalPolicy: 'on-request' } });
+    const backend = api({ ...settings(), conversation: { ...settings().conversation, permissionMode: 'auto' } });
     backend.getRemoteHostSessionCapabilities.mockImplementation(() => {
       const result = sessionConsoleCapabilitiesFixture();
-      result.create.options.approvalPolicy = { ...result.create.options.approvalPolicy, defaultValue: 'never', allowedValues: ['never'] };
+      result.create.options.permissionMode = { ...result.create.options.permissionMode, defaultValue: 'bypassPermissions', allowedValues: ['bypassPermissions'] };
       return Promise.resolve(result);
     });
     render(<FeishuPreferencesSection source={source} />);
     await screen.findByLabelText('机器人聊天 模型');
     changeModel('edited-model');
     expect(backend.updateRemoteHostFeishuPreferences).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByLabelText('机器人聊天 审批策略'));
-    expect((screen.getByRole('option', { name: 'on-request（暂不可用）' }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole('option', { name: '从不询问' }));
+    fireEvent.click(screen.getByLabelText('机器人聊天 权限模式'));
+    expect((screen.getByRole('option', { name: '自动审批（暂不可用）' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('option', { name: '不再询问' }));
     await waitFor(() => expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1));
   });
 
@@ -161,7 +161,7 @@ describe('Feishu assistant automatic settings', () => {
     expect(screen.getAllByRole('status')).toHaveLength(1);
     await act(async () => capabilities.resolve(sessionConsoleCapabilitiesFixture()));
     expect(screen.queryByRole('status')).toBeNull();
-    expect(screen.getByLabelText('机器人聊天 审批策略').textContent).toContain('从不询问');
+    expect(screen.getByLabelText('机器人聊天 权限模式').textContent).toContain('不再询问');
   });
 
   it('retains a warm form on reopen and quietly revalidates before accepting edits', async () => {
@@ -177,7 +177,7 @@ describe('Feishu assistant automatic settings', () => {
     expect(screen.queryByRole('textbox', { name: '机器人聊天 模型' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '机器人聊天', expanded: false }));
     expect((screen.getByLabelText('机器人聊天 模型') as HTMLInputElement).value).toBe('chat-model');
-    choose('审批策略', '按需询问');
+    choose('权限模式', '自动审批');
     expect(backend.updateRemoteHostFeishuPreferences).not.toHaveBeenCalled();
     await act(() => vi.advanceTimersByTimeAsync(149));
     expect(screen.queryByRole('status')).toBeNull();
@@ -196,7 +196,7 @@ describe('Feishu assistant automatic settings', () => {
     vi.useFakeTimers(); choose('助手', 'Claude Code');
     await act(() => vi.advanceTimersByTimeAsync(149));
     expect(screen.queryByRole('status')).toBeNull();
-    expect(screen.getByLabelText('机器人聊天 审批策略')).toBeTruthy();
+    expect(screen.getByLabelText('机器人聊天 权限模式')).toBeTruthy();
     expect(backend.updateRemoteHostFeishuPreferences).not.toHaveBeenCalled();
     await act(() => vi.advanceTimersByTimeAsync(1));
     expect(screen.getAllByRole('status')).toHaveLength(1);
@@ -206,7 +206,7 @@ describe('Feishu assistant automatic settings', () => {
     expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: '机器人聊天', expanded: false }));
     expect(backend.getRemoteHostFeishuPreferences).toHaveBeenCalledTimes(1);
-    expect(screen.queryByLabelText('机器人聊天 审批策略')).toBeNull();
+    expect(screen.getByLabelText('机器人聊天 权限模式')).toBeTruthy();
     expect((screen.getByLabelText('机器人聊天 模型') as HTMLInputElement).value).toBe('sonnet');
     expect(backend.updateRemoteHostFeishuPreferences).toHaveBeenCalledWith(expect.objectContaining({
       preference: expect.objectContaining({ adapterId: 'claude-code', model: 'sonnet', permissionMode: 'bypassPermissions' }),

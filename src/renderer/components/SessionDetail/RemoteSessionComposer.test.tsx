@@ -129,7 +129,7 @@ describe('RemoteSessionComposer parity and authority', () => {
         adapterId: 'codex-cli',
         values: {
           provider: '', model: 'gpt-5.6-sol', thinking: 'low',
-          approvalPolicy: 'on-request', codexSandbox: 'workspace-write',
+          permissionMode: 'auto', codexSandbox: 'workspace-write',
         },
         revision: 5,
       },
@@ -227,7 +227,7 @@ describe('RemoteSessionComposer parity and authority', () => {
         adapterId: 'codex-cli',
         values: {
           provider: '', model: 'gpt-5.6-sol', thinking: 'low',
-          approvalPolicy: 'on-request', codexSandbox: 'workspace-write',
+          permissionMode: 'auto', codexSandbox: 'workspace-write',
         },
         revision: 5,
       },
@@ -262,7 +262,7 @@ describe('RemoteSessionComposer parity and authority', () => {
       runtime: {
         adapterId: 'codex-cli',
         values: {
-          model: 'gpt-5.6-sol', approvalPolicy: 'on-request',
+          model: 'gpt-5.6-sol', permissionMode: 'auto',
           codexSandbox: 'workspace-write',
         },
         revision: 5,
@@ -272,13 +272,13 @@ describe('RemoteSessionComposer parity and authority', () => {
 
     expect((screen.getByRole('button', { name: '接力' }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByLabelText('模型') as HTMLInputElement).disabled).toBe(false);
-    expect((screen.getByLabelText('审批') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByLabelText('权限模式') as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByLabelText('沙盒') as HTMLButtonElement).disabled).toBe(false);
 
-    fireEvent.click(screen.getByLabelText('审批'));
-    fireEvent.click(screen.getByRole('option', { name: '从不询问' }));
+    fireEvent.click(screen.getByLabelText('权限模式'));
+    fireEvent.click(screen.getByRole('option', { name: '不再询问' }));
     await waitFor(() => expect(remote.updateRuntime).toHaveBeenCalledWith({
-      approvalPolicy: 'never',
+      permissionMode: 'bypassPermissions',
     }));
   });
 
@@ -300,7 +300,8 @@ describe('RemoteSessionComposer parity and authority', () => {
     });
     render(<RemoteSessionComposer source={remote} adapterId="codex-cli" sessionId="session-a" />);
 
-    expect(screen.getAllByText('使用当前默认值')).toHaveLength(2);
+    expect(screen.getAllByText('使用当前默认值')).toHaveLength(1);
+    expect(screen.getByText('沿用会话原有权限')).toBeTruthy();
     expect(screen.queryByText('NEVER')).toBeNull();
     expect(screen.queryByText('工作区可写')).toBeNull();
   });

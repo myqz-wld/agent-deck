@@ -4,7 +4,7 @@ export const FEISHU_FIELD_LABELS: Readonly<Record<string, string>> = {
   path: '路径', file_path: '文件', sessionId: '目标会话', adapter: '助手类型', adapterId: '助手类型',
   model: '模型', thinking: '思考程度', title: '会话名称', initialMessage: '首条任务',
   selection: '模型与运行设置', preference: '保存的设置', purpose: '应用范围', provider: '模型网关',
-  permissionMode: '审批模式', approvalPolicy: '审批模式', sessionMode: '运行模式',
+  permissionMode: '权限模式', approvalPolicy: '审批模式', sessionMode: '运行模式',
   claudeCodeSandbox: '沙盒', codexSandbox: '沙盒', grokSandbox: '沙盒',
   expectedTitle: '原会话名称', taskId: '待办 ID', status: '状态', content: '内容',
 };
@@ -13,7 +13,7 @@ const VALUES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   adapterId: { 'codex-cli': 'Codex', 'claude-code': 'Claude', 'grok-build': 'Grok' },
   purpose: { conversation: '机器人聊天', session: '新建工作会话' },
   approvalPolicy: { 'on-request': '按需审批', untrusted: '不受信任时审批', never: '不再询问' },
-  permissionMode: { default: '手动确认', acceptEdits: '自动接受文件编辑', plan: '计划模式', auto: '自动判断', bypassPermissions: '不再询问' },
+  permissionMode: { default: '手动确认', acceptEdits: '自动接受文件编辑', plan: '计划模式', auto: '自动审批', bypassPermissions: '不再询问' },
   sessionMode: { default: '默认模式', plan: '计划模式', ask: '询问模式' },
   codexSandbox: { 'workspace-write': '工作区写入', 'read-only': '只读', 'danger-full-access': '不限制' },
   claudeCodeSandbox: { off: '关闭', 'workspace-write': '工作区写入', strict: '严格' },

@@ -4,10 +4,8 @@ import type { SessionRecord } from '@shared/types';
 import { SDK_RESTART_RESUME_PROMPT } from '@shared/restart-prompts';
 import { isGrokBuiltinSandboxProfile } from '@shared/grok-sandbox';
 import {
-  CODEX_APPROVAL_POLICY_OPTIONS,
   GROK_SANDBOX_MODE_OPTIONS,
   type ClaudeSandboxMode,
-  type CodexApprovalPolicyChoice,
   type CodexSandboxMode,
 } from '@renderer/lib/sandbox-options';
 import { DeckSelect } from '@renderer/components/DeckSelect';
@@ -28,16 +26,6 @@ export function SessionSandboxControls({
 }): JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const changeCodexApproval = async (
-    next: CodexApprovalPolicyChoice,
-  ): Promise<void> => {
-    const current = session.codexApprovalPolicy ?? 'never';
-    if (next === current || busy) return;
-    await run(() =>
-      window.api.setCodexApprovalPolicy(session.agentId, session.id, next),
-    );
-  };
 
   const changeCodex = async (next: CodexSandboxMode): Promise<void> => {
     const current = session.codexSandbox ?? 'workspace-write';
@@ -102,16 +90,6 @@ export function SessionSandboxControls({
     <>
       {session.agentId === 'codex-cli' && (
         <>
-          <SelectRow
-            label="审批"
-            value={
-              (session.codexApprovalPolicy ??
-                'never') as CodexApprovalPolicyChoice
-            }
-            options={CODEX_APPROVAL_POLICY_OPTIONS}
-            disabled={busy}
-            onChange={(next) => void changeCodexApproval(next)}
-          />
           <SelectRow
             label="沙盒"
             value={(session.codexSandbox ?? 'workspace-write') as CodexSandboxMode}

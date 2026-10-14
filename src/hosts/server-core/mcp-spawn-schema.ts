@@ -6,7 +6,8 @@ import {
 } from '@contracts/index';
 import { MAX_GROK_SANDBOX_PROFILE_LENGTH } from '@shared/grok-sandbox';
 import { SESSION_THINKING_LEVELS } from '@shared/session-metadata';
-import { CODEX_APPROVAL_POLICIES, PERMISSION_MODES } from '@shared/types';
+import { CODEX_APPROVAL_POLICIES } from '@shared/types';
+import { SESSION_PERMISSION_MODES } from '@shared/permission-modes';
 
 const text = (maximum: number) => z.string().min(1).max(maximum).refine(
   (value) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(value),
@@ -56,7 +57,9 @@ export const SERVER_CORE_SPAWN_SESSION_SCHEMA = {
   ),
   model: optionalRuntimeText.describe('Optional provider model override.'),
   thinking: z.enum(SESSION_THINKING_LEVELS).optional(),
-  permissionMode: z.enum(PERMISSION_MODES).optional(),
+  permissionMode: z.enum(SESSION_PERMISSION_MODES).optional().describe(
+    'Permission preset for any adapter: auto uses native automatic approval; bypassPermissions skips routine approval prompts. This does not change the sandbox or Core Workspace ceiling.',
+  ),
   approvalPolicy: z.enum(CODEX_APPROVAL_POLICIES).optional(),
   sessionMode: z.enum(['default', 'plan', 'ask']).optional(),
   codexSandbox: z.enum(['workspace-write', 'read-only', 'danger-full-access']).optional(),

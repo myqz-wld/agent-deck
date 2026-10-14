@@ -183,7 +183,7 @@ describe('NewSessionDialog model options', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('shows and forwards adapter-native Grok Build work modes', async () => {
+  it('creates Grok with a common permission preset and independent sandbox', async () => {
     Object.defineProperty(window, 'api', {
       configurable: true,
       value: {
@@ -194,6 +194,7 @@ describe('NewSessionDialog model options', () => {
             capabilities: {
               canCreateSession: true,
               canSetSessionMode: true,
+              canSetPermissionMode: true,
               canAcceptAttachments: false,
             },
             sessionModes: ['default', 'plan', 'ask'],
@@ -208,12 +209,12 @@ describe('NewSessionDialog model options', () => {
     });
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
 
-    const workMode = await screen.findByLabelText('工作模式');
+    const workMode = await screen.findByLabelText('权限模式');
     await screen.findByText('模型配置');
-    expect(workMode.textContent).toContain('可执行');
+    expect(workMode.textContent).toContain('不再询问');
     expect(workMode.textContent).not.toContain('默认');
     fireEvent.click(workMode);
-    fireEvent.click(screen.getByRole('option', { name: '计划模式' }));
+    fireEvent.click(screen.getByRole('option', { name: '自动审批' }));
     fireEvent.click(screen.getByLabelText('Grok Build 沙盒请求档位'));
     fireEvent.click(screen.getByRole('option', { name: '自定义配置…' }));
     fireEvent.change(screen.getByPlaceholderText('输入自定义 sandbox.toml 配置名称'), {
@@ -228,7 +229,7 @@ describe('NewSessionDialog model options', () => {
       expect(createAdapterSession).toHaveBeenCalledWith(
         'grok-build',
         expect.objectContaining({
-          sessionMode: 'plan',
+          permissionMode: 'auto',
           grokSandbox: 'project-locked',
         }),
       );
@@ -245,7 +246,7 @@ describe('NewSessionDialog model options', () => {
             displayName: 'Codex',
             capabilities: {
               canCreateSession: true,
-              canSetPermissionMode: false,
+              canSetPermissionMode: true,
               canAcceptAttachments: true,
             },
           },
@@ -261,13 +262,13 @@ describe('NewSessionDialog model options', () => {
     });
     render(<NewSessionDialog open={true} onClose={vi.fn()} onCreated={vi.fn()} />);
 
-    const approvalPicker = await screen.findByLabelText('审批策略');
+    const approvalPicker = await screen.findByLabelText('权限模式');
     expect(screen.queryByText(/只控制是否暂停询问/)).toBeNull();
     await waitFor(() => {
-      expect(approvalPicker.textContent).toContain('非可信命令前询问');
+      expect(approvalPicker.textContent).toContain('不再询问');
     });
     fireEvent.click(approvalPicker);
-    fireEvent.click(screen.getByRole('option', { name: '从不询问' }));
+    fireEvent.click(screen.getByRole('option', { name: '自动审批' }));
     fireEvent.change(screen.getByPlaceholderText(/输入任务或问题/), {
       target: { value: '检查审批策略' },
     });
@@ -276,7 +277,7 @@ describe('NewSessionDialog model options', () => {
     await waitFor(() => {
       expect(createAdapterSession).toHaveBeenCalledWith(
         'codex-cli',
-        expect.objectContaining({ approvalPolicy: 'never' }),
+        expect.objectContaining({ permissionMode: 'auto' }),
       );
     });
   });

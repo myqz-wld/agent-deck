@@ -24,6 +24,16 @@ pnpm dev
 Open a project, choose a provider, start a session, and describe the task.
 Use Pending to respond when an agent needs your input.
 
+Session creation, live controls, handoff, and Feishu preferences share two permission choices:
+**自动审批** uses the provider's native automatic approval mechanism; **不再询问** skips routine
+approval prompts. Claude uses `auto` / `bypassPermissions`, Codex uses `on-request` with
+`auto_review` / `never`, and Grok uses its native auto / always-approve controls. Provider policy
+can still restrict either choice. Sandbox access remains a separate setting.
+
+Planning, question-only, and edit-only presets are absent from these controls. Existing live
+sessions keep their native permission state until a new choice is applied. Grok's `read-only`
+sandbox keeps project files read-only while allowing its state and temporary directories to be written.
+
 ## Session collaboration
 
 `list_sessions` defaults to related active and dormant session metadata. Set `scope: "all"` to

@@ -27,9 +27,6 @@ describe('adapter runtime profiles', () => {
       },
       runtimeControls: {
         permissionModes: [
-          'default',
-          'acceptEdits',
-          'plan',
           'auto',
           'bypassPermissions',
         ],
@@ -43,7 +40,7 @@ describe('adapter runtime profiles', () => {
       prompt: { injection: 'codex-developer-instructions' },
       capabilities: {
         canRespondPermission: true,
-        canSetPermissionMode: false,
+        canSetPermissionMode: true,
         canSetSessionMode: false,
         canRestartWithPermissionMode: false,
         canSetCodexSandbox: true,
@@ -51,7 +48,7 @@ describe('adapter runtime profiles', () => {
         canRestartWithGrokSandbox: false,
       },
       runtimeControls: {
-        permissionModes: [],
+        permissionModes: ['auto', 'bypassPermissions'],
         sessionModes: [],
         providerOverride: 'codex-gateway',
         sandbox: 'codex',
@@ -64,14 +61,14 @@ describe('adapter runtime profiles', () => {
         canForkSession: false,
         canInstallHooks: true,
         canRespondPermission: true,
-        canSetPermissionMode: false,
+        canSetPermissionMode: true,
         canSetSessionMode: true,
         canRestartWithGrokSandbox: true,
         canSteerTurn: true,
         canAcceptAttachments: false,
       },
       runtimeControls: {
-        permissionModes: [],
+        permissionModes: ['auto', 'bypassPermissions'],
         sessionModes: ['default', 'plan', 'ask'],
         providerOverride: 'none',
         sandbox: 'grok',

@@ -20,7 +20,7 @@ import { GrokPermissionController } from './permission-controller';
 import { errorText } from './protocol-utils';
 import {
   createGrokRuntime, persistGrokModelOptions, persistGrokRuntimeMetadata,
-  persistGrokSessionMode, recoverGrokRuntime,
+  persistGrokSessionMode, recoverGrokRuntime, persistGrokPermissionMode,
 } from './runtime-factory';
 import type { GrokRuntime } from './runtime-types';
 import { GrokTurnQueue } from './turn-queue';
@@ -106,6 +106,8 @@ export class GrokBuildBridge {
       },
     });
     this.runtimeMutationController = new GrokRuntimeMutationController({
+      persistPermissionMode: (sessionId, mode, workMode) =>
+        persistGrokPermissionMode(sessionId, mode, options.runtimeHost, workMode),
       getRuntime: (sessionId) => this.runtimes.get(sessionId) ?? null,
       getPersistedOptions: (sessionId) => {
         const record = options.runtimeHost.records.get(sessionId);
@@ -114,6 +116,7 @@ export class GrokBuildBridge {
           model: record.model ?? null,
           thinking: record.thinking ?? null,
           sessionMode: record.sessionMode ?? null,
+          permissionMode: record.permissionMode ?? null,
         };
       },
       persistModelOptions: (sessionId, model, thinking) =>
@@ -223,7 +226,8 @@ export class GrokBuildBridge {
       if (!waitForRuntime) {
         this.enqueueInitialTurn(runtime, opts, trustedTurn);
         setTimeout(() => {
-          void this.startRuntimeInBackground(runtime);
+          void startGrokRuntimeInBackground(runtime, this.runtimeStartContext(),
+            candidate => persistGrokRuntimeMetadata(candidate, this.options.runtimeHost));
         }, 0);
         return applicationSessionId;
       }
@@ -363,6 +367,10 @@ export class GrokBuildBridge {
     await this.runtimeMutationController.setSessionMode(sessionId, mode);
   }
 
+  async setPermissionMode(sessionId: string, mode: import('@shared/types').PermissionMode): Promise<void> {
+    await this.runtimeMutationController.setPermissionMode(sessionId, mode);
+  }
+
   restartWithGrokSandbox(
     sessionId: string,
     sandbox: string | null,
@@ -431,15 +439,6 @@ export class GrokBuildBridge {
   ): void {
     const input = resolveGrokInitialTurn(opts, trustedTurn);
     if (input) this.enqueue(runtime, input.text, input.attachments, input.options);
-  }
-
-  private async startRuntimeInBackground(runtime: GrokRuntime): Promise<void> {
-    await startGrokRuntimeInBackground(
-      runtime,
-      this.runtimeStartContext(),
-      (candidate) =>
-        persistGrokRuntimeMetadata(candidate, this.options.runtimeHost),
-    );
   }
 
   private runtimeStartContext(): GrokRuntimeStartContext {

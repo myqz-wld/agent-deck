@@ -41,7 +41,7 @@ export interface InitialSessionRegistration {
 
 /**
  * Claude Code adapter 专属 createSession opts。与 CodexCreateOpts 字段不同处:
- * 含 Claude SDK permissionMode（公开五档及 provider-only 恢复态 dontAsk）+
+ * Includes shared permission presets and legacy Claude permission modes for restoration, plus
  * claudeCodeSandbox（OS 沙盒档位）+ 不含 codexSandbox。
  */
 export interface ClaudeCreateOpts {
@@ -139,10 +139,12 @@ export interface ClaudeCreateOpts {
 
 /**
  * Codex CLI adapter 专属 createSession opts。与 ClaudeCreateOpts 字段不同处:
- * 不含 Claude permissionMode（Codex 使用 app-server approvalPolicy + server requests）
+ * Shared permission presets map to native app-server approval parameters; legacy approvalPolicy
  * + 含 codexSandbox（Codex 三档 sandboxMode）+ 不含 claudeCodeSandbox。
  */
 export interface CodexCreateOpts {
+  /** Common permission preset; takes precedence over a legacy approval-policy override. */
+  permissionMode?: PermissionMode;
   cwd: string;
   prompt?: string;
   /** Codex Gateway id resolved from `$CODEX_HOME/gateways/<id>.toml`. */
@@ -239,6 +241,8 @@ export interface CodexCreateOpts {
 
 /** Grok Build ACP session options. Grok owns authentication, native tools, and session history. */
 export interface GrokCreateOpts {
+  /** Common permission preset, independent from the native work mode and sandbox. */
+  permissionMode?: PermissionMode;
   cwd: string;
   prompt?: string;
   resume?: string;
@@ -264,7 +268,7 @@ export interface GrokCreateOpts {
  * adapter.createSession 入参判别联合（D2 设计）。
  *
  * caller 端用 `buildCreateSessionOptions(agentId, raw)` builder helper 在编译期 narrow 到
- * 对应 union arm，TS 阻止字段误传（如 codexSandbox 给 claude adapter / permissionMode 给 codex
+ * 对应 union arm，TS 阻止字段误传（如 codexSandbox 给 claude adapter / claudeCodeSandbox 给 codex
  * adapter）。adapter 实现端用 `agentId` 字段 narrow 知道字段集合。
  *
  * 加新 adapter 时：(1) 加新 union arm; (2) buildCreateSessionOptions exhaustive switch 漏 arm

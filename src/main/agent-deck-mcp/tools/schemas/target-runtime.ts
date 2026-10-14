@@ -7,10 +7,10 @@ import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
 import { SESSION_THINKING_LEVELS } from '@shared/session-metadata';
 import {
   CODEX_APPROVAL_POLICIES,
-  PERMISSION_MODES,
   type SessionAdapterId,
 } from '@shared/types';
 import { MAX_GROK_SANDBOX_PROFILE_LENGTH } from '@shared/grok-sandbox';
+import { SESSION_PERMISSION_MODES } from '@shared/permission-modes';
 
 const gateway = z
   .string()
@@ -54,24 +54,24 @@ const thinking = z
   );
 
 const permissionMode = z
-  .enum(PERMISSION_MODES)
+  .enum(SESSION_PERMISSION_MODES)
   .optional()
   .describe(
-    'Optional non-null Claude Code-only permission mode: default, acceptEdits, plan, auto, or bypassPermissions. Explicit value wins; omission inherits a selectable persisted same-adapter mode (persisted dontAsk becomes default), while fresh or cross-adapter Claude targets currently use bypassPermissions. Codex CLI approvals and Grok Build ACP permissions use their separate native protocols. Other adapters and null reject.',
+    'Optional non-null permission preset for Claude, Codex, or Grok: auto selects native automatic approval; bypassPermissions disables routine approval prompts without changing the sandbox. Codex auto sets on-request plus auto_review; its bypass preset sets never. Grok sets mutually exclusive autoMode/yoloMode flags and uses executable work mode. Explicit selection wins over legacy native mode fields; omission inherits a persisted same-adapter selection, otherwise uses the target creation default. Native mandatory restrictions still apply. Other values and null reject.',
   );
 
 const approvalPolicy = z
   .enum(CODEX_APPROVAL_POLICIES)
   .optional()
   .describe(
-    'Optional non-null Codex CLI app-server approval policy: untrusted, on-request, or never. Explicit public value wins, followed by any trusted main-only override, persisted same-adapter source, then never. This field does not set Codex network access or arbitrary additional readable directories; those can only come from trusted internal state, same-adapter inheritance, or selected Codex Agent configuration. Other adapters and null reject.',
+    'Legacy non-null Codex CLI app-server approval policy: untrusted, on-request, or never. A common permissionMode selection takes precedence; otherwise the explicit value wins, followed by any trusted main-only override, persisted same-adapter source, then never. This field does not set Codex network access or additional readable directories. New user-facing controls use permissionMode. Other adapters and null reject.',
   );
 
 const sessionMode = z
   .enum(['default', 'plan', 'ask'])
   .optional()
   .describe(
-    'Optional non-null Grok Build-only ACP work mode: default, plan, or ask. Explicit value wins; omission inherits a persisted same-adapter mode, otherwise sends no override and accepts the mode Grok Build reports. This is distinct from Claude Code permissionMode and from Grok ACP tool permissions. Other adapters and null reject.',
+    'Legacy non-null Grok Build ACP work-mode override for restoring native sessions: default, plan, or ask. A common permissionMode selection takes precedence and restores executable work mode. New user-facing controls use permissionMode. Other adapters and null reject.',
   );
 
 const codexSandbox = z

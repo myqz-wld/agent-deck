@@ -1,4 +1,5 @@
 import type { SessionRecord } from '@shared/types';
+import { codexPermissionPreset, isSessionPermissionMode, storedSessionPermissionMode } from '@shared/permission-modes';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
 import type { ResolvedCodexGatewayProfile } from '@main/codex-config/gateway-profiles-core';
 import { combineCodexDeveloperInstructions } from '../fork-session/target-runtime';
@@ -11,6 +12,7 @@ import {
 export type CodexCreateResumeRecord = Pick<
   SessionRecord,
   | 'cliSessionId'
+  | 'permissionMode'
   | 'codexApprovalPolicy'
   | 'codexSandbox'
   | 'runtimeProvider'
@@ -28,6 +30,7 @@ export interface CodexCreateRuntimeHostValues {
 }
 
 export interface ResolvedCodexCreateRuntime {
+  permissionMode?: import('@shared/permission-modes').SessionPermissionMode;
   approvalPolicy: CreateSessionOpts['approvalPolicy'];
   developerInstructions?: string;
   effectiveOpts: CreateSessionOpts;
@@ -48,8 +51,13 @@ export function resolveCodexCreateRuntime(
   const provider = opts.provider ?? record?.runtimeProvider ?? undefined;
   const gateway = host.readGatewayProfile(provider);
   const model = opts.model ?? gateway?.defaultModel;
+  const requestedPermission = opts.permissionMode ?? (record && isSessionPermissionMode(record.permissionMode)
+    ? storedSessionPermissionMode({ ...record, agentId: 'codex-cli' }) : null);
+  const permissionMode = isSessionPermissionMode(requestedPermission)
+    ? requestedPermission : undefined;
   const approvalPolicy =
-    opts.approvalPolicy ?? record?.codexApprovalPolicy ?? undefined;
+    permissionMode ? codexPermissionPreset(permissionMode).approvalPolicy
+      : opts.approvalPolicy ?? record?.codexApprovalPolicy ?? undefined;
   const sandboxMode =
     opts.codexSandbox ?? record?.codexSandbox ?? host.readDefaultSandbox();
   const reasoning = resolveCodexReasoningEffort({
@@ -65,13 +73,15 @@ export function resolveCodexCreateRuntime(
     reasoning.sessionValue === opts.modelReasoningEffort &&
     provider === opts.provider &&
     model === opts.model &&
-    approvalPolicy === opts.approvalPolicy
+    approvalPolicy === opts.approvalPolicy &&
+    permissionMode === opts.permissionMode
       ? opts
       : {
           ...opts,
           provider,
           model,
           approvalPolicy,
+          permissionMode,
           modelReasoningEffort: reasoning.sessionValue,
         };
   const developerInstructions = combineCodexDeveloperInstructions(
@@ -84,6 +94,7 @@ export function resolveCodexCreateRuntime(
       : null;
 
   return {
+    permissionMode,
     approvalPolicy,
     developerInstructions,
     effectiveOpts,

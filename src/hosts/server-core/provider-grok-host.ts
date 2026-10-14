@@ -21,6 +21,7 @@ export function createServerCoreGrokHost(input: ServerCoreProviderHostInput) {
       liveRate: NOOP_GROK_LIVE_RATE_OBSERVER,
       records: {
         get: (sessionId) => input.repositories.sessions.get(sessionId),
+        setPermissionMode: (sessionId, mode) => input.repositories.sessions.setPermissionMode(sessionId, mode),
         setAgentRuntimeProfile: (sessionId, profile) =>
           input.repositories.sessions.setAgentRuntimeProfile(sessionId, profile),
         setRuntimeProvider: (sessionId, provider) =>

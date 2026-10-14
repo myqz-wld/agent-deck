@@ -103,6 +103,7 @@ export class GrokBuildAdapter implements AgentAdapter {
       model: opts.model,
       reasoningEffort: opts.reasoningEffort,
       sessionMode: opts.sessionMode,
+      permissionMode: opts.permissionMode,
       grokSandbox: resolveGrokCreateSandboxWithHost(
         this.host.bridge,
         opts.grokSandbox,
@@ -132,6 +133,7 @@ export class GrokBuildAdapter implements AgentAdapter {
         model: opts.model,
         reasoningEffort: opts.reasoningEffort,
         sessionMode: opts.sessionMode,
+        permissionMode: opts.permissionMode,
         grokSandbox: resolveGrokCreateSandboxWithHost(
           this.host.bridge,
           opts.grokSandbox,
@@ -278,6 +280,11 @@ export class GrokBuildAdapter implements AgentAdapter {
   async setSessionMode(sessionId: string, mode: AdapterSessionMode): Promise<void> {
     if (!this.bridge) throw new Error('Grok Build adapter is not initialized.');
     await this.bridge.setSessionMode(sessionId, mode);
+  }
+
+  async setPermissionMode(sessionId: string, mode: import('@shared/types').PermissionMode): Promise<void> {
+    if (!this.bridge) throw new Error('Grok Build adapter is not initialized.');
+    await this.bridge.setPermissionMode(sessionId, mode);
   }
 
   async restartWithGrokSandbox(

@@ -241,10 +241,11 @@ describe('resolveSessionCreationDefaults', () => {
       {
         settings,
         codexConfigPath: join(root, 'missing.toml'),
-        readCodexConfig: async () => ({}),
+        readCodexConfig: async () => ({ approval_policy: 'unsupported-policy' }),
       },
     )).resolves.toMatchObject({
       approvalPolicy: 'never',
+      permissionMode: 'bypassPermissions',
     });
   });
 

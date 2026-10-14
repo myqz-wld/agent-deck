@@ -3,12 +3,12 @@ import { FeishuGatewayError } from './errors';
 
 const RUNTIME_FIELDS = {
   'claude-code': new Set(['permissionMode', 'claudeCodeSandbox']),
-  'codex-cli': new Set(['approvalPolicy', 'codexSandbox']),
-  'grok-build': new Set(['sessionMode', 'grokSandbox']),
+  'codex-cli': new Set(['permissionMode', 'codexSandbox']),
+  'grok-build': new Set(['permissionMode', 'grokSandbox']),
 } as const;
 
 const STRING_VALUES: Readonly<Record<string, ReadonlySet<string>>> = {
-  permissionMode: new Set(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']),
+  permissionMode: new Set(['auto', 'bypassPermissions']),
   claudeCodeSandbox: new Set(['off', 'workspace-write', 'strict']),
   approvalPolicy: new Set(['untrusted', 'on-request', 'never']),
   codexSandbox: new Set(['workspace-write', 'read-only', 'danger-full-access']),

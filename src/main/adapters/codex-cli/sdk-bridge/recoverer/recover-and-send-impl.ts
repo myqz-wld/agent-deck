@@ -10,6 +10,7 @@
  * - `placeholderEmittedAt` Map: **recoverer 独占** (5s dedup,REVIEW_17 R3 同款)
  */
 import type { SessionRecord, UploadedAttachmentRef } from '@shared/types';
+import { isSessionPermissionMode, storedSessionPermissionMode } from '@shared/permission-modes';
 import { AGENT_ID, MAX_MESSAGE_LENGTH } from '../constants';
 import {
   buildCodexCwdMissingErrorText,
@@ -26,16 +27,8 @@ import type { CapturedRecoveryContinuation } from '@main/session/continuation-co
 import type { AdapterRecoveryDeliveryOptions } from '@main/adapters/enqueue-idempotency';
 
 /**
- * **plan cross-adapter-parity-20260515 Phase B Step B.2 — 返回 Promise<string>**:
- * 返回 final session id(fallback path 返 newRealId / resume path 返 sessionId)。修前
- * `Promise<void>` waiter 等 inflight 后用 OLD sessionId 调 sendThunk → bridge.sendMessage
- * 内 sessions Map miss → 又进 recoverAndSend → sessionRepo.get(OLD) 已 rename DELETE → throw
- * "not found" — 用户体感「第二条消息消失」(REVIEW_40 R2 reviewer-codex MED parity 限制)。
- *
- * 修后 waiter 拿 finalId 调 sendThunk(finalId, text, atts),fallback path 走 NEW(主 recovery
- * 完成后 sessions Map 已 rename 同步)直接 push 进 NEW session;resume path finalId === sessionId
- * 行为零变化(codex 不 implicit fork,详 recoverer.ts L34 节注释)。失败路径 reject 仍透传(catch 静默
- * fallback finalId=sessionId 让等待者再撞一次触发新一轮 recovery,plan §B.5 设计)。
+ * Return the final application session id so waiting messages follow a recovery rename.
+ * Propagate recovery failures instead of retrying against a stale session id (REVIEW_40).
  */
 export async function recoverAndSendImpl(
   sessionId: string,
@@ -364,6 +357,8 @@ export async function recoverAndSendImpl(
           provider: rec.runtimeProvider ?? undefined,
           codexSandbox: rec.codexSandbox ?? undefined,
           approvalPolicy: rec.codexApprovalPolicy ?? undefined,
+          permissionMode: isSessionPermissionMode(rec.permissionMode)
+            ? storedSessionPermissionMode(rec) ?? undefined : undefined,
           model: sdkModel,
           modelReasoningEffort: sdkThinking,
           extraAllowWrite: rec.extraAllowWrite ?? undefined,
@@ -424,6 +419,8 @@ export async function recoverAndSendImpl(
         // 一致 + 与 claude HIGH-1 处理方式对称 + 防 sessionRepo 边界 race。
         codexSandbox: rec.codexSandbox ?? undefined,
         approvalPolicy: rec.codexApprovalPolicy ?? undefined,
+        permissionMode: isSessionPermissionMode(rec.permissionMode)
+          ? storedSessionPermissionMode(rec) ?? undefined : undefined,
         model: sdkModel,
         modelReasoningEffort: sdkThinking,
         extraAllowWrite: rec.extraAllowWrite ?? undefined,

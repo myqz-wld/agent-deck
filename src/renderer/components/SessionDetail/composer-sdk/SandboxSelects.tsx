@@ -24,12 +24,14 @@ export function SelectRow<T extends string>({
   options,
   disabled,
   onChange,
+  fallbackLabel,
 }: {
   label: string;
   value: T;
   options: { value: T; label: string; title?: string; disabled?: boolean }[];
   disabled: boolean;
   onChange: (next: T) => void;
+  fallbackLabel?: string;
 }): JSX.Element {
   const current = options.find((o) => o.value === value);
   // deep-review H3 LOW（a11y，codex）：label htmlFor 关联到 select（旧实现 label 是裸 <span>，
@@ -45,6 +47,7 @@ export function SelectRow<T extends string>({
         disabled={disabled}
         title={current?.title}
         options={options}
+        fallbackLabel={fallbackLabel}
         className="min-w-0 flex-1"
         buttonClassName="w-full rounded border border-deck-border bg-white/[0.04] px-1.5 py-0.5 text-left text-[10px] outline-none focus:border-white/20 disabled:opacity-50"
       />

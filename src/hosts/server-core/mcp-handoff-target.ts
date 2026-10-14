@@ -14,6 +14,7 @@ import type { CreateSessionOptions } from '@main/adapters/types';
 import { isSessionAdapterId } from '@main/adapters/runtime-profiles';
 import type { ResolvedSuccessorSpec } from '@main/session/continuation-context/types';
 import type { SessionAdapterId, SessionRecord } from '@shared/types';
+import { storedSessionPermissionMode } from '@shared/permission-modes';
 
 import type { ServerCoreSessionCreateCapabilities } from './session-create-capabilities';
 import { ServerCoreHandOffPreviewConflictError } from './mcp-handoff-errors';
@@ -62,14 +63,8 @@ function inheritedArgs(
       : {}),
     ...(source.model ? { model: source.model } : {}),
     ...(source.thinking ? { thinking: source.thinking } : {}),
-    ...(adapterId === 'claude-code' && source.permissionMode
-      ? { permissionMode: source.permissionMode }
-      : {}),
-    ...(adapterId === 'codex-cli' && source.codexApprovalPolicy
-      ? { approvalPolicy: source.codexApprovalPolicy }
-      : {}),
-    ...(adapterId === 'grok-build' && source.sessionMode
-      ? { sessionMode: source.sessionMode }
+    ...(storedSessionPermissionMode(source)
+      ? { permissionMode: storedSessionPermissionMode(source)! }
       : {}),
     ...(adapterId === 'codex-cli' && source.codexSandbox
       ? { codexSandbox: source.codexSandbox }
@@ -111,9 +106,7 @@ function targetSpec(
     : options.agentId === 'codex-cli'
       ? options.modelReasoningEffort ?? null
       : options.reasoningEffort ?? null;
-  const permissionMode = options.agentId === 'claude-code'
-    ? options.permissionMode ?? null
-    : null;
+  const permissionMode = options.permissionMode ?? null;
   const sessionMode = options.agentId === 'grok-build' ? options.sessionMode ?? null : null;
   const sandbox = options.agentId === 'claude-code'
     ? { kind: 'claude', mode: options.claudeCodeSandbox ?? null }

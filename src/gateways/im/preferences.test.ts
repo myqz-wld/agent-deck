@@ -24,26 +24,26 @@ describe('Feishu last model selections', () => {
   it('remembers independent policies and sandboxes without erasing saved models or changing existing sessions', async () => {
     const t = setup();
     await t.gateway.handle(messageEvent('chat-model', '/settings chat codex-cli {"model":"chat-model","thinking":"max"}'));
-    await t.gateway.handle(messageEvent('chat-mode', '/settings chat codex-cli {"approvalPolicy":"on-request","codexSandbox":"read-only"}'));
-    await t.gateway.handle(messageEvent('work-mode', '/settings session codex-cli {"model":"work-model","thinking":"medium","approvalPolicy":"never","codexSandbox":"workspace-write"}'));
+    await t.gateway.handle(messageEvent('chat-mode', '/settings chat codex-cli {"permissionMode":"auto","codexSandbox":"read-only"}'));
+    await t.gateway.handle(messageEvent('work-mode', '/settings session codex-cli {"model":"work-model","thinking":"medium","permissionMode":"bypassPermissions","codexSandbox":"workspace-write"}'));
     await t.gateway.handle(messageEvent('begin-chat', '你好'));
     await t.gateway.handle(messageEvent('begin-work', '/new 请回复就绪'));
     const client = onlyClient(t.clients);
     const creates = client.calls.filter(c => c.method === 'session.console.create');
-    expect(creates[0].params).toMatchObject({ options: { model: 'chat-model', thinking: 'max', approvalPolicy: 'on-request', codexSandbox: 'read-only' } });
-    expect(creates[1].params).toMatchObject({ options: { model: 'work-model', thinking: 'medium', approvalPolicy: 'never', codexSandbox: 'workspace-write' } });
-    await t.gateway.handle(messageEvent('future-mode', '/settings chat codex-cli {"approvalPolicy":"untrusted"}'));
+    expect(creates[0].params).toMatchObject({ options: { model: 'chat-model', thinking: 'max', permissionMode: 'auto', codexSandbox: 'read-only' } });
+    expect(creates[1].params).toMatchObject({ options: { model: 'work-model', thinking: 'medium', permissionMode: 'bypassPermissions', codexSandbox: 'workspace-write' } });
+    await t.gateway.handle(messageEvent('future-mode', '/settings chat codex-cli {"permissionMode":"auto"}'));
     expect(client.calls.some(c => c.method === 'session.runtime.update')).toBe(false);
     await t.gateway.handle(messageEvent('fresh-chat', '/chat new'));
     expect(client.calls.filter(c => c.method === 'session.console.create').at(-1)?.params)
-      .toMatchObject({ options: { model: 'chat-model', approvalPolicy: 'untrusted', codexSandbox: 'read-only' } });
-    expect(client.preferences.session.approvalPolicy).toBe('never');
+      .toMatchObject({ options: { model: 'chat-model', permissionMode: 'auto', codexSandbox: 'read-only' } });
+    expect(client.preferences.session.permissionMode).toBe('bypassPermissions');
     await t.gateway.close();
   });
 
   it.each([
-    ['claude-code', { permissionMode: 'plan', claudeCodeSandbox: 'strict' }],
-    ['grok-build', { sessionMode: 'ask', grokSandbox: 'read-only' }],
+    ['claude-code', { permissionMode: 'auto', claudeCodeSandbox: 'strict' }],
+    ['grok-build', { permissionMode: 'auto', grokSandbox: 'read-only' }],
   ])('passes %s native settings to work creation', async (adapterId, values) => {
     const t = setup();
     await t.gateway.handle(messageEvent('save-runtime', `/settings session ${adapterId} ${JSON.stringify(values)}`));

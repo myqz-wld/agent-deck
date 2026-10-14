@@ -183,6 +183,7 @@ export async function createCodexForkedSession(
       sessionId: tempId,
       sandboxMode: runtime.sandboxMode,
       approvalPolicy: target.approvalPolicy,
+      permissionMode: target.permissionMode,
       provider: target.provider,
       model: runtime.persistedModel,
       modelReasoningEffort: runtime.persistedReasoningEffort,

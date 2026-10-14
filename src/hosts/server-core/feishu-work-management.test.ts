@@ -11,8 +11,8 @@ describe('registered assistant work management', () => {
     const assistant = t.store.read().conversation;
     await expect(t.service.create('assistant-a', t.args)).rejects.toThrow(/selection.adapterId/);
     const created = await t.service.create('assistant-a', { ...t.args,
-      selection: { adapterId: 'codex-cli', model: 'chosen-model', approvalPolicy: 'on-request' } });
-    expect(created.preference).toMatchObject({ adapterId: 'codex-cli', model: 'chosen-model', approvalPolicy: 'on-request' });
+      selection: { adapterId: 'codex-cli', model: 'chosen-model', permissionMode: 'auto' } });
+    expect(created.preference).toMatchObject({ adapterId: 'codex-cli', model: 'chosen-model', permissionMode: 'auto' });
     expect(t.store.read().session).toEqual(created.preference);
     expect(t.store.read().conversation).toEqual(assistant);
     expect(t.createSpawnSession).toHaveBeenCalledTimes(1);
@@ -30,7 +30,7 @@ describe('registered assistant work management', () => {
     const t = createFeishuWorkHarness(); const before = t.store.read();
     const result = await t.service.create('assistant-a', t.args);
     expect(t.createSpawnSession.mock.calls[0][0].params).toMatchObject({ initialMessage: t.args.initialMessage,
-      workingDirectory: '.', options: { model: 'work-model', thinking: 'medium', approvalPolicy: 'never', codexSandbox: 'workspace-write' } });
+      workingDirectory: '.', options: { model: 'work-model', thinking: 'medium', permissionMode: 'bypassPermissions', codexSandbox: 'workspace-write' } });
     expect(t.records.get(result.sessionId)?.title).toBe('连接验证');
     expect(t.records.get(result.sessionId)).toMatchObject({ spawnedBy: null, spawnDepth: 0 });
     expect(t.changes.map(c => c.kind)).toEqual(['session.updated', 'feishu.work.registered', 'feishu.work.committed']);
@@ -94,21 +94,21 @@ describe('registered assistant work management', () => {
 
   it('remembers an explicit same-adapter override without changing conversation defaults', async () => {
     const t = createFeishuWorkHarness(); const chat = t.store.read().conversation;
-    const result = await t.service.create('assistant-a', { ...t.args, selection: { thinking: 'high', approvalPolicy: 'on-request' } });
-    expect(result.preference).toEqual({ ...t.store.read().session, model: 'work-model', thinking: 'high', approvalPolicy: 'on-request' });
+    const result = await t.service.create('assistant-a', { ...t.args, selection: { thinking: 'high', permissionMode: 'auto' } });
+    expect(result.preference).toEqual({ ...t.store.read().session, model: 'work-model', thinking: 'high', permissionMode: 'auto' });
     expect(t.store.read().conversation).toEqual(chat);
     expect(result.settingsRevision).toBe(3);
-    expect(t.createSpawnSession.mock.calls[0][0].params.options.approvalPolicy).toBe('on-request');
+    expect(t.createSpawnSession.mock.calls[0][0].params.options.permissionMode).toBe('auto');
   });
 
   it('resets incompatible fields when changing adapters and rejects foreign controls', async () => {
     const t = createFeishuWorkHarness();
     const changed = await t.service.updatePreferences('assistant-a', { requestId: 'change-chat-adapter', purpose: 'conversation',
-      preference: { adapterId: 'grok-build', model: 'custom-grok', sessionMode: 'ask' }, expectedSettingsRevision: 2 });
-    expect(changed.conversation).toEqual({ adapterId: 'grok-build', provider: '', model: 'custom-grok', thinking: '', sessionMode: 'ask' });
+      preference: { adapterId: 'grok-build', model: 'custom-grok', permissionMode: 'auto' }, expectedSettingsRevision: 2 });
+    expect(changed.conversation).toEqual({ adapterId: 'grok-build', provider: '', model: 'custom-grok', thinking: '', permissionMode: 'auto' });
     expect(changed.session.model).toBe('work-model');
     await expect(t.service.create('assistant-a', { ...t.args, expectedSettingsRevision: 3,
-      selection: { permissionMode: 'bypassPermissions' } })).rejects.toThrow();
+      selection: { claudeCodeSandbox: 'strict' } })).rejects.toThrow();
     expect(t.createSpawnSession).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,8 @@
 import { methods } from '@agentclientprotocol/sdk';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
 import type { AdapterSessionMode } from '@shared/types';
+import { requireSessionPermissionMode } from '@shared/permission-modes';
+import { applyGrokPermissionMode } from './permission-mode';
 
 import { withTimeout } from './acp-process';
 import { asRecord, errorText } from './protocol-utils';
@@ -25,12 +27,15 @@ export class GrokRuntimeMutationError extends Error {
 }
 
 interface PersistedGrokOptions {
+  permissionMode?: import('@shared/types').PermissionMode | null;
   model: string | null;
   thinking: string | null;
   sessionMode: AdapterSessionMode | null;
 }
 
 interface GrokRuntimeMutationContext {
+  persistPermissionMode?: (sessionId: string, mode: import('@shared/types').PermissionMode | null,
+    sessionMode: AdapterSessionMode | null) => void;
   getRuntime: (sessionId: string) => GrokRuntime | null;
   getPersistedOptions: (sessionId: string) => PersistedGrokOptions | null;
   persistModelOptions: (
@@ -54,6 +59,35 @@ export class GrokRuntimeMutationController {
   private readonly operations = new Map<string, Promise<unknown>>();
 
   constructor(private readonly context: GrokRuntimeMutationContext) {}
+
+  async setPermissionMode(sessionId: string, input: import('@shared/types').PermissionMode): Promise<void> {
+    const mode = requireSessionPermissionMode(input);
+    await this.exclusive(sessionId, () => this.withRuntimeLease(sessionId, async () => {
+      const previous = this.requirePersistedOptions(sessionId);
+      const persist = this.context.persistPermissionMode;
+      if (!persist) throw new Error('Grok 权限模式持久化不可用。');
+      const runtime = this.context.getRuntime(sessionId);
+      if (!runtime) { persist(sessionId, mode, 'default'); return; }
+      this.assertMutable(runtime);
+      let persistAttempted = false;
+      try {
+        await applyGrokPermissionMode(runtime, mode, this.context.requestTimeoutMs);
+        persistAttempted = true;
+        persist(sessionId, mode, 'default');
+      } catch (error) {
+        if (persistAttempted) {
+          try { persist(sessionId, previous.permissionMode ?? null, previous.sessionMode); }
+          catch (rollbackError) {
+            await this.disposeUnknown(runtime, 'Grok 权限恢复未完成',
+              new AggregateError([error, rollbackError], 'Grok permission rollback failed'));
+          }
+        }
+        await this.disposeUnknown(runtime, 'Grok 权限切换未完成', error);
+      }
+      runtime.permissionMode = mode;
+      runtime.sessionMode = 'default';
+    }));
+  }
 
   async setModelOptions(
     sessionId: string,

@@ -30,6 +30,10 @@ export function parseAdapterCreateRuntimeControls(
   raw: Record<string, unknown>,
 ) {
   const permissionMode = parsePermissionMode(raw.permissionMode);
+  if (permissionMode !== null &&
+      !getAdapterRuntimeProfile(adapterId).runtimeControls.permissionModes.includes(permissionMode)) {
+    throw new IpcInputError('opts.permissionMode', 'must be auto or bypassPermissions');
+  }
   const sessionMode = parseAdapterSessionMode(raw.sessionMode);
   const approvalPolicy = parseCodexApprovalPolicy(raw.approvalPolicy);
   const codexSandbox = parseCodexSandboxMode(raw.codexSandbox);

@@ -79,6 +79,7 @@ export interface GrokRuntime {
   /** Persisted explicit reasoning override; null delegates to Grok. */
   thinkingOverride?: string | null;
   sessionMode: AdapterSessionMode | null;
+  permissionMode?: import('@shared/permission-modes').SessionPermissionMode | null;
   /** Sandbox requested for the next ACP child; it may lead the active child during a turn. */
   grokSandbox: string | null;
   /** Sandbox used to launch the current ACP child. */

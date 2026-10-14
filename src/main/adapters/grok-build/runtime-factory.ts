@@ -1,5 +1,6 @@
 import type { GrokCreateOpts } from '@main/adapters/types';
 import type { SessionRecord } from '@shared/types';
+import { isSessionPermissionMode } from '@shared/permission-modes';
 
 import {
   NOOP_GROK_BRIDGE_RUNTIME_HOST,
@@ -18,6 +19,8 @@ export function createGrokRuntime(
   existing: SessionRecord | null,
   liveRateObserver: GrokLiveRateObserver = NOOP_GROK_LIVE_RATE_OBSERVER,
 ): GrokRuntime {
+  const selection = opts.permissionMode ?? existing?.permissionMode;
+  const permissionMode = isSessionPermissionMode(selection) ? selection : null;
   return {
     applicationSessionId,
     nativeSessionId: existing?.cliSessionId ?? null,
@@ -41,7 +44,8 @@ export function createGrokRuntime(
     nativeDefaultModel: null,
     thinking: opts.reasoningEffort ?? existing?.thinking ?? null,
     thinkingOverride: opts.reasoningEffort ?? existing?.thinking ?? null,
-    sessionMode: opts.sessionMode ?? existing?.sessionMode ?? null,
+    permissionMode,
+    sessionMode: permissionMode ? 'default' : opts.sessionMode ?? existing?.sessionMode ?? null,
     grokSandbox:
       opts.grokSandbox !== undefined
         ? opts.grokSandbox
@@ -92,7 +96,8 @@ export function recoverGrokRuntime(
     nativeDefaultModel: null,
     thinking: record.thinking ?? null,
     thinkingOverride: record.thinking ?? null,
-    sessionMode: record.sessionMode ?? null,
+    permissionMode: isSessionPermissionMode(record.permissionMode) ? record.permissionMode : null,
+    sessionMode: isSessionPermissionMode(record.permissionMode) ? 'default' : record.sessionMode ?? null,
     grokSandbox: record.grokSandbox ?? null,
     activeGrokSandbox: record.grokSandbox ?? null,
     restartingSandbox: false,
@@ -121,6 +126,7 @@ export function persistGrokRuntimeMetadata(
       ? runtime.thinking
       : runtime.thinkingOverride;
   host.transaction(() => {
+    if (runtime.permissionMode) host.records.setPermissionMode(runtime.applicationSessionId, runtime.permissionMode);
     host.records.setAgentRuntimeProfile(runtime.applicationSessionId, {
       agentProfileName: runtime.agentProfileName,
       agentProfileSource: runtime.agentProfileSource,
@@ -139,6 +145,20 @@ export function persistGrokRuntimeMetadata(
     );
   });
   host.publishSessionUpdated(runtime.applicationSessionId);
+}
+
+/** Commit the permission preset and associated work mode together, including rollback. */
+export function persistGrokPermissionMode(
+  sessionId: string,
+  mode: import('@shared/types').PermissionMode | null,
+  host: GrokBridgeRuntimeHost,
+  sessionMode: GrokRuntime['sessionMode'] = 'default',
+): void {
+  host.transaction(() => {
+    host.records.setPermissionMode(sessionId, mode);
+    host.records.setSessionMode(sessionId, sessionMode);
+  });
+  host.publishSessionUpdated(sessionId);
 }
 
 /** Commit the three persisted Grok model-selection columns as one SQLite transaction. */

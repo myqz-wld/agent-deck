@@ -32,7 +32,7 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
           busy={false}
           canWrite
           identity="remote-a:core-a:1:session-a"
-          values={{ approvalPolicy: 'untrusted', model: 'old-model' }}
+          values={{ permissionMode: 'auto', model: 'old-model' }}
           onApply={onApply}
         />
       </StrictMode>,
@@ -47,9 +47,9 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
       thinking: null,
     }));
 
-    fireEvent.click(screen.getByLabelText('审批'));
-    fireEvent.click(screen.getByRole('option', { name: '按需询问' }));
-    await waitFor(() => expect(onApply).toHaveBeenCalledWith({ approvalPolicy: 'on-request' }));
+    fireEvent.click(screen.getByLabelText('权限模式'));
+    fireEvent.click(screen.getByRole('option', { name: '自动审批' }));
+    await waitFor(() => expect(onApply).toHaveBeenCalledWith({ permissionMode: 'auto' }));
     expect(onApply).toHaveBeenCalledTimes(2);
   });
 
@@ -65,7 +65,7 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
       />,
     );
 
-    expect(screen.getByLabelText('审批').textContent).toContain('使用当前默认值');
+    expect(screen.getByLabelText('权限模式').textContent).toContain('沿用会话原有权限');
     expect(screen.getByLabelText('沙盒').textContent).toContain('使用当前默认值');
   });
 
@@ -76,12 +76,12 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
         busy={false}
         canWrite
         identity="remote-a:core-a:session-a"
-        values={{ approvalPolicy: 'on-request' }}
+        values={{ permissionMode: 'auto' }}
         onApply={vi.fn().mockResolvedValue(undefined)}
       />,
     );
 
-    expect(screen.getByLabelText('审批').textContent).toContain('按需询问');
+    expect(screen.getByLabelText('权限模式').textContent).toContain('自动审批');
   });
 
   it('keeps Grok sandbox editable during an active turn', async () => {
@@ -176,16 +176,16 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
         busy={false}
         canWrite
         identity="remote-a:core-a:1:session-a"
-        values={{ approvalPolicy: 'untrusted', codexSandbox: 'read-only' }}
+        values={{ permissionMode: 'auto', codexSandbox: 'read-only' }}
         onApply={oldApply}
       />,
     );
 
-    fireEvent.click(screen.getByLabelText('审批'));
-    fireEvent.click(screen.getByRole('option', { name: '按需询问' }));
+    fireEvent.click(screen.getByLabelText('权限模式'));
+    fireEvent.click(screen.getByRole('option', { name: '自动审批' }));
     await waitFor(() => expect(oldApply).toHaveBeenCalledOnce());
-    fireEvent.click(screen.getByLabelText('审批'));
-    fireEvent.click(screen.getByRole('option', { name: '从不询问' }));
+    fireEvent.click(screen.getByLabelText('权限模式'));
+    fireEvent.click(screen.getByRole('option', { name: '不再询问' }));
 
     view.rerender(
       <RemoteSessionRuntimeControls
@@ -193,7 +193,7 @@ describe('RemoteSessionRuntimeControls Codex approval fallback', () => {
         busy={false}
         canWrite
         identity="remote-a:core-a:2:session-a"
-        values={{ approvalPolicy: 'untrusted', codexSandbox: 'read-only' }}
+        values={{ permissionMode: 'auto', codexSandbox: 'read-only' }}
         onApply={nextApply}
       />,
     );

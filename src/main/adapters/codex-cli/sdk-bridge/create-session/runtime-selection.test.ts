@@ -7,6 +7,26 @@ function opts(overrides: Partial<CreateSessionOpts> = {}): CreateSessionOpts {
 }
 
 describe('Codex live create runtime policy', () => {
+  it.each([
+    [undefined, 'on-request', undefined],
+    ['auto', 'on-request', 'auto'],
+    ['bypassPermissions', 'never', 'bypassPermissions'],
+  ] as const)('gives explicit %s priority without trusting contradictory legacy Claude metadata', (
+    permissionMode, approvalPolicy, expectedMode,
+  ) => {
+    const resolved = resolveCodexCreateRuntime(opts({ resume: 'app-id', permissionMode }), {
+      resumeRecord: { permissionMode: 'bypassPermissions', codexApprovalPolicy: 'on-request' },
+      readApplicationInstructions: () => undefined,
+      readConfiguredReasoningEffort: () => 'high',
+      readGatewayProfile: () => null,
+      readDefaultSandbox: () => 'read-only',
+    });
+    expect(resolved.approvalPolicy).toBe(approvalPolicy);
+    expect(resolved.permissionMode).toBe(expectedMode);
+    expect(resolved.effectiveOpts.permissionMode).toBe(expectedMode);
+    expect(resolved.sandboxMode).toBe('read-only');
+  });
+
   it('adopts persisted resume identity and avoids unused global readers', () => {
     const readDefaultSandbox = vi.fn(() => 'danger-full-access' as const);
     const readConfiguredReasoningEffort = vi.fn(() => 'low' as const);

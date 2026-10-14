@@ -894,7 +894,7 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     seedSession('lead', {
       cwd: '/repo',
       agentId: 'claude-code',
-      permissionMode: 'plan',
+      permissionMode: 'auto',
       claudeCodeSandbox: 'strict',
       extraAllowWrite: ['/main-repo', '/shared-cache'],
     });
@@ -906,10 +906,10 @@ describe('agent-deck-mcp tools — spawn_session', () => {
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].permissionMode).toBe('plan');
+    expect(createSessionCalls[0].permissionMode).toBe('auto');
     expect(createSessionCalls[0].claudeCodeSandbox).toBe('strict');
     expect(createSessionCalls[0].extraAllowWrite).toEqual(['/main-repo', '/shared-cache']);
-    expect(recordPermCalls).toEqual([{ sid: 'spawned-1', mode: 'plan' }]);
+    expect(recordPermCalls).toEqual([{ sid: 'spawned-1', mode: 'auto' }]);
   });
 
   it('cross-adapter codex → claude uses target defaults instead of inheriting caller settings', async () => {
@@ -950,17 +950,17 @@ describe('agent-deck-mcp tools — spawn_session', () => {
       adapter: 'claude-code',
       cwd: '/repo',
       prompt: 'cross adapter explicit task',
-      permissionMode: 'acceptEdits',
+      permissionMode: 'auto',
       claudeCodeSandbox: 'workspace-write',
       extraAllowWrite: ['/explicit-root'],
     }, {});
     const parsed = parseResult(r);
     expect(parsed.isError).toBeFalsy();
     expect(createSessionCalls).toHaveLength(1);
-    expect(createSessionCalls[0].permissionMode).toBe('acceptEdits');
+    expect(createSessionCalls[0].permissionMode).toBe('auto');
     expect(createSessionCalls[0].claudeCodeSandbox).toBe('workspace-write');
     expect(createSessionCalls[0].extraAllowWrite).toEqual(['/explicit-root']);
-    expect(recordPermCalls).toEqual([{ sid: 'spawned-1', mode: 'acceptEdits' }]);
+    expect(recordPermCalls).toEqual([{ sid: 'spawned-1', mode: 'auto' }]);
   });
 
   it('same Codex adapter spawn inherits approval, sandbox, network, and read roots', async () => {

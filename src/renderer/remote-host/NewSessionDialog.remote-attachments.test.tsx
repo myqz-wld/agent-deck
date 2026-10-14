@@ -249,8 +249,8 @@ describe('Remote New Session attachments', () => {
     render(<NewSessionDialog open remoteSource={current} onClose={vi.fn()} onCreated={vi.fn()} />);
 
     expect((await screen.findAllByText(`不可用：${disabledReason}`)).length)
-      .toBeGreaterThanOrEqual(3);
-    expect(screen.getByText('审批策略')).toBeTruthy();
+      .toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('权限模式')).toBeTruthy();
   });
 
   it('does not restore stale create capabilities after a same-identity disconnect', async () => {

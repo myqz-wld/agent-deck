@@ -89,6 +89,32 @@ afterEach(() => {
 });
 
 describe('ComposerSdk unified input routing', () => {
+  it.each(['claude-code', 'codex-cli', 'grok-build'])('offers the same two real permission choices for %s', async agentId => {
+    vi.mocked(window.api.listAdapters).mockResolvedValueOnce([{
+      id: agentId, displayName: agentId, capabilities: { canSetPermissionMode: true },
+      sessionModes: ['default', 'plan', 'ask'],
+    }] as never);
+    render(<ComposerSdk session={makeSession({ agentId, permissionMode: 'bypassPermissions' })} />);
+    fireEvent.click(await screen.findByLabelText('权限模式'));
+    expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual(['自动审批', '不再询问']);
+    fireEvent.click(screen.getByRole('option', { name: '自动审批' }));
+    await waitFor(() => expect(setAdapterPermissionMode).toHaveBeenCalledWith(agentId, 'sess-1', 'auto'));
+    expect(screen.queryByLabelText('模式')).toBeNull();
+    expect(screen.queryByLabelText('审批')).toBeNull();
+    expect(setAdapterSessionMode).not.toHaveBeenCalled();
+  });
+
+  it('does not label contradictory legacy Codex metadata as no-prompt mode', async () => {
+    vi.mocked(window.api.listAdapters).mockResolvedValue([{
+      id: 'codex-cli', displayName: 'Codex CLI', capabilities: { canSetPermissionMode: true },
+    }] as never);
+    render(<ComposerSdk session={makeSession({
+      permissionMode: 'bypassPermissions', codexApprovalPolicy: 'on-request',
+    })} />);
+    expect((await screen.findByLabelText('权限模式')).textContent).toContain('沿用会话原有权限');
+    expect(setAdapterPermissionMode).not.toHaveBeenCalled();
+  });
+
   it('disables interrupt while idle and shows progress while cancellation is pending', async () => {
     let resolveInterrupt = (): void => undefined;
     interruptAdapterSession.mockImplementationOnce(

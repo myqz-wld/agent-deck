@@ -17,7 +17,7 @@ import type {
   SessionAdapterId,
   SessionRecord,
 } from '@shared/types';
-import { isSelectablePermissionMode } from '@shared/types';
+import { isSessionPermissionMode, storedSessionPermissionMode } from '@shared/permission-modes';
 import { normalizeGrokSandboxProfile } from '@shared/grok-sandbox';
 import type { ResolvedSuccessorSpec } from '../continuation-context/types';
 import {
@@ -67,7 +67,7 @@ export interface ResolveHandOffTargetInput {
 function defaultPermissionMode(
   adapter: SessionAdapterId,
 ): SelectablePermissionMode | undefined {
-  return adapter === 'claude-code' ? 'bypassPermissions' : undefined;
+  return adapter === 'claude-code' ? 'bypassPermissions' : adapter === 'grok-build' ? 'auto' : undefined;
 }
 
 export function resolveHandOffTarget(
@@ -88,6 +88,9 @@ function resolveHandOffTargetInternal(
   frozenContextCapacity?: ResolvedContextCapacity,
 ): ResolvedHandOffTarget {
   const { source, request } = input;
+  if (request.permissionMode !== undefined && !isSessionPermissionMode(request.permissionMode)) {
+    throw new HandOffTargetOptionsError('permissionMode', 'permissionMode must be auto or bypassPermissions');
+  }
   const sameAdapter = request.adapter === source.agentId;
   const unsupported = firstUnsupportedTargetRuntimeField(request.adapter, request);
   if (unsupported !== null) {
@@ -142,11 +145,7 @@ function resolveHandOffTargetInternal(
   const permissionMode =
     request.permissionMode ??
     (sameAdapter
-      ? request.adapter === 'claude-code'
-        ? isSelectablePermissionMode(source.permissionMode)
-          ? source.permissionMode
-          : 'default'
-        : undefined
+      ? storedSessionPermissionMode(source) ?? (request.adapter === 'codex-cli' ? undefined : 'auto')
       : defaultPermissionMode(request.adapter));
   const sessionMode =
     request.adapter === 'grok-build'

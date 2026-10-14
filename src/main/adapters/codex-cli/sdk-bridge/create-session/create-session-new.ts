@@ -113,6 +113,7 @@ export async function runCreateSessionNewPath(
     sessionId: internal.applicationSid,
     sandboxMode,
     approvalPolicy: opts.approvalPolicy,
+    permissionMode: opts.permissionMode,
     provider: opts.provider,
     model: effectiveModel,
     modelReasoningEffort: opts.modelReasoningEffort,

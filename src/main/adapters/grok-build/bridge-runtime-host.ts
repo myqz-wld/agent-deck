@@ -18,6 +18,7 @@ export const desktopGrokBridgeRuntimeHost: GrokBridgeRuntimeHost = {
   liveRate: desktopGrokLiveRateObserver,
   records: {
     get: (sessionId) => sessionRepo.get(sessionId),
+    setPermissionMode: (sessionId, mode) => sessionRepo.setPermissionMode(sessionId, mode),
     setAgentRuntimeProfile: (sessionId, profile) =>
       sessionRepo.setAgentRuntimeProfile(sessionId, profile),
     setRuntimeProvider: (sessionId, provider) =>

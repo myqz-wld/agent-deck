@@ -42,7 +42,7 @@ afterEach(() => {
 
 describe('hand_off_session preflight', () => {
   it.each([
-    ['permissionMode', { adapter: 'codex-cli' as const, permissionMode: 'plan' as const }],
+    ['permissionMode', { adapter: 'codex-cli' as const, permissionMode: 'plan' as never }],
     ['gateway', { adapter: 'codex-cli' as const, gateway: 'deepseek' }],
     ['claudeCodeSandbox', { adapter: 'codex-cli' as const, claudeCodeSandbox: 'strict' as const }],
     ['codexSandbox', { adapter: 'claude-code' as const, codexSandbox: 'read-only' as const }],

@@ -33,7 +33,7 @@ describe('Feishu conversational entry', () => {
     const create = client.calls.find(c => c.method === 'session.console.create')!;
     expect(create.params).toMatchObject({
       adapterId: 'codex-cli', workingDirectory: '.', initialMessage: FEISHU_CONVERSATION_SETUP,
-      projectTrust: { grant: false }, options: { approvalPolicy: 'never', codexSandbox: 'workspace-write' },
+      projectTrust: { grant: false }, options: { permissionMode: 'bypassPermissions', codexSandbox: 'workspace-write' },
     });
     expect(JSON.stringify(create.params)).not.toContain('帮我检查项目');
     const methods = client.calls.map(c => c.method);

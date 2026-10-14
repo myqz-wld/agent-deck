@@ -5,6 +5,7 @@ import type { CodexBridgeOptions, CodexSessionHandle, InternalSession } from './
 import type { ForkedSessionHandle, ForkSessionSource } from '../../types/fork-session';
 import { ThreadLoop, type ThreadLoopCtx } from './thread-loop';
 import { RestartController, type RestartCtx } from './restart-controller';
+import { setCodexPermissionMode } from './permission-mode-controller';
 import { SessionModelControllerCore } from '@main/adapters/session-model-controller-core';
 import type { SessionModelOptions } from '@main/adapters/session-model-options';
 import type {
@@ -41,39 +42,11 @@ import { resolveCodexForkTargetRuntime } from './fork-session/target-runtime';
 import { CodexSessionCommandController } from './session-command-controller';
 import type { CodexHostSessionCommand } from '../session-commands';
 export type { CodexSessionHandle, CodexBridgeOptions } from './types';
-/**
- * Codex SDK 通道实现。与 claude-code/sdk-bridge.ts 同形态但显著简化：
- *
- * - app-server native approval requests bridge into Agent Deck's permission UI
- * - 无通用 AskUserQuestion / ExitPlanMode；MCP tool approval 的 requestUserInput
- *   复用 permission queue
- * - 无 setPermissionMode（同上）
- * - 无 hook 通道时序竞争（codex 无 hook），不调 sessionManager.expectSdkSession
- * - 同一 thread 不能并发 turn（codex CLI 共享 ~/.codex/sessions 文件），用 pendingTurns 串行
- * - interrupt = AbortController.abort() → SIGTERM 子进程；下条消息可继续同 thread
- */
+/** Provider-owned lifecycle and approvals; common presets are projected onto subsequent turns. */
 export class CodexSdkBridge {
   /** key = 真实 thread_id（拿到前用 tempKey） */
   private sessions = new Map<string, InternalSession>();
-  /**
-   * Per-session Codex SDK 实例（plan codex-handoff-team-alignment-20260518 P2 Step 2.5a 字段重组）。
-   *
-   * 修前 single `private codex: Codex | null` 给所有 codex teammate 共享，子进程 envOverride
-   * 复用同一份全局 token，应用层无法区分「这条 MCP 请求来自哪个 codex teammate」（HIGH-1
-   * caller_session_id 透传困境）。
-   *
-   * 修后 per-session Map：每个 codex live session 独立 new Codex({env: {...process.env,
-   * AGENT_DECK_MCP_TOKEN: <session-token>}})，token 由 mcpSessionTokenMap.allocate 在
-   * createSession 起始时分配（Step 2.5c sid 时序），子进程通过 envOverride 拿到自己的 token，
-   * agent-deck MCP server `/mcp` 路由 `request.raw.auth` 反查 token map 得到真正 caller sid。
-   *
-   * Sub-step 2.5d closeSession 同步 delete entry + release token；Sub-step 2.5e
-   * setCodexCliPath 路径变更时 clear 整 Map（已 spawn 的 codex 子进程不受影响 —
-   * spike 2 §1 实证 envOverride 已 frozen 拷贝到子进程 env）。
-   *
-   * `codex-instance-pool.ts` 仅服务周期总结 oneshot caller，
-   * 不需要 per-session token，沿用全局 process.env 路径，与本 Map 双轨独立维护（plan §M5）。
-   */
+  /** Each managed session owns its app-server client and MCP caller identity. */
   private codexBySession: Map<string, CodexAppServerClient> = new Map();
   /**
    * 与 claude `recovering` Map 同模式的单飞表。Codex sandbox 切换已不再冷重启，
@@ -402,6 +375,14 @@ export class CodexSdkBridge {
     policy: CodexApprovalPolicy,
   ): Promise<void> {
     await this.restartController.setCodexApprovalPolicy(sessionId, policy);
+  }
+
+  async setPermissionMode(sessionId: string, mode: import('@shared/types').PermissionMode): Promise<void> {
+    await setCodexPermissionMode(sessionId, mode, {
+      operations: this.recovering,
+      records: this.opts.runtimeHost.records,
+      applyLive: (id, next) => this.sessions.get(id)?.thread.updatePermissionMode(next),
+    });
   }
 
   async setSessionModelOptions(sessionId: string, options: SessionModelOptions): Promise<void> {

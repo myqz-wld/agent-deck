@@ -15,5 +15,6 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-10-14 | `CHANGELOG_677_unified-permission-modes.md` | Unify native approval presets across Claude, Codex, and Grok |
 | 2026-10-14 | `CHANGELOG_676_mcp-discovery-and-diff-focus.md` | Discover independent sessions, gate shutdown, and reveal the first diff |
 | 2026-10-11 | `CHANGELOG_675_provider-runtime-latest-refresh.md` | Refresh bundled provider runtimes and recognize ACP child-session updates |

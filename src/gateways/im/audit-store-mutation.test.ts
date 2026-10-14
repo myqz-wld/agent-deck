@@ -263,7 +263,7 @@ describe('credential recheck at Core mutation boundaries', () => {
         })
       : undefined;
     const handling = gateway.handle(
-      messageEvent('runtime-revoked', '/runtime-set 10 {"approvalPolicy":"never"}'),
+      messageEvent('runtime-revoked', '/runtime-set 10 {"permissionMode":"bypassPermissions"}'),
     );
     await flush();
     store.enroll({ ...credential, status: 'revoked' });
@@ -312,7 +312,7 @@ describe('credential recheck at Core mutation boundaries', () => {
         }
       : undefined;
     expect((await gateway.handle(
-      messageEvent('runtime-adapter-mismatch', '/runtime-set 10 {"approvalPolicy":"never"}'),
+      messageEvent('runtime-adapter-mismatch', '/runtime-set 10 {"permissionMode":"bypassPermissions"}'),
     )).code).toBe('invalid_core_response');
   });
 });

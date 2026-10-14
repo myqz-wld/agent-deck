@@ -7,16 +7,16 @@ import { defaultFeishuModelPreference } from '@contracts/index';
 describe('Chinese Feishu presentation', () => {
   it('labels native controls while preserving executable syntax and redacting private values', () => {
     const view = renderRuntime({ adapterId: 'codex-cli', revision: 7, values: {
-      approvalPolicy: 'on-request', codexSandbox: 'workspace-write', model: 'model-synthetic',
+      permissionMode: 'auto', codexSandbox: 'workspace-write', model: 'model-synthetic',
       apiKey: 'synthetic-private-value', custom: 'Bearer abcdefghijklmnopqrstuvwxyz',
     } }, 8_000);
-    expect(view.text).toContain('审批模式：按需审批');
+    expect(view.text).toContain('权限模式：自动审批');
     expect(view.text).toContain('沙盒：工作区写入');
     expect(view.text).toContain('模型：model-synthetic');
     expect(view.text).toContain('/runtime-set 7 <JSON-patch>');
     expect(view.text).not.toMatch(/synthetic-private-value|abcdefghijklmnopqrstuvwxyz/);
     expect(preferenceLabel({ ...defaultFeishuModelPreference(), adapterId: 'grok-build',
-      sessionMode: 'ask', grokSandbox: 'workspace' })).toContain('询问模式 · 沙盒 工作区写入');
+      permissionMode: 'auto', grokSandbox: 'workspace' })).toContain('自动审批 · 沙盒 工作区写入');
   });
 
   it('never exposes an unknown raw provider error code in the callback toast', () => {

@@ -4,11 +4,9 @@ import { buildCreateSessionOptions } from '@main/adapters/options-builder';
 import type { InitialSessionRegistration } from '@main/adapters/types';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import {
-  isAdapterSessionMode,
-  isCodexApprovalPolicy,
-  isSelectablePermissionMode,
   type UploadedAttachmentRef,
 } from '@shared/types';
+import { isSessionPermissionMode } from '@shared/permission-modes';
 import {
   isClaudeThinkingLevel,
   isCodexThinkingLevel,
@@ -61,7 +59,7 @@ export function buildRemoteCreateOptions(
   const common = commonInternal(internal);
   if (params.adapterId === 'claude-code') {
     if (
-      !isSelectablePermissionMode(options.permissionMode) ||
+      !isSessionPermissionMode(options.permissionMode) ||
       !isClaudeThinkingLevel(options.thinking) ||
       !['off', 'workspace-write', 'strict'].includes(options.claudeCodeSandbox ?? '')
     ) throw new Error('Validated Claude create options are inconsistent');
@@ -83,7 +81,7 @@ export function buildRemoteCreateOptions(
   }
   if (params.adapterId === 'codex-cli') {
     if (
-      !isCodexApprovalPolicy(options.approvalPolicy) ||
+      !isSessionPermissionMode(options.permissionMode) ||
       !isCodexThinkingLevel(options.thinking) ||
       !['workspace-write', 'read-only', 'danger-full-access'].includes(options.codexSandbox ?? '')
     ) throw new Error('Validated Codex create options are inconsistent');
@@ -93,7 +91,7 @@ export function buildRemoteCreateOptions(
       ...(options.provider ? { provider: options.provider } : {}),
       ...(options.model ? { model: options.model } : {}),
       modelReasoningEffort: options.thinking,
-      approvalPolicy: options.approvalPolicy,
+      permissionMode: options.permissionMode,
       codexSandbox: options.codexSandbox as 'workspace-write' | 'read-only' | 'danger-full-access',
       ...common,
       ...(internal.agent?.adapterId === 'codex-cli' ? {
@@ -104,7 +102,7 @@ export function buildRemoteCreateOptions(
     });
   }
   if (
-    params.adapterId !== 'grok-build' || !isAdapterSessionMode(options.sessionMode) ||
+    params.adapterId !== 'grok-build' || !isSessionPermissionMode(options.permissionMode) ||
     !isGrokThinkingLevel(options.thinking) ||
     !['read-only', 'workspace', 'off'].includes(options.grokSandbox ?? '')
   ) throw new Error('Validated Grok create options are inconsistent');
@@ -113,7 +111,7 @@ export function buildRemoteCreateOptions(
     prompt: params.initialMessage,
     ...(options.model ? { model: options.model } : {}),
     reasoningEffort: options.thinking,
-    sessionMode: options.sessionMode,
+    permissionMode: options.permissionMode,
     grokSandbox: options.grokSandbox,
     ...common,
     ...(internal.agent?.adapterId === 'grok-build' ? {

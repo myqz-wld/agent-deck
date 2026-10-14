@@ -1,4 +1,5 @@
 import { isAgentId } from '@main/adapters/options-builder';
+import { isSessionPermissionMode } from '@shared/permission-modes';
 import { MAX_USER_MESSAGE_LENGTH } from '@shared/message-limits';
 import {
   isAdapterSessionMode,
@@ -16,6 +17,7 @@ const HAND_OFF_TARGET_KEYS = new Set([
   'provider',
   'model',
   'thinking',
+  'permissionMode',
   'sessionMode',
   'grokSandbox',
 ]);
@@ -61,9 +63,13 @@ export function parseSessionHandOffTarget(value: unknown): SessionHandOffTarget 
     raw.grokSandbox === null
       ? null
       : parseGrokSandboxProfile(raw.grokSandbox);
+  if (raw.permissionMode !== undefined && !isSessionPermissionMode(raw.permissionMode)) {
+    throw new IpcInputError('request.target.permissionMode', 'must be auto or bypassPermissions');
+  }
   // Runtime ownership and same-adapter inheritance both distinguish omission from explicit null.
   return {
     adapter: raw.adapter,
+    ...(isSessionPermissionMode(raw.permissionMode) ? { permissionMode: raw.permissionMode } : {}),
     ...(raw.provider !== undefined
       ? { provider: typeof raw.provider === 'string' ? raw.provider : null }
       : {}),

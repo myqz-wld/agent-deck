@@ -1,4 +1,5 @@
 import type { McpServer } from '@agentclientprotocol/sdk';
+import { grokPermissionPreset } from '@shared/permission-modes';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 
 import type { GrokRuntime } from './runtime-types';
@@ -32,6 +33,7 @@ export async function buildGrokSessionMeta(
     }),
   ]);
   return {
+    ...(runtime.permissionMode ? grokPermissionPreset(runtime.permissionMode) : {}),
     ...(promptBody ? { rules: promptBody } : {}),
     ...(runtime.agentProfileName
       ? { agentProfile: runtime.agentProfileName }

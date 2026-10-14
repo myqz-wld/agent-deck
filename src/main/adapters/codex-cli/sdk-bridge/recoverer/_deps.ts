@@ -61,6 +61,7 @@ export type CreateSessionThunk = (opts: {
   codexSandbox?: 'workspace-write' | 'read-only' | 'danger-full-access';
   /** Persisted per-session approval selection restored for recovery. */
   approvalPolicy?: CodexApprovalPolicy;
+  permissionMode?: import('@shared/types').PermissionMode;
   attachments?: UploadedAttachmentRef[];
   /**
    * recoverer fallback / resume 路径显式透传 spawn 时持久化的 model（与 claude

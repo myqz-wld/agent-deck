@@ -76,6 +76,8 @@ export function resolveCodexForkTargetRuntime(
       workingDirectory: cwd,
       sandboxMode,
       approvalPolicy: opts.approvalPolicy,
+      ...(opts.permissionMode === 'auto' || opts.permissionMode === 'bypassPermissions'
+        ? { permissionMode: opts.permissionMode } : {}),
       modelProvider: gateway?.modelProvider,
       model: opts.model ?? gateway?.defaultModel,
       modelReasoningEffort: reasoning.threadValue,

@@ -5,6 +5,7 @@
  * value and patches live thread options for the next turn without aborting current work.
  */
 import type { AgentEvent, CodexApprovalPolicy } from '@shared/types';
+import { isSessionPermissionMode, storedSessionPermissionMode } from '@shared/permission-modes';
 import { AGENT_ID } from './constants';
 import { safeDiagnostic, safeErrorSummary } from '@main/utils/safe-diagnostic';
 import { mergeCodexWritableRoots } from './thread-options-builder';
@@ -180,6 +181,9 @@ export class RestartController {
 
     const rec = this.ctx.runtimeHost.records.get(sessionId);
     if (!rec) throw new Error(`session ${sessionId} not found in repo`);
+    if (isSessionPermissionMode(rec.permissionMode) && storedSessionPermissionMode(rec)) {
+      throw new Error('此会话已使用统一权限模式，请切换“自动审批”或“不再询问”。');
+    }
     const oldPolicy: CodexApprovalPolicy | null =
       rec.codexApprovalPolicy ?? null;
 

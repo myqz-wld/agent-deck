@@ -25,14 +25,8 @@ export function serverCoreHandOffArgs(
       : {}),
     ...(options.model ? { model: options.model } : {}),
     ...(options.thinking ? { thinking: options.thinking } : {}),
-    ...(adapterId === 'claude-code' && options.permissionMode
+    ...(options.permissionMode
       ? { permissionMode: options.permissionMode }
-      : {}),
-    ...(adapterId === 'codex-cli' && options.approvalPolicy
-      ? { approvalPolicy: options.approvalPolicy }
-      : {}),
-    ...(adapterId === 'grok-build' && options.sessionMode
-      ? { sessionMode: options.sessionMode }
       : {}),
     ...(adapterId === 'claude-code' && options.claudeCodeSandbox
       ? { claudeCodeSandbox: options.claudeCodeSandbox }

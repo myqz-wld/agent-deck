@@ -27,6 +27,7 @@
  */
 import type { CodexThinkingLevel } from '@shared/session-metadata';
 import type { CodexApprovalPolicy } from '@shared/types';
+import { codexPermissionPreset, isSessionPermissionMode } from '@shared/permission-modes';
 import type { CodexBridgeRuntimeHost } from './runtime-host-core';
 
 export interface PersistSessionFieldsArgs {
@@ -37,6 +38,7 @@ export interface PersistSessionFieldsArgs {
   sandboxMode: 'workspace-write' | 'read-only' | 'danger-full-access';
   /** Explicit override only; undefined preserves provider-owned approval policy. */
   approvalPolicy?: CodexApprovalPolicy;
+  permissionMode?: import('@shared/types').PermissionMode;
   /** Public Codex Gateway id; undefined preserves an existing session value. */
   provider?: string;
   /**
@@ -93,7 +95,7 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
   const {
     sessionId,
     sandboxMode,
-    approvalPolicy,
+    approvalPolicy: legacyApprovalPolicy,
     provider,
     model,
     modelReasoningEffort,
@@ -102,6 +104,12 @@ export function persistSessionFields(args: PersistSessionFieldsArgs): void {
     additionalDirectories,
     runtimeHost,
   } = args;
+  const approvalPolicy = isSessionPermissionMode(args.permissionMode)
+    ? codexPermissionPreset(args.permissionMode).approvalPolicy : legacyApprovalPolicy;
+
+  if (args.permissionMode !== undefined) {
+    runtimeHost.records.setPermissionMode(sessionId, args.permissionMode);
+  }
 
   // 1. 持久化 sandbox 档位（CHANGELOG_<X> A2a）
   try {

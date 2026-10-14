@@ -1,6 +1,6 @@
+import { storedSessionPermissionMode, type SessionPermissionMode } from '@shared/permission-modes';
 import { useEffect, useId, useRef, useState, type JSX } from 'react';
 import type {
-  AdapterSessionMode,
   SessionAdapterId,
   SessionHandOffExecutionFailure,
   SessionHandOffPreparation,
@@ -73,8 +73,8 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
   const [targetThinking, setTargetThinking] = useState<SessionThinkingChoice>(() =>
     sourceThinking(session),
   );
-  const [targetSessionMode, setTargetSessionMode] = useState<AdapterSessionMode>(
-    session.sessionMode ?? 'default',
+  const [targetPermissionMode, setTargetPermissionMode] = useState<SessionPermissionMode>(
+    storedSessionPermissionMode(session) ?? 'auto',
   );
   const [targetGrokSandbox, setTargetGrokSandbox] = useState(
     session.agentId === 'grok-build' ? session.grokSandbox ?? '' : '',
@@ -108,7 +108,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
     setTargetProvider(session.runtimeProvider ?? '');
     setTargetModel(session.model ?? '');
     setTargetThinking(sourceThinking(session));
-    setTargetSessionMode(session.sessionMode ?? 'default');
+    setTargetPermissionMode(storedSessionPermissionMode(session) ?? 'auto');
     setTargetGrokSandbox(
       session.agentId === 'grok-build' ? session.grokSandbox ?? '' : '',
     );
@@ -223,10 +223,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
             : {}),
           model: targetModel.trim() || null,
           thinking: targetThinking || null,
-          ...(adapters.find((adapter) => adapter.value === targetAdapter)
-            ?.sessionModes.length
-            ? { sessionMode: targetSessionMode }
-            : {}),
+          permissionMode: targetPermissionMode,
           ...(targetAdapter === 'grok-build' && targetGrokSandbox.trim()
             ? { grokSandbox: targetGrokSandbox.trim() }
             : {}),
@@ -339,7 +336,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
             targetProvider={targetProvider}
             targetModel={targetModel}
             targetThinking={targetThinking}
-            targetSessionMode={targetSessionMode}
+            targetPermissionMode={targetPermissionMode}
             targetGrokSandbox={targetGrokSandbox}
             onAdapterChange={(next) =>
               invalidateAndChange(() => {
@@ -348,7 +345,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
                   setTargetProvider(session.runtimeProvider ?? '');
                   setTargetModel(session.model ?? '');
                   setTargetThinking(sourceThinking(session));
-                  setTargetSessionMode(session.sessionMode ?? 'default');
+                  setTargetPermissionMode(storedSessionPermissionMode(session) ?? 'auto');
                   setTargetGrokSandbox(
                     session.agentId === 'grok-build' ? session.grokSandbox ?? '' : '',
                   );
@@ -356,10 +353,7 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
                   setTargetProvider('');
                   setTargetModel('');
                   setTargetThinking('');
-                  setTargetSessionMode(
-                    adapters.find((adapter) => adapter.value === next)?.sessionModes[0]
-                      ?? 'default',
-                  );
+                  setTargetPermissionMode('auto');
                   setTargetGrokSandbox('');
                 }
               })
@@ -374,8 +368,8 @@ export function HandOffPreviewDialog({ open, session, onClose }: Props): JSX.Ele
             onThinkingChange={(next) =>
               invalidateAndChange(() => setTargetThinking(next))
             }
-            onSessionModeChange={(next) =>
-              invalidateAndChange(() => setTargetSessionMode(next))
+            onPermissionModeChange={(next) =>
+              invalidateAndChange(() => setTargetPermissionMode(next))
             }
             onGrokSandboxChange={(next) =>
               invalidateAndChange(() => setTargetGrokSandbox(next))

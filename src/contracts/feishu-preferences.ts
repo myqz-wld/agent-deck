@@ -1,4 +1,5 @@
 import { isJsonObject } from './json';
+import { isSessionPermissionMode } from '@shared/permission-modes';
 import { isAdapterSessionMode, isCodexApprovalPolicy, isSelectablePermissionMode,
   type AdapterSessionMode, type CodexApprovalPolicy, type SelectablePermissionMode } from '@shared/types';
 
@@ -21,8 +22,8 @@ export const FEISHU_PREFERENCE_OPTION_KEYS = ['provider', 'model', 'thinking', .
 export type FeishuRuntimeOptionKey = typeof FEISHU_RUNTIME_OPTION_KEYS[number];
 export function feishuRuntimeOptionKeys(adapterId: FeishuModelPreference['adapterId']): readonly FeishuRuntimeOptionKey[] {
   return adapterId === 'claude-code' ? ['permissionMode', 'claudeCodeSandbox']
-    : adapterId === 'codex-cli' ? ['approvalPolicy', 'codexSandbox']
-      : adapterId === 'grok-build' ? ['sessionMode', 'grokSandbox'] : [];
+    : adapterId === 'codex-cli' ? ['permissionMode', 'codexSandbox']
+      : adapterId === 'grok-build' ? ['permissionMode', 'grokSandbox'] : [];
 }
 export interface FeishuPreferences {
   conversation: FeishuModelPreference;
@@ -65,7 +66,9 @@ export function parseFeishuModelPreference(value: unknown): FeishuModelPreferenc
   const owned = feishuRuntimeOptionKeys(result.adapterId);
   for (const key of FEISHU_RUNTIME_OPTION_KEYS) {
     if (!Object.hasOwn(raw, key)) continue;
-    if (!owned.includes(key)) fail();
+    // Retain persisted native fields when reading older preferences; new controls use permissionMode.
+    if (!owned.includes(key) && !(result.adapterId === 'codex-cli' && key === 'approvalPolicy') &&
+      !(result.adapterId === 'grok-build' && key === 'sessionMode')) fail();
     const value = raw[key];
     if (key === 'approvalPolicy' && (value === null || isCodexApprovalPolicy(value))) result.approvalPolicy = value;
     else if (key === 'permissionMode' && (value === null || isSelectablePermissionMode(value))) result.permissionMode = value;
@@ -76,14 +79,29 @@ export function parseFeishuModelPreference(value: unknown): FeishuModelPreferenc
       value === value.trim() && new TextEncoder().encode(value).byteLength <= 128))) result.grokSandbox = value === null ? null : text(value);
     else fail();
   }
+  if (result.adapterId === 'codex-cli' && result.approvalPolicy !== undefined) {
+    result.permissionMode ??= result.approvalPolicy === null ? null
+      : result.approvalPolicy === 'never' ? 'bypassPermissions' : 'auto';
+    delete result.approvalPolicy;
+  }
+  if (result.adapterId === 'grok-build' && result.sessionMode !== undefined) {
+    result.permissionMode ??= 'auto';
+    delete result.sessionMode;
+  }
+  if (result.permissionMode != null && !isSessionPermissionMode(result.permissionMode)) {
+    result.permissionMode = 'auto';
+  }
   return result;
 }
 /** Same-adapter edits preserve omitted choices; a different adapter starts from its own defaults. */
 export function mergeFeishuModelPreference(previous: FeishuModelPreference,
   patch: Partial<FeishuModelPreference>): FeishuModelPreference {
   const adapterId = patch.adapterId === undefined ? previous.adapterId : patch.adapterId;
-  return parseFeishuModelPreference({ ...(adapterId === previous.adapterId ? previous : defaultFeishuModelPreference()),
-    ...patch, adapterId });
+  const merged = { ...(adapterId === previous.adapterId
+    ? parseFeishuModelPreference(previous) : defaultFeishuModelPreference()), ...patch, adapterId };
+  if (patch.permissionMode === undefined &&
+      (patch.approvalPolicy !== undefined || patch.sessionMode !== undefined)) delete merged.permissionMode;
+  return parseFeishuModelPreference(merged);
 }
 export function parseFeishuPreferences(value: unknown): FeishuPreferences {
   const raw = object(value, ['conversation', 'session', 'settingsRevision']);

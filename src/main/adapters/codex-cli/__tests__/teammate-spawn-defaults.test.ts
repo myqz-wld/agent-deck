@@ -142,7 +142,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
       extraAllowWrite: ['/main-repo'],
       handOff: HANDOFF_FIXTURE,
       // claude-only 字段(应被 filter)
-      permissionMode: 'plan',
+      permissionMode: 'auto',
       claudeCodeSandbox: 'strict',
     });
     expect(opts.cwd).toBe('/repo');
@@ -158,7 +158,7 @@ describe('options-builder field-level narrow coverage (REVIEW_105 MED-1 回归)'
     expect(opts.extraAllowWrite).toEqual(['/main-repo']);
     expect(opts.handOff).toBe(HANDOFF_FIXTURE); // INFO-1: 防 narrow 漏 handOff 赋值
     // claude-only 字段被 filter
-    expect('permissionMode' in opts).toBe(false);
+    expect(opts.permissionMode).toBe('auto');
     expect('claudeCodeSandbox' in opts).toBe(false);
   });
 

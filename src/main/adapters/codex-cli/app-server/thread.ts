@@ -30,6 +30,7 @@ import {
   withApprovalPolicy,
   withGatewayOptions,
   withModelOptions,
+  withPermissionMode,
   withSandboxMode,
   withWorkingDirectory,
 } from './thread-mode';
@@ -95,6 +96,12 @@ export class CodexAppServerThread {
     approvalPolicy: CodexThreadOptions['approvalPolicy'] | null,
   ): void {
     this.mode = withApprovalPolicy(this.mode, approvalPolicy);
+  }
+
+  updatePermissionMode(permissionMode: CodexThreadOptions['permissionMode'] | null): () => void {
+    const previous = this.mode;
+    this.mode = withPermissionMode(this.mode, permissionMode);
+    return () => { this.mode = previous; };
   }
 
   /** Apply model / effort to subsequent turns without interrupting an active turn. */

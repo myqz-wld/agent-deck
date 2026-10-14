@@ -40,6 +40,7 @@ export const desktopCodexBridgeRuntimeHost: CodexBridgeRuntimeHost = {
     setCodexSandbox: (sessionId, value) => sessionRepo.setCodexSandbox(sessionId, value),
     setCodexApprovalPolicy: (sessionId, value) =>
       sessionRepo.setCodexApprovalPolicy(sessionId, value),
+    setPermissionMode: (sessionId, value) => sessionRepo.setPermissionMode(sessionId, value),
     setRuntimeProvider: (sessionId, value) => sessionRepo.setRuntimeProvider(sessionId, value),
     setModel: (sessionId, value) => sessionRepo.setModel(sessionId, value),
     setThinking: (sessionId, value) => sessionRepo.setThinking(sessionId, value),

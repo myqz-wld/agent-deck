@@ -28,8 +28,8 @@ import { unwrapCliArgvPayload } from './cli-argv-payload';
 import log from '@main/utils/logger';
 import {
   CODEX_APPROVAL_POLICIES,
-  PERMISSION_MODES,
 } from '@shared/types';
+import { SESSION_PERMISSION_MODES } from '@shared/permission-modes';
 import { normalizeGrokSandboxProfile } from '@shared/grok-sandbox';
 import { applyCliInvocation } from './cli-session-creation';
 
@@ -70,7 +70,7 @@ export interface CliNewSession {
 export type CliInvocation = CliNewSession | { kind: 'noop' };
 
 const SUBCOMMANDS = ['new'] as const;
-const PERM_MODES: ReadonlyArray<SelectablePermissionMode> = PERMISSION_MODES;
+const PERM_MODES: ReadonlyArray<SelectablePermissionMode> = SESSION_PERMISSION_MODES;
 const CODEX_SANDBOXES: ReadonlyArray<'workspace-write' | 'read-only' | 'danger-full-access'> = [
   'workspace-write',
   'read-only',

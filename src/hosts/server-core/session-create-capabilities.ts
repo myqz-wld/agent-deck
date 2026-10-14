@@ -180,16 +180,16 @@ function optionSchema(
   }
   if (adapterId === 'codex-cli') {
     return Object.freeze({
-      approvalPolicy: enabledOption(defaults.approvalPolicy, {
-        allowedValues: ['untrusted', 'on-request', 'never'],
-      }),
+      approvalPolicy: disabledOption(),
       claudeCodeSandbox: disabledOption(),
       codexSandbox: enabledOption(defaults.codexSandbox, {
         allowedValues: ['workspace-write', 'read-only', 'danger-full-access'],
       }),
       grokSandbox: disabledOption(),
       ...common,
-      permissionMode: disabledOption(),
+      permissionMode: enabledOption(defaults.permissionMode, {
+        allowedValues: profile.runtimeControls.permissionModes,
+      }),
       provider: enabledOption(defaults.provider, {
         allowedValues: providers,
         allowEmpty: true,
@@ -207,11 +207,11 @@ function optionSchema(
       })
       : disabledOption(grokDisabledReason),
     ...common,
-    permissionMode: disabledOption(),
-    provider: disabledOption(),
-    sessionMode: enabledOption(defaults.sessionMode, {
-      allowedValues: profile.runtimeControls.sessionModes,
+    permissionMode: enabledOption(defaults.permissionMode, {
+      allowedValues: profile.runtimeControls.permissionModes,
     }),
+    provider: disabledOption(),
+    sessionMode: disabledOption(),
   });
 }
 

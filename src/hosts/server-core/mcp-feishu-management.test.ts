@@ -29,7 +29,7 @@ describe('Feishu native management tool contracts', () => {
       } }))).toMatchObject({ sessionId: 'created-work', title: '验证完成' });
       expect(structuredPayload(await client.callTool({ name: 'update_feishu_preferences', arguments: {
         requestId: 'native-choice', purpose: 'conversation', preference: { thinking: 'high' }, expectedSettingsRevision: 2,
-      } }))).toMatchObject({ settingsRevision: 3, conversation: { model: 'chat-model', thinking: 'high', approvalPolicy: 'on-request' },
+      } }))).toMatchObject({ settingsRevision: 3, conversation: { model: 'chat-model', thinking: 'high', permissionMode: 'auto' },
         session: { model: 'work-model', thinking: 'medium' } });
       expect(t.createSpawnSession).toHaveBeenCalledTimes(1);
     });

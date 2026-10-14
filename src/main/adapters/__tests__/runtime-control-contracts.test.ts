@@ -19,6 +19,7 @@ describe('adapter target runtime control contracts', () => {
       'provider',
       'model',
       'thinking',
+      'permissionMode',
       'approvalPolicy',
       'codexSandbox',
       'extraAllowWrite',
@@ -26,6 +27,7 @@ describe('adapter target runtime control contracts', () => {
     expect(targetRuntimeFieldsForAdapter('grok-build')).toEqual([
       'model',
       'thinking',
+      'permissionMode',
       'sessionMode',
       'grokSandbox',
     ]);
@@ -36,8 +38,8 @@ describe('adapter target runtime control contracts', () => {
       codexSandbox: 'read-only',
     })).toBe('codexSandbox');
     expect(firstUnsupportedTargetRuntimeField('codex-cli', {
-      permissionMode: 'plan',
-    })).toBe('permissionMode');
+      claudeCodeSandbox: 'strict',
+    })).toBe('claudeCodeSandbox');
     expect(firstUnsupportedTargetRuntimeField('codex-cli', {
       provider: 'openrouter',
     })).toBeNull();
@@ -74,7 +76,7 @@ describe('adapter target runtime control contracts', () => {
       unsupportedTargetRuntimeFieldMessage('codex-cli', 'grokSandbox'),
     ).toBe('grokSandbox 与 Codex CLI 不兼容；仅 Grok Build 支持');
     expect(
-      unsupportedTargetRuntimeFieldMessage('codex-cli', 'permissionMode'),
-    ).toBe('permissionMode 与 Codex CLI 不兼容；仅 Claude Code 支持');
+      unsupportedTargetRuntimeFieldMessage('codex-cli', 'claudeCodeSandbox'),
+    ).toBe('claudeCodeSandbox 与 Codex CLI 不兼容；仅 Claude Code 支持');
   });
 });

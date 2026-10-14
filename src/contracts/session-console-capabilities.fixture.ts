@@ -49,12 +49,12 @@ export function sessionConsoleCreateOptionsFixture(
       }
     : adapterId === 'codex-cli'
       ? {
-          approvalPolicy: 'never',
+          approvalPolicy: null,
           claudeCodeSandbox: null,
           codexSandbox: 'workspace-write',
           grokSandbox: null,
           model: 'gpt-5',
-          permissionMode: null,
+          permissionMode: 'bypassPermissions',
           provider: '',
           sessionMode: null,
           thinking: 'high',
@@ -65,9 +65,9 @@ export function sessionConsoleCreateOptionsFixture(
           codexSandbox: null,
           grokSandbox: 'workspace',
           model: 'grok-4.5',
-          permissionMode: null,
+          permissionMode: 'auto',
           provider: null,
-          sessionMode: 'default',
+          sessionMode: null,
           thinking: 'high',
         };
 }
@@ -109,7 +109,7 @@ function createDescriptor(
         ? disabled() : enabled(values.grokSandbox, ['read-only', 'workspace', 'off']),
       model: enabled(values.model!, null, true, true),
       permissionMode: values.permissionMode === null
-        ? disabled() : enabled(values.permissionMode, ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']),
+        ? disabled() : enabled(values.permissionMode, ['auto', 'bypassPermissions']),
       provider: values.provider === null
         ? disabled() : enabled(values.provider, [], true, true),
       sessionMode: values.sessionMode === null

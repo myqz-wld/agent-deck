@@ -4,10 +4,8 @@ import {
 } from '@contracts/index';
 import type { useImageAttachments } from '@renderer/hooks/useImageAttachments';
 import type { useSessionCreationOptions } from '@renderer/hooks/useSessionCreationOptions';
-import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
 import {
   CLAUDE_SANDBOX_OPTIONS,
-  CODEX_APPROVAL_POLICY_OPTIONS,
   CODEX_SANDBOX_OPTIONS,
   PERMISSION_OPTIONS,
 } from '@renderer/lib/sandbox-options';
@@ -101,14 +99,6 @@ export function localControls(
       result.push({ label: sessionOptionLabel(key), value: options.permissionMode,
         options: PERMISSION_OPTIONS, onChange: (value) => options.setPermissionMode(
           value as Parameters<typeof options.setPermissionMode>[0]) });
-    } else if (key === 'sessionMode') {
-      result.push({ label: sessionOptionLabel(key), value: options.sessionMode,
-        options: adapterSessionModeOptions(adapter?.sessionModes ?? []), onChange: (value) =>
-          options.setSessionMode(value as Parameters<typeof options.setSessionMode>[0]) });
-    } else if (key === 'approvalPolicy') {
-      result.push({ label: sessionOptionLabel(key), value: options.approvalPolicy,
-        options: CODEX_APPROVAL_POLICY_OPTIONS, onChange: (value) =>
-          options.setApprovalPolicy(value as Parameters<typeof options.setApprovalPolicy>[0]) });
     } else if (key === 'codexSandbox') {
       result.push({ label: sessionOptionLabel(key), value: options.codexSandbox,
         options: CODEX_SANDBOX_OPTIONS, onChange: (value) =>
@@ -183,8 +173,6 @@ export async function submitLocalSession(
     ...(createRequestId ? { _agentDeckCreateRequestId: createRequestId } : {}),
     cwd: cwd.trim(), prompt: prompt.trim() || undefined,
     permissionMode: adapter?.capabilities.canSetPermissionMode ? options.permissionMode : undefined,
-    sessionMode: adapter?.capabilities.canSetSessionMode ? options.sessionMode : undefined,
-    approvalPolicy: adapterId === 'codex-cli' ? options.approvalPolicy : undefined,
     codexSandbox: adapterId === 'codex-cli' ? options.codexSandbox : undefined,
     claudeCodeSandbox: adapterId === 'claude-code' ? options.claudeCodeSandbox : undefined,
     grokSandbox: adapterId === 'grok-build' ? options.grokSandbox.trim() : undefined,

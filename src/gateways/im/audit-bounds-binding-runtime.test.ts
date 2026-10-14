@@ -192,7 +192,7 @@ describe('pinned instance/topology and Relay cwd-free projection', () => {
     expect((await gateway.handle(messageEvent('relay-select', '/select session-1'))).code).toBe('accepted');
     expect(
       (await gateway.handle(
-        messageEvent('relay-runtime', '/runtime-set 10 {"approvalPolicy":"never"}'),
+        messageEvent('relay-runtime', '/runtime-set 10 {"permissionMode":"bypassPermissions"}'),
       )).code,
     ).toBe('accepted');
     const calls = clients.flatMap((client) => client.calls);
@@ -373,7 +373,7 @@ describe('revocation, subscription fanout, and runtime value domains', () => {
     await select(gateway);
     const client = onlyClient(clients);
     const invalid = [
-      '/runtime-set 10 {"approvalPolicy":{"unsafe":true}}',
+      '/runtime-set 10 {"permissionMode":{"unsafe":true}}',
       '/runtime-set 10 {"codexSandbox":"strict"}',
     ];
     for (const [index, command] of invalid.entries()) {
@@ -391,7 +391,7 @@ describe('revocation, subscription fanout, and runtime value domains', () => {
     await select(gateway, 'session-3', 'grok-runtime-select');
     expect(
       (await gateway.handle(
-        messageEvent('grok-session-value', '/runtime-set 10 {"sessionMode":["plan"]}'),
+        messageEvent('grok-session-value', '/runtime-set 10 {"permissionMode":["auto"]}'),
       )).code,
     ).toBe('invalid_command');
     expect(

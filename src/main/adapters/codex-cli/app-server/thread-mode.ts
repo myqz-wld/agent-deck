@@ -50,6 +50,17 @@ export function withApprovalPolicy(
   return withOptions(mode, options);
 }
 
+export function withPermissionMode(
+  mode: CodexThreadMode,
+  permissionMode: CodexThreadOptions['permissionMode'] | null,
+): CodexThreadMode {
+  return withOptions(mode, {
+    ...mode.options,
+    permissionMode: permissionMode ?? undefined,
+    ...(permissionMode === null ? { approvalsReviewer: 'user' as const } : {}),
+  });
+}
+
 export function withModelOptions(
   mode: CodexThreadMode,
   model: CodexThreadOptions['model'] | null,

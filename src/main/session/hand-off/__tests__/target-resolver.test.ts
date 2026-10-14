@@ -188,11 +188,11 @@ describe('resolveHandOffTarget', () => {
     });
 
     expect(result.createOptions).toMatchObject({
-      permissionMode: 'default',
+      permissionMode: 'auto',
       claudeCodeSandbox: 'strict',
     });
     expect(result.spec).toMatchObject({
-      permissionMode: 'default',
+      permissionMode: 'auto',
       sandbox: { kind: 'claude', mode: 'strict' },
     });
 
@@ -243,8 +243,8 @@ describe('resolveHandOffTarget', () => {
       sourceMaxEventId: 42,
     });
 
-    expect(result.createOptions).toMatchObject({ permissionMode: 'default' });
-    expect(result.spec).toMatchObject({ permissionMode: 'default' });
+    expect(result.createOptions).toMatchObject({ permissionMode: 'auto' });
+    expect(result.spec).toMatchObject({ permissionMode: 'auto' });
   });
 
   it('keeps Grok work mode separate and inherits it only for same-adapter handoff', () => {

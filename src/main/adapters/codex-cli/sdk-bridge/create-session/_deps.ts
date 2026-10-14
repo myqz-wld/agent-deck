@@ -15,7 +15,7 @@
  * **CreateSessionOpts SSOT**: facade.createSession 用 `opts: CreateSessionOpts` 直接消费本 type,
  * 字段 jsdoc 单源在本文件 — 改 facade method 必须改本 type 反之亦然。
  */
-import type { HandOffMetadata, UploadedAttachmentRef } from '@shared/types';
+import type { HandOffMetadata, UploadedAttachmentRef, PermissionMode } from '@shared/types';
 import type { CodexThinkingLevel } from '@shared/session-metadata';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
 import type {
@@ -108,6 +108,7 @@ export interface CreateSessionOpts {
    * Agent Deck handles provider-initiated approval requests for interactive policies.
    */
   approvalPolicy?: 'untrusted' | 'on-request' | 'never';
+  permissionMode?: PermissionMode;
   /**
    * codex SDK startThread `networkAccessEnabled` 透传。bridge 不主动 enforce default；
    * undefined 沿用 SDK 默认。只有 trusted lifecycle caller 的显式值或持久化值会到达这里，

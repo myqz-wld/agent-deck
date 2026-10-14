@@ -11,16 +11,13 @@ import {
 } from './composer-sdk/SandboxSelects';
 import { ErrorBanner } from './composer-sdk/ErrorBanner';
 import {
-  CODEX_APPROVAL_POLICY_OPTIONS,
   GROK_SANDBOX_MODE_OPTIONS,
   type ClaudeSandboxMode,
   type CodexSandboxMode,
 } from '@renderer/lib/sandbox-options';
-import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
 import type { RemoteHostJsonObject } from '@shared/remote-host';
 import type { SessionConsoleCreateOptionSchema } from '@contracts/index';
 import {
-  ADAPTER_SESSION_MODES,
   isSelectablePermissionMode,
 } from '@shared/types';
 import { SessionRuntimeFieldsView } from './composer-sdk/SessionRuntimeFieldsView';
@@ -262,14 +259,9 @@ export function RemoteSessionRuntimeControls({
     return (await applyPatch(patch, onApply, identity)) === 'applied';
   };
   const currentPermission = stringValue(values, 'permissionMode');
-  const permissionOptions = currentPermission === 'dontAsk'
-    ? [{ value: 'dontAsk', label: '当前状态：不询问（只读）', disabled: true },
-        ...PERMISSION_MODE_OPTIONS]
-    : [PROVIDER_DEFAULT_RUNTIME_OPTION, ...PERMISSION_MODE_OPTIONS];
+  const permissionOptions = [...PERMISSION_MODE_OPTIONS];
   const claudeSandbox = stringValue(values, 'claudeCodeSandbox');
-  const approvalPolicy = stringValue(values, 'approvalPolicy');
   const codexSandbox = stringValue(values, 'codexSandbox');
-  const sessionMode = stringValue(values, 'sessionMode');
   const providerDescriptor = optionSchema?.provider;
   const modelDescriptor = optionSchema?.model;
   const thinkingDescriptor = optionSchema?.thinking;
@@ -304,12 +296,11 @@ export function RemoteSessionRuntimeControls({
         error={null}
         onDismissError={() => undefined}
       />
-      {adapterId === 'claude-code' && (
-        <>
           <SelectRow
-            label="权限"
+            label="权限模式"
             value={currentPermission || PROVIDER_DEFAULT_RUNTIME_VALUE}
             options={permissionOptions}
+            fallbackLabel="沿用会话原有权限"
             disabled={disabled}
             onChange={(next) => {
               if (next !== PROVIDER_DEFAULT_RUNTIME_VALUE && isSelectablePermissionMode(next)) {
@@ -317,6 +308,8 @@ export function RemoteSessionRuntimeControls({
               }
             }}
           />
+      {adapterId === 'claude-code' && (
+        <>
           <SelectRow
             label="沙盒"
             value={claudeSandbox || PROVIDER_DEFAULT_RUNTIME_VALUE}
@@ -333,15 +326,6 @@ export function RemoteSessionRuntimeControls({
       {adapterId === 'codex-cli' && (
         <>
           <SelectRow
-            label="审批"
-            value={approvalPolicy || PROVIDER_DEFAULT_RUNTIME_VALUE}
-            options={[PROVIDER_DEFAULT_RUNTIME_OPTION, ...CODEX_APPROVAL_POLICY_OPTIONS]}
-            disabled={disabled}
-            onChange={(next) => {
-              if (next !== PROVIDER_DEFAULT_RUNTIME_VALUE) void apply({ approvalPolicy: next });
-            }}
-          />
-          <SelectRow
             label="沙盒"
             value={codexSandbox || PROVIDER_DEFAULT_RUNTIME_VALUE}
             options={[PROVIDER_DEFAULT_RUNTIME_OPTION, ...CODEX_SANDBOX_OPTIONS]}
@@ -356,18 +340,6 @@ export function RemoteSessionRuntimeControls({
       )}
       {adapterId === 'grok-build' && (
         <>
-          <SelectRow
-            label="模式"
-            value={sessionMode || PROVIDER_DEFAULT_RUNTIME_VALUE}
-            options={[
-              PROVIDER_DEFAULT_RUNTIME_OPTION,
-              ...adapterSessionModeOptions(ADAPTER_SESSION_MODES),
-            ]}
-            disabled={disabled}
-            onChange={(next) => {
-              if (next !== PROVIDER_DEFAULT_RUNTIME_VALUE) void apply({ sessionMode: next });
-            }}
-          />
           <RemoteGrokSandbox
             value={stringValue(values, 'grokSandbox')}
             disabled={disabled}

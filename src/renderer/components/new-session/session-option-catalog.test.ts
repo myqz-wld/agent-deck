@@ -18,8 +18,8 @@ describe('Local and Remote new-session option parity', () => {
 
   it.each([
     ['claude-code', true, false, false],
-    ['codex-cli', false, false, false],
-    ['grok-build', false, true, true],
+    ['codex-cli', true, false, false],
+    ['grok-build', true, true, true],
   ] as const)(
     'keeps %s adapter-native controls aligned without cross-adapter fields',
     (adapterId, canSetPermissionMode, canSetSessionMode, hasSessionModes) => {

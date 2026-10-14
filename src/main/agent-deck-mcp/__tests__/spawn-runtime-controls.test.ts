@@ -16,11 +16,11 @@ describe('spawn adapter runtime controls', () => {
         adapter: 'grok-build',
         cwd: '/repo',
         prompt: 'work',
-        permissionMode: 'plan',
+        permissionMode: 'plan' as never,
       },
     )).toMatchObject({
       error: expect.stringContaining('permissionMode'),
-      hint: expect.stringContaining('Grok ACP work modes'),
+      hint: expect.stringContaining('native automatic approval'),
     });
   });
 
@@ -82,7 +82,7 @@ describe('spawn adapter runtime controls', () => {
     });
     expect(resolved.effectiveSessionMode).toBe('ask');
     expect(resolved.effectiveGrokSandbox).toBe('project-locked');
-    expect(resolved.effectivePermissionMode).toBeUndefined();
+    expect(resolved.effectivePermissionMode).toBe('bypassPermissions');
   });
 
   it('keeps an explicit Grok sandbox ahead of inheritance and never cross-inherits it', () => {
@@ -124,6 +124,6 @@ describe('spawn adapter runtime controls', () => {
       inherit: true,
       codexSandboxFromAgent: undefined,
     });
-    expect(resolved.effectivePermissionMode).toBe('default');
+    expect(resolved.effectivePermissionMode).toBe('auto');
   });
 });

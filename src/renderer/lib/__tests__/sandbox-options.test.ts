@@ -34,21 +34,11 @@ describe('sandbox option copy', () => {
     expect(CODEX_SANDBOX_OPTIONS).toEqual(CODEX_SANDBOX_MODE_OPTIONS);
   });
 
-  it('exposes every current Claude Code permission mode from restrictive to permissive', () => {
-    expect(PERMISSION_OPTIONS.map((option) => option.value)).toEqual([
-      'plan',
-      'default',
-      'acceptEdits',
-      'auto',
-      'bypassPermissions',
+  it('offers only the two shared permission presets', () => {
+    expect(PERMISSION_OPTIONS.map(({ value, label }) => ({ value, label }))).toEqual([
+      { value: 'auto', label: '自动审批' },
+      { value: 'bypassPermissions', label: '不再询问' },
     ]);
-    expect(PERMISSION_OPTIONS[3]?.title).toBe(
-      '由 Claude Code 的权限分类器自动允许或拒绝原本需要询问的工具调用',
-    );
-    expect(PERMISSION_OPTIONS[4]?.title).toBe(
-      'Claude Code 全程不再询问任何工具调用；系统沙盒（若启用）仍生效',
-    );
-    expect(PERMISSION_OPTIONS[4]?.warning).toBeFalsy();
   });
 
   it('orders Codex approval policies from strict interaction to no prompts', () => {

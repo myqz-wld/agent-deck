@@ -92,7 +92,7 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
 
 /**
  * raw → CodexCreateOpts narrow：从 raw 中挑 codex-cli adapter 接受的字段（filter 掉
- * permissionMode / claudeCodeSandbox 等 claude 专属字段）。
+ * claudeCodeSandbox 等 claude 专属字段）。
  *
  * Reviewer runtime policy is intentionally not inferred from `agentName`. Review skills omit
  * approval and sandbox controls unless the user explicitly requested them, so a custom agent
@@ -100,6 +100,7 @@ function narrowToClaudeOpts(raw: CreateSessionOptionsRaw): ClaudeCreateOpts {
  */
 function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
   const out: CodexCreateOpts = { cwd: raw.cwd };
+  if (raw.permissionMode !== undefined) out.permissionMode = raw.permissionMode;
   if (raw.prompt !== undefined) out.prompt = raw.prompt;
   if (raw.provider !== undefined) out.provider = raw.provider;
   if (raw.resume !== undefined) out.resume = raw.resume;
@@ -133,6 +134,7 @@ function narrowToCodexOpts(raw: CreateSessionOptionsRaw): CodexCreateOpts {
 
 function narrowToGrokOpts(raw: CreateSessionOptionsRaw): GrokCreateOpts {
   const out: GrokCreateOpts = { cwd: raw.cwd };
+  if (raw.permissionMode !== undefined) out.permissionMode = raw.permissionMode;
   if (raw.prompt !== undefined) out.prompt = raw.prompt;
   if (raw.resume !== undefined) out.resume = raw.resume;
   if (raw.teamName !== undefined) out.teamName = raw.teamName;
@@ -331,6 +333,7 @@ void _assertClaudePassthroughCoversArm;
 
 /** codex arm 中 narrow 主分支应从 raw 透传的字段（cwd 必填 + 3 个 main-only 字段除外）。 */
 const _CODEX_PASSTHROUGH_KEYS = {
+  permissionMode: 0,
   prompt: 0,
   provider: 0,
   resume: 0,
@@ -357,6 +360,7 @@ const _assertCodexPassthroughCoversArm: AssertSameKeys<
 void _assertCodexPassthroughCoversArm;
 
 const _GROK_PASSTHROUGH_KEYS = {
+  permissionMode: 0,
   prompt: 0,
   resume: 0,
   teamName: 0,

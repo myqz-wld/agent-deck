@@ -2,7 +2,6 @@ import { confirmDialog } from '@renderer/lib/confirm-dialog';
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import {
   isSelectablePermissionMode,
-  type AdapterSessionMode,
   type PermissionMode as ClaudePermissionMode,
   type SelectablePermissionMode,
   type SessionRecord,
@@ -13,7 +12,7 @@ import { PendingOutgoingQueue } from './composer-sdk/PendingOutgoingQueue';
 import { SessionRuntimeControls } from './composer-sdk/SessionRuntimeControls';
 import { useAdapterRuntimeInfo } from './composer-sdk/useAdapterRuntimeInfo';
 import { SessionSandboxControls } from './composer-sdk/SessionSandboxControls';
-import { adapterSessionModeOptions } from '@renderer/lib/adapter-session-modes';
+import { storedSessionPermissionMode } from '@shared/permission-modes';
 import { useSessionStore } from '@renderer/stores/session-store';
 import { composerSessionFor } from '@renderer/stores/session-store-composer';
 import {
@@ -77,30 +76,11 @@ export function ComposerSdk({
     if (!turnBusy) setInterrupting(false);
   }, [turnBusy]);
   // 会话记录持久化当前权限模式，详情切换和恢复后都以它为准。
-  const permissionMode: ClaudePermissionMode = session.permissionMode ?? 'default';
-  const permissionModeOptions: Array<{
-    value: ClaudePermissionMode;
-    label: string;
-    title?: string;
-    disabled?: boolean;
-  }> =
-    permissionMode === 'dontAsk'
-      ? [
-          {
-            value: 'dontAsk',
-            label: '当前状态：不询问（只读）',
-            title:
-              'Claude Code 恢复了 dontAsk 状态；Agent Deck 不提供该模式作为新选择，但会准确保留当前状态',
-            disabled: true,
-          },
-          ...PERMISSION_MODE_OPTIONS,
-        ]
-      : [...PERMISSION_MODE_OPTIONS];
+  const permissionMode: ClaudePermissionMode = storedSessionPermissionMode(session)
+    ?? (agentId === 'claude-code' ? session.permissionMode : null) ?? 'default';
+  const permissionModeOptions = [...PERMISSION_MODE_OPTIONS];
   const pmBusy = composer.requests['permission-mode'].busy;
   const pmError = composer.permissionModeError;
-  const sessionMode = session.sessionMode ?? 'default';
-  const sessionModeBusy = composer.requests['session-mode'].busy;
-  const sessionModeError = composer.sessionModeError;
 
   // 运行时能力决定可用的控制项和附件入口。
   const agentDisplayName =
@@ -110,8 +90,6 @@ export function ComposerSdk({
         ? 'Grok Build'
         : 'Claude Code';
   const supportsPermissionMode = adapterRuntime.canSetPermissionMode;
-  const supportsSessionMode =
-    adapterRuntime.canSetSessionMode && adapterRuntime.sessionModes.length > 0;
   const isSteerMode = canSteerTurn && turnBusy;
   const steerActionLabel = agentId === 'codex-cli' ? '修正' : '插入';
   const canUseAttachments =
@@ -232,7 +210,7 @@ export function ComposerSdk({
     if (next === permissionMode || pmBusy) return;
     if (!isSelectablePermissionMode(next)) return;
     const selectableNext: SelectablePermissionMode = next;
-    if (selectableNext === 'bypassPermissions') {
+    if (agentId === 'claude-code' && selectableNext === 'bypassPermissions') {
       const ok = await confirmDialog({
         title: '切换到完全免询问？',
         message: '将重启当前会话，之后文件修改、命令执行等工具操作将不再询问。',
@@ -269,31 +247,6 @@ export function ComposerSdk({
     }
   };
 
-  const changeSessionMode = async (next: AdapterSessionMode): Promise<void> => {
-    if (next === sessionMode || sessionModeBusy) return;
-    const originSessionId = sessionId;
-    const originAgentId = agentId;
-    const generation = beginComposerRequest(
-      originSessionId,
-      'session-mode',
-      (current) => ({ ...current, sessionModeError: null }),
-    );
-    if (generation === null) return;
-    let error: string | null = null;
-    try {
-      await window.api.setAdapterSessionMode(originAgentId, originSessionId, next);
-    } catch (reason) {
-      error = (reason as Error).message;
-    } finally {
-      completeComposerRequest(
-        originSessionId,
-        'session-mode',
-        generation,
-        (current) => ({ ...current, sessionModeError: error }),
-      );
-    }
-  };
-
   const canSend = (text.trim().length > 0 || imgs.attachments.length > 0) && !busy;
   const canSubmit =
     isSteerMode && !canSteerTurnAttachments ? text.trim().length > 0 && !busy : canSend;
@@ -325,20 +278,12 @@ export function ComposerSdk({
           <SessionRuntimeControls session={session} />
           {supportsPermissionMode && (
             <SelectRow
-              label="权限"
+              label="权限模式"
               value={permissionMode}
               options={permissionModeOptions}
+              fallbackLabel={permissionMode === 'dontAsk' ? '当前状态：仅执行已授权操作' : '沿用会话原有权限'}
               disabled={pmBusy}
               onChange={(next) => void changeMode(next)}
-            />
-          )}
-          {supportsSessionMode && (
-            <SelectRow
-              label="模式"
-              value={sessionMode}
-              options={adapterSessionModeOptions(adapterRuntime.sessionModes)}
-              disabled={sessionModeBusy}
-              onChange={(next) => void changeSessionMode(next)}
             />
           )}
           <SessionSandboxControls session={session} turnBusy={turnBusy} />
@@ -348,11 +293,6 @@ export function ComposerSdk({
           message={pmError}
           prefix="权限模式切换失败"
           onDismiss={() => updateComposer(sessionId, (current) => ({ ...current, permissionModeError: null }))}
-        />
-        <ErrorBanner
-          message={sessionModeError}
-          prefix="模式切换失败"
-          onDismiss={() => updateComposer(sessionId, (current) => ({ ...current, sessionModeError: null }))}
         />
         <ErrorBanner
           message={sendError}

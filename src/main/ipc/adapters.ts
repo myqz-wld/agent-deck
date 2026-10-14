@@ -331,6 +331,13 @@ export function registerAdaptersIpc(): void {
       );
     }
     const m = parsePermissionMode(mode) as Parameters<NonNullable<typeof adapter.setPermissionMode>>[1];
+    if (m !== 'auto' && m !== 'bypassPermissions') {
+      throw new IpcInputError('mode', 'must be auto or bypassPermissions');
+    }
+    if (validAgentId !== 'claude-code') {
+      await adapter.setPermissionMode(sid, m);
+      return true;
+    }
     // bypassPermissions 必须冷切：SDK 的 allowDangerouslySkipPermissions flag 在子进程
     // 启动时锁死，运行时热切会被 SDK 静默吞（用户体感「切了但还在询问」）。
     // 冷切走 restartWithPermissionMode 销毁旧子进程 + 用新 flag 重建（复用 recoverAndSend
