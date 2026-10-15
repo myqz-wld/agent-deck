@@ -258,11 +258,7 @@ export class ClaudeCodeAdapter implements AgentAdapter {
     return this.bridge?.removePendingOutgoingMessage(sessionId, messageId) ?? null;
   }
 
-  /**
-   * R3.E4：receiveTeammateMessage = 调本 adapter 的 sendMessage（与 IPC 路径同款）。
-   * watcher 已在 body 里拼好 `[from <displayName> @ <adapterId>]` 前缀，直接透传。
-   * fromMemberId 仅用于 logging（未来 emit 时贴标签）。
-   */
+  /** Stream teammate input with the same mid-turn acceptance tracking as composer input. */
   async receiveTeammateMessage(
     sessionId: string,
     _fromMemberId: string,
@@ -274,7 +270,11 @@ export class ClaudeCodeAdapter implements AgentAdapter {
       sessionId,
       body,
       undefined,
-      { idempotencyKey: messageId },
+      {
+        idempotencyKey: messageId,
+        deferUserEventUntilTurnStart: true,
+        turnCorrelationId: messageId,
+      },
     );
   }
 

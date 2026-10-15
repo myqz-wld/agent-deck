@@ -15,3 +15,4 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-10-11 | `CHANGELOG_675_provider-runtime-latest-refresh.md` | Refresh bundled provider runtimes and recognize ACP child-session updates |

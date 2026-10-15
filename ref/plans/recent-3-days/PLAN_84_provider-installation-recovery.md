@@ -71,5 +71,5 @@ The private runner writes `install-result.json` and `install.log` outside versio
 distribution inputs. Preserve failed-attempt evidence separately from the final result. Machine
 activation is recorded by the runner and final user report, not inferred from this preparation plan.
 
-Evidence: [dependency refresh](../../changelogs/recent-3-days/CHANGELOG_675_provider-runtime-latest-refresh.md)
+Evidence: [dependency refresh](../../changelogs/recent-week/CHANGELOG_675_provider-runtime-latest-refresh.md)
 and [installer investigation](../../reviews/recent-3-days/REVIEW_318_macos-installer-managed-services.md).

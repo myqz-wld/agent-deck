@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-10-15 | `CHANGELOG_683_claude-immediate-teammate-messages.md` | Deliver Claude teammate messages during active turns; verify Grok parity |
 | 2026-10-14 | `CHANGELOG_682_borderless-activity-rows.md` | Restore light borderless text for ordinary activity events |
 | 2026-10-14 | `CHANGELOG_681_unified-compaction-status.md` | Unify compaction, commands, and activity; preserve system bubbles |
 | 2026-10-14 | `CHANGELOG_680_provider-runtime-readme-refresh.md` | Refresh bundled Claude and Grok; simplify the project README |
@@ -22,4 +23,3 @@ This bucket contains only changelogs that currently belong to this mutually excl
 | 2026-10-14 | `CHANGELOG_678_runtime-log-observability.md` | Bound Worker logs and add private runtime/heartbeat diagnostics |
 | 2026-10-14 | `CHANGELOG_677_unified-permission-modes.md` | Unify native approval presets across Claude, Codex, and Grok |
 | 2026-10-14 | `CHANGELOG_676_mcp-discovery-and-diff-focus.md` | Discover independent sessions, gate shutdown, and reveal the first diff |
-| 2026-10-11 | `CHANGELOG_675_provider-runtime-latest-refresh.md` | Refresh bundled provider runtimes and recognize ACP child-session updates |
