@@ -5,6 +5,7 @@ import {
 } from '../sdk-bridge/codex-binary';
 import type { CodexAppServerProcessStart } from './client-host-port';
 import { refreshBrowserRuntimeFromEnvironment } from '@main/browser-use/browser-runtime-context-host';
+import { codexModelCatalogArguments } from './model-catalog';
 
 export interface CodexAppServerProcessHostDependencies {
   spawnProcess: typeof spawn;
@@ -27,7 +28,7 @@ export function createCodexAppServerProcessStarter(
     const command = override || dependencies.resolveBinary() || 'codex';
     const env = { ...input.env };
     if (!override) dependencies.prependPathDirs(env);
-    return dependencies.spawnProcess(command, ['app-server', '--stdio'], {
+    return dependencies.spawnProcess(command, [...codexModelCatalogArguments(input.modelCatalogPath), 'app-server', '--stdio'], {
       ...(input.cwd ? { cwd: input.cwd } : {}),
       env,
       stdio: 'pipe',

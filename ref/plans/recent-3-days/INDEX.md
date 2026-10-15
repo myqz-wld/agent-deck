@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-10-15 | `PLAN_96_tool-search-fallbacks.md` | completed | Repair eager Tool Search paths; preserve native defaults | `CHANGELOG_685`, `REVIEW_332` |
 | 2026-10-15 | `PLAN_95_runtime-component-injection.md` | completed | Pin component versions, native refresh, and Pending alignment | `CHANGELOG_684`, `REVIEW_329` |
 | 2026-10-14 | `PLAN_93_unified-compaction-status.md` | completed | Unify compaction, commands, and activity; retain system bubbles | `CHANGELOG_681` |
 | 2026-10-14 | `PLAN_92_claude-input-recovery.md` | completed | Preserve failed Claude input and provide explicit resending | `REVIEW_328` |

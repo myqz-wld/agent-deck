@@ -1,0 +1,49 @@
+{
+  "baselineCommit": "a7ff9c5acae0a89dbf666fca8252bce77ae05eb0",
+  "nativeInference": "loopback synthetic responses only",
+  "codex": {
+    "version": "0.162.1",
+    "model": "fixture-model",
+    "startup": "argv model_catalog_json",
+    "initialFullDefinitions": 0,
+    "afterDiscovery": [
+      "list_sessions"
+    ]
+  },
+  "claude": {
+    "settings-true": {
+      "error": null,
+      "mcpDefinitionCounts": [
+        0,
+        1
+      ]
+    },
+    "settings-false": {
+      "error": null,
+      "mcpDefinitionCounts": [
+        20
+      ]
+    },
+    "derived-true": {
+      "error": null,
+      "mcpDefinitionCounts": [
+        0,
+        1
+      ]
+    },
+    "derived-false": {
+      "error": null,
+      "mcpDefinitionCounts": [
+        20
+      ]
+    },
+    "settings-auto:5": {
+      "error": null,
+      "mcpDefinitionCounts": [
+        20
+      ]
+    }
+  },
+  "limits": "Character/definition counts only; no tokenizer, cache, latency, billing, or real Gateway compatibility measurement.",
+  "sqliteBindingSha256": "463d208825f4d2660f4ec14181563c4b2ddbfeb779584c9b3251f0d7aafb2c67"
+}

@@ -69,6 +69,7 @@ export interface CodexBridgeClientRegistryPort {
     clients: Map<string, CodexAppServerClient>;
     sessionId: string;
     sessionToken: string;
+    modelCatalogPath?: string;
     hookServer?: AdapterHookServerPort;
   }): CodexAppServerClient;
   invalidateForPathChange(

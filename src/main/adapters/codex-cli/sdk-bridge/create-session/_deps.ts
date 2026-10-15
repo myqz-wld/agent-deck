@@ -198,6 +198,7 @@ export interface CreateSessionDeps {
   ensureCodex: (
     sessionId: string,
     sessionToken: string,
+    modelCatalogPath?: string,
   ) => Promise<CodexAppServerClient>;
 }
 

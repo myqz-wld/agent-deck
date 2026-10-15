@@ -18,6 +18,21 @@ function host(overrides: Partial<GatewaySandboxSettingsHost> = {}): GatewaySandb
 }
 
 describe('prepareGatewaySandboxSettingsCore', () => {
+  it.each(['true', 'false', 'auto:5', undefined])('preserves native Tool Search choice across isolated Gateway preparations: %s', (choice) => {
+    const gatewayEnv = choice === undefined ? {} : { ENABLE_TOOL_SEARCH: choice };
+    const gatewayHost = host({ readSettingsText: vi.fn(() => JSON.stringify({ env: gatewayEnv })) });
+    const sandbox = prepareGatewaySandboxSettingsCore({
+      settingsPath: '/gateway.json', sandboxOpts: { sandbox: { enabled: true } },
+    }, gatewayHost);
+    expect(sandbox.childEnv).toEqual(gatewayEnv);
+    const native = prepareGatewaySandboxSettingsCore({ settingsPath: '/gateway.json', sandboxOpts: {} }, gatewayHost);
+    expect(native.childEnv).toEqual({});
+    expect(native.settingsPath).toBe('/gateway.json');
+    const next = prepareGatewaySandboxSettingsCore({ sandboxOpts: {} }, gatewayHost);
+    expect(next.childEnv).toEqual({});
+    expect(next.settingsPath).toBeUndefined();
+  });
+
   it('passes through settings when no top-level sandbox needs materialization', () => {
     const gatewayHost = host();
     const sandboxOpts = {};

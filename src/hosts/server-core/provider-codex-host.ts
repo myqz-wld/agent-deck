@@ -11,6 +11,7 @@ import type { CodexAppServerOptions } from '@main/adapters/codex-cli/app-server/
 import { CodexAppServerThread } from '@main/adapters/codex-cli/app-server/thread';
 import type { CodexThreadMode } from '@main/adapters/codex-cli/app-server/thread-mode';
 import { buildCodexWorkspaceAppServerArguments } from '@main/adapters/codex-cli/app-server/workspace-permissions';
+import { codexModelCatalogArguments } from '@main/adapters/codex-cli/app-server/model-catalog';
 import { CodexSdkBridge } from '@main/adapters/codex-cli/sdk-bridge';
 import type {
   CodexThreadOptions,
@@ -149,15 +150,15 @@ export function createServerCoreCodexClient(
         generation,
         runtime,
       ),
-    startProcess: ({ codexPathOverride, cwd, env }) => {
+    startProcess: ({ codexPathOverride, modelCatalogPath, cwd, env }) => {
       input.browserRuntime?.refresh(env);
       const executable = codexPathOverride?.trim() || HEADLESS_CODEX_EXECUTABLE;
       return spawn(
         executable,
-        buildCodexWorkspaceAppServerArguments(
+        [...codexModelCatalogArguments(modelCatalogPath), ...buildCodexWorkspaceAppServerArguments(
           frozenWorkspacePermissionBoundary(input),
           trustedAgentDeckMcpServers(options.config),
-        ),
+        )],
         {
           ...(cwd ? { cwd } : {}),
           env: codexProcessEnvironment(executable, env),

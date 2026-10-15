@@ -101,6 +101,7 @@ export class CodexAppServerClient {
   }
 
   get baseConfig(): CodexConfigObject | null { return this.opts.config ?? null; }
+  get modelCatalogPath(): string | undefined { return this.opts.modelCatalogPath; }
   get generation(): number { return this.generationController.generation; }
   /** True only for the live generation or its synchronous synthetic retirement terminal. */
   acceptsNotificationForGeneration(generation: number): boolean {
@@ -340,6 +341,7 @@ export class CodexAppServerClient {
 
     const child = this.host.startProcess({
       codexPathOverride: this.opts.codexPathOverride,
+      ...(this.opts.modelCatalogPath ? { modelCatalogPath: this.opts.modelCatalogPath } : {}),
       ...(this.opts.cwd ? { cwd: this.opts.cwd } : {}),
       env: this.opts.env,
     });

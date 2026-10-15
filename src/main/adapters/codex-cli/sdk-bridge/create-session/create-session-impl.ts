@@ -62,6 +62,7 @@ import { resolveCodexCreateRuntime } from './runtime-selection';
 import type { CreateSessionDeps, CreateSessionOpts, CreateSessionResult, PreparedContext } from './_deps';
 import { resolveInternalInitialTurn } from '@main/session/continuation-context/initial-turn';
 import { buildInitialEnqueueState } from '@main/adapters/enqueue-idempotency';
+import { assertCodexModelCatalogUnchanged, resolveCodexModelCatalogPath } from '../../app-server/model-catalog';
 
 export async function createSessionImpl(
   opts: CreateSessionOpts,
@@ -95,6 +96,47 @@ export async function createSessionImpl(
         trustedContinuation: opts.trustedContinuation,
       });
   opts = opts.resumeOnly ? opts : { ...opts, prompt: initialTurn.providerPrompt };
+  // Resolve startup-only metadata before token allocation so rejection cannot retire a cached session.
+  const resumeRecord = opts.resume ? deps.runtimeHost.records.get(opts.resume) : null;
+  const cwd = resolveSpawnCwd(opts);
+  // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：
+  // 1. opts.codexSandbox（NewSessionDialog / IPC / cli.ts 显式传入，最新意图）
+  // 2. resume 路径下 sessionRepo.get(resume).codexSandbox（用户上次该会话选过的，重启应用后回放）
+  // 3. settingsStore.get('codexSandbox')（settings 全局值兜底）
+  //
+  // symmetry-plan P2 MED-B：从 `bridge.currentSandboxMode` field 改为直接 settingsStore 读
+  // — 与 claude-code adapter sandbox-resolve.ts 同款直读模式（删 in-memory mirror + setter
+  // + apply hook 三层冗余）。settings 改 codexSandbox 不需 push 到 bridge,下次 createSession
+  // 即按新值生效（与 claude 同款语义,spawn-time 锁定不变）。
+  //
+  // REVIEW_79 INFO (reviewer-claude) 修法:同一 row 单读复用。修前 persistedSandbox(取
+  // .codexSandbox) 与 effectiveResumeThreadId(取 .cliSessionId) 各调一次 sessionRepo.get(opts.resume)
+  // 同步读同一行(两读间无 await,better-sqlite3 同步单线程值一致无 race,纯冗余)。
+  const runtime = resolveCodexCreateRuntime(opts, {
+    resumeRecord,
+    readApplicationInstructions:
+      deps.runtimeHost.configuration.readApplicationInstructions,
+    readConfiguredReasoningEffort:
+      deps.runtimeHost.configuration.readConfiguredReasoningEffort,
+    readGatewayProfile: deps.runtimeHost.configuration.readGatewayProfile,
+    readDefaultSandbox: deps.runtimeHost.configuration.readDefaultSandbox,
+  });
+  const {
+    permissionMode,
+    approvalPolicy: sessionApprovalPolicy,
+    developerInstructions,
+    effectiveOpts,
+    effectiveResumeThreadId,
+    gatewayConfigOverrides,
+    modelProvider,
+    sandboxMode,
+    threadModelReasoningEffort,
+  } = runtime;
+
+  const modelCatalogPath = resolveCodexModelCatalogPath(gatewayConfigOverrides, effectiveOpts.codexConfigOverrides);
+  const cached = opts.resume ? deps.codexBySession.get(opts.resume) : undefined;
+  if (cached) assertCodexModelCatalogUnchanged(cached.modelCatalogPath, modelCatalogPath);
+
   // validate phase: prompt empty / cap check + sid 分配 + token allocate (同步执行,throw 跳出
   // 不进 try block — token 未 allocate 无需 rollback)
   const validate = validateCreateSessionOpts(opts, deps.runtimeHost);
@@ -105,42 +147,7 @@ export async function createSessionImpl(
     // 不抽子段(user mini-spike confirm 3 子段 validate/resume/new 不含 prepare),inline 在
     // orchestrator try 头紧贴 dispatch 之前 — 让 prepare 失败走 catch 触发 rollback。
     //
-    const resumeRecord = opts.resume ? deps.runtimeHost.records.get(opts.resume) : null;
-    const codex = await deps.ensureCodex(initialSid, sessionToken);
-    const cwd = resolveSpawnCwd(opts);
-    // CHANGELOG_<X> A2a：codexSandbox 优先级（高 → 低）：
-    // 1. opts.codexSandbox（NewSessionDialog / IPC / cli.ts 显式传入，最新意图）
-    // 2. resume 路径下 sessionRepo.get(resume).codexSandbox（用户上次该会话选过的，重启应用后回放）
-    // 3. settingsStore.get('codexSandbox')（settings 全局值兜底）
-    //
-    // symmetry-plan P2 MED-B：从 `bridge.currentSandboxMode` field 改为直接 settingsStore 读
-    // — 与 claude-code adapter sandbox-resolve.ts 同款直读模式（删 in-memory mirror + setter
-    // + apply hook 三层冗余）。settings 改 codexSandbox 不需 push 到 bridge,下次 createSession
-    // 即按新值生效（与 claude 同款语义,spawn-time 锁定不变）。
-    //
-    // REVIEW_79 INFO (reviewer-claude) 修法:同一 row 单读复用。修前 persistedSandbox(取
-    // .codexSandbox) 与 effectiveResumeThreadId(取 .cliSessionId) 各调一次 sessionRepo.get(opts.resume)
-    // 同步读同一行(两读间无 await,better-sqlite3 同步单线程值一致无 race,纯冗余)。
-    const runtime = resolveCodexCreateRuntime(opts, {
-      resumeRecord,
-      readApplicationInstructions:
-        deps.runtimeHost.configuration.readApplicationInstructions,
-      readConfiguredReasoningEffort:
-        deps.runtimeHost.configuration.readConfiguredReasoningEffort,
-      readGatewayProfile: deps.runtimeHost.configuration.readGatewayProfile,
-      readDefaultSandbox: deps.runtimeHost.configuration.readDefaultSandbox,
-    });
-    const {
-      permissionMode,
-      approvalPolicy: sessionApprovalPolicy,
-      developerInstructions,
-      effectiveOpts,
-      effectiveResumeThreadId,
-      gatewayConfigOverrides,
-      modelProvider,
-      sandboxMode,
-      threadModelReasoningEffort,
-    } = runtime;
+    const codex = await deps.ensureCodex(initialSid, sessionToken, modelCatalogPath);
 
     let thread: CodexAppServerThread;
     if (effectiveResumeThreadId) {

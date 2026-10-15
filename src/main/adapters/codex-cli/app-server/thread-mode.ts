@@ -1,4 +1,5 @@
 import type { CodexThreadOptions } from '../sdk-bridge/thread-options-builder';
+import { assertCodexModelCatalogUnchanged, resolveCodexModelCatalogPath } from './model-catalog';
 
 export type CodexThreadMode =
   | { mode: 'start'; options: CodexThreadOptions }
@@ -83,6 +84,10 @@ export function withGatewayOptions(
     effort: CodexThreadOptions['modelReasoningEffort'] | null;
   },
 ): CodexThreadMode {
+  assertCodexModelCatalogUnchanged(
+    resolveCodexModelCatalogPath(mode.options.gatewayConfigOverrides, mode.options.configOverrides),
+    resolveCodexModelCatalogPath(input.gatewayConfigOverrides, mode.options.configOverrides),
+  );
   const updated = withModelOptions(mode, input.model, input.effort);
   const options = { ...updated.options };
   if (input.gatewayConfigOverrides === null) delete options.gatewayConfigOverrides;

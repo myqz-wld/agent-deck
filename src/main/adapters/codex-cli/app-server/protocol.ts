@@ -93,6 +93,8 @@ export interface CodexAppServerRunResult {
 
 export interface CodexAppServerOptions {
   codexPathOverride?: string | null;
+  /** Explicit owning-host model catalog; native Codex loads it only at process startup. */
+  modelCatalogPath?: string;
   config?: CodexConfigObject | null;
   env: Record<string, string>;
   cwd?: string;

@@ -227,11 +227,13 @@ export class CodexSdkBridge {
   private async ensureCodex(
     sessionId: string,
     sessionToken: string,
+    modelCatalogPath?: string,
   ): Promise<CodexAppServerClient> {
     const client = this.opts.runtimeHost.clientRegistry.ensureClient({
       clients: this.codexBySession,
       sessionId,
       sessionToken,
+      modelCatalogPath,
       hookServer: this.opts.hookServer,
     });
     this.permissionHost.bindClient(client);
@@ -253,7 +255,7 @@ export class CodexSdkBridge {
       emit: this.opts.emit,
       runtimeHost: this.opts.runtimeHost,
       // arrow 闭包 facade `this`,运行时晚解析 → this.ensureCodex 一定已绑定
-      ensureCodex: (sid, token) => this.ensureCodex(sid, token),
+      ensureCodex: (sid, token, catalog) => this.ensureCodex(sid, token, catalog),
     });
   }
 
@@ -271,7 +273,7 @@ export class CodexSdkBridge {
       threadLoop: this.threadLoop,
       emit: this.opts.emit,
       runtimeHost: this.opts.runtimeHost,
-      ensureCodex: (sid, token) => this.ensureCodex(sid, token),
+      ensureCodex: (sid, token, catalog) => this.ensureCodex(sid, token, catalog),
       resolveTargetRuntime: (opts) => resolveCodexForkTargetRuntime(opts, {
         defaultSandboxMode: this.opts.runtimeHost.configuration.readDefaultSandbox(),
         developerInstructions:

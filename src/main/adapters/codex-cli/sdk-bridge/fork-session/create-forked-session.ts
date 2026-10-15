@@ -14,6 +14,7 @@ import { buildForkedFirstTurnInput, buildForkInstructionReset } from './instruct
 import { type CodexForkTargetRuntime } from './target-runtime';
 import { cleanupCodexFork, type CodexForkCleanupState, type CodexForkLifecycleOps } from './rollback';
 import type { CodexBridgeRuntimeHost } from '../runtime-host-core';
+import { resolveCodexModelCatalogPath } from '../../app-server/model-catalog';
 
 export type CodexForkFaultPhase =
   | 'before-native-creation'
@@ -30,6 +31,7 @@ export interface CreateCodexForkDeps {
   ensureCodex(
     sessionId: string,
     sessionToken: string,
+    modelCatalogPath?: string,
   ): Promise<CodexAppServerClient>;
   lifecycle: CodexForkLifecycleOps;
   resolveTargetRuntime: (opts: CreateSessionOpts) => CodexForkTargetRuntime;
@@ -72,7 +74,9 @@ export async function createCodexForkedSession(
   };
 
   try {
-    const targetClient = await deps.ensureCodex(tempId, sessionToken);
+    const targetClient = await deps.ensureCodex(tempId, sessionToken, resolveCodexModelCatalogPath(
+      runtime.threadOptions.gatewayConfigOverrides, runtime.threadOptions.configOverrides,
+    ));
     cleanupState.targetClient = targetClient;
     if (targetClient === sourceClient) {
       throw new Error('Codex native fork requires a distinct target-owned app-server client.');

@@ -31,6 +31,14 @@ function setup(binary: string | null = '/bundled/codex') {
 }
 
 describe('Codex app-server desktop process host', () => {
+  it('passes the owning-host catalog before app-server without promoting other configuration', () => {
+    const host = setup();
+    host.start({ env: {}, modelCatalogPath: '/host/models/alias catalog.json' });
+    expect(host.spawnProcess.mock.calls[0][1]).toEqual([
+      '-c', 'model_catalog_json="/host/models/alias catalog.json"', 'app-server', '--stdio',
+    ]);
+  });
+
   it('uses a trimmed explicit executable without resolving or mutating helper PATH', () => {
     const host = setup();
     const env = { PATH: '/usr/bin', KEEP: 'value' };

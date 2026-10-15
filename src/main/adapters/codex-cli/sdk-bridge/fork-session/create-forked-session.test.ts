@@ -11,6 +11,15 @@ import {
   SOURCE_NATIVE_ID,
 } from './create-forked-session-fixture';
 describe('Codex native fork lifecycle', () => {
+  it('constructs the target with its effective catalog before native fork and leaves the source alone', async () => {
+    const h = makeHarness();
+    h.runtime.threadOptions.gatewayConfigOverrides = { model_catalog_json: '/owner/gateway.json' };
+    h.runtime.threadOptions.configOverrides = { model_catalog_json: '/owner/agent.json' };
+    await createCodexForkedSession(h.source, h.target, h.deps);
+    expect(h.deps.ensureCodex).toHaveBeenCalledWith(expect.any(String), 'target-token', '/owner/agent.json');
+    expect(h.sourceClient.forkThread).not.toHaveBeenCalled();
+  });
+
   it('reads only on the caller client and runs terminal-prefix child setup on the target client', async () => {
     const h = makeHarness();
     const handle = await createCodexForkedSession(h.source, h.target, h.deps);

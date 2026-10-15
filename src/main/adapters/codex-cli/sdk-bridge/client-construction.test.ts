@@ -21,6 +21,21 @@ function host(
 }
 
 describe('Codex client construction Core', () => {
+  it('freezes each new client catalog and refuses to replace a cached runtime for a different one', () => {
+    const first = { modelCatalogPath: '/owner/models/a.json' } as CodexAppServerClient;
+    const createClient = vi.fn(() => first);
+    const dependencies = host(createClient);
+    const options = { clients: new Map<string, CodexAppServerClient>(), sessionId: 'a',
+      sessionToken: 'token-a', hookServer: undefined, modelCatalogPath: first.modelCatalogPath };
+    ensureCodexClientWithHost(options, dependencies);
+    expect(createClient).toHaveBeenCalledWith(expect.objectContaining({ modelCatalogPath: first.modelCatalogPath }));
+    expect(ensureCodexClientWithHost(options, dependencies)).toBe(first);
+    expect(() => ensureCodexClientWithHost({ ...options, modelCatalogPath: '/owner/models/b.json' }, dependencies))
+      .toThrow('请新建会话');
+    expect(createClient).toHaveBeenCalledTimes(1);
+    expect(options.clients.get('a')).toBe(first);
+  });
+
   it('returns a cached client without reading host state', () => {
     const cached = {} as CodexAppServerClient;
     const clients = new Map([['session-a', cached]]);

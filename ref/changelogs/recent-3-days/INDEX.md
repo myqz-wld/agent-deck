@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-10-15 | `CHANGELOG_685_tool-search-fallbacks.md` | Apply Codex startup catalogs and verify Claude Tool Search opt-in |
 | 2026-10-15 | `CHANGELOG_684_runtime-component-injection.md` | Pin component versions and add explicit native session refresh |
 | 2026-10-15 | `CHANGELOG_683_claude-immediate-teammate-messages.md` | Deliver Claude teammate messages during active turns; verify Grok parity |
 | 2026-10-14 | `CHANGELOG_682_borderless-activity-rows.md` | Restore light borderless text for ordinary activity events |

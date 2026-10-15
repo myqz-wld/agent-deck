@@ -37,9 +37,10 @@ export function ensureCodexClient({
   sessionId,
   sessionToken,
   hookServer,
+  modelCatalogPath,
 }: EnsureCodexClientOptions): CodexAppServerClient {
   return ensureCodexClientWithHost(
-    { clients, sessionId, sessionToken, hookServer },
+    { clients, sessionId, sessionToken, hookServer, modelCatalogPath },
     desktopCodexClientConstructionHost,
   );
 }

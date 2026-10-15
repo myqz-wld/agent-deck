@@ -14,6 +14,7 @@ import type { CodexThreadMode } from './thread-mode';
 
 export interface CodexAppServerProcessStart {
   codexPathOverride?: string | null;
+  modelCatalogPath?: string;
   cwd?: string;
   env: Record<string, string>;
 }

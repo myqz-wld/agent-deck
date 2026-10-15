@@ -15,6 +15,8 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-10-15 | `REVIEW_332_tool-search-fallback-repairs.md` | Repair Codex startup metadata; verify Claude search opt-in | 2 MEDIUM fixed; native fixtures and full validation passed |
+| 2026-10-15 | `REVIEW_330_tool-search-loading-evidence.md` | Measure native tool loading and eager fallback paths | 4 MEDIUM opportunities; synthetic native request evidence |
 | 2026-10-15 | `REVIEW_329_runtime-component-boundaries.md` | Audit refresh, retention, and native discovery boundaries | Lead audit; source and full regression validated |
 | 2026-10-14 | `REVIEW_328_claude-unacknowledged-input-loss.md` | Preserve failed Claude input and support explicit resending | 2 HIGH / 1 MEDIUM fixed; full regression passed |
 | 2026-10-14 | `REVIEW_327_session-metadata-startup.md` | Stabilize Gateway and context labels during session startup | 1 MEDIUM / 1 LOW fixed; full regression passed |

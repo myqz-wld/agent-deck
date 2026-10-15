@@ -35,6 +35,10 @@ Extension switches apply to new sessions by default. Use `/deck-refresh` to refr
 components in the current session when its work is idle. Results show which components need a new
 session. `/deck-refresh cancel` withdraws a queued refresh without stopping the agent's task.
 
+Compatible Claude gateways can opt into Tool Search with `"env": {"ENABLE_TOOL_SEARCH": "true"}`
+in their gateway JSON; start a new session afterward. Codex uses native model capabilities and any
+explicitly configured `model_catalog_json` on the runtime host.
+
 ## Development
 
 | Command | Purpose |

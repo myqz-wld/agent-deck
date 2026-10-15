@@ -8,6 +8,7 @@ import type { CodexAppServerClient } from '../app-server/client';
 import type { AppSettings } from '@shared/types';
 import type { CodexBridgeOptions } from './types';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
+import { assertCodexModelCatalogUnchanged, resolveCodexModelCatalogPath } from '../app-server/model-catalog';
 
 export interface CodexClientConstructionHost {
   createClient(options: CodexAppServerOptions): CodexAppServerClient;
@@ -27,6 +28,7 @@ export interface EnsureCodexClientOptions {
   clients: Map<string, CodexAppServerClient>;
   sessionId: string;
   sessionToken: string;
+  modelCatalogPath?: string;
   hookServer: CodexBridgeOptions['hookServer'];
 }
 
@@ -36,7 +38,13 @@ export function ensureCodexClientWithHost(
   host: CodexClientConstructionHost,
 ): CodexAppServerClient {
   const cached = options.clients.get(options.sessionId);
-  if (cached) return cached;
+  if (cached) {
+    assertCodexModelCatalogUnchanged(cached.modelCatalogPath, options.modelCatalogPath);
+    return cached;
+  }
+
+  const modelCatalogPath = options.modelCatalogPath === undefined ? undefined
+    : resolveCodexModelCatalogPath({ model_catalog_json: options.modelCatalogPath });
 
   const configuredPath = host.readCodexCliPath();
   const codexPathOverride = configuredPath?.trim() || null;
@@ -56,6 +64,7 @@ export function ensureCodexClientWithHost(
   try {
     client = host.createClient({
       codexPathOverride,
+      ...(modelCatalogPath ? { modelCatalogPath } : {}),
       config: mergeCodexConfig(
         mergeCodexConfig(null, agentDeckMcpConfig),
         browserConfig,

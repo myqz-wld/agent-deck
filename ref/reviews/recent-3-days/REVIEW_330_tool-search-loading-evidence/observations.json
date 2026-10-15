@@ -1,0 +1,52 @@
+{
+  "codex": {
+    "version": "0.162.1",
+    "recognizedModel": "gpt-6-sol",
+    "recognizedFirstRequestDefinitions": 0,
+    "recognizedAfterDiscovery": [
+      "list_sessions"
+    ],
+    "unknownModel": "fixture-model",
+    "unknownFirstRequestDefinitions": 20,
+    "unknownMcpNamespaceCharacters": 44807,
+    "configuredCatalogAtThreadStart": {
+      "firstRequestDefinitions": 20,
+      "unknownMcpNamespaceCharacters": 44807
+    },
+    "configuredCatalogAtProcessStart": {
+      "firstRequestDefinitions": 0,
+      "afterDiscovery": [
+        "list_sessions"
+      ]
+    },
+    "discoveryMechanism": "Native Code Mode functions.exec / ALL_TOOLS exact-name lookup; no model-driven ranking measurement."
+  },
+  "claude": {
+    "version": "0.3.299",
+    "model": "claude-sonnet-4-6",
+    "target": "loopback fake gateway",
+    "defaultFirstRequestMcpTools": 20,
+    "defaultMcpDefinitionCharacters": 67837,
+    "enabledFirstRequestMcpTools": 0,
+    "afterSearch": [
+      {
+        "name": "mcp__agent-deck__list_sessions",
+        "defer_loading": true
+      }
+    ],
+    "toolReferenceObserved": true
+  },
+  "measurement": "Serialized native request shape only. No real model inference, tokenizer, cached-token or billing measurement.",
+  "baselineCommit": "a7ff9c5acae0a89dbf666fca8252bce77ae05eb0",
+  "catalogSha256": "503293fc45b78ea33632c621602640fe4c84cbadd892d477adb3a5e9c562342a",
+  "grokSource": {
+    "commit": "f049847ce9426ee3e33b452cd340f2ef6b900edb",
+    "installedRuntimeProbed": false,
+    "searchResultDescriptionLimit": 2048,
+    "overLimit": {
+      "spawn_session": 5110,
+      "hand_off_session": 3058,
+      "enter_worktree": 2742
+    }
+  }
+}
