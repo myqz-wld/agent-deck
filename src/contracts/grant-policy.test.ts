@@ -13,6 +13,17 @@ import {
 } from './grant-policy';
 
 describe('Remote Owner Product v1 grant policy', () => {
+  it('decodes the preceding release grant without moving permissions or granting refresh', () => {
+    // Captured from the 60-method revision-1 directory before appending component refresh.
+    const decoded = decodeRemoteOwnerGrantClaim({ policy: 'Remote Owner Product v1', policyVersion: 1,
+      policyRevision: 1, productBits: '8ffffffffffff77', channelBits: '300000000000000' });
+    expect([...decoded.productMethods].sort()).toEqual(REMOTE_OWNER_PRODUCT_V1_METHODS.filter(
+      method => method !== 'session.components.refresh').sort());
+    expect(decoded.channelMethods).toEqual(['desktop.broker.next', 'desktop.broker.respond']);
+    const feishu = decodeRemoteOwnerGrantClaim({ policy: 'Remote Owner Product v1', policyVersion: 1,
+      policyRevision: 1, productBits: '8ffffffffffff77', channelBits: '000000000000088' });
+    expect(feishu.channelMethods).toEqual(['subscription.set', 'feishu.assistants.register']);
+  });
   it('classifies the complete Core method directory exactly once', () => {
     const groups = [
       REMOTE_OWNER_PRODUCT_V1_METHODS,

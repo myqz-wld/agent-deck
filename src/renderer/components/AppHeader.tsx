@@ -93,9 +93,9 @@ export function AppHeader({
 
   return (
     <header className="drag-region flex h-9 shrink-0 items-center gap-2 pl-[78px] pr-2.5">
-      <div className="min-w-0 shrink truncate">
-        <span className="text-[11px] font-medium tracking-wide">Agent Deck</span>
-        <span className="ml-1.5 text-[10px] text-deck-muted/70">
+      <div className="flex min-w-0 shrink items-center overflow-hidden whitespace-nowrap">
+        <span className="shrink-0 text-[11px] font-medium tracking-wide">Agent Deck</span>
+        <span className="ml-1.5 min-w-0 truncate text-[10px] text-deck-muted/70">
           {stats.total === null ? '会话总数未提供' : `${stats.total} 会话`}
           {stats.waiting > 0 && (
             <span className="ml-1.5 text-status-waiting">· {stats.waiting} 等待</span>
@@ -112,7 +112,7 @@ export function AppHeader({
             type="button"
             onClick={onOpenPending}
             title="打开待处理列表"
-            className="no-drag ml-2 inline-flex items-center gap-1 rounded bg-status-waiting/25 px-1.5 py-0.5 text-[10px] text-status-waiting hover:bg-status-waiting/40"
+            className="no-drag ml-2 inline-flex h-5 shrink-0 items-center gap-1 rounded bg-status-waiting/25 px-1.5 align-middle text-[10px] leading-none text-status-waiting hover:bg-status-waiting/40"
           >
             <AlertTriangleIcon className="h-3 w-3" />
             {pending} 待处理
@@ -213,13 +213,13 @@ function TabButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex h-5 items-center rounded px-2 text-[10px] transition disabled:cursor-not-allowed disabled:opacity-40 ${
+      className={`inline-flex h-5 items-center rounded px-2 text-[10px] leading-none transition disabled:cursor-not-allowed disabled:opacity-40 ${
         active ? 'bg-white/15 text-deck-text' : 'text-deck-muted hover:bg-white/8'
       }`}
     >
       {children}
       {badge && badge > 0 ? (
-        <span className="ml-1 rounded bg-status-waiting/30 px-1 py-px text-[9px] font-medium tabular-nums text-status-waiting">
+        <span className="ml-1 inline-flex h-3.5 items-center rounded bg-status-waiting/30 px-1 text-[9px] font-medium leading-none tabular-nums text-status-waiting">
           {badge}
         </span>
       ) : null}

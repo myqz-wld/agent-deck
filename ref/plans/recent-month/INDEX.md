@@ -15,6 +15,7 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
+| 2026-10-07 | `PLAN_82_image-upload-stall.md` | completed | Bound image persistence, late cleanup and filesystem diagnostics | `REVIEW_315_image-upload-stall.md` |
 | 2026-10-01 | `PLAN_80_feishu-assistant-settings-flow.md` | completed | Simplify assistant settings and apply 150 ms readiness | `CHANGELOG_671_feishu-assistant-settings-flow.md` |
 | 2026-10-01 | `PLAN_81_remote-ui-readiness.md` | completed | Retain Remote views and autosave assistant selections | `REVIEW_311_remote-ui-readiness.md` |
 | 2026-09-30 | `PLAN_70_feishu-native-controls-activation.md` | completed | Activate native settings and approval repairs | `REVIEW_302_feishu-native-settings-approvals.md` |

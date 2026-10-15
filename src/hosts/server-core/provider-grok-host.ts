@@ -81,7 +81,7 @@ export function createServerCoreGrokHost(input: ServerCoreProviderHostInput) {
     },
     resources: {
       loadBaselinePrompt: () => input.assets.grokBaselinePrompt(),
-      preparePluginProfile: (options) => input.assets.grokPluginProfile(options),
+      preparePluginProfile: (options, sessionId) => input.assets.grokPluginProfile(options, sessionId),
     },
     hookDiagnostics: new HookRouteDiagnostics(),
     hookInstallerObserver: { statusReadFailed: () => undefined },

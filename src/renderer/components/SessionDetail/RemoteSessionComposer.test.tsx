@@ -66,6 +66,19 @@ function source(overrides: Partial<RemoteSessionSourceView> = {}): RemoteSession
 }
 
 describe('RemoteSessionComposer parity and authority', () => {
+  it('keeps refresh on the selected remote host and never falls back to local actions', async () => {
+    const refreshAdapterComponents = vi.fn();
+    Object.defineProperty(window, 'api', { configurable: true, value: { refreshAdapterComponents } });
+    const refreshComponents = vi.fn(async () => { throw new Error('远端不可用'); });
+    const remote = source({ refreshComponents });
+    render(<RemoteSessionComposer source={remote} adapterId="claude-code" sessionId="session-a" />);
+    fireEvent.change(screen.getByPlaceholderText(/给 Claude Code 发消息/), { target: { value: '/deck-refresh cancel' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByText('远端不可用');
+    expect(refreshComponents).toHaveBeenCalledWith('cancel');
+    expect(refreshAdapterComponents).not.toHaveBeenCalled(); expect(remote.send).not.toHaveBeenCalled();
+    expect((screen.getByPlaceholderText(/给 Claude Code 发消息/) as HTMLTextAreaElement).value).toBe('/deck-refresh cancel');
+  });
   it('allows reopening the current handoff while its preview keeps Remote busy', async () => {
     const remote = source({ busy: true, capabilities: new Set(['sessions.handoff']) });
     const onHandOff = vi.fn();

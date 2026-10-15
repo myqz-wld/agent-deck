@@ -388,6 +388,7 @@ export function createServerCoreRuntimeWithOverrides(
   });
   const baseRuntime = new ServerCoreDaemonRuntime({
     instanceId: input.instanceId,
+    handOffSuccessor: findSessionHandOffSuccessor,
     repository: repositories.sessions,
     events: repositories.events,
     registry,

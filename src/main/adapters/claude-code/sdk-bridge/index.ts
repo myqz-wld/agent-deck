@@ -1,3 +1,6 @@
+import { withComponentRuntimeMutation } from '@main/adapters/component-refresh/runtime-mutation';
+import { requestClaudeRefresh } from '@main/adapters/component-refresh/requests';
+import type { SessionComponentAction } from '@shared/session-component-refresh';
 import type {
   AskUserQuestionAnswer,
   AskUserQuestionRequest,
@@ -53,35 +56,7 @@ import { withResolvedClaudeGatewayCore } from './session-defaults-core';
 import { listClaudeSessionCommands } from '../session-commands';
 export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
-/**
- * SDK 通道实现：每个 session 启动一个 query() AsyncGenerator，
- * 把 SDKMessage 流翻译为 AgentEvent。
- *
- * 设计要点：
- * 1. 启用 settingSources: ['user','project','local']，让会话等价于在该 cwd
- *    跑 `claude`（复用本地 hooks / MCP / agents / permissions）。
- * 2. SDK 真实 session_id 由 SDKMessage 携带，不能预先生成。createSession
- *    会等第一条 SDKMessage 拿到 session_id 后再返回，并把它登记到
- *    sessionManager 的 sdk-owned 集合，让来自 hook 回环的同 id 事件被去重。
- * 3. 所有 emit 都打 source: 'sdk'。
- *
- * **Step 4.4 拆分**（plan deep-project-review-comprehensive-20260528）：原 840 LOC
- * 拆完后本文件作 thin facade（≤ 500 LOC 满足护栏）：
- * - class shell + ctor（11 sub-module ref 装配）
- * - createSession 改 thin delegate → `./create-session/create-session-impl.ts:createSessionImpl`
- * - sendMessage / setPermissionMode / 2 restartWith* remain thin public delegates
- * - provider-history and cwd probes remain protected test seams
- * - 6 responder thin wrapper / consume protected wrapper 不拆
- *
- * **decision 矛盾解决记录**（参照 Step 4.1 hand-off-session 同款 decision 范式）：
- * 修前 §保护清单 jsdoc（CHANGELOG_169 F1）标记本文件「下次拆分轮直接跳过」，理由是
- * createSession 主体闭包持 10+ 个跨段共享 ref（tempKey / internal / claudeSandboxMode /
- * claudeModel / realId / opts / releasePending / mcpServers / effectiveResumeCliSid /
- * q / query / runtime / claudeBinary / sandboxOpts），tier-2 抽 sub-method 需打包 args dict
- * 反而降可读性。本 plan §D1 「13 文件全拆 ≤500 LOC」契约 vs §保护清单对立 → user 选
- * 「强行按 mini-spike 拆」方案：子模块间通过函数 return value 传递派生 state（避免单一
- * 巨型 ctx object 闭包污染，保函数式 readability），与 Step 4.1 / 4.2 / 4.3 同款做法。
- */
+/** Provider facade; lifecycle, input, refresh and native session setup live in focused modules. */
 export class ClaudeSdkBridge {
   /** key 是真实 session_id（拿到之前用临时 id） */
   private sessions = new Map<string, InternalSession>();
@@ -256,6 +231,11 @@ export class ClaudeSdkBridge {
     }, this.opts.messageControllerHost);
   }
 
+  refreshSessionComponents(sessionId: string, action: SessionComponentAction) {
+    return requestClaudeRefresh(this.sessions, sessionId, action, this.opts.emit,
+      this.opts.createSessionSdkQueryHost.captureComponentRefresh);
+  }
+
   listSessionCommands(sessionId: string) {
     return listClaudeSessionCommands(this.sessions.get(sessionId)?.query ?? null);
   }
@@ -394,7 +374,7 @@ export class ClaudeSdkBridge {
     await interruptClaudeSessionCore(this.sessions, sessionId, this.opts.sessionLifecycleHost);
   }
 
-  armCwdTransition(transition: AgentCwdTransition): void { this.cwdTransitionController.arm(transition); }
+  armCwdTransition(transition: AgentCwdTransition): void { this.sessions.get(transition.sessionId)?.componentRefresh?.invalidate(); this.cwdTransitionController.arm(transition); }
   async switchCwdForTransition(transition: AgentCwdTransition): Promise<AgentCwdTransitionSwitchResult> {
     return this.cwdTransitionController.switchCwd(transition);
   }
@@ -408,6 +388,7 @@ export class ClaudeSdkBridge {
 
   /** Permanent best-effort close; strict transactional proof uses closeSessionForRollback(). */
   async closeSession(sessionId: string, opts: { markRecentlyDeleted?: boolean } = {}): Promise<void> {
+    this.sessions.get(sessionId)?.componentRefresh?.invalidate();
     await closeClaudeSessionCore({
       sessions: this.sessions,
       emit: this.opts.emit,
@@ -417,6 +398,7 @@ export class ClaudeSdkBridge {
   }
 
   async closeSessionForRollback(sessionId: string): Promise<void> {
+    this.sessions.get(sessionId)?.componentRefresh?.invalidate();
     return closeClaudeSessionForRollbackCore({
       sessions: this.sessions,
       emit: this.opts.emit,
@@ -424,6 +406,7 @@ export class ClaudeSdkBridge {
     }, this.opts.sessionLifecycleHost);
   }
   retireSessionAfterCurrentTurn(sessionId: string): void {
+    this.sessions.get(sessionId)?.componentRefresh?.invalidate();
     retireClaudeSessionAfterCurrentTurnCore(this.sessions, sessionId);
   }
 
@@ -444,18 +427,19 @@ export class ClaudeSdkBridge {
     sessionId: string,
     mode: PermissionMode,
   ): Promise<void> {
-    return setClaudePermissionModeCore({ sessions: this.sessions, sessionId, mode }, this.opts.sessionLifecycleHost);
+    return withComponentRuntimeMutation(this.sessions.get(sessionId), () =>
+      setClaudePermissionModeCore({ sessions: this.sessions, sessionId, mode }, this.opts.sessionLifecycleHost));
   }
 
   async setSessionModelOptions(
     sessionId: string,
     options: { gateway: string | null; model: string | null; thinking: string | null },
   ): Promise<void> {
-    await this.sessionModelController.setOptions(sessionId, {
+    await withComponentRuntimeMutation(this.sessions.get(sessionId), () => this.sessionModelController.setOptions(sessionId, {
       provider: options.gateway,
       model: options.model,
       thinking: options.thinking,
-    });
+    }));
   }
 
   /** 冷切权限模式 thin delegate。bypass 必须走冷切（spawn-time flag 锁死）。详 restart-controller.ts。 */
@@ -464,7 +448,8 @@ export class ClaudeSdkBridge {
     mode: PermissionMode,
     handoffPrompt: string,
   ): Promise<string> {
-    return this.restartController.restartWithPermissionMode(sessionId, mode, handoffPrompt);
+    return withComponentRuntimeMutation(this.sessions.get(sessionId), () =>
+      this.restartController.restartWithPermissionMode(sessionId, mode, handoffPrompt));
   }
 
   /** 冷切 OS 沙盒 thin delegate。详 restart-controller.ts。 */
@@ -473,7 +458,8 @@ export class ClaudeSdkBridge {
     sandbox: 'off' | 'workspace-write' | 'strict',
     handoffPrompt: string,
   ): Promise<string> {
-    return this.restartController.restartWithClaudeCodeSandbox(sessionId, sandbox, handoffPrompt);
+    return withComponentRuntimeMutation(this.sessions.get(sessionId), () =>
+      this.restartController.restartWithClaudeCodeSandbox(sessionId, sandbox, handoffPrompt));
   }
 
   /**

@@ -1,4 +1,7 @@
-import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import * as snapshotFilesystem from 'node:fs';
+import { publishAssetSnapshot } from '@main/runtime-assets/snapshot-store';
+import { sessionAssetSelections } from '@main/runtime-assets/session-selection';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 const USER_GROK_AGENTS_FILENAME = 'agent-deck-grok-agents.md';
@@ -27,7 +30,7 @@ export function createGrokResourceStore(options: GrokResourceStoreOptions) {
   const pluginRoot = join(options.configRoot, 'agent-deck-plugin');
   const userAgentsPath = join(options.userDataPath, USER_GROK_AGENTS_FILENAME);
   const pluginProfilesRoot = join(options.userDataPath, 'grok-plugin-profiles');
-  const preparedPluginProfiles = new Map<string, Promise<string>>();
+  const selections = sessionAssetSelections(pluginProfilesRoot);
 
   const getBuiltinAgents = (): Promise<string> =>
     readFile(join(options.configRoot, 'GROK_AGENTS.md'), 'utf8');
@@ -66,38 +69,22 @@ export function createGrokResourceStore(options: GrokResourceStoreOptions) {
 
   const resetUserAgents = (): Promise<void> => rm(userAgentsPath, { force: true });
 
-  const materializePluginProfile = async (
-    key: string,
+  const preparePluginProfile = async (
     profileOptions: GrokPluginProfileOptions,
-  ): Promise<string> => {
-    const target = join(pluginProfilesRoot, key);
-    await rm(target, { recursive: true, force: true });
-    await mkdir(target, { recursive: true });
-    await cp(join(pluginRoot, 'plugin.json'), join(target, 'plugin.json'));
-    if (profileOptions.includeSkills) {
-      await cp(join(pluginRoot, 'skills'), join(target, 'skills'), { recursive: true });
-    }
-    if (profileOptions.includeAgents) {
-      await cp(join(pluginRoot, 'agents'), join(target, 'agents'), { recursive: true });
-    }
-    return target;
-  };
-
-  const preparePluginProfile = (
-    profileOptions: GrokPluginProfileOptions,
+    sessionId?: string,
   ): Promise<string | null> => {
-    if (!profileOptions.includeSkills && !profileOptions.includeAgents) {
-      return Promise.resolve(null);
-    }
-    const key = `${profileOptions.includeSkills ? 'skills' : ''}${
-      profileOptions.includeAgents ? '-agents' : ''
-    }`;
-    const existing = preparedPluginProfiles.get(key);
-    if (existing) return existing;
-    const pending = materializePluginProfile(key, profileOptions);
-    preparedPluginProfiles.set(key, pending);
-    pending.catch(() => preparedPluginProfiles.delete(key));
-    return pending;
+    const prepare = (): string[] => {
+      if (!profileOptions.includeSkills && !profileOptions.includeAgents) return [];
+      const snapshot = publishAssetSnapshot({
+        source: pluginRoot, destination: pluginProfilesRoot,
+        identity: { provider: 'grok', skills: profileOptions.includeSkills, agents: profileOptions.includeAgents },
+        omit: [ ...(!profileOptions.includeSkills ? ['skills'] : []), ...(!profileOptions.includeAgents ? ['agents'] : []) ],
+        validate: path => { JSON.parse(snapshotFilesystem.readFileSync(join(path, 'plugin.json'), 'utf8')); },
+      }, snapshotFilesystem);
+      selections.retire([snapshot.path]);
+      return [snapshot.path];
+    };
+    return (sessionId ? selections.select(sessionId, prepare) : prepare())[0] ?? null;
   };
 
   return Object.freeze({

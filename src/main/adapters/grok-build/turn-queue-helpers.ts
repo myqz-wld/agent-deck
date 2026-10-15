@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 import type { ContentBlock } from '@agentclientprotocol/sdk';
-import type { PendingAgentMessage } from '@main/adapters/types';
+import type { PendingAgentMessage, QueuedAgentMessage } from '@main/adapters/types';
 import type { UploadedAttachmentRef } from '@shared/types';
 
 import { errorText } from './protocol-utils';
@@ -71,4 +71,17 @@ export async function promptBlocks(
     });
   }
   return blocks;
+}
+
+export function snapshotGrokQueuedMessages(runtime: GrokRuntime | undefined): QueuedAgentMessage[] {
+  return (runtime?.queue ?? []).map(message => ({ text: message.text,
+    ...(message.attachments?.length ? { attachments: message.attachments.map(attachment => ({ ...attachment })) } : {}),
+  }));
+}
+
+export function requireActiveGrokRuntime(runtime: GrokRuntime | undefined, sessionId: string): GrokRuntime {
+  if (!runtime?.process || !runtime.ready || runtime.closed) {
+    throw new Error(`Grok session ${sessionId} is not active.`);
+  }
+  return runtime;
 }

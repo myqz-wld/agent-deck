@@ -17,7 +17,7 @@ export const desktopGrokBuildAdapterHost = createGrokBuildAdapterHost({
   sessionManager,
   resources: {
     loadBaselinePrompt: () => loadGrokBaselinePrompt(),
-    preparePluginProfile: (options) => prepareGrokPluginProfile(options),
+    preparePluginProfile: (options, sessionId) => prepareGrokPluginProfile(options, sessionId),
   },
   settings: {
     readBinaryPath: () => settingsStore.get('grokCliPath'),

@@ -306,6 +306,8 @@ export class GrokTurnQueue {
   }
 
   async drain(runtime: GrokRuntime): Promise<void> {
+    if (runtime.componentRefresh) await runtime.componentRefresh.checkpoint();
+    if (runtime.componentRefresh?.blocked) return;
     if (runtime.running) {
       const message = runtime.queue[0];
       if (message?.interjectWhenRunning && this.startInterject(runtime, { message, fingerprint: null })) {
@@ -318,6 +320,8 @@ export class GrokTurnQueue {
       this.options.beforeNextTurn &&
       !await prepareGrokNextTurn(runtime, this.options)
     ) return;
+    // Another drain or explicit refresh may claim the boundary while the hook awaits.
+    if (grokTurnBoundaryBlocked(runtime)) return;
     const message = runtime.queue.shift();
     if (!message) {
       if (runtime.sealed) await this.options.closeSession(runtime.applicationSessionId);

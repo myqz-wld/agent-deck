@@ -1,3 +1,4 @@
+import { parseDeckRefreshCommand, DECK_REFRESH_USAGE } from '@shared/application-session-commands';
 import { useRuntimeChangeConfirmation } from '@renderer/hooks/useRuntimeChangeConfirmation';
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import {
@@ -133,6 +134,11 @@ export function ComposerSdk({
     const hasAttachments = imgs.attachments.length > 0;
     if (!t && !hasAttachments) return false;
     if (busy) return false;
+    const applicationAction = parseDeckRefreshCommand(t, hasAttachments);
+    if (applicationAction === 'invalid') {
+      updateComposer(originSessionId, current => ({ ...current, sendError: DECK_REFRESH_USAGE }));
+      return false;
+    }
     if (!canAcceptAttachments && hasAttachments) {
       updateComposer(originSessionId, (current) => ({
         ...current,
@@ -167,7 +173,9 @@ export function ComposerSdk({
     }));
     if (generation === null) return false;
     try {
-      await window.api.sendAdapterMessage(originAgentId, originSessionId, {
+      if (applicationAction) {
+        await window.api.refreshAdapterComponents(originAgentId, originSessionId, applicationAction);
+      } else await window.api.sendAdapterMessage(originAgentId, originSessionId, {
         text: t,
         ...(snapshot.inputs.length > 0 ? { attachments: snapshot.inputs } : {}),
       });

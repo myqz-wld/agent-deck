@@ -14,6 +14,7 @@ export const SERVER_CORE_BASE_METHODS = Object.freeze([
   'session.handoff.preview',
   'session.handoff.commit',
   'session.send',
+  'session.components.refresh',
   'session.steer',
   'subscription.set',
   'system.health',

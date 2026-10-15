@@ -1,3 +1,4 @@
+import { releaseSessionAssetSelections } from '@main/runtime-assets/session-selection';
 /** Core session CRUD and persisted per-session runtime settings. */
 
 import type {
@@ -208,6 +209,7 @@ export function listLiveForUi(limit = 100): SessionRecord[] {
 export function _delete(id: string): void {
   // 注：导出名 `_delete` 因 `delete` 是 reserved word；facade 里 spread 时改回 `delete: _delete`
   deleteSessionWithWorktreeGuard(getDb(), id);
+  releaseSessionAssetSelections(id);
 }
 
 /** 写入用户在 UI 上选过的权限模式。null 表示恢复默认（'default'）。 */

@@ -176,6 +176,7 @@ export class MessageController {
     if (
       !forceQueue &&
       session.activeControlCommand == null &&
+      !session.componentRefresh?.blocked &&
       session.cwdTransitionGeneration == null &&
       session.currentTurn &&
       session.currentTurnId &&
@@ -296,6 +297,7 @@ export class MessageController {
     if (!session.currentTurn || !session.currentTurnId) {
       throw new Error('Codex 当前没有可 steer 的 active turn。');
     }
+    if (session.componentRefresh?.blocked) throw new Error('扩展刷新已预约，请等待完成后再发送 steer。');
     await this.steerActiveTurn(
       session,
       sessionId,

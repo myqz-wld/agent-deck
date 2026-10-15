@@ -78,6 +78,7 @@ export interface AgentCwdTransitionSwitchResult {
 }
 
 export interface AgentAdapter {
+  refreshSessionComponents?(sessionId: string, action: import('@shared/session-component-refresh').SessionComponentAction): Promise<import('@shared/session-component-refresh').SessionComponentRefreshStatus>;
   id: string;
   displayName: string;
   capabilities: AdapterCapabilities;

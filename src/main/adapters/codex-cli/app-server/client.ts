@@ -1,3 +1,4 @@
+import { CodexComponentConsumers } from './component-consumers';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { CodexConfigObject } from '@main/codex-config/agent-deck-mcp-injector';
@@ -56,6 +57,9 @@ export class CodexAppServerClient {
   private notificationListeners = new Set<(notification: CodexAppServerNotification) => void>();
   private readonly serverRequestHost = new CodexServerRequestHost(() => this.child);
   private closed = false;
+  private readonly componentConsumers = new CodexComponentConsumers();
+  componentRefreshCheckpoint?: () => void;
+  get hasActiveComponentConsumers(): boolean { return this.componentConsumers.busy(this.generation); }
   private currentStderrTail = '';
   private readonly mcpStartupObserver: CodexMcpStartupObserver;
   private readonly generationController: CodexGenerationController;
@@ -83,6 +87,17 @@ export class CodexAppServerClient {
       rejectPending: (error) => this.rejectAll(error),
       dispatchNotification: (notification) => this.dispatchNotification(notification),
     }, this.host.generationDiagnostics);
+  }
+
+  get skillExtraRoots(): readonly string[] { return this.opts.skillExtraRoots ?? []; }
+  recordSkillExtraRoots(roots: string[]): void { this.opts.skillExtraRoots = [...roots]; }
+  /** Refresh must never start, recycle or replace a provider process. */
+  async requestLive<T = unknown>(method: string, params: unknown, generation: number): Promise<T> {
+    const child = this.child;
+    if (!child || this.closed || this.generation !== generation) throw new Error('Codex 运行实例已变化。');
+    const response = await this.requestRaw<T>(method, params, AbortSignal.timeout(30_000));
+    if (this.child !== child || this.closed || this.generation !== generation) throw new Error('Codex 运行实例已变化。');
+    return response;
   }
 
   get baseConfig(): CodexConfigObject | null { return this.opts.config ?? null; }
@@ -423,7 +438,9 @@ export class CodexAppServerClient {
   }
 
   private dispatchNotification(notification: CodexAppServerNotification): void {
+    this.componentConsumers.observe(notification, this.generation);
     this.serverRequestHost.observe(notification);
+    this.componentRefreshCheckpoint?.();
     const mcpStartup = this.mcpStartupObserver.observe(notification);
     if (mcpStartup) this.diagnose(() => this.host.mcpStartupObserved(mcpStartup));
     for (const listener of [...this.notificationListeners]) {

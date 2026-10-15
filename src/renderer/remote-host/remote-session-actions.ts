@@ -24,6 +24,7 @@ type SessionActions = Pick<RemoteSessionSourceView,
   | 'deleteHistorySession'
   | 'getSessionCapabilities'
   | 'interrupt'
+  | 'refreshComponents'
   | 'listWorkspaceDirectories'
   | 'listOutgoing'
   | 'previewHandOff'
@@ -86,6 +87,12 @@ export function createRemoteSessionActions(
   };
 
   return {
+    refreshComponents: action => runBusiness(async () => {
+      requireCapability('sessions.runtime.write');
+      const request = mutationRequest(target());
+      await intents.run(sourceIdentity, `component-refresh:${action}`, request, intentId =>
+        window.api.refreshRemoteHostComponents({ ...request, intentId }, action));
+    }),
     archiveHistorySession: (session) => runBusiness(async () => {
       requireCapability('sessions.history.write');
       const request = mutationRequest({

@@ -1,3 +1,6 @@
+import { withComponentRuntimeMutation } from '@main/adapters/component-refresh/runtime-mutation';
+import { requestCodexRefresh } from '@main/adapters/component-refresh/requests';
+import type { SessionComponentAction } from '@shared/session-component-refresh';
 import type { ProviderUsageResetRequest, ProviderUsageResetResult } from '@shared/types';
 // Codex bridge facade; lifecycle, turn-loop, recovery, and restart behavior lives in sibling modules.
 import { AGENT_ID } from './constants';
@@ -300,6 +303,12 @@ export class CodexSdkBridge {
     await this.messageController.sendMessage(sessionId, text, attachments, options);
   }
 
+  refreshSessionComponents(sessionId: string, action: SessionComponentAction) {
+    return requestCodexRefresh(this.sessions, this.codexBySession, sessionId, action, this.opts.emit,
+      session => { void this.threadLoop.runTurnLoop(session, sessionId); },
+      this.opts.runtimeHost.configuration.captureComponentRefresh);
+  }
+
   executeSessionCommand(
     sessionId: string,
     command: CodexHostSessionCommand,
@@ -325,6 +334,7 @@ export class CodexSdkBridge {
   }
 
   armCwdTransition(transition: AgentCwdTransition): void {
+    this.sessions.get(transition.sessionId)?.componentRefresh?.invalidate();
     this.cwdTransitionController.arm(transition);
   }
 
@@ -347,6 +357,7 @@ export class CodexSdkBridge {
 
   /** Finish the current provider turn, but never start queued work on a handed-off source. */
   retireSessionAfterCurrentTurn(sessionId: string): void {
+    this.sessions.get(sessionId)?.componentRefresh?.invalidate();
     this.sessionLifecycle.retireAfterCurrentTurn(sessionId);
   }
 
@@ -367,34 +378,36 @@ export class CodexSdkBridge {
     sessionId: string,
     sandbox: 'workspace-write' | 'read-only' | 'danger-full-access',
   ): Promise<void> {
-    return this.restartController.setCodexSandbox(sessionId, sandbox);
+    return withComponentRuntimeMutation(this.sessions.get(sessionId), () => this.restartController.setCodexSandbox(sessionId, sandbox));
   }
 
   async setCodexApprovalPolicy(
     sessionId: string,
     policy: CodexApprovalPolicy,
   ): Promise<void> {
-    await this.restartController.setCodexApprovalPolicy(sessionId, policy);
+    await withComponentRuntimeMutation(this.sessions.get(sessionId), () => this.restartController.setCodexApprovalPolicy(sessionId, policy));
   }
 
   async setPermissionMode(sessionId: string, mode: import('@shared/types').PermissionMode): Promise<void> {
-    await setCodexPermissionMode(sessionId, mode, {
+    await withComponentRuntimeMutation(this.sessions.get(sessionId), () => setCodexPermissionMode(sessionId, mode, {
       operations: this.recovering,
       records: this.opts.runtimeHost.records,
       applyLive: (id, next) => this.sessions.get(id)?.thread.updatePermissionMode(next),
-    });
+    }));
   }
 
   async setSessionModelOptions(sessionId: string, options: SessionModelOptions): Promise<void> {
-    await this.sessionModelController.setOptions(sessionId, options);
+    await withComponentRuntimeMutation(this.sessions.get(sessionId), () => this.sessionModelController.setOptions(sessionId, options));
   }
 
   /** Permanent best-effort close; strict transactional proof uses closeSessionForRollback(). */
   async closeSession(sessionId: string): Promise<void> {
+    this.sessions.get(sessionId)?.componentRefresh?.invalidate();
     await this.sessionLifecycle.closeOrdinary(sessionId);
   }
 
   async closeSessionForRollback(sessionId: string): Promise<void> {
+    this.sessions.get(sessionId)?.componentRefresh?.invalidate();
     await this.sessionLifecycle.closeForRollback(sessionId);
   }
 

@@ -1,3 +1,4 @@
+import type { SessionComponentRefreshParams, SessionComponentRefreshResponse } from './session-component-refresh';
 import { AgentDeckCapability, type AgentDeckCapability as Capability } from './capabilities';
 import type { JsonObject, JsonValue } from './json';
 import type { UsageProviderResetParams, UsageProviderResetResult } from './usage-reset';
@@ -249,6 +250,7 @@ export type CoreMethodMap = {
     params: IssueResolveInNewSessionParams;
     result: IssueResolveInNewSessionResult;
   };
+  'session.components.refresh': { params: SessionComponentRefreshParams; result: SessionComponentRefreshResponse };
   'session.send': {
     params: { sessionId: string; text: string; attachments?: SessionConsoleAttachmentInput[] };
     result: { messageId: string; sequence: number; revision: number };
@@ -431,6 +433,8 @@ export const CORE_METHOD_METADATA = {
   'feishu.preferences.update': mutationMethod(AgentDeckCapability.FeishuConfiguration, 'none'),
   'usage.providers.reset': mutationMethod(AgentDeckCapability.Usage, 'none'),
   'feishu.assistants.register': mutationMethod(AgentDeckCapability.FeishuConfiguration, 'none'),
+  // Append new methods: compact Remote grants use this directory's stable bit positions.
+  'session.components.refresh': mutationMethod(AgentDeckCapability.SessionRuntimeWrite),
 } as const satisfies Record<keyof CoreMethodMap, CoreMethodMetadata>;
 
 export type CoreMethod = keyof CoreMethodMap;

@@ -119,6 +119,7 @@ export interface RemoteSessionSourceView {
     presentation: RemotePendingPresentation,
     agentId: string,
   ): PlanDeepReviewTransport | null;
+  refreshComponents?(action: import('@shared/session-component-refresh').SessionComponentAction): Promise<void>;
   interrupt(): Promise<void>;
   previewHandOff(
     input: Omit<SessionHandOffPreviewParams, 'sessionId'>,

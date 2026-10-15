@@ -38,4 +38,4 @@ then passed all 9 tests with two workers. The SQLite binding was unchanged.
 Source delivery is complete. The running application still needs an approved update/restart;
 this task performed no live process or installation actions.
 
-Evidence: [Browser idle recovery investigation](../../reviews/recent-3-days/REVIEW_317_browser-idle-resume.md).
+Evidence: [Browser idle recovery investigation](../../reviews/recent-week/REVIEW_317_browser-idle-resume.md).

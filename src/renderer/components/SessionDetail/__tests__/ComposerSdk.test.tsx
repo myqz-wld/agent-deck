@@ -28,6 +28,7 @@ function makeSession(overrides: Partial<SessionRecord> = {}): SessionRecord {
   };
 }
 
+let refreshAdapterComponents: ReturnType<typeof vi.fn>;
 let sendAdapterMessage: ReturnType<typeof vi.fn>;
 let interruptAdapterSession: ReturnType<typeof vi.fn>;
 let setSessionModelOptions: ReturnType<typeof vi.fn>;
@@ -38,6 +39,7 @@ let deletePendingOutgoingMessage: ReturnType<typeof vi.fn>;
 let emitAgentEvent: (event: AgentEvent) => void;
 
 beforeEach(() => {
+  refreshAdapterComponents = vi.fn(async () => ({ phase: 'queued', revision: 1, results: [] }));
   sendAdapterMessage = vi.fn(() => Promise.resolve());
   interruptAdapterSession = vi.fn(() => Promise.resolve());
   setSessionModelOptions = vi.fn(() => Promise.resolve());
@@ -68,6 +70,8 @@ beforeEach(() => {
       listClaudeGatewayProfiles: vi.fn().mockResolvedValue([]),
       listCodexGatewayProfiles: vi.fn().mockResolvedValue([]),
       sendAdapterMessage,
+      refreshAdapterComponents,
+      listAdapterSessionCommands: vi.fn(async () => []),
       interruptAdapterSession,
       setSessionModelOptions,
       setAdapterSessionMode,
@@ -89,6 +93,21 @@ afterEach(() => {
 });
 
 describe('ComposerSdk unified input routing', () => {
+  it('executes refresh as an application action without a synthetic user message', async () => {
+    render(<ComposerSdk session={makeSession()} turnBusy canSteerTurn />);
+    fireEvent.change(screen.getByPlaceholderText(/修正当前 Codex CLI 轮次/), { target: { value: '/deck-refresh' } });
+    fireEvent.click(screen.getByRole('button', { name: '修正' }));
+    await waitFor(() => expect(refreshAdapterComponents).toHaveBeenCalledWith('codex-cli', 'sess-1', 'refresh'));
+    expect(sendAdapterMessage).not.toHaveBeenCalled();
+  });
+  it('retains invalid command content and reports usage', async () => {
+    render(<ComposerSdk session={makeSession()} />);
+    fireEvent.change(screen.getByPlaceholderText(/给 Codex CLI 发消息/), { target: { value: '/deck-refresh surprise' } });
+    fireEvent.click(screen.getByRole('button', { name: '发送' }));
+    await screen.findByText(/用法：\/deck-refresh/);
+    expect((screen.getByPlaceholderText(/给 Codex CLI 发消息/) as HTMLTextAreaElement).value).toBe('/deck-refresh surprise');
+    expect(refreshAdapterComponents).not.toHaveBeenCalled(); expect(sendAdapterMessage).not.toHaveBeenCalled();
+  });
   it.each(['claude-code', 'codex-cli', 'grok-build'])('offers the same two real permission choices for %s', async agentId => {
     vi.mocked(window.api.listAdapters).mockResolvedValueOnce([{
       id: agentId, displayName: agentId, capabilities: { canSetPermissionMode: true },

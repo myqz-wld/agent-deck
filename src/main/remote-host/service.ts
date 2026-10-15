@@ -361,6 +361,10 @@ export class RemoteHostService {
       requestRemoteHistory(scope, request));
   }
 
+  refreshComponents(request: RemoteHostMutationTargetDto, action: import('@shared/session-component-refresh').SessionComponentAction) {
+    return this.sessionMutations.refreshComponents(request, action);
+  }
+
   async send(request: RemoteHostSendDto): Promise<RemoteHostSendResultDto> {
     return this.sessionMutations.send(request);
   }

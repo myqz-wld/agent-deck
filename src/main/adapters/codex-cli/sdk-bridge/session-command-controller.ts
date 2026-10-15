@@ -52,6 +52,7 @@ export class CodexSessionCommandController {
       throw new Error('Codex 会话不在运行中，无法执行命令。');
     }
     if (
+      session.componentRefresh?.blocked ||
       session.turnLoopRunning ||
       session.currentTurn ||
       session.pendingTurns.length > 0 ||
@@ -196,6 +197,7 @@ export class CodexSessionCommandController {
   private release(session: InternalSession): void {
     session.activeControlCommand = null;
     session.turnLoopRunning = false;
+    void session.componentRefresh?.checkpoint();
     if (
       this.context.sessions.get(session.applicationSid) === session &&
       !session.intentionallyClosed &&

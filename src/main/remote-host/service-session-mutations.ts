@@ -1,3 +1,5 @@
+import { parseSessionComponentRefreshResponse, type SessionComponentRefreshResponse } from '@contracts/session-component-refresh';
+import type { SessionComponentAction } from '@shared/session-component-refresh';
 import type {
   RemoteHostAcceptedResultDto,
   RemoteHostMutationTargetDto,
@@ -26,6 +28,13 @@ export class RemoteHostSessionMutationController {
     private readonly request: RemoteHostScopedRequest,
     private readonly mutationId: MutationId,
   ) {}
+
+  refreshComponents(request: RemoteHostMutationTargetDto, action: SessionComponentAction): Promise<SessionComponentRefreshResponse> {
+    return this.request(request.profileId, 'session.components.refresh', async scope =>
+      parseSessionComponentRefreshResponse(await scope.client.request('session.components.refresh', {
+        sessionId: request.sessionId, action,
+      }, this.options('component-refresh', request))), [], request.expectedAuthority);
+  }
 
   send(request: RemoteHostSendDto): Promise<RemoteHostSendResultDto> {
     return this.request(request.profileId, 'session.send', async (scope) =>

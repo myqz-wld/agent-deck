@@ -43,6 +43,7 @@ vi.mock('@main/store/settings-store', () => ({
 
 vi.mock('@main/codex-config/skills-installer', () => ({
   getCodexSkillExtraRootsForSession: mocks.skillExtraRoots,
+  prepareCodexRefreshSkills: vi.fn(),
 }));
 
 vi.mock('../app-server/client', () => ({

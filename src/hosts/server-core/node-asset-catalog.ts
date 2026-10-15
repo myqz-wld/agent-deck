@@ -1,3 +1,5 @@
+import { selectSessionPluginPaths } from '@main/runtime-assets/plugin-view';
+import { sessionAssetSelections } from '@main/runtime-assets/session-selection';
 import {
   cpSync,
   existsSync,
@@ -238,6 +240,10 @@ export class ServerCoreNodeAssetCatalog {
   private constructor(private readonly options: ServerCoreNodeAssetCatalogOptions, root: string) {
     this.resourcesRoot = root;
     const stateRoot = join(options.stateDirectory, 'node-assets');
+    for (const name of ['claude-plugin', 'codex-skills', 'grok-plugin-profiles']) {
+      try { sessionAssetSelections(join(stateRoot, name)).collectReleased(); }
+      catch { /* Unknown history ownership is retained conservatively. */ }
+    }
     this.claudeMirror = createPluginMirrorStore({
       filesystem: mirrorFilesystem,
       transformMarkdown: (content) => substituteResourcesPlaceholderWithRoot(content, root),
@@ -339,35 +345,50 @@ export class ServerCoreNodeAssetCatalog {
     });
   }
 
-  claudePlugins(): Array<{ type: 'local'; path: string }> {
-    const path = this.claudeMirror.sync({
-      source: bundledRoot(this.resourcesRoot, 'claude-code'),
-      destination: join(this.options.stateDirectory, 'node-assets', 'claude-plugin'),
-      includeSkills: this.options.settings.injectAgentDeckClaudeSkills,
-      includeAgents: this.options.settings.injectAgentDeckClaudeAgents,
-    });
-    return path ? [{ type: 'local', path }] : [];
+  claudePlugins(sessionId?: string): Array<{ type: 'local'; path: string }> {
+    const destination = join(this.options.stateDirectory, 'node-assets', 'claude-plugin');
+    return selectSessionPluginPaths(destination, sessionId, () => {
+      if (!this.options.settings.injectAgentDeckClaudeSkills && !this.options.settings.injectAgentDeckClaudeAgents) return [];
+      const { snapshot } = this.claudeRefreshPlugin();
+      if (!snapshot) throw new Error('无法准备 Claude 内置插件。');
+      return [snapshot];
+    }).map(path => ({ type: 'local', path }));
   }
 
-  codexSkillExtraRoots(): string[] {
+  claudeRefreshPlugin() {
+    const destination = join(this.options.stateDirectory, 'node-assets', 'claude-plugin');
+    const includeSkills = this.options.settings.injectAgentDeckClaudeSkills;
+    const includeAgents = this.options.settings.injectAgentDeckClaudeAgents;
+    return { destination, enabled: includeSkills || includeAgents, snapshot: this.claudeMirror.sync({
+      source: bundledRoot(this.resourcesRoot, 'claude-code'), destination, includeSkills, includeAgents,
+    }) };
+  }
+
+  codexSkillExtraRoots(sessionId?: string): string[] {
     const destination = join(this.options.stateDirectory, 'node-assets', 'codex-skills');
-    if (!this.options.settings.injectAgentDeckCodexSkills) {
-      this.codexSkillsMirror.remove(destination);
-      return [];
-    }
-    const written = this.codexSkillsMirror.sync({
-      source: join(bundledRoot(this.resourcesRoot, 'codex-cli'), 'skills'),
-      destination,
-    });
-    return written && written.length > 0 ? [destination] : [];
+    const selections = sessionAssetSelections(destination);
+    const prepare = () => {
+      if (!this.options.settings.injectAgentDeckCodexSkills) return [];
+      const written = this.codexSkillsMirror.sync({
+        source: join(bundledRoot(this.resourcesRoot, 'codex-cli'), 'skills'), destination,
+      });
+      if (!written) throw new Error('无法准备 Codex 内置 Skills。');
+      const path = this.codexSkillsMirror.snapshotPath(destination);
+      return written.length > 0 && path ? [path] : [];
+    };
+    return sessionId ? selections.select(sessionId, prepare) : prepare();
   }
 
-  grokBaselinePrompt(): Promise<string | null> {
-    return this.grokResources.loadBaselinePrompt();
+  codexRefreshSkills(sessionId: string) {
+    return { roots: this.codexSkillExtraRoots(), commit: (roots: string[]) => {
+      sessionAssetSelections(join(this.options.stateDirectory, 'node-assets', 'codex-skills')).replace(sessionId, roots);
+    } };
   }
 
-  grokPluginProfile(options: GrokPluginProfileOptions): Promise<string | null> {
-    return this.grokResources.preparePluginProfile(options);
+  grokBaselinePrompt(): Promise<string | null> { return this.grokResources.loadBaselinePrompt(); }
+
+  grokPluginProfile(options: GrokPluginProfileOptions, sessionId?: string): Promise<string | null> {
+    return this.grokResources.preparePluginProfile(options, sessionId);
   }
 
   private readConvention(adapterId: NodeAssetAdapterId, replacementRoot: string): string {

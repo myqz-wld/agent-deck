@@ -33,4 +33,4 @@ record only sanitized diagnostic metadata.
 - Source repair is complete. Installed-runtime activation remains pending; an original native
   blocker can only be attributed with new failure-time diagnostics and a pre-restart stack sample.
 
-Final record: [Image upload stall review](../../reviews/recent-week/REVIEW_315_image-upload-stall.md).
+Final record: [Image upload stall review](../../reviews/recent-month/REVIEW_315_image-upload-stall.md).

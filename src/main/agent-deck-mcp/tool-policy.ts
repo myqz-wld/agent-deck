@@ -1,8 +1,6 @@
-import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
-
 import type { McpToolPolicy } from '@main/adapters/runtime-profiles';
 
-export function filterAgentDeckTools<T extends Pick<SdkMcpToolDefinition<any>, 'name'>>(
+export function filterAgentDeckTools<T extends { name: string }>(
   tools: readonly T[],
   policy: McpToolPolicy,
 ): T[] {

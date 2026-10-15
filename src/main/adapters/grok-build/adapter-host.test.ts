@@ -81,6 +81,6 @@ describe('desktop Grok adapter host', () => {
     expect(mocks.prepareProfile).toHaveBeenCalledWith({
       includeAgents: true,
       includeSkills: false,
-    });
+    }, undefined);
   });
 });

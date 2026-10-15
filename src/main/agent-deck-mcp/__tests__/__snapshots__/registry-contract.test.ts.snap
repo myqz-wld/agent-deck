@@ -1,0 +1,7 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`provider-neutral registry contract > preserves the complete published claude-code catalog captured before decoupling 1`] = `"503293fc45b78ea33632c621602640fe4c84cbadd892d477adb3a5e9c562342a"`;
+
+exports[`provider-neutral registry contract > preserves the complete published codex-cli catalog captured before decoupling 1`] = `"503293fc45b78ea33632c621602640fe4c84cbadd892d477adb3a5e9c562342a"`;
+
+exports[`provider-neutral registry contract > preserves the complete published grok-build catalog captured before decoupling 1`] = `"92254965284411424c6eba5938839be466d486e695b0dcc80397e78be214c6aa"`;

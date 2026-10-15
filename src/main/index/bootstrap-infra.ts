@@ -1,3 +1,4 @@
+import { initializeDesktopAssetSelections } from '@main/runtime-assets/desktop-startup';
 // ────────────────────────────────────────────────────────────────────────────
 // Phase 4 Step 4.8 拆分:bootstrap god-function 的 infrastructure init 段
 // (原 bootstrap Phase 0-8.6,L88-280)。
@@ -324,6 +325,7 @@ export async function initInfra(state: BootstrapState): Promise<AppSettings | nu
   // syncSkills 走 static import(顶部 import 段已说明原因),
   // 这里同步直接调;失败只 warn 不抛(不阻断 main 启动),与 settings.ts 同步路径同模式。
   try {
+    initializeDesktopAssetSelections();
     syncSkills();
   } catch (err) {
     logger.warn('[bootstrap] syncSkills 失败', err);

@@ -22,6 +22,7 @@ export type ClaudeSdkQueryOptionsArgs = Omit<
 
 /** Desktop-owned composition required to construct and retire one Claude SDK query. */
 export interface ClaudeCreateSessionSdkQueryHost {
+  captureComponentRefresh?(sessionId: string): import('@main/adapters/component-refresh/claude').ClaudeRefreshTarget;
   loadSdk(): Promise<Pick<typeof import('@anthropic-ai/claude-agent-sdk'), 'query'>>;
   runtimeOptions(): ClaudeSdkRuntimeOptions;
   prepareBrowserRuntime?(
@@ -46,7 +47,7 @@ export interface ClaudeCreateSessionSdkQueryHost {
   ): Promise<{ agentDeckMcpServer: McpSdkServerConfigWithInstance | null }>;
   buildQueryOptions(args: ClaudeSdkQueryOptionsArgs): Options;
   systemPromptAppend(): string;
-  plugins(selectedPluginDir?: string): NonNullable<Options['plugins']>;
+  plugins(selectedPluginDir?: string, sessionId?: string): NonNullable<Options['plugins']>;
   runtimeMetadataHooks(internal: InternalSession): NonNullable<Options['hooks']>;
   cleanupGatewaySandboxSettings(holder: GatewaySandboxSettingsCleanupHolder): void;
   observeSandboxConfiguration(message: string): void;

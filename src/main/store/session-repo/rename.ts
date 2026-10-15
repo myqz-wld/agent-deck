@@ -1,3 +1,4 @@
+import { renameSessionAssetSelections } from '@main/runtime-assets/session-selection';
 import type { Database } from 'better-sqlite3';
 import { getDb } from '../db';
 import type { Row } from './types';
@@ -181,5 +182,6 @@ export function renameWithDb(db: Database, fromId: string, toId: string): void {
 
     db.prepare(`DELETE FROM sessions WHERE id = ?`).run(fromId);
   });
+  renameSessionAssetSelections(fromId, toId);
   tx();
 }

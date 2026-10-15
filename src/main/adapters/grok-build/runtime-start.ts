@@ -244,6 +244,7 @@ export async function startGrokRuntime(
   const mcpServers = allowAgentDeckMcp
     ? buildGrokMcpServers(runtime.applicationSessionId, context.sessionSetup)
     : [];
+  runtime.componentMcp = { allowed: allowAgentDeckMcp, servers: mcpServers };
   const builtMeta = await buildGrokSessionMeta(runtime, context.sessionSetup);
   const meta = allowHostPathMetadata
     ? builtMeta

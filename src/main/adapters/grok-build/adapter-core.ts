@@ -207,6 +207,11 @@ export class GrokBuildAdapter implements AgentAdapter {
     await this.bridge.sendMessage(sessionId, text, attachments, options);
   }
 
+  async refreshSessionComponents(sessionId: string, action: import('@shared/session-component-refresh').SessionComponentAction) {
+    if (!this.bridge) throw new Error('当前适配器尚未就绪。');
+    return this.bridge.refreshSessionComponents(sessionId, action);
+  }
+
   async listSessionCommands(sessionId: string): Promise<SessionCommandDescriptor[]> {
     if (!this.bridge) throw new Error('Grok Build adapter is not initialized.');
     return this.bridge.listSessionCommands(sessionId);

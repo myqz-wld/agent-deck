@@ -13,7 +13,7 @@ export interface CodexClientConstructionHost {
   createClient(options: CodexAppServerOptions): CodexAppServerClient;
   readCodexCliPath(): string | null;
   readSettings(): AppSettings;
-  readSkillExtraRoots(): string[];
+  readSkillExtraRoots(sessionId?: string): string[];
   snapshotProcessEnv(): Record<string, string>;
   prepareBrowserRuntime?(
     sessionId: string,
@@ -61,7 +61,7 @@ export function ensureCodexClientWithHost(
         browserConfig,
       ),
       env: browserRuntime?.environment ?? env,
-      skillExtraRoots: host.readSkillExtraRoots(),
+      skillExtraRoots: host.readSkillExtraRoots(options.sessionId),
     });
   } catch (error) {
     host.revokeBrowserRuntime?.(options.sessionId);

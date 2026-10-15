@@ -1,3 +1,6 @@
+import { settingsStore } from '@main/store/settings-store';
+import { getAgentDeckMcpServerForSession } from '@main/agent-deck-mcp/server';
+import { prepareClaudeRefreshPlugin } from '../../sdk-injection';
 import log from '@main/utils/logger';
 import { loadSdk } from '../../sdk-loader';
 import { getSdkRuntimeOptions } from '../../sdk-runtime';
@@ -24,6 +27,11 @@ import {
 const logger = log.scope('claude-sdk-query');
 
 export const desktopClaudeCreateSessionSdkQueryHost: ClaudeCreateSessionSdkQueryHost = {
+  captureComponentRefresh: (sessionId) => ({
+    instructions: getAgentDeckSystemPromptAppend(), plugin: prepareClaudeRefreshPlugin(),
+    mcpEnabled: settingsStore.get('enableAgentDeckMcp'),
+    createMcp: () => getAgentDeckMcpServerForSession(() => sessionId, 'claude-code'),
+  }),
   loadSdk,
   runtimeOptions: getSdkRuntimeOptions,
   prepareBrowserRuntime: (applicationSessionId, environment) =>

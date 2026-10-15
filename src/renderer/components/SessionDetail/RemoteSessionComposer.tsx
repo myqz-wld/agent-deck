@@ -1,3 +1,4 @@
+import { parseDeckRefreshCommand, DECK_REFRESH_USAGE } from '@shared/application-session-commands';
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import { useStore } from 'zustand';
 import { AlertTriangleIcon } from '../icons';
@@ -116,6 +117,13 @@ export function RemoteSessionComposer({
     const message = text.trim();
     if (source.busy || (!message && imgs.attachments.length === 0)) return false;
     try {
+      const applicationAction = parseDeckRefreshCommand(message, imgs.attachments.length > 0);
+      if (applicationAction === 'invalid') throw new Error(DECK_REFRESH_USAGE);
+      if (applicationAction) {
+        if (!source.refreshComponents) throw new Error('当前远端宿主未提供扩展刷新接口。');
+        await source.refreshComponents(applicationAction);
+        setText(''); setError(null); return true;
+      }
       const snapshot = imgs.snapshotForSend();
       const attachments = parseSessionConsoleAttachments(snapshot.inputs, 'attachments');
       if (steerMode) {

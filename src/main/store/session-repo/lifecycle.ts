@@ -1,3 +1,4 @@
+import { releaseSessionAssetSelections } from '@main/runtime-assets/session-selection';
 /**
  * Session lifecycle and activity persistence plus bounded cleanup queries.
  * Archive remains orthogonal to lifecycle.
@@ -238,5 +239,6 @@ export function batchDeleteHistory(
     cleanupBlocksReferences(db, deletedTaskIds);
   });
   tx();
+  for (const row of removed) releaseSessionAssetSelections(row.id);
   return removed;
 }

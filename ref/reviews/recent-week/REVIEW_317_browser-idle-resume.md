@@ -82,4 +82,4 @@ The fix is in source only. No running Agent Deck instance, installed application
 or external Gateway was changed. Loading the repaired main-process code requires an approved app
 update/restart. Concurrent README, dependency, and Grok compatibility edits were preserved.
 
-Related plan: [Browser idle recovery](../../plans/recent-3-days/PLAN_83_browser-idle-resume.md).
+Related plan: [Browser idle recovery](../../plans/recent-week/PLAN_83_browser-idle-resume.md).

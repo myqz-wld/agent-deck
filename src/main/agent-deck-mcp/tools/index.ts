@@ -1,9 +1,8 @@
 import { LIST_SESSIONS_DESCRIPTION, GET_SESSION_DESCRIPTION, SESSION_EVENTS_DESCRIPTION, SEND_MESSAGE_DESCRIPTION, SHUTDOWN_SESSION_DESCRIPTION } from '../session-tool-descriptions';
-import type { SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
-import type { ZodType } from 'zod';
+import { defineTool as tool, type AgentDeckToolDefinition } from '../tool-definition';
+export type { AgentDeckToolDefinition } from '../tool-definition';
 
 import { getAdapterRuntimeProfile } from '@main/adapters/runtime-profiles';
-import { loadSdk } from '@main/adapters/claude-code/sdk-loader';
 import type { SessionAdapterId } from '@shared/types';
 import { AGENT_DECK_TOOL_NAMES, type CallerContext } from '../types';
 import { filterAgentDeckTools } from '../tool-policy';
@@ -85,16 +84,9 @@ export interface BuildAgentDeckToolsDeps {
   transport: CallerContext['transport'];
 }
 
-export type AgentDeckToolDefinition = Omit<SdkMcpToolDefinition<any>, 'handler'> & {
-  // Erase each tool's distinct inferred input type only at the shared registry boundary.
-  handler: (args: any, extra: unknown) => ReturnType<SdkMcpToolDefinition<any>['handler']>;
-  outputSchema?: ZodType;
-};
-
 export async function buildAgentDeckTools(
   deps: BuildAgentDeckToolsDeps,
 ): Promise<AgentDeckToolDefinition[]> {
-  const { tool } = await loadSdk();
   const { transport, callerSessionIdOverride } = deps;
   const profile = deps.adapterId ? getAdapterRuntimeProfile(deps.adapterId) : null;
 

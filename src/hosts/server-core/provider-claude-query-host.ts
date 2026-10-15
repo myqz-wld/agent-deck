@@ -175,7 +175,16 @@ export function createServerCoreClaudeQueryHost(
     systemPromptAppend: () => input.settings.injectAgentDeckClaudeMd
       ? input.assets.applicationInstructions('claude-code')
       : '',
-    plugins: () => input.assets.claudePlugins(),
+    plugins: (_selectedPluginDir, sessionId) => input.assets.claudePlugins(sessionId),
+    captureComponentRefresh: (sessionId) => {
+      if (!input.assets.claudeRefreshPlugin) throw new Error('当前宿主未提供扩展刷新接口。');
+      return ({
+      instructions: input.settings.injectAgentDeckClaudeMd ? input.assets.applicationInstructions('claude-code') : '',
+      plugin: input.assets.claudeRefreshPlugin!(),
+      mcpEnabled: input.settings.enableAgentDeckMcp && input.mcpBroker.isRunning,
+      createMcp: () => input.mcpBroker.createInProcessServer(() => sessionId, 'claude-code'),
+      });
+    },
     runtimeMetadataHooks: (internal) => runtimeHooks(internal, metadata),
     cleanupGatewaySandboxSettings: cleanupGatewaySandboxSettingsCore,
     observeSandboxConfiguration: (message) => logger.info(message),

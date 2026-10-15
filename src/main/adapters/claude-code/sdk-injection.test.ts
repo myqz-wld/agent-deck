@@ -67,17 +67,15 @@ async function loadModules(): Promise<{
 }
 
 function getMirrorOperationArtifacts(): string[] {
-  if (!existsSync(userDataPath)) return [];
-  return readdirSync(userDataPath).filter((entry) =>
-    /^\.agent-deck-plugin\.(?:staging|backup)-/.test(entry),
-  );
+  const root = `${mirrorRoot}.versions`;
+  return existsSync(root) ? readdirSync(root).filter(entry => entry.startsWith('.staging-')) : [];
 }
 
 describe('getAgentDeckPluginsForSession', () => {
   beforeEach(() => {
     vi.resetModules();
     rmSync(sourceRoot, { recursive: true, force: true });
-    rmSync(mirrorRoot, { recursive: true, force: true });
+    for (const path of [mirrorRoot, `${mirrorRoot}.versions`, `${mirrorRoot}.sessions`]) rmSync(path, { recursive: true, force: true });
     writePluginSource();
   });
 
@@ -88,9 +86,10 @@ describe('getAgentDeckPluginsForSession', () => {
 
     const plugins = getAgentDeckPluginsForSession();
 
-    expect(plugins).toEqual([{ type: 'local', path: mirrorRoot }]);
-    expect(existsSync(join(mirrorRoot, 'skills', 'simple-review', 'SKILL.md'))).toBe(true);
-    expect(existsSync(join(mirrorRoot, 'agents'))).toBe(false);
+    const published = plugins[0]!.path;
+    expect(published).toContain(`${mirrorRoot}.versions/`);
+    expect(existsSync(join(published, 'skills', 'simple-review', 'SKILL.md'))).toBe(true);
+    expect(existsSync(join(published, 'agents'))).toBe(false);
   });
 
   it('keeps agents and removes skills when only Claude agents injection is enabled', async () => {
@@ -100,9 +99,10 @@ describe('getAgentDeckPluginsForSession', () => {
 
     const plugins = getAgentDeckPluginsForSession();
 
-    expect(plugins).toEqual([{ type: 'local', path: mirrorRoot }]);
-    expect(existsSync(join(mirrorRoot, 'agents', 'reviewer-claude.md'))).toBe(true);
-    expect(existsSync(join(mirrorRoot, 'skills'))).toBe(false);
+    const published = plugins[0]!.path;
+    expect(published).toContain(`${mirrorRoot}.versions/`);
+    expect(existsSync(join(published, 'agents', 'reviewer-claude.md'))).toBe(true);
+    expect(existsSync(join(published, 'skills'))).toBe(false);
   });
 
   it('omits the plugin entirely when both Claude bundled asset toggles are disabled', async () => {
@@ -194,16 +194,16 @@ describe('getAgentDeckPluginsForSession', () => {
       setPluginMirrorFilesystemForTests,
     } = await loadModules();
     const sourceSkill = join(sourceRoot, 'skills', 'simple-review', 'SKILL.md');
-    const mirrorSkill = join(mirrorRoot, 'skills', 'simple-review', 'SKILL.md');
     writeFileSync(sourceSkill, '# old reader', 'utf8');
     settingsStore.set('injectAgentDeckClaudeSkills', true);
     settingsStore.set('injectAgentDeckClaudeAgents', true);
-    expect(getAgentDeckPluginsForSession()).toEqual([{ type: 'local', path: mirrorRoot }]);
+    const published = getAgentDeckPluginsForSession()[0]!.path;
+    const mirrorSkill = join(published, 'skills', 'simple-review', 'SKILL.md');
 
     writeFileSync(sourceSkill, '# replacement', 'utf8');
     setPluginMirrorFilesystemForTests({
       renameSync: ((from, to) => {
-        if (String(from).includes('.agent-deck-plugin.staging-') && String(to) === mirrorRoot) {
+        if (String(from).includes('/.staging-')) {
           throw new Error('publish failed');
         }
         return renameSync(from, to);
@@ -222,11 +222,11 @@ describe('getAgentDeckPluginsForSession', () => {
       setPluginMirrorFilesystemForTests,
     } = await loadModules();
     const sourceSkill = join(sourceRoot, 'skills', 'simple-review', 'SKILL.md');
-    const mirrorSkill = join(mirrorRoot, 'skills', 'simple-review', 'SKILL.md');
     writeFileSync(sourceSkill, '# old reader', 'utf8');
     settingsStore.set('injectAgentDeckClaudeSkills', true);
     settingsStore.set('injectAgentDeckClaudeAgents', true);
-    expect(getAgentDeckPluginsForSession()).toEqual([{ type: 'local', path: mirrorRoot }]);
+    const published = getAgentDeckPluginsForSession()[0]!.path;
+    const mirrorSkill = join(published, 'skills', 'simple-review', 'SKILL.md');
 
     writeFileSync(sourceSkill, '# replacement', 'utf8');
     let readerSawOldMirrorDuringCopy = false;
@@ -238,7 +238,7 @@ describe('getAgentDeckPluginsForSession', () => {
         return result;
       }) as typeof cpSync,
       renameSync: ((from, to) => {
-        if (String(from).includes('.agent-deck-plugin.staging-') && String(to) === mirrorRoot) {
+        if (String(from).includes('/.staging-')) {
           stagedMirrorWasCompleteAtPublish =
             readFileSync(join(String(from), 'skills', 'simple-review', 'SKILL.md'), 'utf8') ===
             '# replacement';
@@ -247,10 +247,12 @@ describe('getAgentDeckPluginsForSession', () => {
       }) as typeof renameSync,
     });
 
-    expect(getAgentDeckPluginsForSession()).toEqual([{ type: 'local', path: mirrorRoot }]);
+    const replacement = getAgentDeckPluginsForSession()[0]!.path;
+    expect(replacement).not.toBe(published);
     expect(readerSawOldMirrorDuringCopy).toBe(true);
     expect(stagedMirrorWasCompleteAtPublish).toBe(true);
-    expect(readFileSync(mirrorSkill, 'utf8')).toBe('# replacement');
+    expect(readFileSync(mirrorSkill, 'utf8')).toBe('# old reader');
+    expect(readFileSync(join(replacement, 'skills', 'simple-review', 'SKILL.md'), 'utf8')).toBe('# replacement');
     expect(getMirrorOperationArtifacts()).toEqual([]);
   });
 
@@ -270,8 +272,9 @@ describe('getAgentDeckPluginsForSession', () => {
     });
 
     expect(getAgentDeckPluginsForSession()).toEqual([]);
-    expect(getAgentDeckPluginsForSession()).toEqual([{ type: 'local', path: mirrorRoot }]);
-    expect(getAgentDeckPluginsForSession()).toEqual([{ type: 'local', path: mirrorRoot }]);
+    const plugins = getAgentDeckPluginsForSession();
+    expect(plugins).toHaveLength(1);
+    expect(getAgentDeckPluginsForSession()).toEqual(plugins);
     expect(copyAttempts).toBe(2);
   });
 });

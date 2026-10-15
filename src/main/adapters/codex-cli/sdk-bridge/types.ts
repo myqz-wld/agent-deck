@@ -57,6 +57,7 @@ export interface CodexBridgeOptions {
 }
 
 export interface InternalSession {
+  componentRefresh?: import('@main/adapters/component-refresh/gate').ComponentRefreshGate;
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S2**:
    * applicationSid 生命周期分两类(详 claude InternalSession.applicationSid jsdoc):

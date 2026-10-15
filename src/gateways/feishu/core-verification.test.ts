@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AgentDeckClientErrorCode,
   REMOTE_OWNER_PRODUCT_V1_METHODS,
+  REMOTE_OWNER_PRODUCT_POLICY_REVISION,
   type AuthenticatedClientAccessContext,
   type HostHello,
 } from '@contracts/index';
@@ -86,7 +87,7 @@ describe('Feishu Core access verification', () => {
       topology: 'relay',
       policy: 'Remote Owner Product v1',
       policyVersion: 1,
-      policyRevision: 1,
+      policyRevision: REMOTE_OWNER_PRODUCT_POLICY_REVISION,
       productMethodCount: REMOTE_OWNER_PRODUCT_V1_METHODS.length,
       channelMethodCount: 2,
       broaderMethodDenied: true,

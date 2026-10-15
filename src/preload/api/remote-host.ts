@@ -244,6 +244,9 @@ export const remoteHostApi = {
     request: RemoteHostImageAssetRequestDto,
   ): Promise<RemoteHostImageAssetResultDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.ImageAssetLoad, request),
+  refreshRemoteHostComponents: (request: RemoteHostMutationTargetDto, action: import('@shared/session-component-refresh').SessionComponentAction):
+    Promise<import('@contracts/session-component-refresh').SessionComponentRefreshResponse> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.SessionRefreshComponents, request, action),
   sendRemoteHostMessage: (request: RemoteHostSendDto): Promise<RemoteHostSendResultDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.SessionSend, request),
   interruptRemoteHostSession: (

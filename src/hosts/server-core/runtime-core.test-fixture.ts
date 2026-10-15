@@ -139,6 +139,7 @@ export function runtimeCoreHarness(options: {
     remove(refs: readonly UploadedAttachmentRef[]): Promise<void>;
   };
   handoff?: ServerCoreMcpHandOffPort;
+  handOffSuccessor?: (sessionId: string) => string | null;
 } = {}) {
   const sessions = new Map<string, SessionRecord>();
   const session = options.session ?? runtimeCoreRecord();
@@ -170,6 +171,7 @@ export function runtimeCoreHarness(options: {
     presentations: options.presentations ?? { list: () => [], respond: () => null },
     ...(options.attachmentStore ? { attachmentStore: options.attachmentStore } : {}),
     ...(options.handoff ? { handoff: options.handoff } : {}),
+    ...(options.handOffSuccessor ? { handOffSuccessor: options.handOffSuccessor } : {}),
   });
   return { adapter, metadata, runtime, sendMessage, sessions, start, stop };
 }

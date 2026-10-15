@@ -1,3 +1,4 @@
+import { parseDeckRefreshCommand, DECK_REFRESH_USAGE } from '@shared/application-session-commands';
 import { createHash } from 'node:crypto';
 import {
   AgentDeckClientErrorCode,
@@ -100,6 +101,7 @@ export interface ServerCoreDaemonRuntimeOptions {
   readonly lifecycle: ServerCoreRuntimeLifecyclePort;
   readonly presentations: Pick<ServerCoreMcpPresentationPort, 'list' | 'respond'>;
   readonly handoff?: ServerCoreMcpHandOffPort;
+  readonly handOffSuccessor?: (sessionId: string) => string | null;
   readonly attachmentStore?: {
     persist(inputs: readonly SessionConsoleAttachmentInput[]): Promise<UploadedAttachmentRef[]>;
     remove(refs: readonly UploadedAttachmentRef[]): Promise<void>;
@@ -235,6 +237,9 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
 
   private async send(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     const params = parseSendParams(input.params);
+    if (parseDeckRefreshCommand(params.text, !!params.attachments?.length) !== null) {
+      throw new DaemonRequestError(AgentDeckClientErrorCode.InvalidRequest, DECK_REFRESH_USAGE);
+    }
     const { adapter } = this.requireProviderSession(params.sessionId);
     if (!adapter.sendMessage) this.unavailable();
     if (params.attachments.length > 0 && !canAcceptServerCoreSessionAttachments(adapter, params.sessionId)) {
@@ -285,6 +290,9 @@ export class ServerCoreDaemonRuntime implements DaemonCoreRuntime {
 
   private async steer(input: DaemonRequestInput): Promise<DaemonRequestResult> {
     const params = parseSteerParams(input.params);
+    if (parseDeckRefreshCommand(params.text, !!params.attachments?.length) !== null) {
+      throw new DaemonRequestError(AgentDeckClientErrorCode.InvalidRequest, DECK_REFRESH_USAGE);
+    }
     const { adapter } = this.requireProviderSession(params.sessionId);
     if (!adapter.steerTurn) this.unavailable();
     if (params.attachments.length > 0 && !canAcceptServerCoreSessionAttachments(adapter, params.sessionId)) {

@@ -142,6 +142,7 @@ export class ClaudeStreamProcessorCore {
             || (internal.midTurnUserMessageIds?.size ?? 0) > 0
             || (typeof frame.queued_turn_count === 'number' && frame.queued_turn_count > 0);
         }
+        void internal.componentRefresh?.checkpoint();
         if (internal.retireRequested && frame.type === 'result') {
           internal.retireBoundaryReached = true;
           internal.expectedClose = true;

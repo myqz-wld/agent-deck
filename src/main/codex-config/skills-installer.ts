@@ -17,6 +17,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { sessionAssetSelections } from '@main/runtime-assets/session-selection';
 import { settingsStore } from '@main/store/settings-store';
 import { substituteResourcesPlaceholder } from '@main/utils/resources-placeholder';
 import log from '@main/utils/logger';
@@ -47,7 +48,6 @@ const defaultSkillsMirrorFilesystem: SkillsMirrorFilesystem = {
 
 let skillsMirrorFilesystem = defaultSkillsMirrorFilesystem;
 let skillsMirrorStore = createMirrorStore(skillsMirrorFilesystem);
-let preparedSkillNames: string[] | null = null;
 
 /** Test-only reset/injection point. */
 export function __setSkillsMirrorFilesystemForTests(
@@ -55,7 +55,6 @@ export function __setSkillsMirrorFilesystemForTests(
 ): void {
   skillsMirrorFilesystem = { ...defaultSkillsMirrorFilesystem, ...overrides };
   skillsMirrorStore = createMirrorStore(skillsMirrorFilesystem);
-  preparedSkillNames = null;
 }
 
 function createMirrorStore(filesystem: SkillsMirrorFilesystem): SkillsMirrorStore {
@@ -113,24 +112,28 @@ export function getBuiltinCodexSkillsSourceDir(): string {
 }
 
 /** Return the root already prepared by bootstrap or the settings apply hook. */
-export function getCodexSkillExtraRootsForSession(): string[] {
-  if (!settingsStore.get('injectAgentDeckCodexSkills') || !preparedSkillNames?.length) return [];
-  const root = getCodexSkillsExtraRootDir();
-  return skillsMirrorFilesystem.existsSync(root) ? [root] : [];
+export function getCodexSkillExtraRootsForSession(sessionId?: string): string[] {
+  const destination = getCodexSkillsExtraRootDir();
+  const prepare = (): string[] => {
+    const names = syncSkills();
+    if (names === null) throw new Error('无法准备 Codex 内置 Skills。');
+    const path = skillsMirrorStore.snapshotPath(destination);
+    return names.length && path ? [path] : [];
+  };
+  return sessionId ? sessionAssetSelections(destination).select(sessionId, prepare) : prepare();
 }
 
 /**
  * Prepare the app-owned mirror used by bootstrap and settings apply hooks.
  *
  * - When enabled, validates or atomically replaces the bundled skills mirror and returns names.
- * - When disabled, removes the app-owned mirror and returns [].
+ * - When disabled, returns [] without removing any selected version.
  * - When the source is missing or preparation fails, returns null and never exposes a stale tree.
  */
 export function syncSkills(): string[] | null {
   const mirrorDir = getCodexSkillsExtraRootDir();
   if (!settingsStore.get('injectAgentDeckCodexSkills')) {
-    skillsMirrorStore.remove(mirrorDir);
-    preparedSkillNames = [];
+    // Existing sessions and resumable history retain their selected immutable trees.
     return [];
   }
   try {
@@ -138,10 +141,14 @@ export function syncSkills(): string[] | null {
       source: getBuiltinCodexSkillsSourceDir(),
       destination: mirrorDir,
     });
-    preparedSkillNames = result ? [...result] : null;
     return result;
   } catch (error) {
-    preparedSkillNames = null;
-    throw error;
+      throw error;
   }
+}
+
+export function prepareCodexRefreshSkills(sessionId: string) {
+  return { roots: getCodexSkillExtraRootsForSession(), commit: (roots: string[]) => {
+    sessionAssetSelections(getCodexSkillsExtraRootDir()).replace(sessionId, roots);
+  } };
 }

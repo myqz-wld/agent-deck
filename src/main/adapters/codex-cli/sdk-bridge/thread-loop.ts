@@ -20,8 +20,7 @@ import {
 } from './live-token-rate-core';
 import { AGENT_ID, THREAD_STARTED_FALLBACK_MS } from './constants';
 import type { CodexBridgeOptions, InternalSession } from './types';
-import type { CodexAppServerNotification } from '../app-server/client';
-import { getNotificationTurnId } from '../app-server/notification-helpers';
+import { trackCodexCurrentTurnId } from './current-turn-id';
 import { toCodexAppServerInput } from './input-pack';
 import { acceptCodexSubmittingUserMessage } from './deferred-user-submission';
 import type { CodexBridgeRuntimeHost } from './runtime-host-core';
@@ -270,7 +269,11 @@ export class ThreadLoop {
         internal.cwdTransitionGeneration == null &&
         internal.pendingTurns.length > 0
       ) {
-        const { input, deferredUserEvent } = internal.pendingTurns.consume()!;
+        if (internal.componentRefresh) await internal.componentRefresh.checkpoint();
+        if (internal.componentRefresh?.blocked || internal.intentionallyClosed || internal.cwdTransitionGeneration != null) break;
+        const pending = internal.pendingTurns.consume();
+        if (!pending) break;
+        const { input, deferredUserEvent } = pending;
         const controller = new AbortController();
         internal.currentTurn = controller;
         const submittingUserMessage = deferredUserEvent
@@ -392,7 +395,7 @@ export class ThreadLoop {
             if (ev.type === 'server.notification') {
               observeCodexTrustedContinuationNotification(internal, ev.notification);
               internal.runtimeIdentity = ev.runtimeIdentity;
-              this.trackCurrentTurnId(internal, ev.notification);
+              trackCodexCurrentTurnId(internal, ev.notification);
               const usageObservation = observeCodexNotificationUsageCore(
                 ev.notification,
                 internal,
@@ -467,32 +470,8 @@ export class ThreadLoop {
       }
     } finally {
       internal.turnLoopRunning = false;
+      void internal.componentRefresh?.checkpoint();
       if (internal.retireAfterCurrentTurn) this.ctx.finalizeRetirement(internal);
-    }
-  }
-  private trackCurrentTurnId(
-    internal: InternalSession,
-    notification: CodexAppServerNotification,
-  ): void {
-    if (notification.method === 'turn/started') {
-      const turnId = getNotificationTurnId(notification);
-      if (turnId) internal.currentTurnId = turnId;
-      return;
-    }
-    if (notification.method === 'turn/completed') {
-      const turnId = getNotificationTurnId(notification);
-      if (!turnId || turnId === internal.currentTurnId) {
-        internal.currentTurnId = null;
-      }
-      return;
-    }
-    if (notification.method === 'error') {
-      const params = notification.params as { willRetry?: unknown; turnId?: unknown } | undefined;
-      if (params?.willRetry === true) return;
-      const turnId = typeof params?.turnId === 'string' ? params.turnId : null;
-      if (!turnId || turnId === internal.currentTurnId) {
-        internal.currentTurnId = null;
-      }
     }
   }
 }

@@ -55,6 +55,7 @@ export interface CodexBridgeSessionRecordPort {
 }
 
 export interface CodexBridgeConfigurationPort {
+  captureComponentRefresh?(sessionId: string): { roots: string[]; commit(roots: string[]): void };
   readApplicationInstructions(): string | undefined;
   readConfiguredModel(): string | null;
   readConfiguredReasoningEffort(): CodexThinkingLevel | null;

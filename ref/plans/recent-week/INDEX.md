@@ -15,4 +15,4 @@ This bucket contains only plans that currently belong to this mutually exclusive
 
 | Completed At | Plan | Status | Summary | Related Final Record |
 |---|---|---|---|---|
-| 2026-10-07 | `PLAN_82_image-upload-stall.md` | completed | Bound image persistence, late cleanup and filesystem diagnostics | `REVIEW_315_image-upload-stall.md` |
+| 2026-10-11 | `PLAN_83_browser-idle-resume.md` | completed | Resume retained Browser contexts after the 24-hour idle close | `REVIEW_317_browser-idle-resume.md` |

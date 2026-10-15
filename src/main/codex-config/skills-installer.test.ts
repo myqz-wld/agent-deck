@@ -4,7 +4,6 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -36,7 +35,6 @@ const sourceRoot = join(
   'skills',
 );
 const mirrorRoot = join(userDataPath, 'codex-agent-deck-skills');
-const mirrorManifest = join(mirrorRoot, '.agent-deck-skills-manifest.json');
 const resourcesPlaceholder = '{{AGENT_DECK_RESOURCES}}';
 
 function writeSkillsSource(marker = 'v1'): void {
@@ -85,269 +83,84 @@ function getMirrorOperationArtifacts(): string[] {
 
 function cleanupFixture(): void {
   rmSync(sourceRoot, { recursive: true, force: true });
-  rmSync(mirrorRoot, { recursive: true, force: true });
+  for (const path of [mirrorRoot, `${mirrorRoot}.versions`, `${mirrorRoot}.sessions`]) rmSync(path, { recursive: true, force: true });
   for (const artifact of getMirrorOperationArtifacts()) {
     rmSync(join(userDataPath, artifact), { recursive: true, force: true });
   }
 }
 
-describe('Codex bundled skills mirror', () => {
-  beforeEach(() => {
-    vi.resetModules();
-    cleanupFixture();
-    writeSkillsSource();
-  });
+describe('Codex bundled skill snapshots', () => {
+  beforeEach(() => { vi.resetModules(); cleanupFixture(); writeSkillsSource(); });
+  afterEach(cleanupFixture);
 
-  afterEach(() => {
-    cleanupFixture();
-  });
-
-  it('publishes a complete fresh mirror with a deterministic manifest and markdown substitution', async () => {
-    const { syncSkills } = await loadModules();
-
+  it('publishes transformed Markdown and preserves non-Markdown payloads', async () => {
+    const { syncSkills, getCodexSkillExtraRootsForSession: roots } = await loadModules();
     expect(syncSkills()).toEqual(['alpha', 'beta']);
-    expect(readFileSync(join(mirrorRoot, 'alpha', 'SKILL.md'), 'utf8')).toContain(
-      `${join(appPath, 'resources')}/bin/tool`,
-    );
-    expect(readFileSync(join(mirrorRoot, 'alpha', 'payload.txt'), 'utf8')).toBe(
-      `v1:${resourcesPlaceholder}`,
-    );
-    const manifest = JSON.parse(readFileSync(mirrorManifest, 'utf8')) as {
-      version: number;
-      signature: string;
-      entries: unknown[];
-    };
-    expect(manifest.version).toBe(1);
-    expect(manifest.signature).toMatch(/^[a-f0-9]{64}$/);
-    expect(manifest.entries.length).toBeGreaterThan(0);
-    expect(getMirrorOperationArtifacts()).toEqual([]);
+    const [path] = roots('session-a');
+    expect(path).toContain(`${mirrorRoot}.versions/`);
+    expect(readFileSync(join(path!, 'alpha', 'SKILL.md'), 'utf8')).toContain(`${join(appPath, 'resources')}/bin/tool`);
+    expect(readFileSync(join(path!, 'alpha', 'payload.txt'), 'utf8')).toBe(`v1:${resourcesPlaceholder}`);
   });
 
-  it('does not publish a partial mirror and removes staging debris when copying fails', async () => {
-    mkdirSync(join(mirrorRoot, 'alpha'), { recursive: true });
-    writeFileSync(join(mirrorRoot, 'alpha', 'SKILL.md'), '# legacy partial', 'utf8');
-    const { setFilesystem, syncSkills } = await loadModules();
-    setFilesystem({
-      cpSync: ((source, destination, options) => {
-        cpSync(source, destination, options);
-        throw new Error('copy failed');
-      }) as typeof cpSync,
-    });
-
-    expect(syncSkills()).toBeNull();
-    expect(existsSync(mirrorRoot)).toBe(false);
-    expect(getMirrorOperationArtifacts()).toEqual([]);
-  });
-
-  it('treats staged markdown substitution failure as fatal and removes staging debris', async () => {
-    const { setFilesystem, syncSkills } = await loadModules();
-    setFilesystem({
-      readFileSync: ((path: string | Buffer | URL, encoding?: BufferEncoding) => {
-        if (
-          String(path).includes('.codex-agent-deck-skills.staging-') &&
-          String(path).endsWith('SKILL.md')
-        ) {
-          throw new Error('substitution failed');
-        }
-        return encoding === 'utf8' ? readFileSync(path, 'utf8') : readFileSync(path);
-      }) as typeof readFileSync,
-    });
-
-    expect(syncSkills()).toBeNull();
-    expect(existsSync(mirrorRoot)).toBe(false);
-    expect(getMirrorOperationArtifacts()).toEqual([]);
-  });
-
-  it('replaces a partial pre-existing mirror instead of trusting its SKILL.md', async () => {
-    mkdirSync(join(mirrorRoot, 'alpha'), { recursive: true });
-    writeFileSync(join(mirrorRoot, 'alpha', 'SKILL.md'), '# partial', 'utf8');
-    const { syncSkills } = await loadModules();
-
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    expect(readFileSync(join(mirrorRoot, 'alpha', 'SKILL.md'), 'utf8')).toContain('# alpha v1');
-    expect(existsSync(join(mirrorRoot, 'beta', 'SKILL.md'))).toBe(true);
-    expect(existsSync(mirrorManifest)).toBe(true);
-    expect(getMirrorOperationArtifacts()).toEqual([]);
-  });
-
-  it('rebuilds a stale mirror when current source content changes', async () => {
-    const { setFilesystem, syncSkills } = await loadModules();
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    const oldManifest = readFileSync(mirrorManifest, 'utf8');
+  it('pins existing and resumed sessions across source updates and disablement', async () => {
+    const { settingsStore, getCodexSkillExtraRootsForSession: roots } = await loadModules();
+    const old = roots('session-a');
     writeSkillsSource('v2');
-    let copyAttempts = 0;
-    setFilesystem({
-      cpSync: ((source, destination, options) => {
-        copyAttempts += 1;
-        return cpSync(source, destination, options);
-      }) as typeof cpSync,
-    });
-
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    expect(copyAttempts).toBe(1);
-    expect(readFileSync(join(mirrorRoot, 'alpha', 'SKILL.md'), 'utf8')).toContain('# alpha v2');
-    expect(readFileSync(mirrorManifest, 'utf8')).not.toBe(oldManifest);
-    expect(getMirrorOperationArtifacts()).toEqual([]);
-  });
-
-  it('keeps the old complete mirror readable until the staged replacement is ready', async () => {
-    const { setFilesystem, syncSkills } = await loadModules();
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    writeSkillsSource('v2');
-    let readerSawOldMirrorDuringCopy = false;
-    let stagedTreeWasCompleteAtPublish = false;
-    setFilesystem({
-      cpSync: ((source, destination, options) => {
-        const result = cpSync(source, destination, options);
-        readerSawOldMirrorDuringCopy = readFileSync(
-          join(mirrorRoot, 'alpha', 'SKILL.md'),
-          'utf8',
-        ).includes('# alpha v1');
-        return result;
-      }) as typeof cpSync,
-      renameSync: ((from, to) => {
-        if (
-          String(from).includes('.codex-agent-deck-skills.staging-') &&
-          String(to) === mirrorRoot
-        ) {
-          stagedTreeWasCompleteAtPublish =
-            readFileSync(join(String(from), 'alpha', 'SKILL.md'), 'utf8').includes('# alpha v2') &&
-            existsSync(join(String(from), '.agent-deck-skills-manifest.json'));
-        }
-        return renameSync(from, to);
-      }) as typeof renameSync,
-    });
-
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    expect(readerSawOldMirrorDuringCopy).toBe(true);
-    expect(stagedTreeWasCompleteAtPublish).toBe(true);
-    expect(readFileSync(join(mirrorRoot, 'alpha', 'SKILL.md'), 'utf8')).toContain('# alpha v2');
-    expect(getMirrorOperationArtifacts()).toEqual([]);
-  });
-
-  it('replaces a mirror whose manifest signature or mirrored content does not validate', async () => {
-    const { setFilesystem, syncSkills } = await loadModules();
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    const parsed = JSON.parse(readFileSync(mirrorManifest, 'utf8')) as { signature: string };
-    parsed.signature = '0'.repeat(64);
-    writeFileSync(mirrorManifest, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
-    writeFileSync(join(mirrorRoot, 'alpha', 'SKILL.md'), '# tampered', 'utf8');
-    let copyAttempts = 0;
-    setFilesystem({
-      cpSync: ((source, destination, options) => {
-        copyAttempts += 1;
-        return cpSync(source, destination, options);
-      }) as typeof cpSync,
-    });
-
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    expect(copyAttempts).toBe(1);
-    expect(readFileSync(join(mirrorRoot, 'alpha', 'SKILL.md'), 'utf8')).toContain('# alpha v1');
-    expect(JSON.parse(readFileSync(mirrorManifest, 'utf8'))).not.toMatchObject({
-      signature: '0'.repeat(64),
-    });
-    expect(getMirrorOperationArtifacts()).toEqual([]);
-  });
-
-  it('rolls publication failure back to the prior valid mirror without exposing it as current', async () => {
-    const {
-      getCodexSkillExtraRootsForSession,
-      setFilesystem,
-      syncSkills,
-    } = await loadModules();
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    const priorManifest = readFileSync(mirrorManifest, 'utf8');
-    writeSkillsSource('v2');
-    setFilesystem({
-      renameSync: ((from, to) => {
-        if (
-          String(from).includes('.codex-agent-deck-skills.staging-') &&
-          String(to) === mirrorRoot
-        ) {
-          throw new Error('publish failed');
-        }
-        return renameSync(from, to);
-      }) as typeof renameSync,
-    });
-
-    expect(syncSkills()).toBeNull();
-    expect(getCodexSkillExtraRootsForSession()).toEqual([]);
-    expect(readFileSync(join(mirrorRoot, 'alpha', 'SKILL.md'), 'utf8')).toContain('# alpha v1');
-    expect(readFileSync(mirrorManifest, 'utf8')).toBe(priorManifest);
-    expect(getMirrorOperationArtifacts()).toEqual([]);
-
-    setFilesystem();
-    writeSkillsSource('v1');
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    expect(getCodexSkillExtraRootsForSession()).toEqual([mirrorRoot]);
-  });
-
-  it('keeps session reads shallow and repairs a changed mirror only during explicit sync', async () => {
-    const { getCodexSkillExtraRootsForSession, setFilesystem, syncSkills } = await loadModules();
-    let copyAttempts = 0;
-    setFilesystem({
-      cpSync: ((source, destination, options) => {
-        copyAttempts += 1;
-        return cpSync(source, destination, options);
-      }) as typeof cpSync,
-    });
-
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    expect(getCodexSkillExtraRootsForSession()).toEqual([mirrorRoot]);
-    expect(copyAttempts).toBe(1);
-
-    writeFileSync(join(mirrorRoot, 'beta', 'SKILL.md'), '# partial overwrite', 'utf8');
-    expect(getCodexSkillExtraRootsForSession()).toEqual([mirrorRoot]);
-    expect(copyAttempts).toBe(1);
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    expect(copyAttempts).toBe(2);
-    expect(readFileSync(join(mirrorRoot, 'beta', 'SKILL.md'), 'utf8')).toContain('# beta v1');
-    expect(getMirrorOperationArtifacts()).toEqual([]);
-  });
-
-  it('uses unique sibling staging trees when a synchronous call is re-entered', async () => {
-    const { setFilesystem, syncSkills } = await loadModules();
-    let shouldReenter = true;
-    let nestedResult: string[] | null | undefined;
-    let copyAttempts = 0;
-    setFilesystem({
-      cpSync: ((source, destination, options) => {
-        copyAttempts += 1;
-        if (shouldReenter) {
-          shouldReenter = false;
-          nestedResult = syncSkills();
-        }
-        return cpSync(source, destination, options);
-      }) as typeof cpSync,
-    });
-
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    expect(nestedResult).toEqual(['alpha', 'beta']);
-    expect(copyAttempts).toBe(2);
-    expect(readFileSync(join(mirrorRoot, 'alpha', 'SKILL.md'), 'utf8')).toContain('# alpha v1');
-    expect(getMirrorOperationArtifacts()).toEqual([]);
-  });
-
-  it('returns no extra root when the source disappears while preserving a prior valid mirror', async () => {
-    const { getCodexSkillExtraRootsForSession, syncSkills } = await loadModules();
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
-    const priorManifest = readFileSync(mirrorManifest, 'utf8');
-    rmSync(sourceRoot, { recursive: true, force: true });
-
-    expect(syncSkills()).toBeNull();
-    expect(getCodexSkillExtraRootsForSession()).toEqual([]);
-    expect(readFileSync(mirrorManifest, 'utf8')).toBe(priorManifest);
-    expect(getMirrorOperationArtifacts()).toEqual([]);
-  });
-
-  it('removes the app-owned mirror when bundled Codex skill injection is disabled', async () => {
-    const { settingsStore, syncSkills } = await loadModules();
-    expect(syncSkills()).toEqual(['alpha', 'beta']);
+    const fresh = roots('session-b');
+    expect(fresh).not.toEqual(old);
+    expect(roots('session-a')).toEqual(old);
     settingsStore.set('injectAgentDeckCodexSkills', false);
+    expect(roots('session-c')).toEqual([]);
+    expect(roots('session-a')).toEqual(old);
+    expect(readFileSync(join(old[0]!, 'alpha', 'SKILL.md'), 'utf8')).toContain('v1');
+    vi.resetModules();
+    const resumed = await loadModules();
+    expect(resumed.getCodexSkillExtraRootsForSession('session-a')).toEqual(old);
+  });
 
-    expect(syncSkills()).toEqual([]);
-    expect(existsSync(mirrorRoot)).toBe(false);
-    expect(getMirrorOperationArtifacts()).toEqual([]);
+  it('retains legacy paths when copying or publication fails', async () => {
+    const { syncSkills, setFilesystem, getCodexSkillExtraRootsForSession: roots } = await loadModules();
+    const old = roots('session-a');
+    mkdirSync(mirrorRoot, { recursive: true });
+    writeFileSync(join(mirrorRoot, 'legacy.txt'), 'history');
+    writeSkillsSource('v2');
+    setFilesystem({ renameSync: () => { throw new Error('disk failure'); } });
+    expect(syncSkills()).toBeNull();
+    expect(roots('session-a')).toEqual(old);
+    expect(readFileSync(join(old[0]!, 'alpha', 'SKILL.md'), 'utf8')).toContain('v1');
+    expect(readFileSync(join(mirrorRoot, 'legacy.txt'), 'utf8')).toBe('history');
+    expect(readdirSync(`${mirrorRoot}.versions`).some(name => name.startsWith('.staging-'))).toBe(false);
+  });
+
+  it('uses one publication for identical content and unique staging for reentry', async () => {
+    const { syncSkills, setFilesystem } = await loadModules();
+    let nested = false;
+    let copies = 0;
+    setFilesystem({ cpSync: ((from, to, options) => {
+      copies++;
+      if (!nested) { nested = true; expect(syncSkills()).toEqual(['alpha', 'beta']); }
+      return cpSync(from, to, options);
+    }) as typeof cpSync });
+    expect(syncSkills()).toEqual(['alpha', 'beta']);
+    expect(syncSkills()).toEqual(['alpha', 'beta']);
+    expect(copies).toBe(2);
+    expect(readdirSync(`${mirrorRoot}.versions`)).toHaveLength(1);
+  });
+
+  it('fails closed on corrupted snapshots without overwriting selected paths', async () => {
+    const { syncSkills, getCodexSkillExtraRootsForSession: roots } = await loadModules();
+    const [path] = roots('session-a');
+    writeFileSync(join(path!, 'alpha', 'SKILL.md'), '# damaged');
+    expect(syncSkills()).toBeNull();
+    expect(readFileSync(join(path!, 'alpha', 'SKILL.md'), 'utf8')).toBe('# damaged');
+  });
+
+  it('allows pinned history to resume when the source is unavailable', async () => {
+    const { syncSkills, getCodexSkillExtraRootsForSession: roots } = await loadModules();
+    const old = roots('session-a');
+    rmSync(sourceRoot, { recursive: true });
+    expect(syncSkills()).toBeNull();
+    expect(roots('session-a')).toEqual(old);
+    expect(() => roots('session-b')).toThrow();
   });
 });

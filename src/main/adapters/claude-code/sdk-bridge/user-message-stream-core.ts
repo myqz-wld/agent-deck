@@ -79,8 +79,10 @@ export async function* createClaudeUserMessageStreamCore(
   host: ClaudeUserMessageStreamHost,
 ): AsyncIterable<SDKUserMessage> {
   while (true) {
+    if (internal.componentRefresh) await internal.componentRefresh.checkpoint();
     if (internal.providerInputClosed || internal.retireBoundaryReached) return;
     if (
+      !internal.componentRefresh?.blocked &&
       !internal.retireRequested &&
       internal.cwdTransitionGeneration == null &&
       !internal.submittingUserMessage &&
@@ -114,7 +116,7 @@ export async function* createClaudeUserMessageStreamCore(
       }
       if (internal.providerInputClosed || internal.retireBoundaryReached) return;
       if (internal.pendingUserMessages[0] !== thunk) continue;
-      if (internal.retireRequested || internal.cwdTransitionGeneration != null) continue;
+      if (internal.retireRequested || internal.cwdTransitionGeneration != null || internal.componentRefresh?.blocked) continue;
       host.refreshBrowserRuntime?.(internal.applicationSid);
       internal.pendingUserMessages.shift();
       const providerMessageId = thunk.deferredUserEvent

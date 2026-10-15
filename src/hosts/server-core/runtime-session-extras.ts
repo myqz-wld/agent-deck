@@ -1,3 +1,5 @@
+import { withApplicationSessionCommands } from '@shared/application-session-commands';
+import { parseSessionComponentRefreshParams, parseSessionComponentRefreshResponse } from '@contracts/session-component-refresh';
 import {
   AgentDeckClientErrorCode,
   SESSION_CONSOLE_REMOTE_ATTACHMENT_MAX_BYTES,
@@ -57,6 +59,7 @@ export class ServerCoreSessionExtras {
 
   execute(input: DaemonRequestInput): Promise<DaemonRequestResult> | null {
     switch (input.method) {
+      case 'session.components.refresh': return this.refreshComponents(input);
       case 'session.context.get': return Promise.resolve(this.contextUsage(input));
       case 'session.input.capabilities': return this.inputCapabilities(input);
       case 'session.outgoing.list': return Promise.resolve(this.outgoing(input));
@@ -65,6 +68,17 @@ export class ServerCoreSessionExtras {
       case 'session.handoff.commit': return this.handOffCommit(input);
       default: return null;
     }
+  }
+
+  private refreshComponents(input: DaemonRequestInput): Promise<DaemonRequestResult> {
+    const params = parseSessionComponentRefreshParams(input.params);
+    return this.mutate(input, 'session.components.refresh', params.sessionId, async () => {
+      const { record, adapter } = this.requireProviderSession(params.sessionId);
+      if (record.lifecycle === 'closed' || this.options.handOffSuccessor?.(params.sessionId)
+        || !adapter.refreshSessionComponents) this.unavailable();
+      const status = await adapter.refreshSessionComponents!(params.sessionId, params.action);
+      return revision => parseSessionComponentRefreshResponse({ status, revision }) as unknown as JsonObject;
+    });
   }
 
   private contextUsage(input: DaemonRequestInput): DaemonRequestResult {
@@ -91,7 +105,8 @@ export class ServerCoreSessionExtras {
     const { sessionId } = parseSessionTargetParams(input.params);
     const { adapter, record } = this.requireProviderSession(sessionId);
     const enabled = canAcceptServerCoreSessionAttachments(adapter, sessionId);
-    const commands = await (adapter.listSessionCommands?.(sessionId) ?? Promise.resolve([]));
+    const nativeCommands = await (adapter.listSessionCommands?.(sessionId) ?? Promise.resolve([]));
+    const commands = adapter.refreshSessionComponents ? withApplicationSessionCommands(nativeCommands) : nativeCommands;
     const revision = this.options.metadata.currentRevision();
     return {
       result: {

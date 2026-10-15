@@ -42,6 +42,7 @@ export const REMOTE_DESKTOP_PRODUCT_METHODS = Object.freeze([
   'issues.undelete',
   'issues.resolve-in-new-session',
   'session.send',
+  'session.components.refresh',
   'session.interrupt',
   'session.steer',
   'pending.list',

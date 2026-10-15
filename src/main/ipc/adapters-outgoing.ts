@@ -1,3 +1,7 @@
+import { sessionRepo } from '@main/store/session-repo';
+import { findSessionHandOffSuccessor } from '@main/store/session-handoff-alias-repo';
+import { parseSessionComponentAction } from '@contracts/session-component-refresh';
+import { withApplicationSessionCommands, parseDeckRefreshCommand, DECK_REFRESH_USAGE } from '@shared/application-session-commands';
 /** Ordinary adapter sending plus authoritative pending-outgoing queue IPC. */
 import { randomUUID } from 'node:crypto';
 import { adapterRegistry } from '@main/adapters/registry';
@@ -22,7 +26,20 @@ export function registerAdapterOutgoingIpc(): void {
   on(IpcInvoke.AdapterListSessionCommands, async (_e, agentId, sessionId) => {
     const adapter = adapterRegistry.get(parseStringId('agentId', agentId, 64));
     if (!adapter) throw new Error('adapter not found');
-    return adapter.listSessionCommands?.(parseStringId('sessionId', sessionId)) ?? [];
+    const commands = await (adapter.listSessionCommands?.(parseStringId('sessionId', sessionId)) ?? []);
+    return adapter.refreshSessionComponents ? withApplicationSessionCommands(commands) : commands;
+  });
+
+  on(IpcInvoke.AdapterRefreshComponents, async (_e, agentId, sessionId, action) => {
+    const id = parseStringId('sessionId', sessionId);
+    const adapterId = parseStringId('agentId', agentId, 64);
+    const record = sessionRepo.get(id);
+    if (!record || record.agentId !== adapterId || record.lifecycle === 'closed' || findSessionHandOffSuccessor(id)) {
+      throw new Error('目标会话已变化，请在当前会话中重新执行扩展刷新。');
+    }
+    const adapter = adapterRegistry.get(adapterId);
+    if (!adapter?.refreshSessionComponents) throw new Error('当前会话不支持扩展刷新。');
+    return adapter.refreshSessionComponents(id, parseSessionComponentAction(action));
   });
 
   on(IpcInvoke.AdapterSendMessage, async (_e, agentId, sessionId, payload) => {
@@ -42,6 +59,9 @@ export function registerAdapterOutgoingIpc(): void {
       rawAttachments = env.attachments;
     } else {
       throw new IpcInputError('payload', 'must be string or {text, attachments?}');
+    }
+    if (parseDeckRefreshCommand(text, Array.isArray(rawAttachments) && rawAttachments.length > 0) !== null) {
+      throw new Error(DECK_REFRESH_USAGE);
     }
     if (text.length > MAX_USER_MESSAGE_LENGTH) {
       throw new IpcInputError('text', `> 102400 chars (got ${text.length.toLocaleString()} chars)`);

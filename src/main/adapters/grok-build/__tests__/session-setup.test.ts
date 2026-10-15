@@ -62,6 +62,7 @@ describe('buildGrokSessionMeta', () => {
       reasoningEffort: 'xhigh',
     });
     expect(getPluginDirectories).toHaveBeenCalledWith({
+      sessionId: 'app-session',
       requiresAgent: true,
       agentSource: 'plugin',
       agentPluginDir: '/plugin',
@@ -79,6 +80,7 @@ describe('buildGrokSessionMeta', () => {
 
     expect(meta).toEqual({});
     expect(getPluginDirectories).toHaveBeenCalledWith({
+      sessionId: 'app-session',
       requiresAgent: false,
       agentSource: null,
       agentPluginDir: null,

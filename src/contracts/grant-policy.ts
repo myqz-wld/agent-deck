@@ -9,7 +9,7 @@ import type { DeploymentTopology } from './topology';
 
 export const REMOTE_OWNER_PRODUCT_POLICY = 'Remote Owner Product v1';
 export const REMOTE_OWNER_PRODUCT_POLICY_VERSION = 1;
-export const REMOTE_OWNER_PRODUCT_POLICY_REVISION = 1;
+export const REMOTE_OWNER_PRODUCT_POLICY_REVISION = 2;
 
 /** Fixed product operations currently reachable through Remote Desktop. */
 export const REMOTE_OWNER_PRODUCT_V1_METHODS = Object.freeze([
@@ -68,6 +68,7 @@ export const REMOTE_OWNER_PRODUCT_V1_METHODS = Object.freeze([
   'feishu.preferences.get',
   'feishu.preferences.update',
   'usage.providers.reset',
+  'session.components.refresh',
 ] as const satisfies readonly CoreMethod[]);
 
 export const CHANNEL_INTERNAL_METHODS = Object.freeze({
@@ -181,7 +182,8 @@ function encodeMethodBits(methods: readonly CoreMethod[]): string {
 function decodeMethodBits(value: unknown): readonly CoreMethod[] {
   const directory = allCoreMethods();
   const expectedLength = Math.ceil(directory.length / 4);
-  if (typeof value !== 'string' || value.length !== expectedLength || !/^[0-9a-f]+$/.test(value)) {
+  // New methods append bits. Older grants retain their prefix and never acquire the new methods.
+  if (typeof value !== 'string' || value.length > expectedLength || !/^[0-9a-f]+$/.test(value)) {
     throw new TypeError('Remote owner method bits are invalid');
   }
   const methods: CoreMethod[] = [];

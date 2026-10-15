@@ -1,3 +1,4 @@
+import { selectSessionPluginPaths } from '@main/runtime-assets/plugin-view';
 /**
  * Agent Deck 自带的 CLAUDE.md + skill 注入工具。
  *
@@ -197,13 +198,16 @@ function ensurePluginMirrorInstalled(options: PluginMirrorOptions): string | nul
  */
 export function getAgentDeckPluginsForSession(
   selectedPluginDir?: string,
+  sessionId?: string,
 ): Array<{ type: 'local'; path: string }> {
-  return selectClaudeSessionPlugins({
+  const prepare = () => selectClaudeSessionPlugins({
     includeSkills: desktopClaudeSdkInjectionHost.readInjectSkills(),
     includeAgents: desktopClaudeSdkInjectionHost.readInjectAgents(),
     installMirror: ensurePluginMirrorInstalled,
     selectedPluginDir,
   });
+  return selectSessionPluginPaths(getPluginMirrorDir(), sessionId, () => prepare().map(p => p.path))
+    .map(path => ({ type: 'local', path }));
 }
 
 /**
@@ -266,4 +270,11 @@ export function saveUserAgentDeckClaudeMd(content: string): { content: string; i
 export function resetUserAgentDeckClaudeMd(): void {
   getClaudeMdStore().resetUser();
   invalidateAgentDeckSystemPromptAppend();
+}
+
+export function prepareClaudeRefreshPlugin(): { destination: string; snapshot: string | null; enabled: boolean } {
+  const includeSkills = desktopClaudeSdkInjectionHost.readInjectSkills();
+  const includeAgents = desktopClaudeSdkInjectionHost.readInjectAgents();
+  return { destination: getPluginMirrorDir(), snapshot: ensurePluginMirrorInstalled({ includeSkills, includeAgents }),
+    enabled: includeSkills || includeAgents };
 }

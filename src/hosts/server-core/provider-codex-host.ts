@@ -190,7 +190,7 @@ export function createServerCoreCodexClientConstructionHost(
     createClient: (options) => createServerCoreCodexClient(options, input),
     readCodexCliPath: () => input.settings.codexCliPath ?? HEADLESS_CODEX_EXECUTABLE,
     readSettings: () => settings(input),
-    readSkillExtraRoots: () => input.assets.codexSkillExtraRoots(),
+    readSkillExtraRoots: (sessionId) => input.assets.codexSkillExtraRoots(sessionId),
     snapshotProcessEnv: () => providerProcessEnvironment(input),
     prepareBrowserRuntime: (sessionId, environment) => input.browserRuntime.prepare({
       applicationSessionId: sessionId,
@@ -263,6 +263,10 @@ export function createServerCoreCodexHost(input: ServerCoreProviderHostInput) {
           publishUpdated: (sessionId) => publishProviderSession(input, sessionId),
         },
         configuration: {
+          captureComponentRefresh: sessionId => {
+            if (!input.assets.codexRefreshSkills) throw new Error('当前宿主未提供扩展刷新接口。');
+            return input.assets.codexRefreshSkills(sessionId);
+          },
           readApplicationInstructions: () => input.settings.injectAgentDeckCodexAgentsMd
             ? input.assets.applicationInstructions('codex-cli') || undefined
             : undefined,

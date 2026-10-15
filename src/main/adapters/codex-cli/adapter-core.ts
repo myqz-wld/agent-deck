@@ -286,6 +286,11 @@ export class CodexCliAdapter implements AgentAdapter {
     await this.bridge.sendMessage(sessionId, text, attachments, options);
   }
 
+  async refreshSessionComponents(sessionId: string, action: import('@shared/session-component-refresh').SessionComponentAction) {
+    if (!this.bridge) throw new Error('当前适配器尚未就绪。');
+    return this.bridge.refreshSessionComponents(sessionId, action);
+  }
+
   listSessionCommands(_sessionId: string): Promise<SessionCommandDescriptor[]> {
     return Promise.resolve(listCodexSessionCommands());
   }

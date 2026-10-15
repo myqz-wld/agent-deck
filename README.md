@@ -29,6 +29,12 @@ Choose **自动审批** or **不再询问** under **权限**, and set sandbox ac
 Switching an existing session to **不再询问** or **完全开放** asks for confirmation.
 Provider restrictions and remote workspace boundaries still apply.
 
+## Session extensions
+
+Extension switches apply to new sessions by default. Use `/deck-refresh` to refresh supported
+components in the current session when its work is idle. Results show which components need a new
+session. `/deck-refresh cancel` withdraws a queued refresh without stopping the agent's task.
+
 ## Development
 
 | Command | Purpose |

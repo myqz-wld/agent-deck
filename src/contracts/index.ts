@@ -35,3 +35,4 @@ export * from './topology';
 export * from './usage';
 export * from './usage-reset';
 export * from './workspace-sandbox';
+export * from './session-component-refresh';

@@ -134,6 +134,8 @@ export interface ClaudeUsageTotals {
 }
 
 export interface InternalSession {
+  componentSelection?: import('@main/adapters/component-refresh/claude').ClaudeComponentSelection;
+  componentRefresh?: import('@main/adapters/component-refresh/gate').ComponentRefreshGate;
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S2 / 不变量 1+2 双轨字段**:
    *

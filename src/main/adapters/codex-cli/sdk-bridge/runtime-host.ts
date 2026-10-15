@@ -1,3 +1,4 @@
+import { prepareCodexRefreshSkills } from '@main/codex-config/skills-installer';
 import * as mcpSessionTokenMap from '@main/agent-deck-mcp/mcp-session-token-map';
 import { desktopSessionModelControllerHost } from '@main/adapters/session-model-controller-host';
 import { disposeSessionBrowser } from '@main/browser-use/session-browser';
@@ -55,6 +56,7 @@ export const desktopCodexBridgeRuntimeHost: CodexBridgeRuntimeHost = {
     },
   },
   configuration: {
+    captureComponentRefresh: prepareCodexRefreshSkills,
     readApplicationInstructions: getAgentDeckCodexDeveloperInstructions,
     readConfiguredModel: readTopLevelModelFromCodexConfig,
     readConfiguredReasoningEffort: readTopLevelModelReasoningEffortFromCodexConfig,

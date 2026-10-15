@@ -1,3 +1,6 @@
+import { requestGrokRefresh } from '@main/adapters/component-refresh/requests';
+import { withComponentRuntimeMutation } from '@main/adapters/component-refresh/runtime-mutation';
+import type { SessionComponentAction } from '@shared/session-component-refresh';
 import { randomUUID } from 'node:crypto';
 import type {
   AgentCwdTransition,
@@ -27,6 +30,8 @@ import { GrokTurnQueue } from './turn-queue';
 import {
   negotiatedGrokSessionImageCapability,
   requireNativeSession,
+  snapshotGrokQueuedMessages,
+  requireActiveGrokRuntime,
 } from './turn-queue-helpers';
 import type { GrokEnqueueOptions } from './turn-queue-types';
 import { recycleGrokTransport } from './transport-recovery';
@@ -267,6 +272,11 @@ export class GrokBuildBridge {
       enqueueOptions,
     );
   }
+  refreshSessionComponents(sessionId: string, action: SessionComponentAction) {
+    return requestGrokRefresh(this.runtimes, sessionId, action, this.options,
+      runtime => { if (!runtime.closed && !runtime.running) void this.turnQueue.drain(runtime); });
+  }
+
   listSessionCommands(sessionId: string) {
     return Promise.resolve(copyGrokSessionCommands(this.runtimes.get(sessionId)?.availableCommands));
   }
@@ -287,7 +297,7 @@ export class GrokBuildBridge {
     await this.messageController.steerTurn(sessionId, text, attachments);
   }
   async interrupt(sessionId: string): Promise<void> { await this.lifecycle.interrupt(sessionId); }
-  armCwdTransition(transition: AgentCwdTransition): void { this.cwdTransitionController.arm(transition); }
+  armCwdTransition(transition: AgentCwdTransition): void { this.runtimes.get(transition.sessionId)?.componentRefresh?.invalidate(); this.cwdTransitionController.arm(transition); }
   async switchCwdForTransition(transition: AgentCwdTransition): Promise<AgentCwdTransitionSwitchResult> {
     await this.cwdTransitionController.switchCwd(transition);
     return { continuationAccepted: false };
@@ -301,24 +311,22 @@ export class GrokBuildBridge {
   }
 
   async closeSession(sessionId: string): Promise<void> {
+    this.runtimes.get(sessionId)?.componentRefresh?.invalidate();
     await this.lifecycle.closeOrdinary(sessionId);
   }
 
   async closeSessionForRollback(sessionId: string): Promise<void> {
+    this.runtimes.get(sessionId)?.componentRefresh?.invalidate();
     await this.lifecycle.closeForRollback(sessionId);
   }
 
   retireSessionAfterCurrentTurn(sessionId: string): void {
+    this.runtimes.get(sessionId)?.componentRefresh?.invalidate();
     this.lifecycle.retireAfterCurrentTurn(sessionId);
   }
 
   snapshotQueuedMessagesForHandOff(sessionId: string): QueuedAgentMessage[] {
-    return (this.runtimes.get(sessionId)?.queue ?? []).map((message) => ({
-      text: message.text,
-      ...(message.attachments?.length
-        ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
-        : {}),
-    }));
+    return snapshotGrokQueuedMessages(this.runtimes.get(sessionId));
   }
 
   listPendingOutgoingMessages(sessionId: string): PendingAgentMessage[] {
@@ -357,25 +365,25 @@ export class GrokBuildBridge {
     sessionId: string,
     options: { provider: string | null; model: string | null; thinking: string | null },
   ): Promise<void> {
-    await this.runtimeMutationController.setModelOptions(sessionId, options);
+    await withComponentRuntimeMutation(this.runtimes.get(sessionId), () => this.runtimeMutationController.setModelOptions(sessionId, options));
   }
 
   async setSessionMode(
     sessionId: string,
     mode: AdapterSessionMode,
   ): Promise<void> {
-    await this.runtimeMutationController.setSessionMode(sessionId, mode);
+    await withComponentRuntimeMutation(this.runtimes.get(sessionId), () => this.runtimeMutationController.setSessionMode(sessionId, mode));
   }
 
   async setPermissionMode(sessionId: string, mode: import('@shared/types').PermissionMode): Promise<void> {
-    await this.runtimeMutationController.setPermissionMode(sessionId, mode);
+    await withComponentRuntimeMutation(this.runtimes.get(sessionId), () => this.runtimeMutationController.setPermissionMode(sessionId, mode));
   }
 
   restartWithGrokSandbox(
     sessionId: string,
     sandbox: string | null,
   ): Promise<string> {
-    return this.sandboxRestartController.restart(sessionId, sandbox);
+    return withComponentRuntimeMutation(this.runtimes.get(sessionId), () => this.sandboxRestartController.restart(sessionId, sandbox));
   }
 
   async shutdown(): Promise<void> {
@@ -482,18 +490,10 @@ export class GrokBuildBridge {
     });
   }
 
-  private async disposeRuntime(runtime: GrokRuntime): Promise<void> {
-    await this.lifecycle.disposeOrdinary(runtime);
-  }
-  private isCurrentRuntime(runtime: GrokRuntime): boolean {
-    return this.lifecycle.isCurrent(runtime);
-  }
+  private disposeRuntime(runtime: GrokRuntime): Promise<void> { return this.lifecycle.disposeOrdinary(runtime); }
+  private isCurrentRuntime(runtime: GrokRuntime): boolean { return this.lifecycle.isCurrent(runtime); }
 
   private requireRuntime(sessionId: string): GrokRuntime {
-    const runtime = this.runtimes.get(sessionId);
-    if (!runtime?.process || !runtime.ready || runtime.closed) {
-      throw new Error(`Grok session ${sessionId} is not active.`);
-    }
-    return runtime;
+    return requireActiveGrokRuntime(this.runtimes.get(sessionId), sessionId);
   }
 }

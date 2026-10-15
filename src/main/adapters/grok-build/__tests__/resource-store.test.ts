@@ -71,10 +71,10 @@ describe('Grok resource store', () => {
 
     const first = store.preparePluginProfile({ includeSkills: true, includeAgents: false });
     const second = store.preparePluginProfile({ includeSkills: true, includeAgents: false });
-    expect(second).toBe(first);
+    await expect(second).resolves.toBe(await first);
 
     const target = await first;
-    expect(target).toBe(join(userDataPath, 'grok-plugin-profiles', 'skills'));
+    expect(target).toContain(join(userDataPath, 'grok-plugin-profiles.versions'));
     await expect(readFile(join(target!, 'plugin.json'), 'utf8')).resolves.toBe(
       '{"name":"fixture"}',
     );

@@ -3,14 +3,14 @@ import type { GrokRuntime } from './runtime-types';
 import type { GrokTurnQueueOptions } from './turn-queue-types';
 
 export function grokTurnBoundaryBlocked(runtime: GrokRuntime): boolean {
-  return runtime.running || runtime.closed || runtime.restartingSandbox ||
+  return Boolean(runtime.componentRefresh?.blocked) || runtime.running || runtime.closed || runtime.restartingSandbox ||
     !runtime.ready || runtime.submittingMessage != null ||
     runtime.cwdTransitionGeneration != null || Boolean(runtime.runtimeMutationInProgress);
 }
 
 /** Mid-turn input shares runtime fences but does not need to wait for the current prompt result. */
 export function grokInterjectionBlocked(runtime: GrokRuntime): boolean {
-  return !runtime.running || !runtime.process || !runtime.ready || runtime.closed ||
+  return Boolean(runtime.componentRefresh?.blocked) || !runtime.running || !runtime.process || !runtime.ready || runtime.closed ||
     runtime.sealed || runtime.disposed || runtime.suppressUpdates || runtime.restartingSandbox ||
     runtime.interjectionSupported === false || runtime.interruptRequested === true ||
     runtime.cwdTransitionGeneration != null || Boolean(runtime.runtimeMutationInProgress);

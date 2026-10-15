@@ -147,6 +147,10 @@ export async function runCreateSessionSdkQuery(
         deps.createSessionHost.readPersistedSession(opts.resume)?.cliSessionId ??
         opts.resume);
 
+    const systemPromptAppend = host.systemPromptAppend();
+    const plugins = host.plugins(opts.claudePluginDir, internal.applicationSid);
+    internal.componentSelection = { instructions: systemPromptAppend,
+      dynamicMcp: mcpServers.agentDeckMcpServer ? { 'agent-deck': mcpServers.agentDeckMcpServer } : {} };
     const q = query({
       prompt: userMessageIterable,
       // CHANGELOG_85 Step 3.2：query() options 整段抽到 query-options-builder.ts
@@ -161,8 +165,8 @@ export async function runCreateSessionSdkQuery(
         resume: effectiveResumeCliSid,
         canUseTool,
         sandboxOpts: sandboxWithBrowser,
-        systemPromptAppend: host.systemPromptAppend(),
-        plugins: host.plugins(opts.claudePluginDir),
+        systemPromptAppend,
+        plugins,
         runtime: runtimeWithBrowser,
         claudeBinary,
         mcpServers,

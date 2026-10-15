@@ -18,7 +18,7 @@ export interface GrokAdapterHost<T extends GrokInitializableBridge> {
   createBridge(options: GrokBuildBridgeOptions): T;
   reportStartupCleanupFailure(sessionId: string, error: unknown): void;
   loadBaselinePrompt(): Promise<string | null>;
-  preparePluginProfile(options: GrokPluginProfileOptions): Promise<string | null>;
+  preparePluginProfile(options: GrokPluginProfileOptions, sessionId?: string): Promise<string | null>;
   readBinaryPath(): string | null;
   readDefaultSandbox(): string;
   readInjectAgents(): boolean;
@@ -49,14 +49,14 @@ export function createGrokAdapterBridgeWithHost<T extends GrokInitializableBridg
       host.readInjectAgentPrompt()
         ? host.loadBaselinePrompt()
         : Promise.resolve(null),
-    getPluginDirectories: async ({ agentSource, agentPluginDir }) => {
+    getPluginDirectories: async ({ agentSource, agentPluginDir, sessionId }) => {
       const root = await host.preparePluginProfile({
         includeSkills: host.readInjectSkills(),
         includeAgents:
           agentSource === 'bundled' ||
           ((agentSource === null || agentSource === undefined) &&
             host.readInjectAgents()),
-      });
+      }, sessionId);
       return [
         ...new Set([
           ...(agentPluginDir ? [agentPluginDir] : []),

@@ -74,6 +74,7 @@ export async function resetUserGrokAgentsMd(): Promise<void> {
  */
 export function prepareGrokPluginProfile(
   options: GrokPluginProfileOptions,
+  sessionId?: string,
 ): Promise<string | null> {
-  return getStore().preparePluginProfile(options);
+  return getStore().preparePluginProfile(options, sessionId);
 }

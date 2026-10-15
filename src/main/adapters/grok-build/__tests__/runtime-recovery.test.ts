@@ -134,6 +134,7 @@ describe('Grok runtime recovery profile', () => {
     );
 
     expect(getPluginDirectories).toHaveBeenCalledWith({
+      sessionId: 'app-grok',
       requiresAgent: true,
       agentSource: 'plugin',
       agentPluginDir: '/plugins/reviewer-grok',

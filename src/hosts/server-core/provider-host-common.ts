@@ -20,10 +20,12 @@ import type { ServerCoreProviderBrowserRuntimePort } from './browser-runtime';
 
 export interface ServerCoreProviderAssetPort {
   applicationInstructions(adapterId: 'claude-code' | 'codex-cli' | 'grok-build'): string;
-  claudePlugins(): Array<{ type: 'local'; path: string }>;
-  codexSkillExtraRoots(): string[];
+  claudeRefreshPlugin?(): { destination: string; snapshot: string | null; enabled: boolean };
+  codexRefreshSkills?(sessionId: string): { roots: string[]; commit(roots: string[]): void };
+  claudePlugins(sessionId?: string): Array<{ type: 'local'; path: string }>;
+  codexSkillExtraRoots(sessionId?: string): string[];
   grokBaselinePrompt(): Promise<string | null>;
-  grokPluginProfile(options: GrokPluginProfileOptions): Promise<string | null>;
+  grokPluginProfile(options: GrokPluginProfileOptions, sessionId?: string): Promise<string | null>;
 }
 
 export interface ServerCoreProviderHostInput {

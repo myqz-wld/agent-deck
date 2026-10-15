@@ -30,7 +30,7 @@ export interface GrokBuildProviderSettingsPort extends GrokSummaryRunnerHost {
 
 export interface GrokBuildResourcePort {
   loadBaselinePrompt(): Promise<string | null>;
-  preparePluginProfile(options: GrokPluginProfileOptions): Promise<string | null>;
+  preparePluginProfile(options: GrokPluginProfileOptions, sessionId?: string): Promise<string | null>;
 }
 
 export interface GrokBuildAdapterDiagnosticsPort {
@@ -63,8 +63,8 @@ export function createGrokBuildAdapterHost(
     reportStartupCleanupFailure: (sessionId, error) =>
       options.diagnostics.reportStartupCleanupFailure(sessionId, error),
     loadBaselinePrompt: () => options.resources.loadBaselinePrompt(),
-    preparePluginProfile: (profile) =>
-      options.resources.preparePluginProfile(profile),
+    preparePluginProfile: (profile, sessionId) =>
+      options.resources.preparePluginProfile(profile, sessionId),
     readBinaryPath: () => options.settings.readBinaryPath(),
     readDefaultSandbox: () => options.settings.readDefaultSandbox(),
     readInjectAgents: () => options.settings.readInjectAgents(),

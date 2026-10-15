@@ -21,6 +21,9 @@ import type {
 } from '@shared/types';
 
 export const adaptersApi = {
+  refreshAdapterComponents: (agentId: string, sessionId: string, action: import('@shared/session-component-refresh').SessionComponentAction):
+    Promise<import('@shared/session-component-refresh').SessionComponentRefreshStatus> =>
+    ipcRenderer.invoke(IpcInvoke.AdapterRefreshComponents, agentId, sessionId, action),
   listAdapters: (): Promise<Array<{
     id: string;
     displayName: string;

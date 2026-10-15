@@ -1,3 +1,4 @@
+import { parseSessionComponentAction } from '@contracts/session-component-refresh';
 import { dialog, type OpenDialogOptions } from 'electron';
 
 import { eventBus } from '@main/event-bus';
@@ -201,6 +202,8 @@ export function registerRemoteHostIpc(): void {
     getRemoteHostService().detail.getFileFinalDiff(parseRemoteHostFileFinalDiffRequest(request))));
   on(RemoteHostIpcInvoke.ImageAssetLoad, (_event, request) => safely(() =>
     getRemoteHostService().detail.loadImageAsset(parseRemoteHostImageAssetRequest(request))));
+  on(RemoteHostIpcInvoke.SessionRefreshComponents, (_event, request, action) => safely(() =>
+    getRemoteHostService().refreshComponents(parseRemoteHostMutationTarget(request), parseSessionComponentAction(action))));
   on(RemoteHostIpcInvoke.SessionSend, (_event, request) => safely(() =>
     getRemoteHostService().send(parseRemoteHostSend(request))));
   on(RemoteHostIpcInvoke.SessionInterrupt, (_event, request) => safely(() =>

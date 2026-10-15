@@ -74,15 +74,16 @@ describe('Claude plugin mirror store', () => {
       operationTag: 'test',
     });
 
-    expect(store.sync(request())).toBe(destination);
-    expect(readFileSync(join(destination, 'skills', 'review', 'SKILL.md'), 'utf8')).toBe(
+    const published = store.sync(request())!;
+    expect(published).toContain(`${destination}.versions/`);
+    expect(readFileSync(join(published, 'skills', 'review', 'SKILL.md'), 'utf8')).toBe(
       '# Review\n/resources/bin/tool\n',
     );
-    expect(existsSync(join(destination, 'agents'))).toBe(false);
+    expect(existsSync(join(published, 'agents'))).toBe(false);
     expect(operationArtifacts()).toEqual([]);
   });
 
-  it('reuses a valid cached publication and reinstalls a corrupted live manifest', () => {
+  it('reuses a valid publication and refuses to overwrite a corrupted selected version', () => {
     let copyAttempts = 0;
     const store = createPluginMirrorStore({
       filesystem: {
@@ -96,13 +97,13 @@ describe('Claude plugin mirror store', () => {
       operationTag: 'test',
     });
 
-    expect(store.sync(request())).toBe(destination);
-    expect(store.sync(request())).toBe(destination);
+    const published = store.sync(request())!;
+    expect(store.sync(request())).toBe(published);
     expect(copyAttempts).toBe(1);
 
-    writeFileSync(join(destination, '.claude-plugin', 'plugin.json'), '{', 'utf8');
-    expect(store.sync(request())).toBe(destination);
-    expect(copyAttempts).toBe(2);
+    writeFileSync(join(published, '.claude-plugin', 'plugin.json'), '{', 'utf8');
+    expect(store.sync(request())).toBeNull();
+    expect(copyAttempts).toBe(1);
     expect(operationArtifacts()).toEqual([]);
   });
 
@@ -112,8 +113,8 @@ describe('Claude plugin mirror store', () => {
       transformMarkdown: (content) => content,
       operationTag: 'initial',
     });
-    expect(initial.sync(request())).toBe(destination);
-    const liveSkill = join(destination, 'skills', 'review', 'SKILL.md');
+    const published = initial.sync(request())!;
+    const liveSkill = join(published, 'skills', 'review', 'SKILL.md');
     writeFileSync(liveSkill, '# old reader\n', 'utf8');
     writeFileSync(join(source, 'skills', 'review', 'SKILL.md'), '# replacement\n', 'utf8');
     const diagnostic = vi.fn();
@@ -121,7 +122,7 @@ describe('Claude plugin mirror store', () => {
       filesystem: {
         ...defaultFilesystem,
         renameSync: ((from, to) => {
-          if (String(from).includes('.live.staging-') && String(to) === destination) {
+          if (String(from).includes('/.staging-')) {
             throw new Error('publish failed');
           }
           return renameSync(from, to);
@@ -157,6 +158,6 @@ describe('Claude plugin mirror store', () => {
   });
 
   function operationArtifacts(): string[] {
-    return readdirSync(fixtureRoot).filter((entry) => /^\.live\.(?:staging|backup)-/.test(entry));
+    return existsSync(`${destination}.versions`) ? readdirSync(`${destination}.versions`).filter(entry => entry.startsWith('.staging-')) : [];
   }
 });
