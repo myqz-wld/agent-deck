@@ -26,3 +26,7 @@ None required: changed production source files remain within 500 lines.
 
 See [the repair audit](../../reviews/recent-3-days/REVIEW_332_tool-search-fallback-repairs.md) and
 [the completed plan](../../plans/recent-3-days/PLAN_96_tool-search-fallbacks.md).
+
+The user authorized main integration and publication after validation. Source commit 357dfa22
+was fast-forwarded into main; the leased worktree and temporary branch were removed while
+preserving unrelated uncommitted work. Application activation remains a separate operation.

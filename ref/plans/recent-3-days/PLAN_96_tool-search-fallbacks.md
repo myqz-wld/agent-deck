@@ -7,9 +7,9 @@ status: completed
 # Native Tool Search fallback repairs
 
 Created: 2026-10-15
-Status: source complete and validated; activation not performed
+Status: source validated and integrated into main; activation not performed
 Base: a7ff9c5acae0a89dbf666fca8252bce77ae05eb0 (main)
-Implementation branch: fix/tool-search-fallbacks-20261015
+Implementation branch: fix/tool-search-fallbacks-20261015 (deleted after merge)
 Task: a9ac59a7-b890-450d-95e6-494c99ae8385
 
 ## Goal and authorization
@@ -74,17 +74,15 @@ including true/false/auto/native behavior, precedence, and isolation between Gat
 
 ## Isolation and cold start
 
-Main has unrelated concurrent Claude message/activity edits and REVIEW_331. Preserve them.
-Our pre-existing uncommitted artifacts are REVIEW_330, its fixture directory, and its index row.
-Enter a fresh detached Agent Deck worktree from the base. After automatic cwd transition, copy
-only this plan and REVIEW_330 evidence/fixtures from the main repository into the isolated tree;
-add only the REVIEW_330 index row, never copy the entire dirty main index. Reuse existing installed
-dependencies via a worktree-local symlink if needed; do not run installation scripts.
+Main's unrelated Claude message/activity edits and REVIEW_331 were preserved during integration.
+The earlier task-owned REVIEW_330 copies and index row were reconciled with the committed evidence.
+Implementation used an Agent Deck detached worktree and then a temporary branch. Only this plan
+and REVIEW_330 evidence were copied into isolation. Installed dependencies were reused through a
+worktree-local symlink; no installation scripts ran.
 
-Continuation: read CLAUDE.md and REVIEW_332, then inspect the completed diff. Implementation is
-finished. Any integration must preserve the main checkout's unrelated work and reconcile only
-this task's earlier REVIEW_330 copies/index entry. Application activation needs separate exact
-approval; do not restart the host or run paid model probes.
+Continuation: read CLAUDE.md and REVIEW_332. Implementation and local integration are finished.
+Keep unrelated main changes outside this task's commits. Application activation needs separate
+exact approval; do not restart the host or run paid model probes.
 
 ## Validation state
 
@@ -95,7 +93,8 @@ confirmed on synthetic endpoints. No real token/cache/billing or live activation
 SQLite SHA-256 stayed 463d208825f4d2660f4ec14181563c4b2ddbfeb779584c9b3251f0d7aafb2c67.
 All changed production sources remain within 500 lines. Record routing and links were checked.
 
-Isolation: .agent-deck/worktrees/agent-deck-01a13f5d-364-mv9lxf7z (detached, structured lease active).
+Isolation: .agent-deck/worktrees/agent-deck-01a13f5d-364-mv9lxf7z (removed through Agent Deck;
+the session returned to main and the merged temporary branch was deleted).
 
 ## Implementation checkpoint
 
@@ -116,6 +115,10 @@ configuration guidance were added. Full validation passed as recorded above.
 - ref/changelogs/recent-3-days/CHANGELOG_685_tool-search-fallbacks.md
 - ref/reviews/recent-3-days/REVIEW_330_tool-search-loading-evidence/repair-observations.json
 
-No unresolved source work remains in the approved eager-fallback scope. The retained worktree
-contains the completed source for review; no new main merge, push, installation, or restart has
-been performed for this follow-up. The original PLAN_95 merge/push was already completed earlier.
+No unresolved source work remains in the approved eager-fallback scope. The user subsequently
+authorized merging to main, deleting this worktree/branch, and pushing main. Main fast-forwarded
+to source commit 357dfa22fec089450dfec4c8b6be622dcaef49f2 after fetching the unchanged remote base.
+The leased worktree and temporary branch were removed; unrelated main work and its review-index
+row were preserved. Source files match the validated implementation. This record accompanies the
+authorized publication; final remote-ref verification is recorded in the Agent Deck task.
+No application installation or restart was performed.
