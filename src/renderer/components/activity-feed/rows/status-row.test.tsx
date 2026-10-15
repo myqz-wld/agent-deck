@@ -39,7 +39,7 @@ describe('unified status presentation', () => {
     expect(screen.getByText('一轮已中断').className).not.toContain('text-status-error');
     expect(container.querySelector('li')?.className).not.toContain('border-status-error');
     rerender(<SimpleRow event={event('finished', { ok: false, subtype: 'error' })} />);
-    expect(container.querySelector('li')?.className).toContain('border-status-error');
+    expect(screen.getByText('一轮失败').className).toContain('text-status-error');
   });
   it('keeps background summaries in the same collapsed disclosure', () => {
     render(<BackgroundTaskRow event={event('background-task', {

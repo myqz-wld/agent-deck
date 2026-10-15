@@ -7,7 +7,6 @@ import { EventIcon } from '../activity-icon';
 import { turnOutcome } from '../turn-outcome';
 import { readCompaction } from '@shared/compaction';
 import { CompactionRow } from './compaction-row';
-import { StatusRow } from './status-row';
 
 /** 兜底：单行带状态点 + 中文摘要 + 时间戳。所有未被特化处理的 event kind 都走这里。 */
 export function SimpleRow({ event }: { event: AgentEvent }): JSX.Element {
@@ -23,12 +22,21 @@ export function SimpleRow({ event }: { event: AgentEvent }): JSX.Element {
     .filter(({ text }) => text.length > 0)
     .map(({ label, text }) => `${label}：${text}`).join('\n');
   const failed = event.kind === 'finished' && turnOutcome(payload).icon === 'error';
-  return <StatusRow title={describe(event)} ts={event.ts} tone={failed ? 'error' : 'neutral'}
-    icon={<EventIcon event={event} className={`h-3.5 w-3.5 shrink-0 ${failed ? 'text-status-error/80' : 'text-deck-muted/70'}`} />}>
-    {summary || metadata || error ? <>
-      {summary && <div className="max-h-72 overflow-auto"><MarkdownText text={summary} /></div>}
-      {error && <pre className="whitespace-pre-wrap break-words">{error}</pre>}
-      {metadata && <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[10px]">{metadata}</pre>}
-    </> : null}
-  </StatusRow>;
+  return (
+    <li className="flex min-w-0 items-start gap-2 text-[11px]">
+      <EventIcon event={event} className="mt-0.5 h-3.5 w-3.5 shrink-0 text-deck-muted" />
+      <div className="min-w-0 flex-1 leading-relaxed">
+        <div className={`break-words ${failed ? 'text-status-error' : 'text-deck-text'}`}>{describe(event)}</div>
+        {(summary || metadata || error) && <details className="mt-1 min-w-0">
+          <summary className="cursor-pointer text-[10px] text-deck-muted">查看详情</summary>
+          {summary && <div className="mt-1 max-h-72 overflow-auto rounded bg-black/15 p-2"><MarkdownText text={summary} /></div>}
+          {error && <pre className="mt-1 whitespace-pre-wrap break-words text-status-error">{error}</pre>}
+          {metadata && <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[10px] text-deck-muted">{metadata}</pre>}
+        </details>}
+        <div className="mt-0.5 text-[9px] text-deck-muted/60">
+          {new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false })}
+        </div>
+      </div>
+    </li>
+  );
 }
