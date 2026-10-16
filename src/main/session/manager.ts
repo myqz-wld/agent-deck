@@ -198,6 +198,13 @@ class DesktopSessionManagerHost implements SessionManagerHost {
     }
 
     if (dedupOrClaim(this.ingestCtx, event).skip) return;
+    if (event.kind === 'native-work-detail') {
+      // Owned child output cannot create/revive a parent, advance its turn or enter billing.
+      if (!sessionRepo.get(event.sessionId)) return;
+      persistEventRow(event);
+      eventBus.emit('agent-event', event);
+      return;
+    }
     // Usage telemetry observes ownership/fencing but bypasses session creation, events, and activity.
     if (event.kind === 'token-usage') {
       persistTokenUsage(event);

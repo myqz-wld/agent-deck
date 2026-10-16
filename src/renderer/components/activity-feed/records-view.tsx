@@ -78,7 +78,8 @@ export function ActivityRecordsView({
 }: ActivityRecordsViewProps): JSX.Element {
   // Older Local snapshots omitted the adapter; hydrate only the current session's missing value.
   // Keep explicit adapter identities intact so concurrent providers cannot share tool rows.
-  const events = useMemo(() => incomingEvents.map((event) =>
+  const events = useMemo(() => incomingEvents.filter(event => event.kind !== 'native-work-detail' &&
+    !(event.kind === 'background-task' && (event.payload as { native?: unknown } | null)?.native)).map((event) =>
     !event.agentId && event.sessionId === sessionId ? { ...event, agentId } : event),
   [agentId, incomingEvents, sessionId]);
   const presentedEvents = useMemo(() => presentCompactions(presentBackgroundTasks(presentMessageDisplays(events))), [events]);

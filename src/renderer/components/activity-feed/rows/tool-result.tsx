@@ -1,4 +1,5 @@
-import { useState, type JSX } from 'react';
+import { type JSX } from 'react';
+import { useEventDisclosure } from '../../native-work/preferences';
 import type { AgentEvent } from '@shared/types';
 import { formatDisplayText } from '../format';
 import { presentToolResult, rawToolResult } from '../tool-result-presentation';
@@ -26,7 +27,7 @@ export function ToolResultContent({ event, fallbackOutput }: { event: AgentEvent
     presentation = presentToolResult(fallbackOutput, toolName);
   }
   const output = presentation.sections.map(({ text }) => text).join('\n');
-  const [rawOpen, setRawOpen] = useState(false);
+  const [rawOpen, setRawOpen] = useEventDisclosure(event, 'tool-raw');
   const failure = typeof payload.error === 'boolean' || payload.error === ''
     ? payload.reason : payload.error ?? payload.reason;
   const error = formatDisplayText(failure).trim();
@@ -63,10 +64,11 @@ export function ToolExecutionDetails({ event, completed, fallbackOutput }: {
 }): JSX.Element | null {
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   const output = payload.aggregatedOutput;
+  const [open, setOpen] = useEventDisclosure(event, 'tool-execution-output', toolStatusView(payload).isError);
   const progress = !completed && typeof payload.progressMessage === 'string' ? payload.progressMessage : '';
   const hasOutput = output !== undefined || completed || progress;
   return <>
-    {hasOutput && <details className="mt-1.5 min-w-0" open={toolStatusView(payload).isError || undefined}>
+    {hasOutput && <details className="mt-1.5 min-w-0" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
       <summary className="cursor-pointer text-[10px] text-deck-muted hover:text-deck-text">
         {completed ? '查看输出' : '执行输出'}{progress ? ` · ${progress}` : ''}
       </summary>

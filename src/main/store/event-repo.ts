@@ -2,6 +2,8 @@ import type { AgentEvent } from '@shared/types';
 import { performance } from 'node:perf_hooks';
 import { mergeToolUsePayload } from '@shared/agent-event-merge';
 import { getDb } from './db';
+import { createNativeWorkRepo } from './native-work-repo';
+import { PARENT_EVENT_FILTER } from './parent-event-filter';
 import { updateExistingPlanEvent } from './plan-event-update';
 import { updateExistingCompactionEvent } from './compaction-event-update';
 import { legacyEventImage } from './legacy-event-image';
@@ -112,6 +114,8 @@ export const eventRepo = {
    * payload_json 才能保留缺失字段并按 marker 追加 output delta。
    */
   insert(event: AgentEvent): number {
+    const nativeWorkId = createNativeWorkRepo(getDb()).insert(event);
+    if (nativeWorkId !== null) return nativeWorkId;
     const updatedPlanId = updateExistingPlanEvent(event);
     if (updatedPlanId !== null) return updatedPlanId;
     const updatedCompactionId = updateExistingCompactionEvent(event);
@@ -205,7 +209,7 @@ export const eventRepo = {
     // 最大即最晚插入。
     const rows = getDb()
       .prepare(
-        `SELECT * FROM events WHERE session_id = ? ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?`,
+        `SELECT * FROM events WHERE session_id = ? AND ${PARENT_EVENT_FILTER} ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?`,
       )
       .all(sessionId, limit, offset) as Row[];
     return rowsToEvents(rows);
@@ -215,7 +219,7 @@ export const eventRepo = {
     const rows = getDb()
       .prepare(
         `SELECT * FROM events
-          WHERE session_id = ? AND json_valid(payload_json)
+          WHERE session_id = ? AND ${PARENT_EVENT_FILTER} AND json_valid(payload_json)
           ORDER BY ts DESC, id DESC
           LIMIT ? OFFSET ?`,
       )
@@ -226,12 +230,12 @@ export const eventRepo = {
   countForSession(sessionId: string, sinceTs?: number): number {
     if (sinceTs) {
       const r = getDb()
-        .prepare(`SELECT COUNT(*) as c FROM events WHERE session_id = ? AND ts >= ?`)
+        .prepare(`SELECT COUNT(*) as c FROM events WHERE session_id = ? AND ${PARENT_EVENT_FILTER} AND ts >= ?`)
         .get(sessionId, sinceTs) as { c: number };
       return r.c;
     }
     const r = getDb()
-      .prepare(`SELECT COUNT(*) as c FROM events WHERE session_id = ?`)
+      .prepare(`SELECT COUNT(*) as c FROM events WHERE session_id = ? AND ${PARENT_EVENT_FILTER}`)
       .get(sessionId) as { c: number };
     return r.c;
   },

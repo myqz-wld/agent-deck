@@ -13,6 +13,7 @@ function harness() {
   const changes: Array<{ kind: string; entityId: string }> = [];
   let sequence = 0;
   const service = new ServerCoreMcpPresentation({
+    persistAnswer: vi.fn(),
     createId: () => `request-${++sequence}`,
     now: () => 1_000,
     appendChange: (kind, entityId) => { changes.push({ kind, entityId }); },

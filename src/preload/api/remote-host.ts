@@ -96,6 +96,12 @@ import type {
 import { subscribe } from './_helpers';
 
 export const remoteHostApi = {
+  listRemoteNativeWork: (input: import('@shared/remote-host/native-work').RemoteNativeWorkListRequest): Promise<import('@contracts/native-work').NativeWorkListResult> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.NativeWorkList, input),
+  getRemoteNativeWorkDetails: (input: import('@shared/remote-host/native-work').RemoteNativeWorkDetailRequest): Promise<import('@contracts/native-work').NativeWorkDetailResult> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.NativeWorkDetails, input),
+  stopRemoteNativeWork: (input: import('@shared/remote-host/native-work').RemoteNativeWorkStopRequest): Promise<import('@contracts/native-work').NativeWorkStopResult> =>
+    ipcRenderer.invoke(RemoteHostIpcInvoke.NativeWorkStop, input),
   getRemoteHostSnapshot: (): Promise<RemoteHostSnapshotDto> =>
     ipcRenderer.invoke(RemoteHostIpcInvoke.Snapshot),
   addRemoteHostProfile: (draft: RemoteHostProfileDraftDto): Promise<RemoteHostSnapshotDto> =>

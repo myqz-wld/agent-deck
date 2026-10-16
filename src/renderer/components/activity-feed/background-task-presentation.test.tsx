@@ -22,15 +22,17 @@ function view(events: AgentEvent[]) {
 }
 
 describe('background task activity', () => {
-  it('updates one task row through progress and completion without remounting its details', () => {
-    const start = task();
+  it.each([
+    ['local_bash', '后台命令'], ['local_agent', '后台子代理'],
+  ])('updates one %s row through progress and completion without remounting its details', (taskType, label) => {
+    const start = task({ taskType });
     const rendered = render(view([start]));
-    expect(screen.getByText('后台命令 · 运行中')).toBeTruthy();
-    const toggle = screen.getByRole('button', { name: /后台命令.*展开详情/ });
+    expect(screen.getByText(`${label} · 运行中`)).toBeTruthy();
+    const toggle = screen.getByRole('button', { name: new RegExp(`${label}.*展开详情`) });
     const details = document.getElementById(toggle.getAttribute('aria-controls')!)!;
     expect(details.hidden).toBe(true);
     fireEvent.click(toggle);
-    const progress = task({ revision: 2, summary: 'Compiling the final target',
+    const progress = task({ taskType, revision: 2, summary: 'Compiling the final target',
       toolUses: 3, totalTokens: 100, durationMs: 5_000, lastToolName: 'Bash' }, 2);
     rendered.rerender(view([progress, start]));
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
@@ -38,15 +40,15 @@ describe('background task activity', () => {
     expect(details.hidden).toBe(false);
     expect(screen.getByText('Compiling the final target')).toBeTruthy();
     expect(screen.getByText('工具调用 3 次')).toBeTruthy();
-    const end = task({ revision: 3, status: 'completed', summary: 'All checks passed',
+    const end = task({ taskType, revision: 3, status: 'completed', summary: 'All checks passed',
       outputFile: '/workspace/build.log' }, 2);
     rendered.rerender(view([end, progress, start]));
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
-    expect(screen.getByText('后台命令 · 已完成')).toBeTruthy();
+    expect(screen.getByText(`${label} · 已完成`)).toBeTruthy();
     expect(screen.getByText('All checks passed')).toBeTruthy();
     expect(rendered.container.textContent).toContain('/workspace/build.log');
-    expect(screen.queryByText('后台命令 · 运行中')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /后台命令.*收起详情/ }));
+    expect(screen.queryByText(`${label} · 运行中`)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`${label}.*收起详情`) }));
     expect(details.hidden).toBe(true);
   });
 

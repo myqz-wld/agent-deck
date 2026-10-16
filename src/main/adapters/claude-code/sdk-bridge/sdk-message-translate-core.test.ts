@@ -49,6 +49,131 @@ function host(): ClaudeSdkMessageTranslationHost & {
 }
 
 describe('Claude SDK message translator Core', () => {
+  it('keeps child content and tools out of the parent timeline while retaining billed usage', () => {
+    const internal = makeInternalSession({ cwd: '/workspace', applicationSid: 'session-a' });
+    internal.userTurnInFlight = false;
+    internal.toolUseNames.set('main-call', 'Bash');
+    const emit = vi.fn();
+    const translationHost = host();
+    const child = {
+      type: 'assistant', parent_tool_use_id: 'agent-call', error: 'rate_limit',
+      message: {
+        id: 'child-message', model: 'claude-opus-4-8',
+        usage: { input_tokens: 100, output_tokens: 20 },
+        content: [
+          { type: 'thinking', thinking: 'Child reasoning' },
+          { type: 'text', text: 'Child report' },
+          { type: 'image', source: { type: 'base64', data: 'test-image' } },
+          { type: 'tool_use', id: 'child-shell', name: 'Bash', input: { command: 'pwd' } },
+          { type: 'tool_use', id: 'child-write', name: 'Write',
+            input: { file_path: '/workspace/child.txt', content: 'child output' } },
+        ],
+      },
+    };
+    translateSdkMessageCore(emit, 'session-a', child, internal, translationHost);
+    translateSdkMessageCore(emit, 'session-a', child, internal, translationHost);
+    translateSdkMessageCore(emit, 'session-a', {
+      type: 'user', parent_tool_use_id: 'agent-call', message: { content: [
+        { type: 'tool_result', tool_use_id: 'child-shell', content: '/workspace' },
+        { type: 'tool_result', tool_use_id: 'child-write', content: 'Written' },
+        { type: 'tool_result', tool_use_id: 'main-call', content: 'Child cannot settle main tool' },
+      ] },
+    }, internal, translationHost);
+
+    expect(emit.mock.calls.map(([event]) => event.kind)).toEqual(['token-usage']);
+    expect(emit.mock.calls[0][0].payload).toMatchObject({
+      messageId: 'child-message', inputTokens: 100, outputTokens: 20,
+    });
+    expect(internal.toolUseNames).toEqual(new Map([['main-call', 'Bash']]));
+    expect(internal.pendingFileChangeIntents).toHaveLength(0);
+    expect(internal.userTurnInFlight).toBe(false);
+  });
+
+  it('does not let child streaming frames overwrite the main live-rate state', () => {
+    const internal = makeInternalSession({ cwd: '/workspace', applicationSid: 'session-a' });
+    const translationHost = host();
+    const emit = vi.fn();
+    translateSdkMessageCore(emit, 'session-a', {
+      type: 'stream_event', parent_tool_use_id: null,
+      event: { type: 'message_start', message: { role: 'assistant', model: 'claude-opus-4-8' } },
+    }, internal, translationHost);
+    const mainEstimate = internal.liveTokenEstimate;
+    const before = { ...mainEstimate };
+    for (const event of [
+      { type: 'message_start', message: { role: 'assistant', model: 'claude-haiku-4-5' } },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Child output' } },
+    ]) {
+      translateSdkMessageCore(emit, 'session-a', {
+        type: 'stream_event', parent_tool_use_id: 'agent-call', event,
+      }, internal, translationHost);
+    }
+    expect(internal.liveTokenEstimate).toBe(mainEstimate);
+    expect(internal.liveTokenEstimate).toEqual(before);
+    expect(translationHost.liveRate.emitTokenRateTick).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it.each([null, undefined])('preserves main Agent and Bash calls with parent id %s', (parentToolUseId) => {
+    const internal = makeInternalSession({ cwd: '/workspace', applicationSid: 'session-a' });
+    const translationHost = host();
+    const emit = vi.fn();
+    const send = (type: string, content: unknown[]) => translateSdkMessageCore(emit, 'session-a', {
+      type, parent_tool_use_id: parentToolUseId, message: { content },
+    }, internal, translationHost);
+    send('assistant', [
+      { type: 'tool_use', id: 'agent-call', name: 'Agent', input: { prompt: 'Inspect code' } },
+      { type: 'tool_use', id: 'main-shell', name: 'Bash', input: { command: 'pwd' } },
+    ]);
+    send('user', [
+      { type: 'tool_result', tool_use_id: 'agent-call', content: 'Agent started' },
+      { type: 'tool_result', tool_use_id: 'main-shell', content: '/workspace' },
+    ]);
+    expect(emit.mock.calls.map(([event]) => [event.kind, event.payload.toolName])).toEqual([
+      ['tool-use-start', 'Agent'], ['tool-use-start', 'Bash'],
+      ['tool-use-end', 'Agent'], ['tool-use-end', 'Bash'],
+    ]);
+    expect(internal.toolUseNames.size).toBe(0);
+  });
+
+  it.each(['completed', 'failed', 'stopped'])(
+    'retains background subagent progress and %s after the main turn finishes', (status) => {
+      const internal = makeInternalSession({ cwd: '/workspace', applicationSid: 'session-a' });
+      internal.userTurnInFlight = false;
+      const translationHost = host();
+      const emit = vi.fn();
+      const send = (frame: { type: string; [key: string]: unknown }) =>
+        translateSdkMessageCore(emit, 'session-a', frame, internal, translationHost);
+      send({ type: 'system', subtype: 'task_started', task_id: 'child-task', run_id: 'run-1',
+        tool_use_id: 'agent-call', task_type: 'local_agent', is_backgrounded: true,
+        description: 'Inspect code' });
+      send({ type: 'result', subtype: 'success' });
+      send({ type: 'assistant', parent_tool_use_id: 'agent-call', message: { content: [
+        { type: 'tool_use', id: 'child-shell', name: 'Bash', input: { command: 'pwd' } },
+      ] } });
+      send({ type: 'user', parent_tool_use_id: 'agent-call', message: { content: [
+        { type: 'tool_result', tool_use_id: 'child-shell', content: '/workspace' },
+      ] } });
+      send({ type: 'system', subtype: 'task_progress', task_id: 'child-task', run_id: 'run-1',
+        description: 'Reading code', last_tool_name: 'Bash',
+        usage: { total_tokens: 120, tool_uses: 2, duration_ms: 5_000 } });
+      send({ type: 'system', subtype: 'task_notification', task_id: 'child-task', run_id: 'run-1',
+        status, summary: 'Child outcome', output_file: '/workspace/child.log' });
+      send({ type: 'system', subtype: 'task_progress', task_id: 'child-task', run_id: 'run-1',
+        description: 'Late progress' });
+
+      const parentEvents = emit.mock.calls.map(([event]) => event).filter(event => event.kind !== 'native-work-detail');
+      expect(parentEvents.map(event => event.kind)).toEqual([
+        'background-task', 'finished', 'background-task', 'background-task',
+      ]);
+      expect(parentEvents.at(-1)!.payload).toMatchObject({
+        taskId: 'child-task', taskType: 'local_agent', status, toolUseId: 'agent-call',
+        description: 'Reading code', summary: 'Child outcome', toolUses: 2,
+        durationMs: 5_000, outputFile: '/workspace/child.log',
+      });
+      expect(internal.userTurnInFlight).toBe(false);
+    },
+  );
+
   it.each([
     { type: 'assistant', parent_tool_use_id: 'child-call', message: { content: [] } },
     { type: 'stream_event', parent_tool_use_id: 'child-call',

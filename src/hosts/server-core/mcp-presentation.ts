@@ -42,9 +42,13 @@ interface PendingPresentation {
   timer: ReturnType<typeof setTimeout> | null;
   question?: AskUserQuestionRequest;
   detach?: () => void;
+  settling?: boolean;
+  deferredSettlement?: { result: PresentationResult; change: string | null };
 }
 
 export interface ServerCoreMcpPresentationOptions {
+  /** Synchronous durable commit, before the model or user receives answer acknowledgement. */
+  readonly persistAnswer: (sessionId: string, requestId: string, answer: import('@shared/types').AskUserQuestionAnswer) => void;
   readonly appendChange: (kind: string, entityId: string, payload: JsonValue) => void;
   readonly createId?: () => string;
   readonly now?: () => number;
@@ -202,10 +206,18 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
     value?: JsonValue,
   ): 'denied' | 'resolved' | null {
     const entry = this.pending.get(requestId);
-    if (!entry || entry.request.sessionId !== sessionId) return null;
+    if (!entry || entry.request.sessionId !== sessionId || entry.settling) return null;
     if (entry.question) {
       if (action !== 'submit') throw new Error('问题需要提交回答。');
       const answer = parseAskUserAnswer(entry.question.questions, askAnswer(entry.question, value));
+      entry.settling = true;
+      try { this.options.persistAnswer(sessionId, requestId, answer); }
+      catch (error) {
+        entry.settling = false;
+        if (entry.deferredSettlement) this.finish(entry, entry.deferredSettlement.result, entry.deferredSettlement.change);
+        throw error;
+      }
+      entry.settling = false;
       this.finish(entry, { status: 'answered', answers: answer.answers }, null);
       return 'resolved';
     }
@@ -356,6 +368,7 @@ export class ServerCoreMcpPresentation implements ServerCoreMcpPresentationPort 
     change: string | null,
   ): void {
     if (this.pending.get(entry.request.id) !== entry) return;
+    if (entry.settling) { entry.deferredSettlement = { result, change }; return; }
     this.pending.delete(entry.request.id);
     entry.detach?.();
     if (entry.timer) clearTimeout(entry.timer);

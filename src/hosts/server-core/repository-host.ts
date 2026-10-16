@@ -2,6 +2,7 @@ import { join } from 'node:path';
 
 import type { LifecycleComponent } from '@composition/index';
 import type { DaemonInstancePaths } from '@hosts/daemon';
+import { createNativeWorkRepo } from '@main/store/native-work-repo';
 import {
   AGENT_DECK_DATABASE_FILENAME,
   closeDb,
@@ -65,6 +66,10 @@ export class ServerCoreRepositoryHost implements LifecycleComponent {
   readonly name = 'server-core-repositories';
   readonly sessions = sessionRepo;
   readonly events = eventRepo;
+  readonly nativeWork = {
+    list: (id: string, options?: Omit<import('@contracts/native-work').NativeWorkListParams, 'sessionId'>) => createNativeWorkRepo(getDb()).list(id, options),
+    details: (input: import('@contracts/native-work').NativeWorkDetailParams) => createNativeWorkRepo(getDb()).details(input),
+  };
   readonly fileChanges = fileChangeReadRepo;
   readonly issues: ServerCoreIssueRepository;
   readonly messages = agentDeckMessageRepo;

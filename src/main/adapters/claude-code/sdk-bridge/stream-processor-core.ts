@@ -187,6 +187,7 @@ export class ClaudeStreamProcessorCore {
         });
       }
     } finally {
+      internal.nativeWork?.dispose();
       finalizeClaudeStreamCore(this.ctx, internal, tempKey, this.host.finalize);
     }
     return realId;

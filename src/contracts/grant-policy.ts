@@ -9,7 +9,7 @@ import type { DeploymentTopology } from './topology';
 
 export const REMOTE_OWNER_PRODUCT_POLICY = 'Remote Owner Product v1';
 export const REMOTE_OWNER_PRODUCT_POLICY_VERSION = 1;
-export const REMOTE_OWNER_PRODUCT_POLICY_REVISION = 2;
+export const REMOTE_OWNER_PRODUCT_POLICY_REVISION = 3;
 
 /** Fixed product operations currently reachable through Remote Desktop. */
 export const REMOTE_OWNER_PRODUCT_V1_METHODS = Object.freeze([
@@ -69,6 +69,9 @@ export const REMOTE_OWNER_PRODUCT_V1_METHODS = Object.freeze([
   'feishu.preferences.update',
   'usage.providers.reset',
   'session.components.refresh',
+  'session.native-work.list',
+  'session.native-work.details',
+  'session.native-work.stop',
 ] as const satisfies readonly CoreMethod[]);
 
 export const CHANNEL_INTERNAL_METHODS = Object.freeze({

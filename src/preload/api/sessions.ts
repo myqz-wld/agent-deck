@@ -22,6 +22,12 @@ import type {
 } from '@shared/types';
 
 export const sessionsApi = {
+  listNativeWork: (input: import('@contracts/native-work').NativeWorkListParams): Promise<import('@contracts/native-work').NativeWorkListResult> =>
+    ipcRenderer.invoke(IpcInvoke.NativeWorkList, input),
+  getNativeWorkDetails: (input: import('@contracts/native-work').NativeWorkDetailParams): Promise<import('@contracts/native-work').NativeWorkDetailResult> =>
+    ipcRenderer.invoke(IpcInvoke.NativeWorkDetails, input),
+  stopNativeWork: (ref: import('@contracts/native-work').NativeWorkRef): Promise<import('@contracts/native-work').NativeWorkStopResult> =>
+    ipcRenderer.invoke(IpcInvoke.NativeWorkStop, { ref }),
   // 会话
   listSessions: (): Promise<SessionRecord[]> => ipcRenderer.invoke(IpcInvoke.SessionList),
   /**

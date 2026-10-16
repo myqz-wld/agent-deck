@@ -47,6 +47,12 @@ import type { CodexHostSessionCommand } from '../session-commands';
 export type { CodexSessionHandle, CodexBridgeOptions } from './types';
 /** Provider-owned lifecycle and approvals; common presets are projected onto subsequent turns. */
 export class CodexSdkBridge {
+  async listNativeWork(sessionId: string): Promise<import('@shared/native-work').NativeWorkSnapshot[]> {
+    return this.sessions.get(sessionId)?.nativeWork?.list() ?? [];
+  }
+  async stopNativeWork(ref: import('@shared/native-work').NativeWorkRef): Promise<import('@shared/native-work').NativeWorkStopResult> {
+    return this.sessions.get(ref.sessionId)?.nativeWork?.stop(ref) ?? { status: 'stale' };
+  }
   /** key = 真实 thread_id（拿到前用 tempKey） */
   private sessions = new Map<string, InternalSession>();
   /** Each managed session owns its app-server client and MCP caller identity. */

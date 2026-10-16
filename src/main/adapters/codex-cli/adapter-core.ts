@@ -80,6 +80,10 @@ export interface CodexCliAdapterHost {
  * 跟随 .app 走。用户可在设置面板填 codexCliPath 覆盖为外部 codex（如自装的更新版本）。
  */
 export class CodexCliAdapter implements AgentAdapter {
+  async listNativeWork(sessionId: string) { return this.bridge?.listNativeWork(sessionId) ?? []; }
+  async stopNativeWork(ref: import('@shared/native-work').NativeWorkRef): Promise<import('@shared/native-work').NativeWorkStopResult> {
+    return this.bridge?.stopNativeWork(ref) ?? { status: 'stale' };
+  }
   id = ADAPTER_ID;
   displayName = getAdapterRuntimeProfile(ADAPTER_ID).displayName;
   capabilities = { ...getAdapterRuntimeProfile(ADAPTER_ID).capabilities };

@@ -1,10 +1,10 @@
 import {
-  useState,
   type JSX,
   type KeyboardEvent,
   type MouseEvent,
 } from 'react';
 import type { AgentEvent } from '@shared/types';
+import { useEventDisclosure } from '../../native-work/preferences';
 import { DiffViewer } from '@renderer/components/diff/DiffViewer';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { toolInputToDiff } from '@renderer/components/pending-rows';
@@ -44,9 +44,9 @@ export function ToolStartRow({
   const visibleDiff = diff && (allowLocalAssets || diff.kind !== 'image') ? diff : null;
   const timestamp = new Date((endEvent ?? event).ts).toLocaleTimeString('zh-CN', { hour12: false });
   const hasInput = payload.toolInput !== undefined;
-  const [inputOpen, setInputOpen] = useState(false);
-  const [diffOpen, setDiffOpen] = useState(false);
-  const [taskPromptOpen, setTaskPromptOpen] = useState(false);
+  const [inputOpen, setInputOpen] = useEventDisclosure(event, 'tool-input');
+  const [diffOpen, setDiffOpen] = useEventDisclosure(event, 'tool-diff');
+  const [taskPromptOpen, setTaskPromptOpen] = useEventDisclosure(event, 'task-prompt');
 
   const toggleInput = (): void => {
     if (hasInput) setInputOpen((value) => !value);

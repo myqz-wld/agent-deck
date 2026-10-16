@@ -63,6 +63,10 @@ export interface ClaudeCodeAdapterHost {
 }
 
 export class ClaudeCodeAdapter implements AgentAdapter {
+  async listNativeWork(sessionId: string) { return this.bridge?.listNativeWork(sessionId) ?? []; }
+  async stopNativeWork(ref: import('@shared/native-work').NativeWorkRef): Promise<import('@shared/native-work').NativeWorkStopResult> {
+    return this.bridge?.stopNativeWork(ref) ?? { status: 'stale' };
+  }
   id = ADAPTER_ID;
   displayName = getAdapterRuntimeProfile(ADAPTER_ID).displayName;
   capabilities = { ...getAdapterRuntimeProfile(ADAPTER_ID).capabilities };

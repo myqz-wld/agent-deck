@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
+import { NativeWorkStrip } from '../native-work/NativeWorkStrip';
+import { NativeWorkHistory } from '../native-work/NativeWorkHistory';
+import { useNativeWork } from '../native-work/useNativeWork';
+import { remoteNativeWorkTransport } from '../native-work/transport';
 
 import type { RemoteSessionSourceView } from '@renderer/remote-host/source-types';
 import type { RemoteHostSessionPresentationDto } from '@shared/remote-host';
@@ -89,6 +93,13 @@ export function RemoteSessionDetail({
   const canReadFileChanges = source.capabilities.has('sessions.file-changes.read');
   const canReadTasks = source.capabilities.has('tasks');
   const canReadMessages = source.capabilities.has('sessions.messages.read');
+  const canStopNativeWork = source.capabilities.has('sessions.write');
+  const nativeWorkTransport = useMemo(() => source.usable && source.profile && canReadEvents
+    ? remoteNativeWorkTransport(source.profile.id, { authoritativeCoreId: source.state?.authoritativeCoreId ?? null,
+      workerGeneration: source.state?.workerGeneration ?? null }, canStopNativeWork) : null,
+  [source.usable, source.identity, source.profile?.id, source.state?.authoritativeCoreId, source.state?.workerGeneration, canReadEvents, canStopNativeWork]);
+  const preferenceScope = `remote:${source.state?.authoritativeCoreId ?? source.profile?.id ?? 'unavailable'}:${session?.id ?? ''}`;
+  const nativeWork = useNativeWork(session?.id ?? '', preferenceScope, nativeWorkTransport);
 
   const changeTab = (next: SessionDetailTabId): void => {
     setRequestedTabState({ identity: detailIdentity, tab: next });
@@ -133,12 +144,14 @@ export function RemoteSessionDetail({
         />
       ),
     tasks: (
+      <><NativeWorkHistory view={nativeWork} />
         <TaskRecordsView
           tasks={source.tasks?.tasks ?? []}
           loaded={source.tasks !== null}
           error={source.taskLoadError}
           presentationIdentity={detailIdentity}
         />
+      </>
       ),
     diff: <RemoteDiffPanel source={source} />,
     summary: (
@@ -160,14 +173,14 @@ export function RemoteSessionDetail({
       ),
   }, {
     ...(!canReadEvents ? { activity: '当前版本暂不支持查看活动。' } : {}),
-    ...(!canReadTasks ? { tasks: '当前版本暂不支持查看任务。' } : {}),
+    ...(!canReadTasks && !canReadEvents ? { tasks: '当前版本暂不支持查看任务。' } : {}),
     ...(!canReadFileChanges ? { diff: '当前版本暂不支持查看改动。' } : {}),
     ...(!canReadSummaries ? { summary: '当前版本暂不支持查看总结。' } : {}),
     ...(!canReadMessages ? { messages: '当前版本暂不支持查看跨会话消息。' } : {}),
   }), [
     canReadEvents, canReadFileChanges,
     canReadMessages, canReadSummaries, canReadTasks,
-    session?.id, source, tabData,
+    session?.id, source, tabData, nativeWork,
   ]);
   const tabs = useMemo<readonly SessionDetailTabModel[]>(() => {
     if (browserSource == null || browserState.snapshot == null) return baseTabs;
@@ -210,6 +223,8 @@ export function RemoteSessionDetail({
   return (
     <IabComposerBridgeProvider>
       <SessionDetailShell
+        preferenceScope={preferenceScope}
+        nativeWork={<NativeWorkStrip view={nativeWork} />}
         title={session.title ?? '未命名会话'}
         sourceBadge={<SourceBadge isSdk={presentation?.source !== 'cli'} />}
         subtitle={`${source.profile?.label ?? '远程主机'} · ${presentation?.workspaceLabel ?? '远程工作区'}`}

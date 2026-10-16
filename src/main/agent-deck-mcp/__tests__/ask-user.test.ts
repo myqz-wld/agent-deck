@@ -36,6 +36,28 @@ beforeEach(() => { mocks.sessions.clear(); mocks.ingest.mockReset(); seed(); });
 afterEach(() => { askUserService.cancelForSession('caller'); vi.useRealTimers(); });
 
 describe('ask_user Local MCP', () => {
+  it.each(['abort', 'finished', 'handoff', 'closed'] as const)('preserves a committed answer when %s arrives during publication', async action => {
+    const controller = new AbortController();
+    const pending = askUserHandler(args, ctx(), controller.signal);
+    const requestId = askUserService.listPending('caller')[0].requestId;
+    mocks.ingest.mockImplementationOnce(() => {
+      if (action === 'abort') controller.abort();
+      if (action === 'finished') eventBus.emit('agent-event', { sessionId: 'caller', agentId: 'codex-cli', kind: 'finished', payload: {}, ts: 1, source: 'sdk' });
+      if (action === 'handoff') eventBus.emit('session-hand-off-committed', { sourceSessionId: 'caller', successorSessionId: 'next' });
+      if (action === 'closed') eventBus.emit('session-upserted', { ...mocks.sessions.get('caller')!, lifecycle: 'closed' });
+    });
+    expect(askUserService.respond('caller', requestId, answer)).toBe(true);
+    expect((await pending).structuredContent).toEqual({ status: 'answered', ...answer });
+  });
+  it('does not acknowledge or forget an answer when durable publication fails', async () => {
+    const pending = askUserHandler(args, ctx());
+    const requestId = askUserService.listPending('caller')[0].requestId;
+    mocks.ingest.mockImplementationOnce(() => { throw new Error('disk full'); });
+    expect(() => askUserService.respond('caller', requestId, answer)).toThrow('disk full');
+    expect(askUserService.listPending('caller')).toHaveLength(1);
+    expect(askUserService.respond('caller', requestId, answer)).toBe(true);
+    expect((await pending).structuredContent).toEqual({ status: 'answered', ...answer });
+  });
   it.each(['claude-code', 'codex-cli', 'grok-build'] as const)(
     'publishes and answers questions for %s without a native responder', async (adapterId) => {
       seed(adapterId);

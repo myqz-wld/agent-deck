@@ -11,6 +11,7 @@ export const CONTINUATION_EXCLUDED_EVENT_KINDS = [
   'thinking',
   'token-usage',
   'message-display',
+  'native-work-detail',
 ] as const;
 const EXCLUDED_EVENT_KINDS = new Set<string>(CONTINUATION_EXCLUDED_EVENT_KINDS);
 

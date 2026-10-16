@@ -1,3 +1,4 @@
+import { explicitSdkUserMessage, initialSdkRegistration, isHandOffBuffered } from './session-manager-ingest-helpers';
 import type {
   AgentEvent,
   LifecycleState,
@@ -75,43 +76,6 @@ export interface ServerCoreSessionManagerOptions {
 
 type SessionClose = (agentId: string, sessionId: string) => Promise<void>;
 type SessionRename = (agentId: string, fromId: string, toId: string) => void;
-
-function explicitSdkUserMessage(event: AgentEvent): boolean {
-  if (event.source !== 'sdk' || event.kind !== 'message') return false;
-  return (event.payload as { role?: unknown } | null | undefined)?.role === 'user';
-}
-
-function initialSdkRegistration(event: AgentEvent): Pick<
-  UpsertOptions,
-  'hiddenFromHistory' | 'spawnDepth' | 'spawnedBy'
-> {
-  if (event.source !== 'sdk' || event.kind !== 'session-start') return {};
-  const payload = event.payload as {
-    initialHiddenFromHistory?: unknown;
-    initialSpawnLink?: { depth?: unknown; parentSessionId?: unknown };
-  } | null | undefined;
-  const link = payload?.initialSpawnLink;
-  if (
-    typeof link?.parentSessionId !== 'string' ||
-    link.parentSessionId.length === 0 ||
-    !Number.isInteger(link.depth) ||
-    Number(link.depth) <= 0
-  ) {
-    return { hiddenFromHistory: payload?.initialHiddenFromHistory === true };
-  }
-  return {
-    hiddenFromHistory: payload?.initialHiddenFromHistory === true,
-    spawnedBy: link.parentSessionId,
-    spawnDepth: Number(link.depth),
-  };
-}
-
-function isHandOffBuffered(event: AgentEvent): boolean {
-  return event.kind === 'message' &&
-    event.payload !== null &&
-    typeof event.payload === 'object' &&
-    (event.payload as { handOffBuffered?: unknown }).handOffBuffered === true;
-}
 
 /**
  * Provider-facing SessionManager for one Server Core process. It keeps client-facing teams,
@@ -248,6 +212,12 @@ export class ServerCoreSessionManager implements SessionManagerHost {
       this.options.observer.tokenUsageObserved(event);
       return;
     }
+    if (event.kind === 'native-work-detail') {
+      if (!this.options.sessions.get(event.sessionId)) return;
+      const eventId = this.options.events.insert(event);
+      this.options.observer.eventPersisted(event, eventId);
+      return;
+    }
     if (event.kind === 'context-usage') {
       this.options.observer.contextUsageObserved(event);
       return;
@@ -260,6 +230,7 @@ export class ServerCoreSessionManager implements SessionManagerHost {
       ...initialSdkRegistration(event),
     });
     const eventId = this.options.events.insert(event);
+    if (Number.isSafeInteger(eventId) && eventId > 0) Object.assign(event, { id: eventId });
     this.advance(record, event);
     if (event.kind === 'context-compaction-start') {
       this.options.observer.contextCompactionObserved(event);

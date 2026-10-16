@@ -54,6 +54,12 @@ export function createServerCoreMcpComposition(input: {
     warn: (message) => { try { input.diagnostics.warn(message); } catch {} },
   });
   const presentations = new ServerCoreMcpPresentation({
+    persistAnswer: (sessionId, requestId, answer) => {
+      const session = input.repositories.sessions.get(sessionId);
+      if (!session || session.lifecycle === 'closed') throw new Error('会话已结束，回答未提交。');
+      input.repositories.sessionManager.ingest({ sessionId, agentId: session.agentId, kind: 'waiting-for-user',
+        payload: { type: 'ask-question-answered', requestId, ...answer }, ts: Date.now(), source: 'sdk' });
+    },
     appendChange: input.appendChange,
     warn: (message) => {
       try { input.diagnostics.warn(message); } catch {}

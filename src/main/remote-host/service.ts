@@ -55,6 +55,7 @@ import {
   requestRemoteWorkspaceDirectories,
 } from './service-session-console';
 import { RemoteHostDetailReader } from './service-detail-reader';
+import { RemoteNativeWorkController } from './native-work';
 import { RemoteHostIssueController } from './service-issues';
 import { RemoteHostPlanReviewController } from './service-plan-review';
 import { RemoteHostUsageController } from './service-usage';
@@ -89,6 +90,7 @@ export interface RemoteHostServiceOptions {
   desktopBroker?: RemoteHostDesktopBrokerPort;
 }
 export class RemoteHostService {
+  readonly nativeWork: RemoteNativeWorkController;
   readonly detail: RemoteHostDetailReader; readonly issues: RemoteHostIssueController;
   readonly planReviews: RemoteHostPlanReviewController;
   readonly usage: RemoteHostUsageController;
@@ -141,6 +143,7 @@ export class RemoteHostService {
     const requestScoped = this.requestAuthority.request;
     const mutationId = this.requestAuthority.mutationId.bind(this.requestAuthority);
     this.detail = new RemoteHostDetailReader(requestScoped);
+    this.nativeWork = new RemoteNativeWorkController(requestScoped, mutationId);
     this.issues = new RemoteHostIssueController(requestScoped, mutationId);
     this.planReviews = new RemoteHostPlanReviewController(
       requestScoped,

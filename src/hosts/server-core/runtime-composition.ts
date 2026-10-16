@@ -3,6 +3,7 @@ import { lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { createEventImagePort } from './event-image-port';
 import { createProviderAdapterSet } from '@main/adapters/provider-adapter-set-core';
+import { createServerCoreNativeWorkRuntime } from './native-work-runtime';
 import { initializeProviderRuntimeCore } from '@main/adapters/provider-runtime-core';
 import { AdapterRegistryClass } from '@main/adapters/registry-core';
 import { agentDeckMessageRepo } from '@main/store/agent-deck-message-repo';
@@ -432,7 +433,11 @@ export function createServerCoreRuntimeWithOverrides(
     getFinalDiff: getSessionFileFinalDiff,
     privateRoots,
   });
-  const issueRuntime = new ServerCoreIssueRuntime(detailRuntime, {
+  const nativeWorkRuntime = createServerCoreNativeWorkRuntime(detailRuntime, {
+    workspaceRoot, privateRoots, session: id => repositories.sessions.get(id),
+    adapter: id => registry.get(id), repository: repositories.nativeWork,
+  });
+  const issueRuntime = new ServerCoreIssueRuntime(nativeWorkRuntime, {
     workspaceRoot,
     privateRoots,
     issues: repositories.issues,

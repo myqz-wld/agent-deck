@@ -1,4 +1,5 @@
 import { useState, type JSX } from 'react';
+import { useEventDisclosure } from '../../native-work/preferences';
 import type { AgentEvent } from '@shared/types';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { UploadedImageThumb } from '@renderer/components/UploadedImageThumb';
@@ -70,7 +71,7 @@ function ConversationMessage({
   // Render mode is local and intentionally resets when the bubble unmounts.
   const [mode, setMode] = useState<RenderMode>(isUser ? 'plaintext' : DEFAULT_RENDER_MODE);
   const isLong = !isSystem && text.length > COLLAPSE_THRESHOLD_CHARS;
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useEventDisclosure(event, 'message-expanded');
   const [lightboxPath, setLightboxPath] = useState<string | null>(null);
 
   const toggle = (): void => {

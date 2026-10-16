@@ -1,0 +1,22 @@
+.execution-rail { position: relative; flex-shrink: 0; min-width: 0; padding: 5px 10px 6px; }
+.rail-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; color: var(--color-deck-muted); font-size: 9px; line-height: 14px; }
+.work-scroll { display: flex; align-items: flex-start; gap: 7px; overflow-x: auto; overflow-y: hidden; overflow-anchor: none; overscroll-behavior-x: contain; scrollbar-width: none; touch-action: pan-x; cursor: grab; user-select: none; }
+.work-scroll[data-dragging],.work-scroll[data-dragging] * { cursor: grabbing !important; }
+.work-scroll::-webkit-scrollbar { display: none; }
+.work-card-slot { flex: 0 0 min(440px, 100%); min-width: 0; }
+.work-card-slot[data-dismissing=true] { opacity: .2; }
+.work-card { width: 100%; border: 1px solid var(--color-deck-border); border-radius: 5px; background: #ffffff0a; }
+.work-card-toggle { display: block; width: 100%; padding: 6px 9px; text-align: left; cursor: grab; }
+.work-card-toggle:hover { background: #ffffff04; }
+.work-card-title { display: flex; align-items: center; gap: 7px; color: var(--color-deck-text); font-size: 11px; line-height: 17px; }
+.work-dot { width: 5px; height: 5px; border-radius: 50%; background: #a4aab570; flex-shrink: 0; }
+.work-dot.running { background: var(--color-status-working); }
+.work-dot.failed { background: var(--color-status-error); }
+.work-card-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--color-deck-muted); font-size: 9px; line-height: 13px; opacity: .65; }
+.work-kind { flex-shrink: 0; }
+.work-popover { position: absolute; z-index: 40; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--color-deck-border); border-radius: 5px; background: var(--color-deck-dialog); box-shadow: 0 -5px 18px #00000020; cursor: auto; user-select: text; touch-action: pan-y; }
+.work-popover-body { min-height: 0; overflow: auto; padding: 5px 8px 8px; }
+.work-dismiss-ghost { position: absolute; z-index: 50; pointer-events: none; background: var(--color-deck-dialog); }
+.rail-action { display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border-radius: 3px; font-size: 10px; color: var(--color-deck-muted); cursor: pointer; }
+.rail-action:hover { background: #ffffff0b; }
+.work-card-toggle:focus-visible,.rail-action:focus-visible { outline: 1px solid #ffffff50; outline-offset: -2px; }

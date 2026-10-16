@@ -1,4 +1,5 @@
 import { methods } from '@agentclientprotocol/sdk';
+import { GrokNativeWork } from './native-work';
 import type {
   AdapterSessionMode,
   AgentEvent,
@@ -76,6 +77,7 @@ export async function startGrokRuntime(
   const runtimeHost = context.runtimeHost ?? NOOP_GROK_BRIDGE_RUNTIME_HOST;
   const logger = runtimeHost.diagnostics.scope('grok-runtime');
   if (!context.isCurrentRuntime(runtime) || runtime.closed) return false;
+  runtime.nativeWork?.dispose();
   runtime.ready = false;
   runtime.runtimeIdentity = null;
   runtime.nativeDefaultModel = null;
@@ -87,9 +89,12 @@ export async function startGrokRuntime(
       if (
         context.runtimes.get(runtime.applicationSessionId) !== runtime ||
         !runtime.ready ||
-        runtime.suppressUpdates ||
-        notification.sessionId !== runtime.nativeSessionId
+        runtime.suppressUpdates || runtime.process !== process
       ) return;
+      if (notification.sessionId !== runtime.nativeSessionId) {
+        runtime.nativeWork?.child(notification);
+        return;
+      }
       context.observeModelActivity(runtime, notification.update);
       if (notification.update.sessionUpdate === 'user_message_chunk') {
         context.confirmPromptAccepted(runtime);
@@ -121,9 +126,10 @@ export async function startGrokRuntime(
         if (
           context.runtimes.get(runtime.applicationSessionId) !== runtime ||
           !runtime.ready ||
-          runtime.suppressUpdates ||
-          notification.sessionId !== runtime.nativeSessionId
+          runtime.suppressUpdates || runtime.process !== process
         ) return;
+        if (runtime.nativeWork?.extension(notification)) return;
+        if (notification.sessionId !== runtime.nativeSessionId) return;
         // Grok 0.2.114 uses this extension update itself as the only live terminal on
         // rate-limit and some completed turns; prompt_complete is not guaranteed.
         context.observePromptComplete(runtime, notification);
@@ -345,6 +351,7 @@ export async function startGrokRuntime(
   runtime.suppressUpdates = false;
   runtime.activeGrokSandbox = sandboxProfile;
   runtime.ready = true;
+  runtime.nativeWork = new GrokNativeWork(runtime, process, context.emit, !context.processFactory);
   scheduleGrokContextUsageRefresh(runtime, {
     diagnostics: runtimeHost.diagnostics,
     emit: context.emit,

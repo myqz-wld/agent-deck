@@ -78,6 +78,8 @@ export interface AgentCwdTransitionSwitchResult {
 }
 
 export interface AgentAdapter {
+  listNativeWork?(sessionId: string): Promise<import('@shared/native-work').NativeWorkSnapshot[]>;
+  stopNativeWork?(ref: import('@shared/native-work').NativeWorkRef): Promise<import('@shared/native-work').NativeWorkStopResult>;
   refreshSessionComponents?(sessionId: string, action: import('@shared/session-component-refresh').SessionComponentAction): Promise<import('@shared/session-component-refresh').SessionComponentRefreshStatus>;
   id: string;
   displayName: string;

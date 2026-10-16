@@ -20,6 +20,7 @@ export type SessionEventKind =
   | 'subagent-start'
   | 'subagent-end'
   | 'background-task'
+  | 'native-work-detail'
   | 'waiting-for-user'
   | 'finished'
   | 'session-end'
@@ -55,7 +56,7 @@ const EVENT_KINDS = new Set<SessionEventKind>([
   'session-start', 'message', 'message-display', 'thinking', 'tool-use-start',
   'tool-use-end', 'file-changed', 'context-compaction-start',
   'context-compaction-end', 'subagent-start', 'subagent-end', 'background-task', 'waiting-for-user',
-  'finished', 'session-end', 'team-task-created', 'team-task-completed',
+  'native-work-detail', 'finished', 'session-end', 'team-task-created', 'team-task-completed',
   'team-teammate-idle', 'context-usage', 'token-usage',
 ]);
 

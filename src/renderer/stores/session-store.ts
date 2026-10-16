@@ -163,6 +163,8 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
 
   pushEvent: (event) =>
     set((state) => {
+      if (event.kind === 'native-work-detail' || event.kind === 'background-task' &&
+        (event.payload as { native?: unknown } | null)?.native) return state;
       const m = new Map(state.recentEventsBySession);
       const arr = m.get(event.sessionId) ?? [];
       const next = upsertEvent(arr, event, RECENT_LIMIT);
@@ -301,7 +303,8 @@ export const useSessionStore = create<SessionStoreState>((set) => ({
     set((state) => {
       const m = new Map(state.recentEventsBySession);
       // History rows and live rows share the same bounded tool-use deduplication.
-      m.set(sessionId, dedupeRecentEvents(events, RECENT_LIMIT));
+      m.set(sessionId, dedupeRecentEvents(events.filter(event => event.kind !== 'native-work-detail' &&
+        !(event.kind === 'background-task' && (event.payload as { native?: unknown } | null)?.native)), RECENT_LIMIT));
       return { recentEventsBySession: m };
     }),
 

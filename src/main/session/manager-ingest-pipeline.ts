@@ -238,7 +238,9 @@ export function ensureRecord(ctx: IngestContext, event: AgentEvent): SessionReco
 
 /** Persist activity after file content so the stored row and live event share the same reference. */
 export function persistEventRow(event: AgentEvent): void {
-  eventRepo.insert(event);
+  const id = eventRepo.insert(event);
+  // Live and reloaded rows share the same durable display identity, including same-ms messages.
+  if (Number.isSafeInteger(id) && id > 0) Object.assign(event, { id });
 }
 
 export { persistFileChange } from './persist-file-change';

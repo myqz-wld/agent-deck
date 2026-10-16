@@ -18,7 +18,8 @@ describe('Remote Owner Product v1 grant policy', () => {
     const decoded = decodeRemoteOwnerGrantClaim({ policy: 'Remote Owner Product v1', policyVersion: 1,
       policyRevision: 1, productBits: '8ffffffffffff77', channelBits: '300000000000000' });
     expect([...decoded.productMethods].sort()).toEqual(REMOTE_OWNER_PRODUCT_V1_METHODS.filter(
-      method => method !== 'session.components.refresh').sort());
+      method => method !== 'session.components.refresh' && !method.startsWith('session.native-work.')).sort());
+    expect(decoded.productMethods.some(method => method.startsWith('session.native-work.'))).toBe(false);
     expect(decoded.channelMethods).toEqual(['desktop.broker.next', 'desktop.broker.respond']);
     const feishu = decodeRemoteOwnerGrantClaim({ policy: 'Remote Owner Product v1', policyVersion: 1,
       policyRevision: 1, productBits: '8ffffffffffff77', channelBits: '000000000000088' });

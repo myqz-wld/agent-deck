@@ -44,6 +44,7 @@ export interface GrokPendingPermission {
 }
 
 export interface GrokRuntime {
+  nativeWork?: import('./native-work').GrokNativeWork;
   componentMcp?: { allowed: boolean; servers: import('@agentclientprotocol/sdk').McpServer[] };
   componentRefresh?: import('@main/adapters/component-refresh/gate').ComponentRefreshGate;
   applicationSessionId: string;

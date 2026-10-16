@@ -12,6 +12,8 @@ interface PendingQuestion {
   payload: AskUserQuestionRequest;
   resolve: (result: AskUserResult) => void;
   detach: () => void;
+  settling?: boolean;
+  cancelledDuringSettlement?: { emit: boolean };
 }
 
 export interface AskUserDependencies {
@@ -59,12 +61,21 @@ export class AskUserService {
 
   respond(sessionId: string, requestId: string, value: unknown): boolean {
     const entry = this.pending.get(requestId);
-    if (!entry || entry.sessionId !== sessionId) return false;
+    if (!entry || entry.sessionId !== sessionId || entry.settling) return false;
     const answer = parseAskUserAnswer(entry.payload.questions, value);
+    entry.settling = true;
+    try {
+      // The provider and renderer may acknowledge only an answer retained for continuation.
+      this.emit(entry, { type: 'ask-question-answered', requestId, ...answer });
+    } catch (error) {
+      entry.settling = false;
+      if (entry.cancelledDuringSettlement) this.cancel(requestId, entry.cancelledDuringSettlement.emit);
+      throw error;
+    }
+    entry.settling = false;
     this.pending.delete(requestId);
     entry.detach();
     entry.resolve({ status: 'answered', answers: answer.answers });
-    this.emitSettled(entry, { type: 'ask-question-answered', requestId, ...answer });
     return true;
   }
 
@@ -98,6 +109,7 @@ export class AskUserService {
   private cancel(requestId: string, emit = true): void {
     const entry = this.pending.get(requestId);
     if (!entry) return;
+    if (entry.settling) { entry.cancelledDuringSettlement = { emit }; return; }
     this.pending.delete(requestId);
     entry.detach();
     entry.resolve({ status: 'cancelled', answers: [] });

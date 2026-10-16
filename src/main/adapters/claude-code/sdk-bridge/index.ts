@@ -58,6 +58,12 @@ export type { SdkSessionHandle, SdkBridgeOptions } from './types';
 
 /** Provider facade; lifecycle, input, refresh and native session setup live in focused modules. */
 export class ClaudeSdkBridge {
+  async listNativeWork(sessionId: string): Promise<import('@shared/native-work').NativeWorkSnapshot[]> {
+    return this.sessions.get(sessionId)?.nativeWork?.tracker.list() ?? [];
+  }
+  async stopNativeWork(ref: import('@shared/native-work').NativeWorkRef): Promise<import('@shared/native-work').NativeWorkStopResult> {
+    return this.sessions.get(ref.sessionId)?.nativeWork?.stop(ref) ?? { status: 'stale' };
+  }
   /** key 是真实 session_id（拿到之前用临时 id） */
   private sessions = new Map<string, InternalSession>();
 

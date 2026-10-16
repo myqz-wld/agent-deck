@@ -54,6 +54,12 @@ import { copyGrokSessionCommands } from './session-commands';
 const AGENT_ID = 'grok-build';
 export type { GrokBuildBridgeOptions } from './bridge-options';
 export class GrokBuildBridge {
+  async listNativeWork(sessionId: string): Promise<import('@shared/native-work').NativeWorkSnapshot[]> {
+    return this.runtimes.get(sessionId)?.nativeWork?.tracker.list() ?? [];
+  }
+  async stopNativeWork(ref: import('@shared/native-work').NativeWorkRef): Promise<import('@shared/native-work').NativeWorkStopResult> {
+    return this.runtimes.get(ref.sessionId)?.nativeWork?.stop(ref) ?? { status: 'stale' };
+  }
   private readonly runtimes = new Map<string, GrokRuntime>();
   private readonly permissionController: GrokPermissionController;
   private readonly turnQueue: GrokTurnQueue;

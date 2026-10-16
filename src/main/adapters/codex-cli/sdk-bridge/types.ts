@@ -57,6 +57,7 @@ export interface CodexBridgeOptions {
 }
 
 export interface InternalSession {
+  nativeWork?: import('../native-work').CodexNativeWork;
   componentRefresh?: import('@main/adapters/component-refresh/gate').ComponentRefreshGate;
   /**
    * **plan reverse-rename-sid-stability-20260520 §A.4-pre S2**:

@@ -7,6 +7,10 @@ import type {
 } from '@shared/types';
 import type { BrowserStateSource } from '@shared/browser-view';
 import { ActivityFeed } from '../activity-feed';
+import { NativeWorkStrip } from '../native-work/NativeWorkStrip';
+import { NativeWorkHistory } from '../native-work/NativeWorkHistory';
+import { useNativeWork } from '../native-work/useNativeWork';
+import { localNativeWorkTransport } from '../native-work/transport';
 import { SummaryView } from '../SummaryView';
 import { HandOffPreviewDialog } from '../HandOffPreviewDialog';
 import { MessagesPanel } from './MessagesPanel';
@@ -72,6 +76,8 @@ export function SessionDetail(props: LocalProps | RemoteProps): JSX.Element {
 }
 
 function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
+  const preferenceScope = `local:${session.id}`;
+  const nativeWork = useNativeWork(session.id, preferenceScope, localNativeWorkTransport);
   const [tab, changeTab] = useState<SessionDetailTabId>('activity');
   const browserSource = useMemo<BrowserStateSource>(
     () => ({ kind: 'local', sessionId: session.id }),
@@ -243,7 +249,7 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
   };
   const baseTabs = createSessionDetailTabs({
     activity: <ActivityFeed sessionId={session.id} agentId={session.agentId} isSdk={isSdk} />,
-    tasks: <TasksPanel sessionId={session.id} />,
+    tasks: <><NativeWorkHistory view={nativeWork} /><TasksPanel sessionId={session.id} /></>,
     diff: (
         <DiffTab
           sessionId={session.id}
@@ -321,6 +327,8 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
   return (
     <IabComposerBridgeProvider fallback={iabComposerFallback}>
       <SessionDetailShell
+        preferenceScope={preferenceScope}
+        nativeWork={<NativeWorkStrip view={nativeWork} />}
         title={session.title}
         sourceBadge={<SourceBadge isSdk={isSdk} />}
         subtitle={session.cwd}

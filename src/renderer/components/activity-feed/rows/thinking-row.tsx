@@ -1,4 +1,5 @@
 import { useState, type JSX } from 'react';
+import { useEventDisclosure } from '../../native-work/preferences';
 import type { AgentEvent } from '@shared/types';
 import { MarkdownText } from '@renderer/components/MarkdownText';
 import { formatDisplayText } from '../format';
@@ -43,7 +44,7 @@ export function ThinkingBubble({
   const copy = p.plan ? { label: 'PLAN', title: '计划进度', empty: '暂无计划内容' } : thinkingCopy(agentId);
   const [mode, setMode] = useState<RenderMode>(DEFAULT_RENDER_MODE);
   const isLong = text.length > COLLAPSE_THRESHOLD_CHARS;
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useEventDisclosure(event, 'thinking-expanded');
   const toggle = (): void => {
     setMode((cur) => (cur === 'markdown' ? 'plaintext' : 'markdown'));
   };

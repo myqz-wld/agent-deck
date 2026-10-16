@@ -1,4 +1,5 @@
-import { useMemo, useState, type JSX } from 'react';
+import { useMemo, type JSX } from 'react';
+import { useEventDisclosure } from '../../native-work/preferences';
 
 import {
   ChevronDownIcon,
@@ -31,7 +32,7 @@ export function ToolEndRow({
     formatDisplayText(payload.toolName)
     || formatDisplayText(startPayload.toolName)
     || '工具';
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useEventDisclosure(event, 'tool-result');
   const timestamp = new Date(event.ts).toLocaleTimeString('zh-CN', { hour12: false });
   const status = toolStatusView(payload);
   const duration = formatToolDuration(payload.durationMs);

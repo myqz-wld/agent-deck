@@ -29,6 +29,7 @@ export * from './session-presentation';
 export * from './session-handoff';
 export * from './session-history-mutations';
 export * from './session-events';
+export * from './native-work';
 export * from './issues';
 export * from './session-tasks';
 export * from './topology';

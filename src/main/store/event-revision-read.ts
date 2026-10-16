@@ -127,6 +127,7 @@ export function createEventRevisionReadRepo(db: Database): EventRevisionRepo {
                 tool_use_id
            FROM events
           WHERE session_id = ?
+            AND kind != 'native-work-detail'
             AND change_revision <= ?${whereAfter}
           ORDER BY change_revision ASC, id ASC
           LIMIT ?`,

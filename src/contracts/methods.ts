@@ -184,6 +184,9 @@ export type CoreMethodMap = {
     params: { sessionId: string; cursor?: string; limit?: number };
     result: { entries: SessionHistoryEntryDto[]; nextCursor: string | null; revision: number };
   };
+  'session.native-work.list': { params: import('./native-work').NativeWorkListParams; result: import('./native-work').NativeWorkListResult };
+  'session.native-work.details': { params: import('./native-work').NativeWorkDetailParams; result: import('./native-work').NativeWorkDetailResult };
+  'session.native-work.stop': { params: { ref: import('./native-work').NativeWorkRef }; result: import('./native-work').NativeWorkStopResult };
   'session.events.list': {
     params: SessionEventListParams;
     result: SessionEventListResult;
@@ -435,6 +438,9 @@ export const CORE_METHOD_METADATA = {
   'feishu.assistants.register': mutationMethod(AgentDeckCapability.FeishuConfiguration, 'none'),
   // Append new methods: compact Remote grants use this directory's stable bit positions.
   'session.components.refresh': mutationMethod(AgentDeckCapability.SessionRuntimeWrite),
+  'session.native-work.list': readMethod(AgentDeckCapability.Replay),
+  'session.native-work.details': readMethod(AgentDeckCapability.Replay),
+  'session.native-work.stop': mutationMethod(AgentDeckCapability.SessionsWrite),
 } as const satisfies Record<keyof CoreMethodMap, CoreMethodMetadata>;
 
 export type CoreMethod = keyof CoreMethodMap;

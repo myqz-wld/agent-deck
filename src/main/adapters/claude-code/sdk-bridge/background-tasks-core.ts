@@ -100,7 +100,7 @@ export function translateClaudeBackgroundTasksCore(
     }
     const state: ClaudeBackgroundTaskState = {
       snapshot,
-      background: subtype === 'level' || (typeof patch.is_backgrounded === 'boolean'
+      background: snapshot.taskType === 'local_agent' || typeof input.subagent_type === 'string' || subtype === 'level' || (typeof patch.is_backgrounded === 'boolean'
         ? patch.is_backgrounded : previous?.background ?? true),
       hidden: typeof input.ambient === 'boolean' || typeof input.skip_transcript === 'boolean'
         ? input.ambient === true || input.skip_transcript === true : previous?.hidden ?? false,

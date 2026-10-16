@@ -49,6 +49,7 @@
  *    cli_session_id 列改成 SDK 真 thread_id;applicationSid (sessions.id) 不动 (不变量 1)。
  */
 import { resolveSpawnCwd } from '@main/utils/cwd-resolver';
+import { CodexNativeWork } from '../../native-work';
 import { packCodexInput } from '../input-pack';
 import { CodexPendingTurnQueue } from '../pending-turn-queue';
 import { buildCodexThreadOptions } from '../thread-options-builder';
@@ -142,6 +143,7 @@ export async function createSessionImpl(
   const validate = validateCreateSessionOpts(opts, deps.runtimeHost);
   const { initialSid, sessionToken } = validate;
 
+  let nativeWork: CodexNativeWork | undefined;
   try {
     // prepare phase: codex 实例 + cwd + sandboxMode + thread + internal session record。
     // 不抽子段(user mini-spike confirm 3 子段 validate/resume/new 不含 prepare),inline 在
@@ -254,6 +256,7 @@ export async function createSessionImpl(
         : {}),
     };
 
+    if (typeof codex.subscribe === 'function') internal.nativeWork = nativeWork = new CodexNativeWork(internal, codex, deps.emit);
     // ctx 打包 prepare phase 输出,传 sub-fn 让其只读消费(子段不动 cwd / sandboxMode / thread / internal
     // 副作用 — sessions.set / claimAsSdk / emit 由子段自己负责)
     const ctx: PreparedContext = {
@@ -269,6 +272,7 @@ export async function createSessionImpl(
     }
     return await runCreateSessionNewPath(effectiveOpts, ctx, validate, deps);
   } catch (err) {
+    nativeWork?.dispose();
     // REVIEW_60 MED-codex-2 + R4 §B 抽法 #3 修法 (与 try 块配对):
     // 4 资源 best-effort cleanup 抽到 create-session-rollback.ts helper (REVIEW_60 R4 reviewer-claude
     // 抽法清单),caller 调完后 throw err。详 helper jsdoc。

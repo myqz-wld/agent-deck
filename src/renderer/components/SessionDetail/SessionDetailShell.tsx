@@ -1,5 +1,6 @@
 import { type JSX, type ReactNode } from 'react';
 import { ArrowLeftIcon } from '../icons';
+import { DisclosureScopeProvider } from '../native-work/preferences';
 
 export type SessionDetailTabId =
   | 'activity'
@@ -51,6 +52,8 @@ export function SessionDetailShell({
   onTabChange,
   alert,
   composer,
+  nativeWork,
+  preferenceScope = '',
   overlay,
   onClose,
 }: {
@@ -66,11 +69,14 @@ export function SessionDetailShell({
   onTabChange: (tab: SessionDetailTabId) => void;
   alert?: ReactNode;
   composer: ReactNode;
+  nativeWork?: ReactNode;
+  preferenceScope?: string;
   overlay?: ReactNode;
   onClose: () => void;
 }): JSX.Element {
   const selected = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
   return (
+    <DisclosureScopeProvider scope={preferenceScope}>
     <div data-session-detail-shell className="flex h-full min-w-0 flex-col overflow-hidden">
       <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-3 py-2">
         <div className="min-w-0 flex-1">
@@ -109,7 +115,7 @@ export function SessionDetailShell({
           </button>
         ))}
       </nav>
-      <div className={selected?.fullBleed
+      <div data-session-chat-area className={selected?.fullBleed
         ? 'relative min-w-0 flex-1 overflow-hidden'
         : 'min-w-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-deck px-3 py-2'}>
         {selected?.unavailableReason
@@ -117,9 +123,11 @@ export function SessionDetailShell({
           : selected?.content}
       </div>
       {alert}
+      {nativeWork}
       {composer}
       {overlay}
     </div>
+    </DisclosureScopeProvider>
   );
 }
 

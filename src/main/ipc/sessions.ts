@@ -22,6 +22,7 @@ import {
   parseStringIdArray,
 } from './_helpers';
 import { registerSessionHandOffIpc } from './session-hand-off';
+import { registerNativeWorkIpc } from './native-work';
 import { takePendingSessionFocusRequest } from '@main/session-focus-request';
 import { withoutStoredFileChangePathAuthority } from '@shared/file-change-path-authority';
 
@@ -29,6 +30,7 @@ const logger = log.scope('ipc-sessions');
 const execFileAsync = promisify(execFile);
 
 export function registerSessionsIpc(): void {
+  registerNativeWorkIpc();
   on(IpcInvoke.SessionList, () => sessionManager.list());
   on(IpcInvoke.SessionGet, (_event, id) => sessionManager.get(String(id)));
   on(IpcInvoke.SessionTakePendingFocus, () => takePendingSessionFocusRequest());

@@ -8,7 +8,7 @@ Manage agent sessions, project work, and collaboration in one place.
 - Manage sessions with searchable history and usage tracking.
 - Coordinate agents, tasks, reviews, and handoffs.
 - View Markdown, images, file diffs, and command output.
-- Track compaction, commands, and background tasks in a unified activity timeline.
+- Follow subagents and background tasks in a separate task strip.
 - Answer agent questions and handle approvals in one workspace.
 - Work with built-in Agents, Skills, and Browser tools.
 - Connect local projects, remote workspaces, and Feishu chat.
@@ -24,6 +24,10 @@ pnpm dev
 
 Open a project, choose a provider, start a session, and describe the task.
 Use Pending to respond when an agent needs your input.
+
+Click a task card to expand its activity and Markdown output. Scroll across cards, drag to reorder,
+or drag outside the strip to stop and hide a task. **停止** keeps its card visible. Hidden results
+remain in **任务 → 执行记录**; card layout and message expansion are remembered on this client.
 
 Choose **自动审批** or **不再询问** under **权限**, and set sandbox access separately.
 Switching an existing session to **不再询问** or **完全开放** asks for confirmation.

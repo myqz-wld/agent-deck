@@ -13,9 +13,36 @@ afterEach(() => { cleanupMcpServerHarnesses(); vi.useRealTimers(); });
 const args = { questions: [{ question: 'Choose scope', options: [{ label: 'Local' }, { label: 'Remote' }] }, { question: 'Constraints?' }] };
 
 describe('Server Core ask_user', () => {
+  it.each(['abort', 'handoff', 'close'] as const)('preserves a committed answer through %s during publication', async action => {
+    const controller = new AbortController();
+    const service = new ServerCoreMcpPresentation({ appendChange: vi.fn(), persistAnswer: () => {
+      if (action === 'abort') controller.abort();
+      if (action === 'handoff') service.prepareSessionTransfer('session-a', 'next').commit();
+      if (action === 'close') service.releaseSession('session-a');
+    } });
+    await service.start();
+    const pending = service.requestAsk('session-a', args, controller.signal);
+    const requestId = service.list('session-a')[0].id;
+    expect(service.respond('session-a', requestId, 'submit', { q1: ['Local'], q2: 'Retain' })).toBe('resolved');
+    expect((await pending).status).toBe('answered');
+    await service.stop();
+  });
+  it('persists a submitted answer before acknowledging it and permits retry after storage failure', async () => {
+    const persistAnswer = vi.fn().mockImplementationOnce(() => { throw new Error('disk full'); });
+    const service = new ServerCoreMcpPresentation({ appendChange: vi.fn(), ...{ persistAnswer } });
+    await service.start();
+    const pending = service.requestAsk('session-a', args);
+    const requestId = service.list('session-a')[0].id;
+    expect(() => service.respond('session-a', requestId, 'submit', { q1: ['Local'], q2: 'Saved answer' })).toThrow('disk full');
+    expect(service.list('session-a')).toHaveLength(1);
+    service.respond('session-a', requestId, 'submit', { q1: ['Local'], q2: 'Saved answer' });
+    expect((await pending).status).toBe('answered');
+    expect(persistAnswer).toHaveBeenCalledTimes(2);
+    await service.stop();
+  });
   it('removes Pending when the MCP client cancels the in-flight tool call', async () => {
     const { host } = createMcpServerHarness();
-    const service = new ServerCoreMcpPresentation({ appendChange: vi.fn() });
+    const service = new ServerCoreMcpPresentation({ appendChange: vi.fn(), persistAnswer: vi.fn() });
     await service.start();
     const server = await createServerCoreMcpServer({ ...host, presentations: service }, () => 'caller-a', 'codex-cli', { McpServer });
     try {
@@ -35,7 +62,7 @@ describe('Server Core ask_user', () => {
     'round-trips %s questions through MCP, Pending and structured answers', async (adapterId) => {
       const { host, records } = createMcpServerHarness();
       records.get('caller-a')!.agentId = adapterId;
-      const service = new ServerCoreMcpPresentation({ appendChange: vi.fn() });
+      const service = new ServerCoreMcpPresentation({ appendChange: vi.fn(), persistAnswer: vi.fn() });
       await service.start();
       const server = await createServerCoreMcpServer({ ...host, presentations: service }, () => 'caller-a', adapterId, { McpServer });
       try {
@@ -61,7 +88,7 @@ describe('Server Core ask_user', () => {
   );
 
   it('retains questions after rejected answers, ignores wrong owners, and rejects duplicate submissions', async () => {
-    const service = new ServerCoreMcpPresentation({ appendChange: vi.fn() });
+    const service = new ServerCoreMcpPresentation({ appendChange: vi.fn(), persistAnswer: vi.fn() });
     await service.start();
     const pending = service.requestAsk('session-a', args);
     const [request] = service.list('session-a');
@@ -83,7 +110,7 @@ describe('Server Core ask_user', () => {
   });
 
   it('cancels on abort, close and committed handoff, with rollback preserving the source question', async () => {
-    const service = new ServerCoreMcpPresentation({ appendChange: vi.fn() });
+    const service = new ServerCoreMcpPresentation({ appendChange: vi.fn(), persistAnswer: vi.fn() });
     await service.start();
     const controller = new AbortController();
     const aborted = service.requestAsk('session-a', args, controller.signal);
@@ -107,7 +134,7 @@ describe('Server Core ask_user', () => {
   it('waits indefinitely while live and publishes no request for an aborted or invalid call', async () => {
     vi.useFakeTimers();
     const appendChange = vi.fn();
-    const service = new ServerCoreMcpPresentation({ appendChange });
+    const service = new ServerCoreMcpPresentation({ appendChange, persistAnswer: vi.fn() });
     await service.start();
     const controller = new AbortController(); controller.abort();
     await expect(service.requestAsk('session-a', args, controller.signal)).resolves.toMatchObject({ status: 'cancelled' });

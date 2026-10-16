@@ -4,6 +4,7 @@ import { dialog, type OpenDialogOptions } from 'electron';
 import { eventBus } from '@main/event-bus';
 import { makeSafeSend } from '@main/index/_deps';
 import { getFloatingWindow } from '@main/window';
+import { parseRemoteNativeWorkList, parseRemoteNativeWorkDetail, parseRemoteNativeWorkStop } from '@main/remote-host/native-work';
 import {
   getRemoteHostService,
   parseRemoteHostCreateSession,
@@ -87,6 +88,12 @@ async function safely<T>(run: () => Promise<T> | T): Promise<T> {
 }
 
 export function registerRemoteHostIpc(): void {
+  on(RemoteHostIpcInvoke.NativeWorkList, (_event, request) => safely(() =>
+    getRemoteHostService().nativeWork.list(parseRemoteNativeWorkList(request))));
+  on(RemoteHostIpcInvoke.NativeWorkDetails, (_event, request) => safely(() =>
+    getRemoteHostService().nativeWork.details(parseRemoteNativeWorkDetail(request))));
+  on(RemoteHostIpcInvoke.NativeWorkStop, (_event, request) => safely(() =>
+    getRemoteHostService().nativeWork.stop(parseRemoteNativeWorkStop(request))));
   const safeSend = makeSafeSend(() => getFloatingWindow().window);
   eventBus.on('remote-host-changed', (event) => safeSend(IpcEvent.RemoteHostChanged, event));
 

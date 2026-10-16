@@ -31,11 +31,13 @@ import {
 import {
   emitClaudeAssistantUsage,
   reconcileClaudeFinalResultUsage,
+  type ClaudeAssistantUsageMessage,
   type ClaudeFinalResultUsage,
 } from './final-result-usage-core';
 import { claudeFinishedPayload } from './result-outcome';
 import { finishClaudeUserMessageInterruptionCore } from './user-message-interruption-core';
 import { translateClaudeBackgroundTasksCore } from './background-tasks-core';
+import { ClaudeNativeWork } from './native-work-core';
 import {
   confirmClaudeUserMessageAcceptanceCore,
   finishClaudeUserMessageTurnCore,
@@ -85,7 +87,26 @@ export function translateSdkMessageCore(
   };
   confirmClaudeUserMessageAcceptanceCore(emit, sessionId, msg, internal, host);
   if (isClaudeMainResponseFrame(msg)) internal.userTurnInFlight = true;
-  if (translateClaudeBackgroundTasksCore(msg, internal, (snapshot) => e('background-task', snapshot))) return;
+  const nativeWork = internal.nativeWork ??= new ClaudeNativeWork(internal, sessionId, emit, () => host.now());
+  if (translateClaudeBackgroundTasksCore(msg, internal, (snapshot) => nativeWork.snapshot(snapshot, msg))) return;
+  // Child frames share the SDK stream and session id. Their content, tools, context and live
+  // rate belong to the child; the parent feed observes its independent task lifecycle above.
+  if (msg.parent_tool_use_id != null) {
+    nativeWork.child(msg);
+    if (msg.type === 'assistant') {
+      try {
+        emitClaudeAssistantUsage(
+          e,
+          resolveClaudeFallbackModelCore(internal, sessionId, host.state),
+          msg.message as ClaudeAssistantUsageMessage,
+          internal,
+        );
+      } catch {
+        // Preserve billed child usage without letting telemetry disrupt the parent stream.
+      }
+    }
+    return;
+  }
   if (msg.type === 'system' && msg.subtype === 'status') {
     emitClaudeCompactionStatus(internal, msg, e, ts);
   }

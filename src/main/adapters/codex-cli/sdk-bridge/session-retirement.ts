@@ -60,6 +60,7 @@ export function finalizeCodexSessionRetirement(
 ): void {
   if (internal.retirementFinalized) return;
   internal.retirementFinalized = true;
+  internal.nativeWork?.dispose();
   internal.retireAfterCurrentTurn = true;
   discardPendingCodexInputs(
     internal,
@@ -116,6 +117,7 @@ export function finalizeCodexSessionRetirementForRollback(
   internal: InternalSession,
 ): void {
   if (internal.retirementFinalized) return;
+  internal.nativeWork?.dispose();
   internal.retireAfterCurrentTurn = true;
   discardPendingCodexInputs(
     internal,
