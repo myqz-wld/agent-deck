@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { AgentEvent } from '@shared/types';
 import {
   chunkNativeWorkDetail, isTerminalNativeWork, sameNativeWorkRef,
-  type NativeWorkDetailKind, type NativeWorkProvider, type NativeWorkRef,
+  type NativeWorkDetail, type NativeWorkDetailKind, type NativeWorkProvider, type NativeWorkRef,
   type NativeWorkSnapshot, type NativeWorkStopResult,
 } from '@shared/native-work';
 
@@ -38,13 +38,15 @@ export class NativeWorkTracker {
     const base = changedAttempt ? undefined : previous;
     const at = this.now();
     const next: NativeWorkSnapshot = {
-      description: '', status: 'running', canStop: false, detailStatus: 'unavailable',
+      description: previous?.description ?? '', status: 'running', canStop: false, detailStatus: 'unavailable',
       ...base, ...input, taskId: input.taskId, runId,
       native: { sessionId: this.sessionId, provider: this.provider, nativeId: input.taskId, runId, runtimeId: this.runtimeId },
       startedAt: base?.startedAt ?? Math.max(at, (previous?.startedAt ?? 0) + 1),
       updatedAt: at, revision: (base?.revision ?? 0) + 1,
       runtimeStartedAt: this.runtimeStartedAt,
     };
+    if (next.toolUseId) next.toolUseKey = createHash('sha256').update(next.toolUseId).digest('hex');
+    else delete next.toolUseKey;
     if (base) {
       const { updatedAt: _beforeTime, revision: _beforeRevision, ...before } = base;
       const { updatedAt: _afterTime, revision: _afterRevision, ...after } = next;
@@ -56,13 +58,19 @@ export class NativeWorkTracker {
   }
 
   detail(taskId: string, recordId: string, kind: NativeWorkDetailKind, text: string,
-    options: { toolName?: string; sourceTruncated?: boolean; ts?: number } = {}): void {
+    options: Pick<NativeWorkDetail, 'toolName' | 'role' | 'toolUseId' | 'toolStatus' | 'exitCode'> &
+      { sourceTruncated?: boolean; ts?: number } = {}): void {
     const task = this.tasks.get(taskId);
     if (!task || this.closed || task.hidden) return;
     // Provider record identities may be large composite IDs; normalize without leaking paths.
     const stableId = createHash('sha256').update(recordId).digest('hex');
     const key = JSON.stringify([task.runId, taskId, stableId]);
-    const hash = createHash('sha256').update(JSON.stringify([kind, text, options.toolName, options.sourceTruncated])).digest('hex');
+    const metadata = { ...(options.toolName ? { toolName: options.toolName.slice(0, 128) } : {}),
+      ...(options.role ? { role: options.role } : {}),
+      ...(options.toolUseId ? { toolUseId: createHash('sha256').update(options.toolUseId).digest('hex') } : {}),
+      ...(options.toolStatus ? { toolStatus: options.toolStatus.slice(0, 128) } : {}),
+      ...(options.exitCode !== undefined ? { exitCode: options.exitCode } : {}) };
+    const hash = createHash('sha256').update(JSON.stringify([kind, text, metadata, options.sourceTruncated])).digest('hex');
     const previous = this.details.get(key);
     if (previous?.hash === hash) return;
     const revision = Math.max(this.now(), (previous?.revision ?? 0) + 1);
@@ -70,8 +78,7 @@ export class NativeWorkTracker {
     if (this.details.size > 4096) this.details.delete(this.details.keys().next().value!);
     for (const payload of chunkNativeWorkDetail({ native: task.native, recordId: stableId,
       recordRevision: revision, kind, text, ts: options.ts ?? this.now(),
-      sourceTruncated: options.sourceTruncated ?? false,
-      ...(options.toolName ? { toolName: options.toolName.slice(0, 128) } : {}) })) this.publish('native-work-detail', payload);
+      sourceTruncated: options.sourceTruncated ?? false, ...metadata })) this.publish('native-work-detail', payload);
     const detailStatus = options.sourceTruncated || task.detailStatus === 'partial' ? 'partial' : 'available';
     const next = { ...task, detailStatus, revision: task.revision + 1, updatedAt: this.now() } as NativeWorkSnapshot;
     this.tasks.set(taskId, next);

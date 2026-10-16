@@ -76,6 +76,8 @@ export function useNativeWork(sessionId: string, scope: string, transport: Nativ
     } catch { if (pending.current.get(key) === operation) fail('停止请求失败，任务已恢复显示，可重试。'); }
   };
   const visible = tasks.filter(task => { const key = nativeWorkAttemptKey(task.native);
+    // Commands belong to their conversation tool rows; only child conversations need cards.
+    if (task.workKind !== 'subagent') return false;
     return !task.hidden && !preferences.hidden.includes(key) && !pending.current.get(key)?.hide; });
   visible.sort((a, b) => {
     const position = (task: NativeWorkSnapshot) => { const index = preferences.order.indexOf(nativeWorkAttemptKey(task.native)); return index < 0 ? Number.MAX_SAFE_INTEGER : index; };

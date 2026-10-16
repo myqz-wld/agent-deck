@@ -23,6 +23,8 @@ export interface NativeWorkSnapshot {
   revision: number;
   parentTaskId?: string;
   toolUseId?: string;
+  /** Hashed native tool ID for matching a child conversation's opaque detail records. */
+  toolUseKey?: string;
   summary?: string;
   error?: string;
   lastToolName?: string;
@@ -40,6 +42,11 @@ export interface NativeWorkDetail {
   kind: NativeWorkDetailKind;
   text: string;
   toolName?: string;
+  role?: 'user' | 'assistant' | 'system';
+  /** Opaque, owner-scoped tool identity; never inferred from adjacent records. */
+  toolUseId?: string;
+  toolStatus?: string;
+  exitCode?: number;
   part: number;
   parts: number;
   ts: number;
@@ -47,7 +54,7 @@ export interface NativeWorkDetail {
 }
 export interface NativeWorkListParams { sessionId: string; history?: boolean; cursor?: number; limit?: number }
 export interface NativeWorkListResult { tasks: NativeWorkSnapshot[]; revision: number; nextCursor: number | null }
-export interface NativeWorkDetailParams { ref: NativeWorkRef; cursor?: number; limit?: number }
+export interface NativeWorkDetailParams { ref: NativeWorkRef; cursor?: number; limit?: number; order?: 'asc' | 'desc' }
 export interface NativeWorkDetailResult {
   records: Array<NativeWorkDetail & { id: number }>;
   nextCursor: number | null;
@@ -92,6 +99,10 @@ export function readNativeWorkSnapshot(value: unknown): NativeWorkSnapshot | nul
     description: row.description, startedAt: row.startedAt, updatedAt: row.updatedAt,
     revision: row.revision, canStop: row.canStop, detailStatus: row.detailStatus as NativeWorkSnapshot['detailStatus'] };
   if (row.runtimeStartedAt !== undefined) result.runtimeStartedAt = row.runtimeStartedAt as number;
+  if (row.toolUseKey !== undefined) {
+    if (!id(row.toolUseKey)) return null;
+    result.toolUseKey = row.toolUseKey;
+  }
   for (const key of ['parentTaskId', 'toolUseId', 'summary', 'error', 'lastToolName', 'controlReason'] as const) {
     if (row[key] !== undefined) {
       if (typeof row[key] !== 'string' || bytes(row[key]) > 8192) return null;
@@ -109,11 +120,19 @@ export function readNativeWorkDetail(value: unknown): NativeWorkDetail | null {
     row.part >= row.parts || row.parts > 65536 || !integer(row.ts) ||
     typeof row.text !== 'string' || bytes(row.text) > NATIVE_WORK_TEXT_BYTES ||
     typeof row.sourceTruncated !== 'boolean' ||
-    (row.toolName !== undefined && (!id(row.toolName)))) return null;
+    (row.toolName !== undefined && !id(row.toolName)) ||
+    (row.toolUseId !== undefined && !id(row.toolUseId)) ||
+    (row.toolStatus !== undefined && !id(row.toolStatus)) ||
+    (row.role !== undefined && (typeof row.role !== 'string' || !['user', 'assistant', 'system'].includes(row.role))) ||
+    (row.exitCode !== undefined && !Number.isSafeInteger(row.exitCode))) return null;
   return { native, recordId: row.recordId, recordRevision: row.recordRevision,
     kind: row.kind as NativeWorkDetailKind, text: row.text, part: row.part, parts: row.parts,
     ts: row.ts, sourceTruncated: row.sourceTruncated,
-    ...(row.toolName === undefined ? {} : { toolName: row.toolName as string }) };
+    ...(row.toolName === undefined ? {} : { toolName: row.toolName as string }),
+    ...(row.role === undefined ? {} : { role: row.role as NativeWorkDetail['role'] }),
+    ...(row.toolUseId === undefined ? {} : { toolUseId: row.toolUseId as string }),
+    ...(row.toolStatus === undefined ? {} : { toolStatus: row.toolStatus as string }),
+    ...(row.exitCode === undefined ? {} : { exitCode: row.exitCode as number }) };
 }
 
 export function parseNativeWorkListParams(value: unknown): NativeWorkListParams {
@@ -126,10 +145,12 @@ export function parseNativeWorkListParams(value: unknown): NativeWorkListParams 
 }
 export function parseNativeWorkDetailParams(value: unknown): NativeWorkDetailParams {
   const row = object(value), ref = readNativeWorkRef(row?.ref);
-  if (!row || !ref || Object.keys(row).some(key => !['ref', 'cursor', 'limit'].includes(key)) ||
+  if (!row || !ref || Object.keys(row).some(key => !['ref', 'cursor', 'limit', 'order'].includes(key)) ||
+    (row.order !== undefined && row.order !== 'asc' && row.order !== 'desc') ||
     (row.cursor !== undefined && !integer(row.cursor)) ||
     (row.limit !== undefined && (!integer(row.limit) || row.limit < 1 || row.limit > NATIVE_WORK_PAGE_SIZE))) throw new SessionConsoleContractError('native-work.details');
   return { ref, ...(row.cursor === undefined ? {} : { cursor: row.cursor as number }),
+    ...(row.order === undefined ? {} : { order: row.order as 'asc' | 'desc' }),
     ...(row.limit === undefined ? {} : { limit: row.limit as number }) };
 }
 

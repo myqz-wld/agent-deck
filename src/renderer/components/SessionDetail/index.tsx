@@ -8,7 +8,6 @@ import type {
 import type { BrowserStateSource } from '@shared/browser-view';
 import { ActivityFeed } from '../activity-feed';
 import { NativeWorkStrip } from '../native-work/NativeWorkStrip';
-import { NativeWorkHistory } from '../native-work/NativeWorkHistory';
 import { useNativeWork } from '../native-work/useNativeWork';
 import { localNativeWorkTransport } from '../native-work/transport';
 import { SummaryView } from '../SummaryView';
@@ -249,7 +248,7 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
   };
   const baseTabs = createSessionDetailTabs({
     activity: <ActivityFeed sessionId={session.id} agentId={session.agentId} isSdk={isSdk} />,
-    tasks: <><NativeWorkHistory view={nativeWork} /><TasksPanel sessionId={session.id} /></>,
+    tasks: <TasksPanel sessionId={session.id} />,
     diff: (
         <DiffTab
           sessionId={session.id}
@@ -329,6 +328,7 @@ function LocalSessionDetail({ session, onClose }: LocalProps): JSX.Element {
       <SessionDetailShell
         preferenceScope={preferenceScope}
         nativeWork={<NativeWorkStrip view={nativeWork} />}
+        nativeWorkSource={nativeWork}
         title={session.title}
         sourceBadge={<SourceBadge isSdk={isSdk} />}
         subtitle={session.cwd}

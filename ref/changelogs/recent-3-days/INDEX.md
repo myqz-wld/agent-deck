@@ -15,6 +15,7 @@ This bucket contains only changelogs that currently belong to this mutually excl
 
 | changed_at | File | Summary (<= 80 chars) |
 |---|---|---|
+| 2026-10-15 | `CHANGELOG_687_native-work-conversation.md` | Reuse child conversation rows and keep commands in Activity Bash rows |
 | 2026-10-15 | `CHANGELOG_686_native-work-strip.md` | Add native task strip, retained child history and exact task controls |
 | 2026-10-15 | `CHANGELOG_685_tool-search-fallbacks.md` | Apply Codex startup catalogs and verify Claude Tool Search opt-in |
 | 2026-10-15 | `CHANGELOG_684_runtime-component-injection.md` | Pin component versions and add explicit native session refresh |

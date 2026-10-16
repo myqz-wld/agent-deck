@@ -64,9 +64,14 @@ export class ClaudeNativeWork {
     if (!id || !Array.isArray(message.content)) return;
     message.content.forEach((value, index) => {
       const block = record(value);
-      if (block.type === 'tool_use') this.tracker.detail(taskId, `${id}:${index}`, 'tool-use-start', printable(block.input), { toolName: typeof block.name === 'string' ? block.name : undefined });
-      else if (block.type === 'tool_result') this.tracker.detail(taskId, `${id}:${index}`, 'tool-use-end', printable(block.content));
-      else if (block.type === 'text' && typeof block.text === 'string') this.tracker.detail(taskId, `${id}:${index}`, 'message', block.text);
+      if (block.type === 'tool_use') this.tracker.detail(taskId, `${id}:${index}`, 'tool-use-start', printable(block.input), {
+        toolName: typeof block.name === 'string' ? block.name : undefined,
+        toolUseId: typeof block.id === 'string' ? block.id : undefined, toolStatus: 'inProgress' });
+      else if (block.type === 'tool_result') this.tracker.detail(taskId, `${id}:${index}`, 'tool-use-end', printable(block.content), {
+        toolUseId: typeof block.tool_use_id === 'string' ? block.tool_use_id : undefined,
+        toolStatus: block.is_error === true ? 'failed' : 'completed' });
+      else if (block.type === 'text' && typeof block.text === 'string') this.tracker.detail(taskId, `${id}:${index}`, 'message', block.text,
+        { role: frame.type === 'user' ? 'user' : 'assistant' });
       else if (block.type === 'thinking' && typeof block.thinking === 'string') this.tracker.detail(taskId, `${id}:${index}`, 'thinking', block.thinking);
     });
   }

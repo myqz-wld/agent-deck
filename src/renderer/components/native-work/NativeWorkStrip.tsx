@@ -20,10 +20,10 @@ function TaskCards({ view }: { view: NativeWorkView }) {
   const active = tasks.filter(task => !isTerminalNativeWork(task.status)).length;
   const drag = scroll.drag, draggedTask = drag && tasks.find(task => nativeWorkAttemptKey(task.native) === drag.id);
   const ordered = scroll.order ? scroll.order.flatMap(key => tasks.filter(task => nativeWorkAttemptKey(task.native) === key)) : tasks;
-  return <section className="execution-rail" aria-label="后台执行任务栏">
-    <div className="rail-heading"><span>后台执行</span><span className="text-deck-muted/55">{active} 未结束 · {tasks.length - active} 已结束</span>
+  return <section className="execution-rail" aria-label="子代理任务栏">
+    <div className="rail-heading"><span>子代理</span><span className="text-deck-muted/55">{active} 未结束 · {tasks.length - active} 已结束</span>
       {view.error && <span role="status">{view.error}</span>}</div>
-    <div ref={scroll.ref} className="work-scroll" role="list" aria-label="子代理和后台任务" {...scroll.handlers}>
+    <div ref={scroll.ref} className="work-scroll" role="list" aria-label="子代理" {...scroll.handlers}>
       {ordered.map(task => <NativeWorkCard key={nativeWorkAttemptKey(task.native)} task={task} view={view} scrollRef={scroll.ref} dismissing={drag?.id === nativeWorkAttemptKey(task.native)} />)}
     </div>
     {drag && draggedTask && <div aria-hidden className="work-dismiss-ghost work-card" style={{ left: drag.left, top: drag.top, width: drag.width,

@@ -98,17 +98,20 @@ export function createNativeWorkRepo(db: Database) {
       nextCursor: candidates.length > page.length ? ids.get(page[page.length - 1])! : null };
   }
 
-  function details({ ref, cursor = 0, limit = NATIVE_WORK_PAGE_SIZE }: NativeWorkDetailParams): NativeWorkDetailResult {
+  function details({ ref, cursor = 0, limit = NATIVE_WORK_PAGE_SIZE, order = 'asc' }: NativeWorkDetailParams): NativeWorkDetailResult {
     if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > NATIVE_WORK_PAGE_SIZE) {
       throw new Error('Invalid native work cursor');
     }
+    if (order !== 'asc' && order !== 'desc') throw new Error('Invalid native work order');
+    const descending = order === 'desc';
     const rows = db.prepare(`SELECT id, payload_json FROM events
-      WHERE session_id = ? AND kind = 'native-work-detail' AND id > ?
+      WHERE session_id = ? AND kind = 'native-work-detail' AND id ${descending ? '<' : '>'} ?
         AND CASE WHEN json_valid(payload_json) THEN
           json_extract(payload_json, '$.native.provider') = ? AND
           json_extract(payload_json, '$.native.nativeId') = ? AND
           json_extract(payload_json, '$.native.runId') = ? ELSE 0 END
-      ORDER BY id ASC LIMIT ?`).all(ref.sessionId, cursor, ref.provider, ref.nativeId, ref.runId, limit + 1) as Row[];
+      ORDER BY id ${descending ? 'DESC' : 'ASC'} LIMIT ?`).all(ref.sessionId, descending && cursor === 0 ? Number.MAX_SAFE_INTEGER : cursor,
+        ref.provider, ref.nativeId, ref.runId, limit + 1) as Row[];
     const records: NativeWorkDetailResult['records'] = [];
     for (const row of rows.slice(0, limit)) {
       const value = readNativeWorkDetail(parse(row.payload_json));

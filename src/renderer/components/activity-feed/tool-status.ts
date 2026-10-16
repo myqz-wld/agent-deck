@@ -40,6 +40,8 @@ export function toolStatusView(payload: Record<string, unknown>): ToolStatusView
       return { label: '执行中', detail: null, isError: false };
     case 'pending':
       return { label: '等待执行', detail: null, isError: false };
+    case 'paused':
+      return { label: '已暂停', detail: null, isError: false };
     default:
       return {
         label: hasError ? '失败' : '状态未知',

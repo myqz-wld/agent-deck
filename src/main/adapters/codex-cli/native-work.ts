@@ -131,17 +131,27 @@ export class CodexNativeWork {
     if (!this.children.has(threadId)) return;
     const task = tracker.tasks.get(threadId);
     if (turnId && task?.runId !== turnId) return; // A delayed previous-turn item cannot enter a new attempt.
-    if (item.type === 'agentMessage' && typeof item.text === 'string') tracker.detail(threadId, item.id, 'message', item.text);
+    if (item.type === 'agentMessage' && typeof item.text === 'string') tracker.detail(threadId, item.id, 'message', item.text, { role: 'assistant' });
+    else if (item.type === 'userMessage' && Array.isArray(item.content)) {
+      const text = item.content.map(row).filter(value => value.type === 'text' && typeof value.text === 'string')
+        .map(value => value.text).join('\n');
+      if (text) tracker.detail(threadId, item.id, 'message', text, { role: 'user' });
+    }
     else if (item.type === 'reasoning') tracker.detail(threadId, item.id, 'thinking', JSON.stringify(item.summary ?? item.content ?? []));
     else if (item.type === 'commandExecution') this.command(threadId, item);
     else if (['mcpToolCall', 'dynamicToolCall', 'fileChange', 'functionCallOutput'].includes(String(item.type))) {
-      tracker.detail(threadId, item.id, item.type === 'fileChange' ? 'file-changed' : 'tool-use-end', JSON.stringify(item));
+      tracker.detail(threadId, item.id, item.type === 'fileChange' ? 'file-changed' : 'tool-use-end', JSON.stringify(item), {
+        toolUseId: item.id, toolStatus: typeof item.status === 'string' ? item.status : undefined });
     }
   }
   private command(taskId: string, item: Row): void {
     const tracker = this.tracker!;
-    if (typeof item.command === 'string') tracker.detail(taskId, `${item.id}:command`, 'tool-use-start', item.command, { toolName: 'shell' });
-    if (typeof item.aggregatedOutput === 'string') tracker.detail(taskId, `${item.id}:output`, 'output', item.aggregatedOutput, { sourceTruncated: item.outputTruncated === true });
+    const metadata = { toolUseId: String(item.id), toolName: 'Bash',
+      toolStatus: typeof item.status === 'string' ? item.status : undefined,
+      exitCode: typeof item.exitCode === 'number' ? item.exitCode : undefined };
+    if (typeof item.command === 'string') tracker.detail(taskId, `${item.id}:command`, 'tool-use-start', item.command, metadata);
+    if (typeof item.aggregatedOutput === 'string') tracker.detail(taskId, `${item.id}:output`, 'output', item.aggregatedOutput,
+      { ...metadata, sourceTruncated: item.outputTruncated === true });
     if (this.terminals.has(taskId) && typeof item.exitCode === 'number') tracker.observe({ taskId, workKind: 'shell',
       status: item.exitCode === 0 ? 'completed' : 'failed' });
   }
@@ -206,6 +216,7 @@ export class CodexNativeWork {
           seen.add(taskId);
           this.terminals.set(taskId, { threadId, processId: terminal.processId, itemId: terminal.itemId });
           this.tracker!.observe({ taskId, workKind: 'shell', runId: terminal.itemId, status: 'running', canStop: true,
+            toolUseId: terminal.itemId,
             description: typeof terminal.command === 'string' ? terminal.command.slice(0, 2000) : '后台命令',
             parentTaskId: this.children.has(threadId) ? threadId : undefined }, true);
           const item = this.recentItems.get(`${threadId}:${terminal.itemId}`);

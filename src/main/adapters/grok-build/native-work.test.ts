@@ -22,6 +22,17 @@ function fixture() {
   return { runtime, snapshot, request, work, emit, spawn };
 }
 describe('Grok native work', () => {
+  it('retains translated child tool identity and native outcome for conversation rows', () => {
+    const { work, spawn, emit } = fixture(); spawn();
+    work.child({ sessionId: 'child', update: { sessionUpdate: 'tool_call', toolCallId: 'call',
+      title: 'Bash', kind: 'execute', status: 'in_progress', rawInput: { command: 'pwd' } } });
+    work.child({ sessionId: 'child', update: { sessionUpdate: 'tool_call_update', toolCallId: 'call',
+      status: 'completed', rawOutput: 'result' } });
+    const records = emit.mock.calls.map(([event]) => event).filter(event => event.kind === 'native-work-detail').map(event => event.payload);
+    expect(records).toHaveLength(2);
+    expect(records[0].toolUseId).toMatch(/^[a-f0-9]{64}$/);
+    expect(records[1]).toMatchObject({ toolUseId: records[0].toolUseId, toolStatus: 'completed' });
+  });
   it('isolates child translation and ignores its context tokens and late attempts', async () => {
     const { work, emit, spawn, runtime } = fixture(); spawn();
     work.child({ sessionId: 'child', update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '# Child result' } } });
@@ -44,6 +55,21 @@ describe('Grok native work', () => {
     expect(work.tracker.list()[0].status).toBe('running');
     work.extension({ sessionId: 'native-parent', update: { sessionUpdate: 'background_tasks', tasks: [], truncated: false } });
     expect(work.tracker.list()[0].status).toBe('unknown');
+  });
+  it('keeps an explicit command association only within the same native task attempt', () => {
+    const { work } = fixture();
+    const update = { sessionUpdate: 'task_backgrounded', task_id: 'shell', tool_call_id: 'call',
+      command: 'sleep 5', started_at: '2026-01-01T00:00:00Z' };
+    work.extension({ sessionId: 'native-parent', update });
+    const first = work.tracker.list()[0];
+    expect(first.toolUseId).toBe('call');
+    expect(first.toolUseKey).toMatch(/^[a-f0-9]{64}$/);
+    work.extension({ sessionId: 'native-parent', update: { ...update, tool_call_id: undefined } });
+    expect(work.tracker.list()[0].toolUseId).toBe('call');
+    work.extension({ sessionId: 'native-parent', update: { ...update, tool_call_id: undefined, started_at: '2026-01-01T00:01:00Z' } });
+    expect(work.tracker.list()[0].runId).not.toBe(first.runId);
+    expect(work.tracker.list()[0].toolUseId).toBeUndefined();
+    expect(work.tracker.list()[0].toolUseKey).toBeUndefined();
   });
   it('requires matching current ownership and epoch before cancellation', async () => {
     const { work, spawn, snapshot, request, runtime } = fixture(); spawn(); await work.refresh();

@@ -26,6 +26,18 @@ function fixture() {
     setTerminals: (value: unknown[]) => { terminals = value; } };
 }
 describe('Codex native work observer', () => {
+  it('keeps child command output paired and records its observed completion', async () => {
+    const { work, spawn, emit } = fixture(); spawn(); await work.refresh();
+    work.notification({ method: 'item/completed', params: { threadId: 'child', turnId: 'turn-1', item: {
+      id: 'command', type: 'commandExecution', command: 'pwd', status: 'completed', exitCode: 0, aggregatedOutput: '/workspace' } } });
+    work.notification({ method: 'item/completed', params: { threadId: 'child', turnId: 'turn-1', item: {
+      id: 'prompt', type: 'userMessage', content: [{ type: 'text', text: 'Inspect the project' }] } } });
+    const records = emit.mock.calls.map(([event]) => event).filter(event => event.kind === 'native-work-detail').map(event => event.payload);
+    const command = records.find(record => record.kind === 'tool-use-start');
+    const output = records.find(record => record.kind === 'output');
+    expect(output).toMatchObject({ toolUseId: command.toolUseId, toolName: 'Bash', toolStatus: 'completed', exitCode: 0 });
+    expect(records.some(record => record.role === 'user' && record.text === 'Inspect the project')).toBe(true);
+  });
   it('separates launch/parent completion and does not accept unrelated wait targets', async () => {
     const { work, spawn, emit } = fixture(); spawn();
     expect(work.list()[0].status).toBe('running');

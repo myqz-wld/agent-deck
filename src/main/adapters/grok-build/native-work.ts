@@ -122,7 +122,11 @@ export class GrokNativeWork {
       const recordId = id(payload.toolUseId) ? `${event.kind}:${payload.toolUseId}` :
         id(payload.messageId) ? payload.messageId : `text:${child.sequence++}`;
       const content = text(payload.text) ?? JSON.stringify(payload.toolResult ?? payload.toolInput ?? payload);
-      this.tracker.detail(child.taskId, recordId, event.kind as 'message', content, { toolName: text(payload.toolName) });
+      this.tracker.detail(child.taskId, recordId, event.kind as 'message', content, {
+        toolName: text(payload.toolName), toolUseId: text(payload.toolUseId), toolStatus: text(payload.status),
+        role: typeof payload.role === 'string' && ['user', 'assistant', 'system'].includes(payload.role)
+          ? payload.role as 'user' | 'assistant' | 'system' : undefined,
+        exitCode: typeof payload.exitCode === 'number' ? payload.exitCode : undefined });
     }
   }
   private shell(owner: string, input: Row): void {
@@ -138,6 +142,7 @@ export class GrokNativeWork {
     // task IDs are registry identities; start evidence detects their reuse without ordering strings.
     const runId = prior && started && prior.started && started !== prior.started ? `${taskId}:${started}` : current?.runId ?? taskId;
     const task = this.tracker.observe({ taskId, workKind: 'shell', runId, status,
+      toolUseId: text(input.tool_call_id) ?? (current?.runId === runId ? current.toolUseId : undefined),
       description: (text(input.description) ?? text(input.display_command) ?? text(input.command) ?? current?.description ?? '后台命令').slice(0, 2000),
       parentTaskId: this.children.get(owner)?.taskId, canStop: this.shellSupported,
       ...(input.truncated === true ? { detailStatus: 'partial' } : {}),

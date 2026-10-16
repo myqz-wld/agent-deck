@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import { NativeWorkStrip } from '../native-work/NativeWorkStrip';
-import { NativeWorkHistory } from '../native-work/NativeWorkHistory';
 import { useNativeWork } from '../native-work/useNativeWork';
 import { remoteNativeWorkTransport } from '../native-work/transport';
 
@@ -144,14 +143,12 @@ export function RemoteSessionDetail({
         />
       ),
     tasks: (
-      <><NativeWorkHistory view={nativeWork} />
         <TaskRecordsView
           tasks={source.tasks?.tasks ?? []}
           loaded={source.tasks !== null}
           error={source.taskLoadError}
           presentationIdentity={detailIdentity}
         />
-      </>
       ),
     diff: <RemoteDiffPanel source={source} />,
     summary: (
@@ -173,7 +170,7 @@ export function RemoteSessionDetail({
       ),
   }, {
     ...(!canReadEvents ? { activity: '当前版本暂不支持查看活动。' } : {}),
-    ...(!canReadTasks && !canReadEvents ? { tasks: '当前版本暂不支持查看任务。' } : {}),
+    ...(!canReadTasks ? { tasks: '当前版本暂不支持查看任务。' } : {}),
     ...(!canReadFileChanges ? { diff: '当前版本暂不支持查看改动。' } : {}),
     ...(!canReadSummaries ? { summary: '当前版本暂不支持查看总结。' } : {}),
     ...(!canReadMessages ? { messages: '当前版本暂不支持查看跨会话消息。' } : {}),
@@ -225,6 +222,7 @@ export function RemoteSessionDetail({
       <SessionDetailShell
         preferenceScope={preferenceScope}
         nativeWork={<NativeWorkStrip view={nativeWork} />}
+        nativeWorkSource={nativeWork}
         title={session.title ?? '未命名会话'}
         sourceBadge={<SourceBadge isSdk={presentation?.source !== 'cli'} />}
         subtitle={`${source.profile?.label ?? '远程主机'} · ${presentation?.workspaceLabel ?? '远程工作区'}`}

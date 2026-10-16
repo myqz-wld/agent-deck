@@ -93,4 +93,27 @@ describe('durable native work', () => {
     expect(repo.details({ ref: native }).records).toEqual([]);
     expect(CURRENT_SCHEMA_VERSION).toBe(62);
   });
+  it('pages newest child records first without reversing text parts or repeating rows', () => {
+    const repo = createNativeWorkRepo(holder.db!);
+    const text = 'First line\n' + '你好🌏 café\n'.repeat(4000) + 'Last line';
+    const detail = (recordId: string, content: string) => chunkNativeWorkDetail({ native, recordId,
+      recordRevision: 1, kind: 'message', text: content, ts: 1, sourceTruncated: false });
+    for (const record of [...detail('old', 'Earlier message'), ...detail('new', text)]) {
+      eventRepo.insert(event('native-work-detail', record));
+    }
+    let cursor: number | undefined;
+    const records: ReturnType<typeof repo.details>['records'] = [];
+    do {
+      const page = repo.details({ ref: native, cursor, limit: 2, order: 'desc' });
+      expect(page.records.length).toBeLessThanOrEqual(2);
+      if (cursor) expect(page.records.every(record => record.id < cursor!)).toBe(true);
+      records.push(...page.records); cursor = page.nextCursor ?? undefined;
+    } while (cursor);
+    expect(records[0].recordId).toBe('new');
+    expect(records.at(-1)?.recordId).toBe('old');
+    expect(new Set(records.map(record => record.id)).size).toBe(records.length);
+    expect(records.filter(record => record.recordId === 'new').sort((a, b) => a.part - b.part).map(record => record.text).join('')).toBe(text);
+    expect(repo.details({ ref: native, limit: 1 }).records[0].recordId).toBe('old');
+    expect(repo.details({ ref: { ...native, runId: 'other-run' }, order: 'desc' }).records).toEqual([]);
+  });
 });

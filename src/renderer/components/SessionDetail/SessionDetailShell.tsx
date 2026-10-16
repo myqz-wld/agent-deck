@@ -1,6 +1,7 @@
 import { type JSX, type ReactNode } from 'react';
 import { ArrowLeftIcon } from '../icons';
 import { DisclosureScopeProvider } from '../native-work/preferences';
+import { NativeCommandContext, type NativeCommandSource } from '../native-work/command-context';
 
 export type SessionDetailTabId =
   | 'activity'
@@ -53,6 +54,7 @@ export function SessionDetailShell({
   alert,
   composer,
   nativeWork,
+  nativeWorkSource,
   preferenceScope = '',
   overlay,
   onClose,
@@ -70,6 +72,7 @@ export function SessionDetailShell({
   alert?: ReactNode;
   composer: ReactNode;
   nativeWork?: ReactNode;
+  nativeWorkSource?: NativeCommandSource;
   preferenceScope?: string;
   overlay?: ReactNode;
   onClose: () => void;
@@ -77,6 +80,7 @@ export function SessionDetailShell({
   const selected = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
   return (
     <DisclosureScopeProvider scope={preferenceScope}>
+    <NativeCommandContext.Provider value={nativeWorkSource}>
     <div data-session-detail-shell className="flex h-full min-w-0 flex-col overflow-hidden">
       <header className="flex shrink-0 items-center justify-between border-b border-deck-border px-3 py-2">
         <div className="min-w-0 flex-1">
@@ -123,10 +127,11 @@ export function SessionDetailShell({
           : selected?.content}
       </div>
       {alert}
-      {nativeWork}
+      {selected?.id === 'activity' && nativeWork}
       {composer}
       {overlay}
     </div>
+    </NativeCommandContext.Provider>
     </DisclosureScopeProvider>
   );
 }

@@ -22,6 +22,20 @@ function fixture() {
   return { transport, stop, setTasks: (next: NativeWorkSnapshot[]) => { tasks = next; } };
 }
 describe('production native work interaction', () => {
+  it('keeps command data for conversation rows without shell cards for any provider', async () => {
+    const { transport, setTasks } = fixture();
+    setTasks([{ ...task, workKind: 'shell' }]);
+    const view = renderHook(() => useNativeWork('s', scope, transport));
+    await waitFor(() => expect(view.result.current.tasks).toHaveLength(1));
+    const ui = render(<NativeWorkStrip view={view.result.current} />);
+    expect(view.result.current.visible).toHaveLength(0);
+    expect(ui.container.innerHTML).toBe('');
+    for (const provider of ['claude-code', 'grok-build'] as const) {
+      setTasks([{ ...task, native: { ...task.native, provider }, workKind: 'shell' }]);
+      await act(() => view.result.current.refresh());
+      expect(view.result.current.visible).toHaveLength(0);
+    }
+  });
   it('measures a remembered expanded card on first mount after asynchronous task loading', async () => {
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
@@ -31,13 +45,18 @@ describe('production native work interaction', () => {
     });
     const { transport } = fixture();
     updateNativeWorkPreferences(scope, previous => ({ ...previous, expanded: [nativeWorkAttemptKey(task.native)] }));
-    function Harness() {
+    function Harness({ tab = 'activity' }: { tab?: 'activity' | 'tasks' }) {
       const view = useNativeWork('s', scope, transport);
       return <SessionDetailShell title="Session" sourceBadge={null} subtitle="Example" preferenceScope={scope}
         tabs={createSessionDetailTabs({ activity: null, tasks: null, diff: null, summary: null, messages: null })}
-        activeTab="activity" onTabChange={() => {}} onClose={() => {}} composer={null} nativeWork={<NativeWorkStrip view={view} />} />;
+        activeTab={tab} onTabChange={() => {}} onClose={() => {}} composer={null} nativeWork={<NativeWorkStrip view={view} />} />;
     }
     const ui = render(<Harness />);
+    await waitFor(() => expect(ui.getByRole('region', { name: 'Inspect详情' })).toBeTruthy());
+    ui.rerender(<Harness tab="tasks" />);
+    expect(ui.queryByRole('region', { name: 'Inspect详情' })).toBeNull();
+    expect(ui.queryByLabelText('子代理任务栏')).toBeNull();
+    ui.rerender(<Harness />);
     await waitFor(() => expect(ui.getByRole('region', { name: 'Inspect详情' })).toBeTruthy());
   });
   it('omits the complete strip with no tasks', async () => {
@@ -96,15 +115,17 @@ describe('production native work interaction', () => {
     expect(other.result.current.preferences.expanded).toEqual([]);
     expect(localStorage.getItem(`agent-deck:native-work-ui:v1:${scope}`)).not.toContain('Inspect');
   });
-  it('renders task output as Markdown with an optional plaintext view', async () => {
+  it('renders child output as Markdown with only the existing bubble mode control', async () => {
     const { transport } = fixture();
     transport.details = async () => ({ records: [{ native: task.native, recordId: 'output', recordRevision: 1, id: 1,
       kind: 'output', text: '# Result\n\n**done**', part: 0, parts: 1, ts: 1, sourceTruncated: false }], revision: 1, nextCursor: null });
     const ui = render(<NativeWorkDetails task={task} transport={transport} />);
     await waitFor(() => expect(ui.getByRole('heading', { name: 'Result' })).toBeTruthy());
-    fireEvent.click(ui.getByRole('button', { name: '纯文本' }));
+    expect(ui.queryByRole('button', { name: '纯文本' })).toBeNull();
+    fireEvent.click(ui.getByRole('button', { name: 'MD' }));
     expect(ui.queryByRole('heading', { name: 'Result' })).toBeNull();
-    expect(ui.container.querySelector('pre')?.textContent).toContain('**done**');
+    expect(ui.getByRole('button', { name: 'TXT' })).toBeTruthy();
+    expect(ui.container.textContent).toContain('**done**');
   });
   it('remembers message expansion with stable identity when text and stored row ID change', () => {
     const event = { sessionId: 's', agentId: 'codex-cli', kind: 'message' as const, ts: 10, payload: { messageId: 'message', role: 'assistant', text: 'Long text '.repeat(120) } };

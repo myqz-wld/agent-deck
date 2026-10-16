@@ -5,9 +5,15 @@ import { formatDisplayText } from '../format';
 import { presentToolResult, rawToolResult } from '../tool-result-presentation';
 import { formatToolDuration, providerTruncationLabel, toolStatusView } from '../tool-status';
 import { EventImages } from './event-images';
+import { commandEvent, useNativeCommand } from '../../native-work/command-context';
+import { useNativeWorkRecords } from '../../native-work/useNativeWorkRecords';
+import { isTerminalNativeWork, type NativeWorkSnapshot } from '@shared/native-work';
+import type { NativeWorkTransport } from '../../native-work/transport';
 
 export function ToolRunStatus({ event, pending = false }: { event?: AgentEvent; pending?: boolean }): JSX.Element | null {
+  const native = useNativeCommand(event);
   if (!event) return null;
+  event = commandEvent(event, native?.task);
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   const status = pending && payload.status === undefined
     ? { label: '已开始', isError: false } : toolStatusView(payload);
@@ -18,6 +24,31 @@ export function ToolRunStatus({ event, pending = false }: { event?: AgentEvent; 
 }
 
 export function ToolResultContent({ event, fallbackOutput }: { event: AgentEvent; fallbackOutput?: unknown }): JSX.Element {
+  const native = useNativeCommand(event);
+  return native && native.task.native.provider !== 'codex-cli'
+    ? <NativeCommandResult event={event} fallbackOutput={fallbackOutput} {...native} />
+    : <ToolResultBody event={event} fallbackOutput={fallbackOutput} />;
+}
+
+function NativeCommandResult({ event, fallbackOutput, task, transport }: {
+  event: AgentEvent; fallbackOutput?: unknown; task: NativeWorkSnapshot; transport: NativeWorkTransport;
+}): JSX.Element {
+  const { grouped, loaded, error, retry, hasMore, loadMore } = useNativeWorkRecords(task, transport);
+  const output = grouped.filter(record => record.kind === 'output');
+  const text = output.map(record => record.text).join('\n\n');
+  const current = commandEvent(event, task);
+  return <>
+    {!loaded && <p className="mt-1.5 text-[10px] text-deck-muted">正在读取后台输出…</p>}
+    {error && <p role="alert" className="mt-1.5 text-[10px] text-status-error">后台输出读取失败。<button onClick={retry}>重试</button></p>}
+    <ToolResultBody event={{ ...current, payload: { ...(current.payload as Record<string, unknown>),
+      ...(output.length ? { toolResult: text } : task.summary ? { toolResult: task.summary } : {}),
+      toolResultTruncated: output.some(record => record.incomplete || record.sourceTruncated),
+    } }} fallbackOutput={fallbackOutput} />
+    {hasMore && <button className="mt-1.5 text-[10px] text-deck-muted" onClick={loadMore}>加载更多输出</button>}
+  </>;
+}
+
+function ToolResultBody({ event, fallbackOutput }: { event: AgentEvent; fallbackOutput?: unknown }): JSX.Element {
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   const status = toolStatusView(payload);
   const toolName = typeof payload.toolName === 'string' ? payload.toolName : '';
@@ -62,17 +93,20 @@ export function ToolResultContent({ event, fallbackOutput }: { event: AgentEvent
 export function ToolExecutionDetails({ event, completed, fallbackOutput }: {
   event: AgentEvent; completed: boolean; fallbackOutput?: unknown;
 }): JSX.Element | null {
+  const native = useNativeCommand(event);
+  event = commandEvent(event, native?.task);
+  if (native && native.task.native.provider !== 'codex-cli') completed = isTerminalNativeWork(native.task.status);
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   const output = payload.aggregatedOutput;
   const [open, setOpen] = useEventDisclosure(event, 'tool-execution-output', toolStatusView(payload).isError);
   const progress = !completed && typeof payload.progressMessage === 'string' ? payload.progressMessage : '';
-  const hasOutput = output !== undefined || completed || progress;
+  const hasOutput = native || output !== undefined || completed || progress;
   return <>
     {hasOutput && <details className="mt-1.5 min-w-0" open={open} onToggle={event => setOpen(event.currentTarget.open)}>
       <summary className="cursor-pointer text-[10px] text-deck-muted hover:text-deck-text">
         {completed ? '查看输出' : '执行输出'}{progress ? ` · ${progress}` : ''}
       </summary>
-      <ToolResultContent event={event} fallbackOutput={fallbackOutput} />
+      {(!native || open) && <ToolResultContent event={event} fallbackOutput={fallbackOutput} />}
     </details>}
     <EventImages payload={payload} sessionId={event.sessionId} />
   </>;

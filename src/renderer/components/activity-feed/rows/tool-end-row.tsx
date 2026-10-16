@@ -18,6 +18,7 @@ import {
 import { ToolIcon } from '../tool-icon';
 import { ToolResultContent } from './tool-result';
 import { EventImages } from './event-images';
+import { commandEvent, useNativeCommand } from '../../native-work/command-context';
 
 export function ToolEndRow({
   event,
@@ -26,6 +27,8 @@ export function ToolEndRow({
   event: AgentEvent;
   startEvent?: AgentEvent;
 }): JSX.Element {
+  const native = useNativeCommand(event);
+  event = commandEvent(event, native?.task);
   const payload = (event.payload ?? {}) as Record<string, unknown>;
   const startPayload = (startEvent?.payload ?? {}) as Record<string, unknown>;
   const tool =

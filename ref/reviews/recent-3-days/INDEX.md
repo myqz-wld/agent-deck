@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-10-15 | `REVIEW_334_native-work-conversation.md` | Inspect child ordering and exact background command association | Lead audit; focused and full regressions passed |
 | 2026-10-15 | `REVIEW_333_answer-durability.md` | Persist Local/Core answers before acknowledging submission | 2 MEDIUM fixed; regression-first validation |
 | 2026-10-15 | `REVIEW_332_tool-search-fallback-repairs.md` | Repair Codex startup metadata; verify Claude search opt-in | 2 MEDIUM fixed; native fixtures and full validation passed |
 | 2026-10-15 | `REVIEW_331_subagent-background-presentation.md` | Isolate Claude child activity and compare native task interfaces | 1 MEDIUM fixed; three-provider presentation proposal |

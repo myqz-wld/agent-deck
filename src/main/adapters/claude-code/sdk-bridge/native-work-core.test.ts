@@ -4,6 +4,17 @@ import { makeInternalSession } from './types';
 import { translateClaudeBackgroundTasksCore } from './background-tasks-core';
 
 describe('Claude owned native work', () => {
+  it('retains child roles and pairs native tool input with its result', () => {
+    const { work, send, emit } = fixture(); send();
+    work.child({ type: 'assistant', uuid: 'assistant', parent_tool_use_id: 'spawn', message: {
+      content: [{ type: 'tool_use', id: 'call', name: 'Bash', input: { command: 'pwd' } }] } });
+    work.child({ type: 'user', uuid: 'user', parent_tool_use_id: 'spawn', message: {
+      content: [{ type: 'text', text: 'Check the result' }, { type: 'tool_result', tool_use_id: 'call', content: 'failed', is_error: true }] } });
+    const records = emit.mock.calls.map(([event]) => event).filter(event => event.kind === 'native-work-detail').map(event => event.payload);
+    expect(records[1]).toMatchObject({ role: 'user' });
+    expect(records[0].toolUseId).toBe(records[2].toolUseId);
+    expect(records[2].toolStatus).toBe('failed');
+  });
   it('does not attach an old invocation\'s late child message to a resumed run', () => {
     const { work, send, emit } = fixture(); send();
     send({ run_id: 'run-2', tool_use_id: 'spawn-2' });
