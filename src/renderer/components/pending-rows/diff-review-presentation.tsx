@@ -274,7 +274,7 @@ function ConflictPane({
     );
   }
   return (
-    <div className="min-w-0 overflow-hidden rounded border border-deck-border/50 bg-[#0f1218]">
+    <div className="deck-code-surface min-w-0 overflow-hidden rounded border border-deck-border/50">
       <div className="border-b border-deck-border/50 px-2 py-1 text-[10px] font-medium text-deck-muted/90">
         {label}
       </div>
@@ -308,7 +308,7 @@ function AnnotatedCodePane({
   const grouped = groupAnnotationsByLine(annotations, lines.length);
   return (
     <div
-      className={`flex min-w-0 flex-col overflow-hidden rounded border border-deck-border/50 bg-[#0f1218] ${className ?? ''}`}
+      className={`deck-code-surface flex min-w-0 flex-col overflow-hidden rounded border border-deck-border/50 ${className ?? ''}`}
     >
       <div className="border-b border-deck-border/50 px-2 py-1 text-[10px] font-medium text-deck-muted/90">
         {label}

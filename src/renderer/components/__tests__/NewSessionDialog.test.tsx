@@ -349,7 +349,7 @@ describe('NewSessionDialog unified authoring and create lifecycle', () => {
     expect(screen.getByLabelText('第一条消息').className).not.toContain('resize-y');
     fireEvent.click(expand);
     const editor = screen.getByRole('dialog', { name: '编辑第一条消息' });
-    expect(editor.className).toContain('bg-[#141418]');
+    expect(editor.className).toContain('deck-expanded-surface');
     expect(editor.querySelector('header')?.className).toContain('pl-[78px]');
     expect(
       (screen.getByLabelText('第一条消息（展开编辑）') as HTMLTextAreaElement).value,

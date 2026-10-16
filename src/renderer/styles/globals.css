@@ -176,10 +176,48 @@ body,
   -webkit-app-region: no-drag;
 }
 
+/* Root inheritance also reaches dialogs portaled to document.body. Change only surface alpha. */
+:root:has(.frosted-frame[data-transparent='true']) {
+  --deck-overlay-opacity: 94%;
+}
+
 /* Shared chrome for application dialogs; content controls keep their own sizing. */
 .deck-dialog-surface {
-  background: var(--color-deck-dialog);
+  background: color-mix(in srgb, var(--color-deck-dialog) var(--deck-overlay-opacity, 100%), transparent);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   box-shadow: 0 20px 65px rgba(0, 0, 0, 0.45);
+}
+
+.deck-expanded-surface {
+  background: color-mix(in srgb, #141418 var(--deck-overlay-opacity, 100%), transparent);
+}
+
+.deck-command-surface {
+  background: color-mix(in srgb, #1b1b20 var(--deck-overlay-opacity, 100%), transparent);
+}
+
+/* Keep the existing translucent base in ordinary mode; soften it only in transparent mode. */
+.deck-soft-surface {
+  background: color-mix(in srgb, var(--color-deck-bg-strong) var(--deck-overlay-opacity, 100%), transparent);
+}
+
+.deck-code-surface {
+  background: #0f1218;
+}
+
+:is(.deck-dialog-surface, .deck-expanded-surface, .deck-soft-surface, .work-popover) .deck-code-surface {
+  background: color-mix(in srgb, #0f1218 var(--deck-overlay-opacity, 100%), transparent);
+}
+
+/* Monaco paints the same base on several nested layers. Keep one translucent base in overlays. */
+:root:has(.frosted-frame[data-transparent='true'])
+  :is(.deck-dialog-surface, .deck-expanded-surface, .deck-soft-surface, .work-popover) .monaco-editor {
+  background-color: color-mix(in srgb, var(--vscode-editor-background) var(--deck-overlay-opacity), transparent);
+}
+
+:root:has(.frosted-frame[data-transparent='true'])
+  :is(.deck-dialog-surface, .deck-expanded-surface, .deck-soft-surface, .work-popover) .monaco-editor
+  :is(.monaco-editor-background, .margin) {
+  background-color: transparent;
 }

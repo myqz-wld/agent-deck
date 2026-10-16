@@ -64,4 +64,4 @@ does not prove completion. A new owner message in Feishu is required for live ac
 send unsolicited messages or remove uncertain delivery ledger entries. Existing failed delivery
 keys remain fenced and the retained assistant resumes on the next fresh message.
 
-Investigation: [REVIEW_319](../../reviews/recent-3-days/REVIEW_319_feishu-closed-assistant-recovery.md).
+Investigation: [REVIEW_319](../../reviews/recent-week/REVIEW_319_feishu-closed-assistant-recovery.md).

@@ -28,7 +28,7 @@ export function ExpandedDiffOverlay({
       aria-modal="true"
       aria-label="放大改动视图"
     >
-      <div className="absolute inset-0 flex flex-col bg-[#141418]">
+      <div className="deck-expanded-surface absolute inset-0 flex flex-col">
         <div className="flex shrink-0 items-center gap-2 border-b border-deck-border pl-[78px] pr-4 py-2">
           <div className="min-w-0 flex-1">
             {dirPart && (

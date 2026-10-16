@@ -28,7 +28,7 @@ export function PlanQuoteContextMenu({ menu, onClose, onQuote }: Props): JSX.Ele
       <div
         role="menu"
         aria-label="计划文本引用"
-        className="fixed z-10 min-w-48 overflow-hidden rounded-md border border-white/10 bg-deck-bg-strong p-1 shadow-xl"
+        className="deck-soft-surface fixed z-10 min-w-48 overflow-hidden rounded-md border border-white/10 p-1 shadow-xl"
         style={{ left: menu.left, top: menu.top }}
       >
         <button

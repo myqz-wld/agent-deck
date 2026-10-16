@@ -26,7 +26,7 @@ export function SlashCommandMenu({
     <div
       role="listbox"
       aria-label="可用命令"
-      className={`absolute z-20 max-h-52 overflow-y-auto rounded border border-deck-border bg-[#1b1b20] p-1 shadow-xl ${position}`}
+      className={`deck-command-surface absolute z-20 max-h-52 overflow-y-auto rounded border border-deck-border p-1 shadow-xl ${position}`}
     >
       {matches.map((command) => (
         <button

@@ -62,7 +62,7 @@ export function ExpandedComposerOverlay(props: Props): JSX.Element {
       aria-modal="true"
       aria-label="放大消息输入框"
     >
-      <div className="absolute inset-0 flex flex-col bg-[#141418]">
+      <div className="deck-expanded-surface absolute inset-0 flex flex-col">
         <header className="flex shrink-0 items-center gap-3 border-b border-deck-border py-2 pl-[78px] pr-4">
           <div className="min-w-0 flex-1">
             <div className="text-[12px] font-medium text-deck-text">编辑消息</div>

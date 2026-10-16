@@ -15,5 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-10-12 | `REVIEW_319_feishu-closed-assistant-recovery.md` | Restore deferred Codex assistant recovery before MCP initialization | 1 HIGH / 1 MEDIUM fixed; activation pending |
+| 2026-10-12 | `REVIEW_318_macos-installer-managed-services.md` | Pause managed KeepAlive services during local app installation | 1 HIGH / 2 MEDIUM fixed; native and full regression checks passed |
 | 2026-10-11 | `REVIEW_317_browser-idle-resume.md` | Restore Browser context after idle closure without blocking Codex | 1 HIGH / 1 MEDIUM fixed; regression and native checks passed |
 | 2026-10-09 | `REVIEW_316_gateway-model-memory.md` | Preserve each Gateway's model across Local and Remote switches | 1 MEDIUM fixed; full regression suite passed |

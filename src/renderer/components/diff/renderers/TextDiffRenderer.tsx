@@ -25,7 +25,7 @@ export function TextDiffRenderer({ payload }: Props): JSX.Element {
       ) : hasContent ? (
         <MonacoDiffView before={model.before ?? ''} after={model.after ?? ''} language={language} />
       ) : model.patch ? (
-        <div className="min-h-[260px] min-w-0 flex-1 overflow-auto rounded-md border border-deck-border bg-[#0f1218]">
+        <div className="deck-code-surface min-h-[260px] min-w-0 flex-1 overflow-auto rounded-md border border-deck-border">
           <pre className="m-0 px-3 pt-3 pb-6 font-mono text-[11px] leading-5 text-deck-text">{model.patch}</pre>
         </div>
       ) : (

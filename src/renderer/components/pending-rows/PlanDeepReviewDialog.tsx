@@ -304,13 +304,13 @@ export function PlanDeepReviewDialog({
     <div
       ref={dialogRef}
       tabIndex={-1}
-      className="no-drag fixed inset-0 z-[70] flex min-h-0 min-w-0 flex-col overflow-hidden bg-deck-bg-strong text-deck-text shadow-2xl outline-none"
+      className="no-drag fixed inset-0 z-[70] flex min-h-0 min-w-0 flex-col overflow-hidden text-deck-text shadow-2xl outline-none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="plan-deep-review-title"
       aria-describedby="plan-deep-review-description"
     >
-      <div className="flex min-h-0 flex-1 flex-col bg-[#141418]">
+      <div className="deck-expanded-surface flex min-h-0 flex-1 flex-col">
         <header className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-deck-border py-2 pl-[78px] pr-3 sm:pr-4">
           <div className="mr-auto min-w-0">
             <h2 id="plan-deep-review-title" className="text-[13px] font-semibold text-deck-text">

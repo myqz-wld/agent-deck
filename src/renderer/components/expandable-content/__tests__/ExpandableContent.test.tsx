@@ -57,8 +57,8 @@ describe('ExpandableContent', () => {
     const dialog = screen.getByRole('dialog', { name: '消息详情' });
     expect(view.container.contains(dialog)).toBe(false);
     expect(dialog.getAttribute('aria-modal')).toBe('true');
-    expect(dialog.className).toContain('bg-deck-bg-strong');
-    expect(dialog.className).not.toContain('bg-[#141418]');
+    expect(dialog.className).toContain('deck-soft-surface');
+    expect(dialog.className).not.toContain('deck-expanded-surface');
     expect(dialog.querySelector('header')?.className).toContain('px-3');
     expect(dialog.querySelector('header')?.className).toContain('sm:px-4');
     expect(dialog.querySelector('header')?.className).not.toContain('pl-[78px]');
@@ -102,8 +102,8 @@ describe('ExpandableContent', () => {
     fireEvent.click(trigger);
 
     const dialog = screen.getByRole('dialog', { name: '消息编辑' });
-    expect(dialog.className).toContain('bg-[#141418]');
-    expect(dialog.className).not.toContain('bg-deck-bg-strong');
+    expect(dialog.className).toContain('deck-expanded-surface');
+    expect(dialog.className).not.toContain('deck-soft-surface');
     expect(dialog.querySelector('header')?.className).toContain('pl-[78px]');
     expect(dialog.querySelector('header')?.className).not.toContain('sm:px-4');
   });

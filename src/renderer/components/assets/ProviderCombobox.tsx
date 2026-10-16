@@ -115,7 +115,7 @@ export function ProviderCombobox({
       {open && (
         <div
           role="listbox"
-          className="absolute left-0 right-0 top-full z-20 mt-0.5 max-h-40 overflow-auto rounded-md border border-deck-border/80 bg-deck-bg-strong p-1 text-[11px] shadow-2xl"
+          className="deck-soft-surface absolute left-0 right-0 top-full z-20 mt-0.5 max-h-40 overflow-auto rounded-md border border-deck-border/80 p-1 text-[11px] shadow-2xl"
         >
           {selectableOptions.map((option, index) => (
             <button

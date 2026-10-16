@@ -240,8 +240,8 @@ function ExpandableContentPanel<Payload extends ExpandableContentPayload>({
     requestClose,
   };
   const panelBackgroundClass = variant === 'input'
-    ? 'bg-[#141418]'
-    : 'bg-deck-bg-strong';
+    ? 'deck-expanded-surface'
+    : 'deck-soft-surface';
   const headerSpacingClass = variant === 'input'
     ? 'py-2 pl-[78px] pr-3 sm:pr-4'
     : 'px-3 py-2 sm:px-4';

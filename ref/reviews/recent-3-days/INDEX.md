@@ -15,6 +15,7 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 
 | reviewed_at | File | Topic | Severity Distribution |
 |---|---|---|---|
+| 2026-10-16 | `REVIEW_335_overlay-transparency-coverage.md` | Check popup coverage, stacked backgrounds and editor surfaces | 3 LOW fixed; renderer tests and Browser validation passed |
 | 2026-10-15 | `REVIEW_334_native-work-conversation.md` | Inspect child ordering and exact background command association | Lead audit; focused and full regressions passed |
 | 2026-10-15 | `REVIEW_333_answer-durability.md` | Persist Local/Core answers before acknowledging submission | 2 MEDIUM fixed; regression-first validation |
 | 2026-10-15 | `REVIEW_332_tool-search-fallback-repairs.md` | Repair Codex startup metadata; verify Claude search opt-in | 2 MEDIUM fixed; native fixtures and full validation passed |
@@ -30,5 +31,3 @@ This bucket contains only reviews that currently belong to this mutually exclusi
 | 2026-10-14 | `REVIEW_322_mcp-handoff-and-control.md` | Repair MCP handoff, pagination, control authority, and contracts | 3 MEDIUM fixed; staged typecheck and full test suite passed |
 | 2026-10-13 | `REVIEW_321_mcp-discovery-and-tool-contracts.md` | Audit MCP discovery, target authority, and host contract parity | 3 MEDIUM verified; implementation in REVIEW_322 |
 | 2026-10-13 | `REVIEW_320_claude-consecutive-message-interruption.md` | Classify streamed Claude corrections as interruptions and retain busy state | 2 MEDIUM fixed; full regression suite passed |
-| 2026-10-12 | `REVIEW_319_feishu-closed-assistant-recovery.md` | Restore deferred Codex assistant recovery before MCP initialization | 1 HIGH / 1 MEDIUM fixed; activation pending |
-| 2026-10-12 | `REVIEW_318_macos-installer-managed-services.md` | Pause managed KeepAlive services during local app installation | 1 HIGH / 2 MEDIUM fixed; native and full regression checks passed |

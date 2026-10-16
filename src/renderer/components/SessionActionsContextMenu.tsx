@@ -97,7 +97,7 @@ export function SessionActionsContextMenu({
       ref={menuRef}
       role="menu"
       aria-label="会话操作"
-      className="fixed z-50 w-32 overflow-hidden rounded-md border border-white/10 bg-deck-bg-strong shadow-lg"
+      className="deck-soft-surface fixed z-50 w-32 overflow-hidden rounded-md border border-white/10 shadow-lg"
       style={{ left: placed.x, top: placed.y }}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}

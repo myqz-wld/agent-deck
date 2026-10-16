@@ -14,9 +14,9 @@
 .work-dot.failed { background: var(--color-status-error); }
 .work-card-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: var(--color-deck-muted); font-size: 9px; line-height: 13px; opacity: .65; }
 .work-kind { flex-shrink: 0; }
-.work-popover { position: absolute; z-index: 40; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--color-deck-border); border-radius: 5px; background: var(--color-deck-dialog); box-shadow: 0 -5px 18px #00000020; cursor: auto; user-select: text; touch-action: pan-y; }
+.work-popover { position: absolute; z-index: 40; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--color-deck-border); border-radius: 5px; background: color-mix(in srgb, var(--color-deck-dialog) var(--deck-overlay-opacity, 100%), transparent); box-shadow: 0 -5px 18px #00000020; cursor: auto; user-select: text; touch-action: pan-y; }
 .work-popover-body { min-height: 0; overflow: auto; padding: 5px 8px 8px; }
-.work-dismiss-ghost { position: absolute; z-index: 50; pointer-events: none; background: var(--color-deck-dialog); }
+.work-dismiss-ghost { position: absolute; z-index: 50; pointer-events: none; background: color-mix(in srgb, var(--color-deck-dialog) var(--deck-overlay-opacity, 100%), transparent); }
 .rail-action { display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border-radius: 3px; font-size: 10px; color: var(--color-deck-muted); cursor: pointer; }
 .rail-action:hover { background: #ffffff0b; }
 .work-card-toggle:focus-visible,.rail-action:focus-visible { outline: 1px solid #ffffff50; outline-offset: -2px; }

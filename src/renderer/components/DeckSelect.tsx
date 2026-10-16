@@ -223,7 +223,7 @@ export function DeckSelect<T extends string>({
                 width: menuStyle.width,
                 maxHeight: menuStyle.maxHeight,
               }}
-              className="fixed z-[1000] overflow-auto scrollbar-deck rounded-md border border-deck-border/80 bg-deck-bg-strong p-1 text-[11px] text-deck-text shadow-2xl backdrop-blur-xl"
+              className="deck-soft-surface fixed z-[1000] overflow-auto scrollbar-deck rounded-md border border-deck-border/80 p-1 text-[11px] text-deck-text shadow-2xl backdrop-blur-xl"
             >
               {options.length === 0 ? (
                 <div className="px-2 py-1.5 text-deck-muted/70">暂无选项</div>

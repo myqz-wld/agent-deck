@@ -72,4 +72,4 @@ distribution inputs. Preserve failed-attempt evidence separately from the final 
 activation is recorded by the runner and final user report, not inferred from this preparation plan.
 
 Evidence: [dependency refresh](../../changelogs/recent-week/CHANGELOG_675_provider-runtime-latest-refresh.md)
-and [installer investigation](../../reviews/recent-3-days/REVIEW_318_macos-installer-managed-services.md).
+and [installer investigation](../../reviews/recent-week/REVIEW_318_macos-installer-managed-services.md).
